@@ -159,7 +159,7 @@ sudo systemctl restart spi-now-playing.service
 
 ### Where Oceano Player fits
 
-Right now, Oceano Player’s job is to **start/supervise** `shairport-sync`. The integration above requires no changes in Oceano Player beyond ensuring `shairport-sync` is installed and configured.
+Right now, Oceano Player’s install/update flow configures and reuses the **system `shairport-sync` service**. The integration above requires no extra Oceano daemon logic beyond ensuring `shairport-sync` is installed and metadata is enabled.
 
 If you later want a cleaner “single source” for all protocols (AirPlay, UPnP, Bluetooth), the next evolution is:
 

@@ -3,6 +3,7 @@ set -euo pipefail
 
 INSTALL_DIR="/opt/oceano-player"
 SRC_DIR="/opt/oceano-player/src"
+CONFIG_FILE="/opt/oceano-player/config.env"
 DEFAULT_REPO_URL="https://github.com/alemser/oceano-player.git"
 DEFAULT_BRANCH="main"
 DEFAULT_AIRPLAY_NAME="Triangle AirPlay"
@@ -33,7 +34,10 @@ detect_alsa_device() {
       /^[^[:space:]].*/ { dev=$0; next }
       /^[[:space:]]+/ {
         if (dev ~ /^plughw:CARD=/ && index(tolower($0), tolower(m))) {
-          if (match(dev, /CARD=([^,]+)/, a)) { print a[1]; exit }
+          sub(/^plughw:CARD=/, "", dev)
+          sub(/,DEV=.*/, "", dev)
+          print dev
+          exit
         }
       }
     ' <<<"$ap_out"
@@ -103,6 +107,9 @@ main() {
   local airplay_name="${DEFAULT_AIRPLAY_NAME}"
   local usb_match="${DEFAULT_USB_MATCH}"
   local alsa_device=""
+  local airplay_name_set=0
+  local usb_match_set=0
+  local alsa_device_set=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -116,18 +123,21 @@ main() {
         ;;
       --airplay-name)
         airplay_name="${2:-}"
+        airplay_name_set=1
         shift 2
         ;;
       --usb-match)
         usb_match="${2:-}"
+        usb_match_set=1
         shift 2
         ;;
       --alsa-device)
         alsa_device="${2:-}"
+        alsa_device_set=1
         shift 2
         ;;
       -h|--help)
-        echo "Usage: sudo ./install.sh [--repo <url>] [--branch <name>] [--airplay-name <name>] [--usb-match <text>] [--alsa-device <hw:x,y>]" >&2
+        echo "Usage: sudo ./install.sh [--repo <url>] [--branch <name>] [--airplay-name <name>] [--usb-match <text>] [--alsa-device <plughw:CARD=...,DEV=0|hw:x,y>]" >&2
         exit 0
         ;;
       *)
@@ -161,6 +171,20 @@ main() {
   echo "Preparing directories..."
   mkdir -p "${INSTALL_DIR}"
 
+  if [[ -f "${CONFIG_FILE}" ]]; then
+    # shellcheck source=/dev/null
+    source "${CONFIG_FILE}"
+    if [[ "${airplay_name_set}" -eq 0 && -n "${AIRPLAY_NAME:-}" ]]; then
+      airplay_name="${AIRPLAY_NAME}"
+    fi
+    if [[ "${usb_match_set}" -eq 0 && -n "${USB_MATCH:-}" ]]; then
+      usb_match="${USB_MATCH}"
+    fi
+    if [[ "${alsa_device_set}" -eq 0 && -n "${ALSA_DEVICE:-}" ]]; then
+      alsa_device="${ALSA_DEVICE}"
+    fi
+  fi
+
   echo "Cloning/updating source into ${SRC_DIR}..."
   if [[ -d "${SRC_DIR}/.git" ]]; then
     git -C "${SRC_DIR}" fetch --prune
@@ -176,13 +200,18 @@ main() {
       echo "Detected USB audio device '${usb_match}' as ${alsa_device}"
     else
       echo "Could not auto-detect USB device matching '${usb_match}'." >&2
-      echo "Set explicitly with: --alsa-device hw:1,0" >&2
+      echo "Set explicitly with: --alsa-device 'plughw:CARD=M780,DEV=0'" >&2
       exit 1
     fi
   fi
 
   echo "Writing ${SHAIRPORT_CONF}..."
   write_shairport_config "${airplay_name}" "${alsa_device}"
+  cat > "${CONFIG_FILE}" <<EOF
+AIRPLAY_NAME="${airplay_name}"
+USB_MATCH="${usb_match}"
+ALSA_DEVICE="${alsa_device}"
+EOF
 
   # Clean switch: this project now reuses distro shairport-sync service.
   systemctl disable --now oceano-player.service >/dev/null 2>&1 || true
@@ -197,6 +226,7 @@ main() {
   echo "- AirPlay name: ${airplay_name}"
   echo "- ALSA device: ${alsa_device}"
   echo "- Metadata pipe for now-playing: /tmp/shairport-sync-metadata"
+  echo "- Saved config: ${CONFIG_FILE}"
   echo "- Backup created (first run): ${SHAIRPORT_CONF}.oceano.bak"
 }
 

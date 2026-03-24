@@ -47,6 +47,7 @@ This configures:
 - AirPlay name: `Triangle AirPlay`
 - USB target match: `M780` (auto-detected from ALSA devices)
 - metadata pipe: `/tmp/shairport-sync-metadata` (for future SPI now playing integration)
+- persistent user config file: `/opt/oceano-player/config.env`
 
 2. Verify service:
 
@@ -64,6 +65,25 @@ sudo ./update.sh
 ```
 
 `install.sh` and `update.sh` both use source in `/opt/oceano-player/src` (git clone/pull), then apply the same `shairport-sync` configuration.
+
+### Change configuration (easy mode)
+
+Edit one file and apply:
+
+```bash
+sudo nano /opt/oceano-player/config.env
+sudo ./update.sh
+```
+
+`/opt/oceano-player/config.env` uses:
+
+```bash
+AIRPLAY_NAME="Triangle AirPlay"
+USB_MATCH="M780"
+ALSA_DEVICE="plughw:CARD=M780,DEV=0"
+```
+
+Tip: set `ALSA_DEVICE` explicitly for the most stable output.
 
 ### Clean reinstall
 
@@ -86,8 +106,8 @@ sudo ./install.sh
 If device detection fails, set values explicitly:
 
 ```bash
-sudo ./install.sh --airplay-name "Triangle AirPlay" --alsa-device "hw:1,0"
-sudo ./update.sh --airplay-name "Triangle AirPlay" --alsa-device "hw:1,0"
+sudo ./install.sh --airplay-name "Triangle AirPlay" --alsa-device "plughw:CARD=M780,DEV=0"
+sudo ./update.sh --airplay-name "Triangle AirPlay" --alsa-device "plughw:CARD=M780,DEV=0"
 ```
 
 Or keep auto ALSA selection but change match text:
@@ -96,29 +116,10 @@ Or keep auto ALSA selection but change match text:
 sudo ./install.sh --usb-match "M780"
 ```
 
-### Manual install (optional)
+### Notes
 
-1. Install AirPlay daemon:
-
-```bash
-sudo apt update
-sudo apt install -y shairport-sync
-```
-
-2. Identify your USB ALSA device:
-
-```bash
-aplay -l
-```
-
-Update `audio.alsa_device` in `config.yaml` (example: `hw:1,0`).
-
-3. Build and run:
-
-```bash
-go build -o bin/oceano-player ./cmd/oceano-player
-./bin/oceano-player -config ./config.yaml
-```
+- This project now defaults to **system `shairport-sync` as single owner**.
+- Legacy `oceano-player.service` wrapper is kept in the repo for reference, but not used by default install/update.
 
 ### Next steps
 
