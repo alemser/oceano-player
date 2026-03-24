@@ -73,14 +73,16 @@ write_shairport_config() {
 
   if [[ "${output_strategy}" == "loopback" ]]; then
     shairport_output_device="hw:Loopback,0,0"
-  fi
-
-  # Some shairport-sync builds still probe an ALSA control device even when
-  # mixer control is disabled. For plughw outputs, force a hw ctl path.
-  if [[ "${alsa_device}" =~ ^plughw:CARD=([^,]+),DEV=([0-9]+)$ ]]; then
-    mixer_device="hw:CARD=${BASH_REMATCH[1]}"
-  elif [[ "${alsa_device}" =~ ^plughw:([0-9]+),([0-9]+)$ ]]; then
-    mixer_device="hw:${BASH_REMATCH[1]}"
+    # Keep ctl probing away from DAC while in loopback mode.
+    mixer_device="none"
+  else
+    # Some shairport-sync builds still probe an ALSA control device even when
+    # mixer control is disabled. For plughw outputs, force a hw ctl path.
+    if [[ "${alsa_device}" =~ ^plughw:CARD=([^,]+),DEV=([0-9]+)$ ]]; then
+      mixer_device="hw:CARD=${BASH_REMATCH[1]}"
+    elif [[ "${alsa_device}" =~ ^plughw:([0-9]+),([0-9]+)$ ]]; then
+      mixer_device="hw:${BASH_REMATCH[1]}"
+    fi
   fi
 
   if [[ -f "${SHAIRPORT_CONF}" && ! -f "${SHAIRPORT_CONF}.oceano.bak" ]]; then
@@ -142,7 +144,7 @@ fi
 # Probe the output device with a very short silent raw stream.
 # This can give USB DAC/amps in standby a chance to wake before shairport opens it.
 attempt=0
-while (( attempt <= wait_seconds )); do
+while (( attempt < wait_seconds )); do
   if aplay -q -D "${alsa_device}" -t raw -f S16_LE -r 44100 -d 1 /dev/zero >/dev/null 2>&1; then
     exit 0
   fi
@@ -210,13 +212,16 @@ enable_loopback_mode() {
   write_bridge_script
   write_bridge_service "${alsa_device}"
   systemctl daemon-reload
-  systemctl enable --now oceano-airplay-bridge.service
+  systemctl enable oceano-airplay-bridge.service
+  systemctl restart oceano-airplay-bridge.service
 }
 
 disable_loopback_mode() {
   systemctl disable --now oceano-airplay-bridge.service >/dev/null 2>&1 || true
   rm -f "${BRIDGE_SERVICE}"
   rm -f "${MODULES_LOAD_FILE}"
+  systemctl daemon-reload
+  systemctl reset-failed oceano-airplay-bridge.service >/dev/null 2>&1 || true
 }
 
 main() {
