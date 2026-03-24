@@ -84,6 +84,7 @@ ALSA_DEVICE="plughw:CARD=M780,DEV=0"
 ```
 
 Tip: set `ALSA_DEVICE` explicitly for the most stable output.
+The scripts also auto-set a compatible ALSA `mixer_device` when using `plughw`.
 
 ### Clean reinstall
 

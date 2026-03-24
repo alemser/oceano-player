@@ -62,6 +62,15 @@ detect_alsa_device() {
 write_shairport_config() {
   local airplay_name="$1"
   local alsa_device="$2"
+  local mixer_device="none"
+
+  # Some shairport-sync builds still probe an ALSA control device even when
+  # mixer control is disabled. For plughw outputs, force a hw ctl path.
+  if [[ "${alsa_device}" =~ ^plughw:CARD=([^,]+),DEV=([0-9]+)$ ]]; then
+    mixer_device="hw:CARD=${BASH_REMATCH[1]}"
+  elif [[ "${alsa_device}" =~ ^plughw:([0-9]+),([0-9]+)$ ]]; then
+    mixer_device="hw:${BASH_REMATCH[1]}"
+  fi
 
   if [[ -f "${SHAIRPORT_CONF}" && ! -f "${SHAIRPORT_CONF}.oceano.bak" ]]; then
     cp "${SHAIRPORT_CONF}" "${SHAIRPORT_CONF}.oceano.bak"
@@ -83,6 +92,7 @@ alsa =
 {
   output_device = "${alsa_device}";
   mixer_control_name = "none";
+  mixer_device = "${mixer_device}";
 };
 
 metadata =
