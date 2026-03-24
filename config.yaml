@@ -1,0 +1,24 @@
+# Oceano Player - default configuration for:
+# Raspberry Pi 5 -> USB -> Magnat MR 780 (DAC in amp)
+#
+# Tip: copy to config.local.yaml for local overrides.
+
+audio:
+  # ALSA device name for USB audio (you'll confirm via `aplay -l` on the Pi).
+  # Common examples:
+  # - "hw:1,0"
+  # - "plughw:1,0"
+  alsa_device: "hw:1,0"
+
+airplay:
+  enabled: true
+  # AirPlay (via shairport-sync) can do AirPlay 1 + (optionally) AirPlay 2
+  # depending on how shairport-sync is built/packaged on your distro.
+  name: "Oceano (MR 780)"
+  # If shairport-sync supports it on your system, this will be used for AirPlay 2.
+  enable_airplay2_if_available: true
+
+process:
+  # Where we store PID files, sockets, etc. when running without systemd.
+  runtime_dir: "./run"
+

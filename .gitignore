@@ -1,0 +1,19 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Go
+bin/
+dist/
+*.exe
+*.test
+*.out
+*.prof
+
+# Logs / runtime
+*.log
+run/
+
+# Local overrides
+config.local.yaml
+
