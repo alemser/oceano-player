@@ -92,11 +92,26 @@ main() {
 
   echo "Updating source from ${remote}/${branch} in ${SRC_DIR}..."
   git -C "${SRC_DIR}" fetch --prune "${remote}"
-  git -C "${SRC_DIR}" checkout "${branch}"
+  if ! git -C "${SRC_DIR}" fetch "${remote}" "refs/heads/${branch}:refs/remotes/${remote}/${branch}"; then
+    echo "Branch '${branch}' not found on remote '${remote}'." >&2
+    echo "Available remote branches:" >&2
+    git -C "${SRC_DIR}" ls-remote --heads "${remote}" >&2 || true
+    exit 1
+  fi
+  if ! git -C "${SRC_DIR}" show-ref --verify --quiet "refs/remotes/${remote}/${branch}"; then
+    echo "Could not resolve fetched branch ref '${remote}/${branch}'." >&2
+    exit 1
+  fi
+  git -C "${SRC_DIR}" checkout -B "${branch}" "refs/remotes/${remote}/${branch}"
+  git -C "${SRC_DIR}" branch --set-upstream-to "${remote}/${branch}" "${branch}" >/dev/null 2>&1 || true
   git -C "${SRC_DIR}" pull --ff-only "${remote}" "${branch}"
 
   echo "Applying service update..."
-  (cd "${SRC_DIR}" && ./update.sh "${update_args[@]}")
+  if [[ ! -f "${SRC_DIR}/update.sh" ]]; then
+    echo "Missing update.sh in ${SRC_DIR}." >&2
+    exit 1
+  fi
+  (cd "${SRC_DIR}" && bash ./update.sh "${update_args[@]}")
 
   echo
   echo "Done. Service quick checks:"
