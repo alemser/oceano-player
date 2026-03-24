@@ -23,8 +23,8 @@ main() {
     exit 1
   fi
 
-require_cmd systemctl
-require_cmd go
+  require_cmd systemctl
+  require_cmd go
   require_cmd git
 
   if [[ ! -d "${SRC_DIR}/.git" ]]; then
@@ -37,22 +37,30 @@ require_cmd go
   git -C "${SRC_DIR}" pull --ff-only
 
   echo "Building ${APP_NAME} from ${SRC_DIR}..."
-  (cd "${SRC_DIR}" && mkdir -p bin && go build -o "bin/${APP_NAME}" "./cmd/${APP_NAME}")
+  (
+    cd "${SRC_DIR}"
+    go mod tidy
+    mkdir -p bin
+    go build -o "bin/${APP_NAME}" "./cmd/${APP_NAME}"
+  )
 
-echo "Deploying updated binary and unit..."
+  echo "Deploying updated binary and unit..."
   install -m 0755 "${SRC_DIR}/bin/${APP_NAME}" "${INSTALL_DIR}/bin/${APP_NAME}"
   install -m 0644 "${SRC_DIR}/systemd/${SYSTEMD_UNIT_NAME}" "${INSTALL_DIR}/systemd/${SYSTEMD_UNIT_NAME}"
   install -m 0644 "${INSTALL_DIR}/systemd/${SYSTEMD_UNIT_NAME}" "/etc/systemd/system/${SYSTEMD_UNIT_NAME}"
   systemctl daemon-reload
 
-echo "Restarting service..."
-systemctl restart "${SYSTEMD_UNIT_NAME}"
+  # Keep distro shairport-sync disabled; oceano-player supervises it.
+  systemctl disable --now shairport-sync.service >/dev/null 2>&1 || true
 
-echo
-echo "Done."
-echo "- Service status: systemctl status ${SYSTEMD_UNIT_NAME}"
-echo "- Logs: journalctl -u ${SYSTEMD_UNIT_NAME} -f"
-echo "- Config preserved at: ${INSTALL_DIR}/config.yaml"
+  echo "Restarting service..."
+  systemctl restart "${SYSTEMD_UNIT_NAME}"
+
+  echo
+  echo "Done."
+  echo "- Service status: systemctl status ${SYSTEMD_UNIT_NAME}"
+  echo "- Logs: journalctl -u ${SYSTEMD_UNIT_NAME} -f"
+  echo "- Config preserved at: ${INSTALL_DIR}/config.yaml"
 }
 
 main "$@"

@@ -55,6 +55,7 @@ main() {
   fi
 
   require_cmd apt-get
+  require_cmd systemctl
 
 echo "Installing OS dependencies..."
 apt-get update -y
@@ -64,7 +65,7 @@ apt-get install -y --no-install-recommends \
   shairport-sync \
   golang-go
 
-require_cmd go
+  require_cmd go
   require_cmd git
 
   echo "Preparing directories..."
@@ -81,7 +82,11 @@ require_cmd go
   fi
 
   echo "Building ${APP_NAME}..."
-  (cd "${SRC_DIR}" && go build -o "bin/${APP_NAME}" "./cmd/${APP_NAME}")
+  (
+    cd "${SRC_DIR}"
+    go mod tidy
+    go build -o "bin/${APP_NAME}" "./cmd/${APP_NAME}"
+  )
 
   echo "Deploying to ${INSTALL_DIR}..."
   install -m 0755 "${SRC_DIR}/bin/${APP_NAME}" "${INSTALL_DIR}/bin/${APP_NAME}"
@@ -94,16 +99,20 @@ require_cmd go
     echo "Keeping existing config at ${INSTALL_DIR}/config.yaml"
   fi
 
-echo "Installing systemd unit..."
-install -m 0644 "${INSTALL_DIR}/systemd/${SYSTEMD_UNIT_NAME}" "/etc/systemd/system/${SYSTEMD_UNIT_NAME}"
-systemctl daemon-reload
-systemctl enable --now "${SYSTEMD_UNIT_NAME}"
+  # Disable distro-provided shairport-sync service to avoid duplicate instances
+  # (port 5000 conflict) since oceano-player supervises shairport-sync itself.
+  systemctl disable --now shairport-sync.service >/dev/null 2>&1 || true
 
-echo
-echo "Done."
-echo "- Service status: systemctl status ${SYSTEMD_UNIT_NAME}"
-echo "- Logs: journalctl -u ${SYSTEMD_UNIT_NAME} -f"
-echo "- Edit config: sudo nano ${INSTALL_DIR}/config.yaml"
+  echo "Installing systemd unit..."
+  install -m 0644 "${INSTALL_DIR}/systemd/${SYSTEMD_UNIT_NAME}" "/etc/systemd/system/${SYSTEMD_UNIT_NAME}"
+  systemctl daemon-reload
+  systemctl enable --now "${SYSTEMD_UNIT_NAME}"
+
+  echo
+  echo "Done."
+  echo "- Service status: systemctl status ${SYSTEMD_UNIT_NAME}"
+  echo "- Logs: journalctl -u ${SYSTEMD_UNIT_NAME} -f"
+  echo "- Edit config: sudo nano ${INSTALL_DIR}/config.yaml"
 }
 
 main "$@"
