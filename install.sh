@@ -74,9 +74,10 @@ write_shairport_config() {
   local shairport_output_device="${alsa_device}"
 
   if [[ "${output_strategy}" == "loopback" ]]; then
-    shairport_output_device="hw:Loopback,0,0"
-    # Keep ctl probing away from DAC while in loopback mode.
-    mixer_device="none"
+    # Use plughw for Loopback because some builds reject hw:* with
+    # "Channels count not available" depending on negotiated stream params.
+    shairport_output_device="plughw:CARD=Loopback,DEV=0"
+    mixer_device="hw:CARD=Loopback"
   else
     # Some shairport-sync builds still probe an ALSA control device even when
     # mixer control is disabled. For plughw outputs, force a hw ctl path.
