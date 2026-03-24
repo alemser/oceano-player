@@ -27,7 +27,6 @@ Rust would also be an excellent choice. Python is fine too, but packaging and lo
 ### What's included today
 
 - `install.sh` / `update.sh`: plug-and-play scripts around system `shairport-sync`
-- `docs/spi-now-playing-integration.md`: integration notes for now-playing data/artwork
 - (legacy/optional) `cmd/oceano-player`: original wrapper daemon, no longer required for default install
 
 ### Install (on the Pi)
@@ -46,7 +45,7 @@ This configures:
 
 - AirPlay name: `Triangle AirPlay`
 - USB target match: `M780` (auto-detected from ALSA devices)
-- metadata pipe: `/tmp/shairport-sync-metadata` (for future SPI now playing integration)
+- metadata pipe: `/tmp/shairport-sync-metadata`
 - persistent user config file: `/opt/oceano-player/config.env`
 
 2. Verify service:
@@ -150,7 +149,6 @@ Now every `git push` runs:
 
 - shell syntax checks for `install.sh` and `update.sh`
 - `go test ./...`
-- `pytest` for `spi-now-playing/tests`
 
 Manual run:
 
