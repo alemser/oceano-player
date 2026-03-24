@@ -45,7 +45,7 @@ sudo ./install.sh
 This configures:
 
 - AirPlay name: `Triangle AirPlay`
-- USB target match: `MR 780` (auto-detected from `aplay -l`)
+- USB target match: `M780` (auto-detected from ALSA devices)
 - metadata pipe: `/tmp/shairport-sync-metadata` (for future SPI now playing integration)
 
 2. Verify service:
@@ -93,7 +93,7 @@ sudo ./update.sh --airplay-name "Triangle AirPlay" --alsa-device "hw:1,0"
 Or keep auto ALSA selection but change match text:
 
 ```bash
-sudo ./install.sh --usb-match "MR 780"
+sudo ./install.sh --usb-match "M780"
 ```
 
 ### Manual install (optional)

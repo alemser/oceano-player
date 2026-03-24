@@ -6,7 +6,7 @@ SRC_DIR="/opt/oceano-player/src"
 DEFAULT_REPO_URL="https://github.com/alemser/oceano-player.git"
 DEFAULT_BRANCH="main"
 DEFAULT_AIRPLAY_NAME="Triangle AirPlay"
-DEFAULT_USB_MATCH="MR 780"
+DEFAULT_USB_MATCH="M780"
 SHAIRPORT_CONF="/etc/shairport-sync.conf"
 
 require_cmd() {
@@ -22,12 +22,34 @@ is_root() {
 
 detect_alsa_device() {
   local match="$1"
+  local ap_out card_id
+
+  # Prefer stable ALSA card identifiers from `aplay -L`, e.g.:
+  # plughw:CARD=M780,DEV=0
+  ap_out="$(aplay -L 2>/dev/null)"
+  card_id="$(
+    awk -v m="$match" '
+      BEGIN { IGNORECASE=1; dev="" }
+      /^[^[:space:]].*/ { dev=$0; next }
+      /^[[:space:]]+/ {
+        if (dev ~ /^plughw:CARD=/ && index(tolower($0), tolower(m))) {
+          if (match(dev, /CARD=([^,]+)/, a)) { print a[1]; exit }
+        }
+      }
+    ' <<<"$ap_out"
+  )"
+  if [[ -n "$card_id" ]]; then
+    echo "plughw:CARD=${card_id},DEV=0"
+    return 0
+  fi
+
+  # Fallback to `aplay -l` numeric card/device index.
   local line card device
-  line="$(aplay -l 2>/dev/null | awk -v m="$match" 'BEGIN{IGNORECASE=1} /card [0-9]+:.*device [0-9]+:/ && index($0, m) {print; exit}')"
+  line="$(aplay -l 2>/dev/null | awk -v m="$match" 'BEGIN{IGNORECASE=1} /card [0-9]+:.*device [0-9]+:/ && index(tolower($0), tolower(m)) {print; exit}')"
   if [[ -n "$line" ]]; then
     card="$(sed -E 's/.*card ([0-9]+):.*/\1/' <<<"$line")"
     device="$(sed -E 's/.*device ([0-9]+):.*/\1/' <<<"$line")"
-    echo "hw:${card},${device}"
+    echo "plughw:${card},${device}"
     return 0
   fi
   return 1
