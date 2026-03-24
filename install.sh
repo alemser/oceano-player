@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="oceano-player"
 INSTALL_DIR="/opt/oceano-player"
 SRC_DIR="/opt/oceano-player/src"
-SYSTEMD_UNIT_NAME="oceano-player.service"
 DEFAULT_REPO_URL="https://github.com/alemser/oceano-player.git"
 DEFAULT_BRANCH="main"
+DEFAULT_AIRPLAY_NAME="Triangle AirPlay"
+DEFAULT_USB_MATCH="MR 780"
+SHAIRPORT_CONF="/etc/shairport-sync.conf"
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -19,6 +20,56 @@ is_root() {
   [[ "${EUID:-$(id -u)}" -eq 0 ]]
 }
 
+detect_alsa_device() {
+  local match="$1"
+  local line card device
+  line="$(aplay -l 2>/dev/null | awk -v m="$match" 'BEGIN{IGNORECASE=1} /card [0-9]+:.*device [0-9]+:/ && index($0, m) {print; exit}')"
+  if [[ -n "$line" ]]; then
+    card="$(sed -E 's/.*card ([0-9]+):.*/\1/' <<<"$line")"
+    device="$(sed -E 's/.*device ([0-9]+):.*/\1/' <<<"$line")"
+    echo "hw:${card},${device}"
+    return 0
+  fi
+  return 1
+}
+
+write_shairport_config() {
+  local airplay_name="$1"
+  local alsa_device="$2"
+
+  if [[ -f "${SHAIRPORT_CONF}" && ! -f "${SHAIRPORT_CONF}.oceano.bak" ]]; then
+    cp "${SHAIRPORT_CONF}" "${SHAIRPORT_CONF}.oceano.bak"
+  fi
+
+  cat > "${SHAIRPORT_CONF}" <<EOF
+general =
+{
+  name = "${airplay_name}";
+  interpolation = "soxr";
+};
+
+output =
+{
+  output_backend = "alsa";
+};
+
+alsa =
+{
+  output_device = "${alsa_device}";
+  mixer_control_name = "none";
+};
+
+metadata =
+{
+  enabled = "yes";
+  include_cover_art = "yes";
+  pipe_name = "/tmp/shairport-sync-metadata";
+  pipe_timeout = 5000;
+  cover_art_cache_directory = "/tmp/shairport-sync/.cache/coverart";
+};
+EOF
+}
+
 main() {
   if ! is_root; then
     echo "Please run as root (use sudo): sudo ./install.sh" >&2
@@ -27,6 +78,9 @@ main() {
 
   local repo_url="${DEFAULT_REPO_URL}"
   local branch="${DEFAULT_BRANCH}"
+  local airplay_name="${DEFAULT_AIRPLAY_NAME}"
+  local usb_match="${DEFAULT_USB_MATCH}"
+  local alsa_device=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -38,8 +92,20 @@ main() {
         branch="${2:-}"
         shift 2
         ;;
+      --airplay-name)
+        airplay_name="${2:-}"
+        shift 2
+        ;;
+      --usb-match)
+        usb_match="${2:-}"
+        shift 2
+        ;;
+      --alsa-device)
+        alsa_device="${2:-}"
+        shift 2
+        ;;
       -h|--help)
-        echo "Usage: sudo ./install.sh [--repo <url>] [--branch <name>]" >&2
+        echo "Usage: sudo ./install.sh [--repo <url>] [--branch <name>] [--airplay-name <name>] [--usb-match <text>] [--alsa-device <hw:x,y>]" >&2
         exit 0
         ;;
       *)
@@ -56,20 +122,22 @@ main() {
 
   require_cmd apt-get
   require_cmd systemctl
+  require_cmd aplay
+  require_cmd awk
+  require_cmd sed
 
-echo "Installing OS dependencies..."
-apt-get update -y
-apt-get install -y --no-install-recommends \
-  ca-certificates \
-  git \
-  shairport-sync \
-  golang-go
+  echo "Installing OS dependencies..."
+  apt-get update -y
+  apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    shairport-sync \
+    alsa-utils
 
-  require_cmd go
   require_cmd git
 
   echo "Preparing directories..."
-  mkdir -p "${INSTALL_DIR}/bin" "${INSTALL_DIR}/systemd"
+  mkdir -p "${INSTALL_DIR}"
 
   echo "Cloning/updating source into ${SRC_DIR}..."
   if [[ -d "${SRC_DIR}/.git" ]]; then
@@ -81,38 +149,33 @@ apt-get install -y --no-install-recommends \
     git clone --branch "${branch}" --depth 1 "${repo_url}" "${SRC_DIR}"
   fi
 
-  echo "Building ${APP_NAME}..."
-  (
-    cd "${SRC_DIR}"
-    go mod tidy
-    go build -o "bin/${APP_NAME}" "./cmd/${APP_NAME}"
-  )
-
-  echo "Deploying to ${INSTALL_DIR}..."
-  install -m 0755 "${SRC_DIR}/bin/${APP_NAME}" "${INSTALL_DIR}/bin/${APP_NAME}"
-  install -m 0644 "${SRC_DIR}/systemd/${SYSTEMD_UNIT_NAME}" "${INSTALL_DIR}/systemd/${SYSTEMD_UNIT_NAME}"
-
-  if [[ ! -f "${INSTALL_DIR}/config.yaml" ]]; then
-    install -m 0644 "${SRC_DIR}/config.yaml" "${INSTALL_DIR}/config.yaml"
-    echo "Installed default config at ${INSTALL_DIR}/config.yaml"
-  else
-    echo "Keeping existing config at ${INSTALL_DIR}/config.yaml"
+  if [[ -z "${alsa_device}" ]]; then
+    if alsa_device="$(detect_alsa_device "${usb_match}")"; then
+      echo "Detected USB audio device '${usb_match}' as ${alsa_device}"
+    else
+      echo "Could not auto-detect USB device matching '${usb_match}'." >&2
+      echo "Set explicitly with: --alsa-device hw:1,0" >&2
+      exit 1
+    fi
   fi
 
-  # Disable distro-provided shairport-sync service to avoid duplicate instances
-  # (port 5000 conflict) since oceano-player supervises shairport-sync itself.
-  systemctl disable --now shairport-sync.service >/dev/null 2>&1 || true
+  echo "Writing ${SHAIRPORT_CONF}..."
+  write_shairport_config "${airplay_name}" "${alsa_device}"
 
-  echo "Installing systemd unit..."
-  install -m 0644 "${INSTALL_DIR}/systemd/${SYSTEMD_UNIT_NAME}" "/etc/systemd/system/${SYSTEMD_UNIT_NAME}"
+  # Clean switch: this project now reuses distro shairport-sync service.
+  systemctl disable --now oceano-player.service >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/oceano-player.service
   systemctl daemon-reload
-  systemctl enable --now "${SYSTEMD_UNIT_NAME}"
+  systemctl enable --now shairport-sync.service
 
   echo
   echo "Done."
-  echo "- Service status: systemctl status ${SYSTEMD_UNIT_NAME}"
-  echo "- Logs: journalctl -u ${SYSTEMD_UNIT_NAME} -f"
-  echo "- Edit config: sudo nano ${INSTALL_DIR}/config.yaml"
+  echo "- Service status: systemctl status shairport-sync.service"
+  echo "- Logs: journalctl -u shairport-sync.service -f"
+  echo "- AirPlay name: ${airplay_name}"
+  echo "- ALSA device: ${alsa_device}"
+  echo "- Metadata pipe for now-playing: /tmp/shairport-sync-metadata"
+  echo "- Backup created (first run): ${SHAIRPORT_CONF}.oceano.bak"
 }
 
 main "$@"

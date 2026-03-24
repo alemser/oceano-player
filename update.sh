@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="oceano-player"
 INSTALL_DIR="/opt/oceano-player"
 SRC_DIR="/opt/oceano-player/src"
-SYSTEMD_UNIT_NAME="oceano-player.service"
+DEFAULT_AIRPLAY_NAME="Triangle AirPlay"
+DEFAULT_USB_MATCH="MR 780"
+SHAIRPORT_CONF="/etc/shairport-sync.conf"
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -17,6 +18,56 @@ is_root() {
   [[ "${EUID:-$(id -u)}" -eq 0 ]]
 }
 
+detect_alsa_device() {
+  local match="$1"
+  local line card device
+  line="$(aplay -l 2>/dev/null | awk -v m="$match" 'BEGIN{IGNORECASE=1} /card [0-9]+:.*device [0-9]+:/ && index($0, m) {print; exit}')"
+  if [[ -n "$line" ]]; then
+    card="$(sed -E 's/.*card ([0-9]+):.*/\1/' <<<"$line")"
+    device="$(sed -E 's/.*device ([0-9]+):.*/\1/' <<<"$line")"
+    echo "hw:${card},${device}"
+    return 0
+  fi
+  return 1
+}
+
+write_shairport_config() {
+  local airplay_name="$1"
+  local alsa_device="$2"
+
+  if [[ -f "${SHAIRPORT_CONF}" && ! -f "${SHAIRPORT_CONF}.oceano.bak" ]]; then
+    cp "${SHAIRPORT_CONF}" "${SHAIRPORT_CONF}.oceano.bak"
+  fi
+
+  cat > "${SHAIRPORT_CONF}" <<EOF
+general =
+{
+  name = "${airplay_name}";
+  interpolation = "soxr";
+};
+
+output =
+{
+  output_backend = "alsa";
+};
+
+alsa =
+{
+  output_device = "${alsa_device}";
+  mixer_control_name = "none";
+};
+
+metadata =
+{
+  enabled = "yes";
+  include_cover_art = "yes";
+  pipe_name = "/tmp/shairport-sync-metadata";
+  pipe_timeout = 5000;
+  cover_art_cache_directory = "/tmp/shairport-sync/.cache/coverart";
+};
+EOF
+}
+
 main() {
   if ! is_root; then
     echo "Please run as root (use sudo): sudo ./update.sh" >&2
@@ -24,8 +75,39 @@ main() {
   fi
 
   require_cmd systemctl
-  require_cmd go
   require_cmd git
+  require_cmd aplay
+  require_cmd awk
+  require_cmd sed
+
+  local airplay_name="${DEFAULT_AIRPLAY_NAME}"
+  local usb_match="${DEFAULT_USB_MATCH}"
+  local alsa_device=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --airplay-name)
+        airplay_name="${2:-}"
+        shift 2
+        ;;
+      --usb-match)
+        usb_match="${2:-}"
+        shift 2
+        ;;
+      --alsa-device)
+        alsa_device="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        echo "Usage: sudo ./update.sh [--airplay-name <name>] [--usb-match <text>] [--alsa-device <hw:x,y>]" >&2
+        exit 0
+        ;;
+      *)
+        echo "Unknown argument: $1" >&2
+        exit 1
+        ;;
+    esac
+  done
 
   if [[ ! -d "${SRC_DIR}/.git" ]]; then
     echo "Source repo not found at ${SRC_DIR}." >&2
@@ -36,31 +118,33 @@ main() {
   echo "Updating source in ${SRC_DIR}..."
   git -C "${SRC_DIR}" pull --ff-only
 
-  echo "Building ${APP_NAME} from ${SRC_DIR}..."
-  (
-    cd "${SRC_DIR}"
-    go mod tidy
-    mkdir -p bin
-    go build -o "bin/${APP_NAME}" "./cmd/${APP_NAME}"
-  )
+  if [[ -z "${alsa_device}" ]]; then
+    if alsa_device="$(detect_alsa_device "${usb_match}")"; then
+      echo "Detected USB audio device '${usb_match}' as ${alsa_device}"
+    else
+      echo "Could not auto-detect USB device matching '${usb_match}'." >&2
+      echo "Set explicitly with: --alsa-device hw:1,0" >&2
+      exit 1
+    fi
+  fi
 
-  echo "Deploying updated binary and unit..."
-  install -m 0755 "${SRC_DIR}/bin/${APP_NAME}" "${INSTALL_DIR}/bin/${APP_NAME}"
-  install -m 0644 "${SRC_DIR}/systemd/${SYSTEMD_UNIT_NAME}" "${INSTALL_DIR}/systemd/${SYSTEMD_UNIT_NAME}"
-  install -m 0644 "${INSTALL_DIR}/systemd/${SYSTEMD_UNIT_NAME}" "/etc/systemd/system/${SYSTEMD_UNIT_NAME}"
+  echo "Applying shairport-sync config..."
+  write_shairport_config "${airplay_name}" "${alsa_device}"
+
+  # Ensure only one owner of AirPlay service.
+  systemctl disable --now oceano-player.service >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/oceano-player.service
   systemctl daemon-reload
-
-  # Keep distro shairport-sync disabled; oceano-player supervises it.
-  systemctl disable --now shairport-sync.service >/dev/null 2>&1 || true
-
-  echo "Restarting service..."
-  systemctl restart "${SYSTEMD_UNIT_NAME}"
+  systemctl enable --now shairport-sync.service
+  systemctl restart shairport-sync.service
 
   echo
   echo "Done."
-  echo "- Service status: systemctl status ${SYSTEMD_UNIT_NAME}"
-  echo "- Logs: journalctl -u ${SYSTEMD_UNIT_NAME} -f"
-  echo "- Config preserved at: ${INSTALL_DIR}/config.yaml"
+  echo "- Service status: systemctl status shairport-sync.service"
+  echo "- Logs: journalctl -u shairport-sync.service -f"
+  echo "- AirPlay name: ${airplay_name}"
+  echo "- ALSA device: ${alsa_device}"
+  echo "- Metadata pipe for now-playing: /tmp/shairport-sync-metadata"
 }
 
 main "$@"
