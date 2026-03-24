@@ -7,6 +7,7 @@ cd "${ROOT_DIR}"
 echo "[1/3] Shell syntax checks"
 bash -n install.sh
 bash -n update.sh
+bash -n update-pr.sh
 
 echo "[2/3] Go checks"
 go test ./...

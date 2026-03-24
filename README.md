@@ -65,6 +65,18 @@ sudo ./update.sh
 
 `install.sh` and `update.sh` both use source in `/opt/oceano-player/src` (git clone/pull), then apply the same `shairport-sync` configuration.
 
+If you want a single command to deploy a branch on Raspberry Pi, use:
+
+```bash
+sudo ./update-pr.sh --branch deadling-with-disconection
+```
+
+You can pass update options through it as well:
+
+```bash
+sudo ./update-pr.sh --branch deadling-with-disconection --output-strategy loopback --preplay-wait-seconds 8
+```
+
 ### Change configuration (easy mode)
 
 Edit one file and apply:
