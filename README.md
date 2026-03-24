@@ -27,7 +27,6 @@ Rust would also be an excellent choice. Python is fine too, but packaging and lo
 ### What's included today
 
 - `install.sh` / `update.sh`: plug-and-play scripts around system `shairport-sync`
-- `docs/spi-now-playing-integration.md`: integration notes for now-playing data/artwork
 - (legacy/optional) `cmd/oceano-player`: original wrapper daemon, no longer required for default install
 
 ### Install (on the Pi)
@@ -46,7 +45,7 @@ This configures:
 
 - AirPlay name: `Triangle AirPlay`
 - USB target match: `M780` (auto-detected from ALSA devices)
-- metadata pipe: `/tmp/shairport-sync-metadata` (for future SPI now playing integration)
+- metadata pipe: `/tmp/shairport-sync-metadata`
 - persistent user config file: `/opt/oceano-player/config.env`
 
 2. Verify service:
@@ -66,6 +65,18 @@ sudo ./update.sh
 
 `install.sh` and `update.sh` both use source in `/opt/oceano-player/src` (git clone/pull), then apply the same `shairport-sync` configuration.
 
+If you want a single command to deploy a branch on Raspberry Pi, use:
+
+```bash
+sudo ./update-pr.sh --branch deadling-with-disconection
+```
+
+You can pass update options through it as well:
+
+```bash
+sudo ./update-pr.sh --branch deadling-with-disconection --output-strategy loopback --preplay-wait-seconds 8
+```
+
 ### Change configuration (easy mode)
 
 Edit one file and apply:
@@ -81,10 +92,15 @@ sudo ./update.sh
 AIRPLAY_NAME="Triangle AirPlay"
 USB_MATCH="M780"
 ALSA_DEVICE="plughw:CARD=M780,DEV=0"
+PREPLAY_WAIT_SECONDS="8"
+OUTPUT_STRATEGY="loopback"
 ```
 
 Tip: set `ALSA_DEVICE` explicitly for the most stable output.
 The scripts also auto-set a compatible ALSA `mixer_device` when using `plughw`.
+`PREPLAY_WAIT_SECONDS` lets AirPlay wait briefly for DAC/amp wake-up from standby before playback starts.
+Set `OUTPUT_STRATEGY="loopback"` to keep AirPlay connected to a virtual sink while the real DAC is unavailable.
+Set `OUTPUT_STRATEGY="direct"` if you want to disable loopback bridging.
 
 ### Clean reinstall
 
@@ -109,6 +125,15 @@ If device detection fails, set values explicitly:
 ```bash
 sudo ./install.sh --airplay-name "Triangle AirPlay" --alsa-device "plughw:CARD=M780,DEV=0"
 sudo ./update.sh --airplay-name "Triangle AirPlay" --alsa-device "plughw:CARD=M780,DEV=0"
+
+# Helpful when DAC/amp standby causes first-try connection drop:
+sudo ./update.sh --preplay-wait-seconds 12
+
+# Keep AirPlay always available; bridge audio to DAC only when DAC is awake:
+sudo ./update.sh --output-strategy loopback
+
+# Disable loopback bridging and output directly to DAC:
+sudo ./update.sh --output-strategy direct
 ```
 
 Or keep auto ALSA selection but change match text:
@@ -121,6 +146,27 @@ sudo ./install.sh --usb-match "M780"
 
 - This project now defaults to **system `shairport-sync` as single owner**.
 - Legacy `oceano-player.service` wrapper is kept in the repo for reference, but not used by default install/update.
+- In `loopback` strategy, `shairport-sync` plays to ALSA loopback (`hw:Loopback,0,0`) and a companion bridge service forwards audio to the real DAC when it is available again.
+
+### Developer checks
+
+To block pushes unless checks pass:
+
+```bash
+chmod +x scripts/test.sh .githooks/pre-push
+git config core.hooksPath .githooks
+```
+
+Now every `git push` runs:
+
+- shell syntax checks for `install.sh` and `update.sh`
+- `go test ./...`
+
+Manual run:
+
+```bash
+./scripts/test.sh
+```
 
 ### Next steps
 

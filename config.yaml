@@ -14,7 +14,7 @@ airplay:
   enabled: true
   # AirPlay (via shairport-sync) can do AirPlay 1 + (optionally) AirPlay 2
   # depending on how shairport-sync is built/packaged on your distro.
-  name: "Oceano (MR 780)"
+  name: "Triangle AirPlay"
   # If shairport-sync supports it on your system, this will be used for AirPlay 2.
   enable_airplay2_if_available: true
 
