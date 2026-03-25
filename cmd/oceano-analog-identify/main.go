@@ -638,6 +638,7 @@ func main() {
 			wav := filepath.Join(tmpDir, "sample.wav")
 			if err := captureWAV(cfg.Device, captureChannels, cfg.CaptureSeconds, wav); err != nil {
 				_ = os.RemoveAll(tmpDir)
+				log.Printf("[oceano-analog] capture failed on %q (channels=%d): %v", cfg.Device, captureChannels, err)
 				state.Status = "playing"
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "capture_failed")
@@ -647,6 +648,7 @@ func main() {
 			fp, duration, err := fingerprint(wav)
 			_ = os.RemoveAll(tmpDir)
 			if err != nil {
+				log.Printf("[oceano-analog] fingerprint generation failed: %v", err)
 				state.Status = "playing"
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "fingerprint_failed")
@@ -670,6 +672,10 @@ func main() {
 					found = withArtworkURL(m)
 					cache[fpKey] = cacheEntry{CachedAt: time.Now().Unix(), Metadata: *found}
 					saveCache(cfg.CacheFile, cache)
+				} else if err != nil {
+					log.Printf("[oceano-analog] acoustid lookup failed: %v", err)
+				} else {
+					log.Printf("[oceano-analog] acoustid confidence %.3f below threshold %.3f", m.Confidence, cfg.ConfidenceThreshold)
 				}
 			}
 
@@ -684,6 +690,7 @@ func main() {
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "")
 			} else {
+				log.Printf("[oceano-analog] metadata not found for fingerprint %s", fpKey)
 				state.Status = "playing"
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "lookup_failed")
