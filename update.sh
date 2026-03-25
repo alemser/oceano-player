@@ -167,7 +167,7 @@ metadata =
 sessioncontrol =
 {
   wait_for_completion = "yes";
-  run_this_before_play_begins = "${PREPLAY_WAIT_SCRIPT} \"${shairport_output_device}\" ${preplay_wait_seconds}";
+  run_this_before_play_begins = "${PREPLAY_WAIT_SCRIPT} ${shairport_output_device} ${preplay_wait_seconds}";
 };
 EOF
 }
