@@ -207,10 +207,41 @@ func runCommand(timeout time.Duration, name string, args ...string) ([]byte, []b
 	return stdout, nil, err
 }
 
-func sampleRMS(device string) (float64, error) {
+func isChannelsUnavailableError(msg string) bool {
+	m := strings.ToLower(msg)
+	return strings.Contains(m, "channels count non available") ||
+		strings.Contains(m, "channel count non available")
+}
+
+func detectCaptureChannels(device string) (int, error) {
+	var lastErr error
+	for _, channels := range []int{1, 2} {
+		_, stderr, err := runCommand(5*time.Second,
+			"arecord", "-q", "-D", device,
+			"-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "44100", "-d", "1", "-t", "raw", os.DevNull,
+		)
+		if err == nil {
+			return channels, nil
+		}
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = err.Error()
+		}
+		lastErr = errors.New(msg)
+		if !isChannelsUnavailableError(msg) {
+			return 0, lastErr
+		}
+	}
+	if lastErr == nil {
+		lastErr = errors.New("unable to detect supported channels")
+	}
+	return 0, lastErr
+}
+
+func sampleRMS(device string, channels int) (float64, error) {
 	stdout, stderr, err := runCommand(7*time.Second,
 		"arecord", "-q", "-D", device,
-		"-f", "S16_LE", "-c", "1", "-r", "44100", "-d", "1", "-t", "raw",
+		"-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "44100", "-d", "1", "-t", "raw",
 	)
 	if err != nil {
 		msg := strings.TrimSpace(string(stderr))
@@ -237,10 +268,10 @@ func sampleRMS(device string) (float64, error) {
 // probeDevice attempts a 1-second capture to /dev/null to verify the device
 // is a functional capture device. Using arecord ensures the device supports
 // capture and is not a playback-only interface (e.g. the AirPlay output).
-func probeDevice(device string) error {
+func probeDevice(device string, channels int) error {
 	_, stderr, err := runCommand(5*time.Second,
 		"arecord", "-q", "-D", device,
-		"-f", "S16_LE", "-c", "1", "-r", "44100", "-d", "1", "-t", "raw", os.DevNull,
+		"-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "44100", "-d", "1", "-t", "raw", os.DevNull,
 	)
 	if err != nil {
 		msg := strings.TrimSpace(string(stderr))
@@ -255,17 +286,20 @@ func probeDevice(device string) error {
 // waitForDevice blocks until device is available (probe succeeds) or a signal
 // is received. Retries with exponential backoff from 5 s up to 60 s between
 // probes to avoid resource pressure. Returns true when ready, false on exit signal.
-func waitForDevice(device string, sig <-chan os.Signal) bool {
+func waitForDevice(device string, sig <-chan os.Signal) (bool, int) {
 	interval := 5 * time.Second
 	for {
 		select {
 		case <-sig:
-			return false
+			return false, 0
 		case <-time.After(interval):
 		}
-		if probeDevice(device) == nil {
-			log.Printf("[oceano-analog] capture device %q is now ready", device)
-			return true
+		channels, err := detectCaptureChannels(device)
+		if err == nil {
+			if probeDevice(device, channels) == nil {
+				log.Printf("[oceano-analog] capture device %q is now ready (channels=%d)", device, channels)
+				return true, channels
+			}
 		}
 		if interval < 60*time.Second {
 			interval *= 2
@@ -276,10 +310,10 @@ func waitForDevice(device string, sig <-chan os.Signal) bool {
 	}
 }
 
-func captureWAV(device string, seconds int, dst string) error {
+func captureWAV(device string, channels int, seconds int, dst string) error {
 	_, stderr, err := runCommand(time.Duration(seconds+8)*time.Second,
 		"arecord", "-q", "-D", device,
-		"-f", "S16_LE", "-c", "1", "-r", "44100", "-d", strconv.Itoa(seconds), "-t", "wav", dst,
+		"-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "44100", "-d", strconv.Itoa(seconds), "-t", "wav", dst,
 	)
 	if err != nil {
 		return fmt.Errorf("capture wav failed: %w (%s)", err, strings.TrimSpace(string(stderr)))
@@ -475,26 +509,35 @@ func main() {
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	captureChannels := 1
 
 	// Probe the capture device before starting. If missing or not capture-capable
 	// (e.g. the AirPlay playback output was accidentally configured), log clearly
 	// and wait with backoff until available or a shutdown signal arrives.
-	if err := probeDevice(cfg.Device); err != nil {
+	if channels, err := detectCaptureChannels(cfg.Device); err != nil {
 		hint := ""
-		if strings.Contains(strings.ToLower(err.Error()), "invalid argument") {
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "invalid argument") {
 			hint = " (device may be playback-only — verify ANALOG_INPUT_DEVICE is not the AirPlay output)"
+		} else if isChannelsUnavailableError(msg) {
+			hint = " (device channel layout unsupported by current capture format)"
 		}
 		log.Printf("[oceano-analog] capture device %q not available: %v%s", cfg.Device, err, hint)
 		state.Status = "error"
 		setError(&state, "device_not_found")
 		state.UpdatedAt = time.Now().Unix()
 		_ = atomicWriteJSON(cfg.StateFile, state)
-		if !waitForDevice(cfg.Device, sig) {
+		ok, detectedChannels := waitForDevice(cfg.Device, sig)
+		if !ok {
 			return
 		}
+		captureChannels = detectedChannels
 		state.Status = "idle"
 		setError(&state, "")
 		state.UpdatedAt = time.Now().Unix()
+	} else {
+		captureChannels = channels
+		log.Printf("[oceano-analog] using capture device %q with channels=%d", cfg.Device, captureChannels)
 	}
 	_ = atomicWriteJSON(cfg.StateFile, state)
 
@@ -511,7 +554,7 @@ func main() {
 		case <-sig:
 			return
 		case <-ticker.C:
-			rms, sampleErr := sampleRMS(cfg.Device)
+			rms, sampleErr := sampleRMS(cfg.Device, captureChannels)
 
 			if sampleErr != nil {
 				consecutiveErrors++
@@ -531,9 +574,11 @@ func main() {
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "device_not_found")
 				_ = atomicWriteJSON(cfg.StateFile, state)
-				if !waitForDevice(cfg.Device, sig) {
+				ok, detectedChannels := waitForDevice(cfg.Device, sig)
+				if !ok {
 					return
 				}
+				captureChannels = detectedChannels
 				state.Status = "idle"
 				setError(&state, "")
 				state.UpdatedAt = time.Now().Unix()
@@ -591,7 +636,7 @@ func main() {
 				continue
 			}
 			wav := filepath.Join(tmpDir, "sample.wav")
-			if err := captureWAV(cfg.Device, cfg.CaptureSeconds, wav); err != nil {
+			if err := captureWAV(cfg.Device, captureChannels, cfg.CaptureSeconds, wav); err != nil {
 				_ = os.RemoveAll(tmpDir)
 				state.Status = "playing"
 				state.UpdatedAt = time.Now().Unix()

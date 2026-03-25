@@ -74,6 +74,17 @@ If you want a single command to deploy a branch on Raspberry Pi, use:
 sudo ./update-pr.sh --branch deadling-with-disconection
 ```
 
+Important: if your local scripts are older and do not show newer options in
+`--help`, switch branch manually first, then run `update.sh`:
+
+```bash
+cd /opt/oceano-player/src
+git fetch origin
+git checkout analog-source
+git pull --ff-only origin analog-source
+sudo chmod +x ./update.sh ./update-pr.sh
+```
+
 You can pass update options through it as well:
 
 ```bash
@@ -116,7 +127,7 @@ Tip: set `ALSA_DEVICE` explicitly for stable AirPlay output and `ANALOG_INPUT_DE
 The scripts also auto-set a compatible ALSA `mixer_device` when using `plughw`.
 `PREPLAY_WAIT_SECONDS` lets AirPlay wait briefly for DAC/amp wake-up from standby before playback starts.
 - `OUTPUT_STRATEGY="loopback"` keeps AirPlay connected to a virtual sink while the real DAC is unavailable. When the DAC comes back from standby, a background watchdog automatically reconnects the audio stream. This is the **recommended setting** for equipment with standby modes.
-- `OUTPUT_STRATEGY="direct"` disables loopback bridging and outputs directly to the DAC (no standby resilience).
+- `OUTPUT_STRATEGY="direct"` disables loopback bridging and outputs directly to the DAC (no standby resilience). On some ALSA builds/devices this may be less tolerant than loopback mode.
 - `ANALOG_INPUT_ENABLED="true"` runs analog input identification as a separate source extension.
 - Set the AcoustID key with `--acoustid-api-key` so it is stored in `/opt/oceano-player/.oceano-player`.
 
@@ -156,6 +167,9 @@ sudo ./update.sh --output-strategy loopback
 # Disable loopback bridging and output directly to DAC:
 sudo ./update.sh --output-strategy direct
 
+# If direct mode causes immediate disconnects, revert quickly to loopback:
+sudo ./update.sh --output-strategy loopback --preplay-wait-seconds 0
+
 # Disable analog identification service:
 sudo ./update.sh --analog-input-enabled false
 
@@ -181,6 +195,103 @@ sudo ./install.sh --usb-match "M780"
   - A companion bridge service (`oceano-airplay-bridge.service`) forwards audio to the real DAC when available
   - A watchdog service (`oceano-bridge-watchdog.service`) monitors the DAC every 10 seconds and automatically restarts the bridge when the DAC comes back from standby
   - This ensures uninterrupted AirPlay playback and automatic audio re-routing when equipment wakes up
+
+### Troubleshooting
+
+Common issues observed on Raspberry Pi deployments and verified fixes:
+
+1. `Unknown argument: --analog-input-enabled` (or missing newer options)
+
+Cause: stale `update.sh` / `update-pr.sh` on the device.
+
+Fix:
+
+```bash
+cd /opt/oceano-player/src
+git fetch origin
+git checkout analog-source
+git pull --ff-only origin analog-source
+sudo chmod +x ./update.sh ./update-pr.sh
+```
+
+2. `sudo: ./update.sh: command not found`
+
+Cause: script lacks executable bit.
+
+Fix:
+
+```bash
+sudo chmod +x ./update.sh
+```
+
+3. AirPlay connects then disconnects immediately
+
+Recommended recovery path:
+
+```bash
+sudo ./update.sh \
+  --analog-input-enabled false \
+  --output-strategy loopback \
+  --alsa-device "plughw:CARD=M780,DEV=0" \
+  --preplay-wait-seconds 0
+```
+
+Why: loopback mode is generally the most stable path with standby-sensitive DAC/amp setups.
+
+4. `unable to listen on ... port 5000` / `Address already in use`
+
+Cause: more than one `shairport-sync` instance running (systemd unit + manual debug process).
+
+Fix:
+
+```bash
+sudo systemctl stop shairport-sync.service
+sudo pkill -f shairport-sync || true
+sudo ss -ltnp | grep ':5000' || echo "port 5000 free"
+```
+
+Then run exactly one instance (either systemd service or manual `-vv`, not both).
+
+5. `Unit oceano-analog-identify.service could not be found`
+
+Expected when `ANALOG_INPUT_ENABLED=false`. In this mode, analog unit creation is intentionally skipped.
+
+6. `Missing required command: fpcalc`
+
+Cause: `fpcalc` is not installed. Package name can differ by distro release.
+
+On Raspberry Pi OS / Debian trixie, install:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libchromaprint-tools
+```
+
+Check:
+
+```bash
+which fpcalc
+fpcalc -version
+```
+
+If package lookup differs on your image:
+
+```bash
+apt-cache search chromaprint
+apt-cache search fpcalc
+```
+
+7. Verify generated preplay hook line after updates
+
+```bash
+grep -n "run_this_before_play_begins" /etc/shairport-sync.conf
+```
+
+Expected format:
+
+```text
+run_this_before_play_begins = "/usr/local/bin/oceano-airplay-preplay-wait.sh plughw:CARD=M780,DEV=0 0";
+```
 
 ### Analog metadata snapshot
 
