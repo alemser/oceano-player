@@ -434,10 +434,11 @@ func waitForDevice(device string, sig <-chan os.Signal) (bool, int) {
 }
 
 func captureWAV(device string, channels int, seconds int, dst string) error {
-	       _, stderr, err := runCommand(time.Duration(seconds+8)*time.Second,
-		       "arecord", "-q", "-D", device,
-		       "-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "48000", "-d", strconv.Itoa(seconds), "-t", "wav", dst,
-	       )
+		       // Força estéreo (-c 2) e 44100Hz (-r 44100) para máxima compatibilidade
+		       _, stderr, err := runCommand(time.Duration(seconds+8)*time.Second,
+			       "arecord", "-q", "-D", device,
+			       "-f", "S16_LE", "-c", "2", "-r", "44100", "-d", strconv.Itoa(seconds), "-t", "wav", dst,
+		       )
 	if err != nil {
 		return fmt.Errorf("capture wav failed: %w (%s)", err, strings.TrimSpace(string(stderr)))
 	}
