@@ -60,78 +60,77 @@ type ShazamRapidAPIRecognizer struct {
 }
 
 func (s *ShazamRapidAPIRecognizer) Recognize(wavPath string) (*metadata, error) {
-	// Converte o WAV para 16kHz, mono, s16le (payload pequeno, ideal para API)
-	cmd := exec.Command("ffmpeg", "-i", wavPath, "-f", "s16le", "-ac", "1", "-ar", "16000", "pipe:1")
-	pcm, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("Shazam: ffmpeg conversion failed: %w", err)
-	}
-	if len(pcm) == 0 {
-		return nil, fmt.Errorf("Shazam: empty PCM data after conversion")
-	}
-	// Encode PCM para base64 real
-	b64 := base64.StdEncoding.EncodeToString(pcm)
-	req, err := http.NewRequest("POST", "https://shazam.p.rapidapi.com/songs/v2/detect", strings.NewReader(b64))
-	if err != nil {
-		return nil, fmt.Errorf("Shazam: failed to create request: %w", err)
-	}
-	req.Header.Set("content-type", "text/plain")
-	req.Header.Set("x-rapidapi-host", "shazam.p.rapidapi.com")
-	req.Header.Set("x-rapidapi-key", s.ApiKey)
-	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("Shazam: request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("Shazam: failed to read response: %w", err)
-	}
-	log.Printf("[recognizer] Shazam: response: %s", string(body))
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Shazam: status %d", resp.StatusCode)
-	}
-	// Parse Shazam response (extract first match if available)
-	var shazamResp struct {
-		Track struct {
-			Title    string `json:"title"`
-			Subtitle string `json:"subtitle"`
-			Sections []struct {
-				Metadata []struct {
-					Title string `json:"title"`
-					Text  string `json:"text"`
-				} `json:"metadata"`
-			} `json:"sections"`
-			Images struct {
-				CoverArt string `json:"coverart"`
-			} `json:"images"`
-		} `json:"track"`
-	}
-	if err := json.Unmarshal(body, &shazamResp); err != nil {
-		return nil, fmt.Errorf("Shazam: failed to parse response: %w", err)
-	}
-	if shazamResp.Track.Title == "" && shazamResp.Track.Subtitle == "" {
-		return nil, nil // No match
-	}
-	m := &metadata{
-		Title:      shazamResp.Track.Title,
-		Artist:     shazamResp.Track.Subtitle,
-		Album:      "Unknown",
-		Confidence: 1.0,
-	}
-	if shazamResp.Track.Images.CoverArt != "" {
-		m.ArtworkURL = &shazamResp.Track.Images.CoverArt
-	}
-	// Try to extract album from metadata section
-	for _, section := range shazamResp.Track.Sections {
-		for _, meta := range section.Metadata {
-			if strings.ToLower(meta.Title) == "album" {
-				m.Album = meta.Text
-			}
-		}
-	}
-	return m, nil
+       // Força o formato: PCM s16le, Mono, 44100Hz. O Shazam prefere 44.1kHz para precisão total.
+       cmd := exec.Command("ffmpeg", "-i", wavPath, "-f", "s16le", "-ac", "1", "-ar", "44100", "pipe:1")
+       pcm, err := cmd.Output()
+       if err != nil {
+	       return nil, fmt.Errorf("Shazam: ffmpeg failed: %w", err)
+       }
+       // O Shazam via RapidAPI aceita até 12 segundos de áudio raw. Garantimos que não estamos enviando um arquivo gigante.
+       b64 := base64.StdEncoding.EncodeToString(pcm)
+
+       req, err := http.NewRequest("POST", "https://shazam.p.rapidapi.com/songs/v2/detect", strings.NewReader(b64))
+       if err != nil {
+	       return nil, err
+       }
+       // Headers vitais
+       req.Header.Set("content-type", "text/plain")
+       req.Header.Set("x-rapidapi-host", "shazam.p.rapidapi.com")
+       req.Header.Set("x-rapidapi-key", s.ApiKey)
+
+       client := &http.Client{Timeout: 20 * time.Second}
+       resp, err := client.Do(req)
+       if err != nil {
+	       return nil, err
+       }
+       defer resp.Body.Close()
+
+       body, _ := io.ReadAll(resp.Body)
+       log.Printf("[recognizer] Shazam raw response: %s", string(body))
+
+       // ... (mantém o código de unmarshal e parsing abaixo)
+       if resp.StatusCode != http.StatusOK {
+	       return nil, fmt.Errorf("Shazam: status %d", resp.StatusCode)
+       }
+       var shazamResp struct {
+	       Track struct {
+		       Title    string `json:"title"`
+		       Subtitle string `json:"subtitle"`
+		       Sections []struct {
+			       Metadata []struct {
+				       Title string `json:"title"`
+				       Text  string `json:"text"`
+			       } `json:"metadata"`
+		       } `json:"sections"`
+		       Images struct {
+			       CoverArt string `json:"coverart"`
+		       } `json:"images"`
+	       } `json:"track"`
+       }
+       if err := json.Unmarshal(body, &shazamResp); err != nil {
+	       return nil, fmt.Errorf("Shazam: failed to parse response: %w", err)
+       }
+       if shazamResp.Track.Title == "" && shazamResp.Track.Subtitle == "" {
+	       return nil, nil // No match
+       }
+       m := &metadata{
+	       Title:      shazamResp.Track.Title,
+	       Artist:     shazamResp.Track.Subtitle,
+	       Album:      "Unknown",
+	       Confidence: 1.0,
+       }
+       if shazamResp.Track.Images.CoverArt != "" {
+	       m.ArtworkURL = &shazamResp.Track.Images.CoverArt
+       }
+       // Tenta extrair o álbum da seção de metadados
+       for _, section := range shazamResp.Track.Sections {
+	       for _, meta := range section.Metadata {
+		       if strings.ToLower(meta.Title) == "album" {
+			       m.Album = meta.Text
+		       }
+	       }
+       }
+       return m, nil
 }
 
 
