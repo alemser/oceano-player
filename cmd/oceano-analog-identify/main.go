@@ -60,25 +60,27 @@ type ShazamRapidAPIRecognizer struct {
 }
 
 func (s *ShazamRapidAPIRecognizer) Recognize(wavPath string) (*metadata, error) {
-       // Força o formato: PCM s16le, Mono, 44100Hz. O Shazam prefere 44.1kHz para precisão total.
-       cmd := exec.Command("ffmpeg", "-i", wavPath, "-f", "s16le", "-ac", "1", "-ar", "44100", "pipe:1")
+       // 11025Hz é o segredo: reduz o tamanho em 4x comparado a 44.1kHz, permitindo enviar até 40s de áudio sem estourar 1MB.
+       cmd := exec.Command("ffmpeg", "-i", wavPath, "-f", "s16le", "-ac", "1", "-ar", "11025", "pipe:1")
        pcm, err := cmd.Output()
        if err != nil {
 	       return nil, fmt.Errorf("Shazam: ffmpeg failed: %w", err)
        }
-       // O Shazam via RapidAPI aceita até 12 segundos de áudio raw. Garantimos que não estamos enviando um arquivo gigante.
+       if len(pcm) == 0 {
+	       return nil, fmt.Errorf("Shazam: pcm data is empty")
+       }
+       // Agora o Base64 vai ficar com ~300KB para 10 segundos, bem abaixo de 1MB
        b64 := base64.StdEncoding.EncodeToString(pcm)
 
        req, err := http.NewRequest("POST", "https://shazam.p.rapidapi.com/songs/v2/detect", strings.NewReader(b64))
        if err != nil {
 	       return nil, err
        }
-       // Headers vitais
        req.Header.Set("content-type", "text/plain")
        req.Header.Set("x-rapidapi-host", "shazam.p.rapidapi.com")
        req.Header.Set("x-rapidapi-key", s.ApiKey)
 
-       client := &http.Client{Timeout: 20 * time.Second}
+       client := &http.Client{Timeout: 15 * time.Second}
        resp, err := client.Do(req)
        if err != nil {
 	       return nil, err
@@ -86,9 +88,9 @@ func (s *ShazamRapidAPIRecognizer) Recognize(wavPath string) (*metadata, error) 
        defer resp.Body.Close()
 
        body, _ := io.ReadAll(resp.Body)
-       log.Printf("[recognizer] Shazam raw response: %s", string(body))
+       log.Printf("[recognizer] Shazam response: %s", string(body))
 
-       // ... (mantém o código de unmarshal e parsing abaixo)
+       // ... (mantém o código de Unmarshal e parsing abaixo)
        if resp.StatusCode != http.StatusOK {
 	       return nil, fmt.Errorf("Shazam: status %d", resp.StatusCode)
        }
@@ -239,14 +241,14 @@ func envFloat(name string, fallback float64) float64 {
 }
 
 func loadConfig() config {
-		defaultCapture := 20
-		if os.Getenv("RAPIDAPI_KEY") != "" {
-			defaultCapture = 8
-		}
-		captureSeconds := envInt("ANALOG_CAPTURE_SECONDS", defaultCapture)
-		if captureSeconds < 6 {
-			captureSeconds = 6
-		}
+		       defaultCapture := 20
+		       if os.Getenv("RAPIDAPI_KEY") != "" {
+			       defaultCapture = 10 // 10 segundos é o ideal para Shazam e fingerprint
+		       }
+		       captureSeconds := envInt("ANALOG_CAPTURE_SECONDS", defaultCapture)
+		       if captureSeconds < 6 {
+			       captureSeconds = 6
+		       }
 	identifyInterval := envInt("ANALOG_IDENTIFY_INTERVAL_SECONDS", 45)
 	if identifyInterval < 20 {
 		identifyInterval = 20
