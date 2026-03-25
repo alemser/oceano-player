@@ -748,7 +748,7 @@ func main() {
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "")
 			} else {
-				       if cfg.DebugSaveFailedWAV {
+				    //    if cfg.DebugSaveFailedWAV {
 					       log.Printf("[oceano-analog] DEBUG: about to save failed sample. wav=%q dir=%q", wav, cfg.DebugWAVDir)
 					       os.Stdout.Sync()
 					       os.Stderr.Sync()
@@ -759,11 +759,11 @@ func main() {
 					       }
 					       os.Stdout.Sync()
 					       os.Stderr.Sync()
-				       } else {
-					       log.Printf("[oceano-analog] DEBUG: DebugSaveFailedWAV is false, not saving failed sample")
-					       os.Stdout.Sync()
-					       os.Stderr.Sync()
-				       }
+				    //    } else {
+					//        log.Printf("[oceano-analog] DEBUG: DebugSaveFailedWAV is false, not saving failed sample")
+					//        os.Stdout.Sync()
+					//        os.Stderr.Sync()
+				    //    }
 				log.Printf("[oceano-analog] metadata not found for fingerprint %s", fpKey)
 				state.Status = "playing"
 				state.UpdatedAt = time.Now().Unix()
