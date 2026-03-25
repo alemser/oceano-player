@@ -14,6 +14,8 @@ SHAIRPORT_CONF="/etc/shairport-sync.conf"
 PREPLAY_WAIT_SCRIPT="/usr/local/bin/oceano-airplay-preplay-wait.sh"
 BRIDGE_SCRIPT="/usr/local/bin/oceano-airplay-bridge.sh"
 BRIDGE_SERVICE="/etc/systemd/system/oceano-airplay-bridge.service"
+BRIDGE_WATCHDOG_SCRIPT="/usr/local/bin/oceano-bridge-watchdog.sh"
+BRIDGE_WATCHDOG_SERVICE="/etc/systemd/system/oceano-bridge-watchdog.service"
 MODULES_LOAD_FILE="/etc/modules-load.d/oceano-player.conf"
 
 require_cmd() {
@@ -207,6 +209,66 @@ WantedBy=multi-user.target
 EOF
 }
 
+write_bridge_watchdog_script() {
+  cat > "${BRIDGE_WATCHDOG_SCRIPT}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+alsa_device="${1:-}"
+poll_interval="${2:-10}"
+state_file="/tmp/oceano-dac-state"
+
+if [[ -z "${alsa_device}" ]]; then
+  echo "Missing ALSA device" >&2
+  exit 1
+fi
+
+# Initialize state tracking
+last_available=0
+
+while true; do
+  # Test if the DAC is currently available
+  if aplay -q -D "${alsa_device}" -t raw -f S16_LE -r 44100 -d 1 /dev/zero >/dev/null 2>&1; then
+    current_available=1
+  else
+    current_available=0
+  fi
+
+  # Detect transition from unavailable to available
+  if (( current_available == 1 && last_available == 0 )); then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] DAC became available, restarting bridge..." >&2
+    if systemctl is-active --quiet oceano-airplay-bridge.service; then
+      systemctl restart oceano-airplay-bridge.service
+    fi
+  fi
+
+  last_available="${current_available}"
+  sleep "${poll_interval}"
+done
+EOF
+
+  chmod 0755 "${BRIDGE_WATCHDOG_SCRIPT}"
+}
+
+write_bridge_watchdog_service() {
+  cat > "${BRIDGE_WATCHDOG_SERVICE}" <<EOF
+[Unit]
+Description=Oceano AirPlay Bridge Watchdog
+After=oceano-airplay-bridge.service
+Wants=oceano-airplay-bridge.service
+
+[Service]
+Type=simple
+ExecStart=${BRIDGE_WATCHDOG_SCRIPT} \${ALSA_DEVICE} 10
+EnvironmentFile=${CONFIG_FILE}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
 enable_loopback_mode() {
   local alsa_device="$1"
 
@@ -214,17 +276,24 @@ enable_loopback_mode() {
   modprobe snd-aloop
   write_bridge_script
   write_bridge_service "${alsa_device}"
+  write_bridge_watchdog_script
+  write_bridge_watchdog_service
   systemctl daemon-reload
   systemctl enable oceano-airplay-bridge.service
+  systemctl enable oceano-bridge-watchdog.service
   systemctl restart oceano-airplay-bridge.service
+  systemctl restart oceano-bridge-watchdog.service
 }
 
 disable_loopback_mode() {
   systemctl disable --now oceano-airplay-bridge.service >/dev/null 2>&1 || true
+  systemctl disable --now oceano-bridge-watchdog.service >/dev/null 2>&1 || true
   rm -f "${BRIDGE_SERVICE}"
+  rm -f "${BRIDGE_WATCHDOG_SERVICE}"
   rm -f "${MODULES_LOAD_FILE}"
   systemctl daemon-reload
   systemctl reset-failed oceano-airplay-bridge.service >/dev/null 2>&1 || true
+  systemctl reset-failed oceano-bridge-watchdog.service >/dev/null 2>&1 || true
 }
 
 main() {

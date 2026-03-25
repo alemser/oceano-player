@@ -99,8 +99,8 @@ OUTPUT_STRATEGY="loopback"
 Tip: set `ALSA_DEVICE` explicitly for the most stable output.
 The scripts also auto-set a compatible ALSA `mixer_device` when using `plughw`.
 `PREPLAY_WAIT_SECONDS` lets AirPlay wait briefly for DAC/amp wake-up from standby before playback starts.
-Set `OUTPUT_STRATEGY="loopback"` to keep AirPlay connected to a virtual sink while the real DAC is unavailable.
-Set `OUTPUT_STRATEGY="direct"` if you want to disable loopback bridging.
+- `OUTPUT_STRATEGY="loopback"` keeps AirPlay connected to a virtual sink while the real DAC is unavailable. When the DAC comes back from standby, a background watchdog automatically reconnects the audio stream. This is the **recommended setting** for equipment with standby modes.
+- `OUTPUT_STRATEGY="direct"` disables loopback bridging and outputs directly to the DAC (no standby resilience).
 
 ### Clean reinstall
 
@@ -146,7 +146,11 @@ sudo ./install.sh --usb-match "M780"
 
 - This project now defaults to **system `shairport-sync` as single owner**.
 - Legacy `oceano-player.service` wrapper is kept in the repo for reference, but not used by default install/update.
-- In `loopback` strategy, `shairport-sync` plays to ALSA loopback (`hw:Loopback,0,0`) and a companion bridge service forwards audio to the real DAC when it is available again.
+- In `loopback` strategy:
+  - `shairport-sync` plays to ALSA loopback (`plughw:CARD=Loopback,DEV=0`)
+  - A companion bridge service (`oceano-airplay-bridge.service`) forwards audio to the real DAC when available
+  - A watchdog service (`oceano-bridge-watchdog.service`) monitors the DAC every 10 seconds and automatically restarts the bridge when the DAC comes back from standby
+  - This ensures uninterrupted AirPlay playback and automatic audio re-routing when equipment wakes up
 
 ### Developer checks
 
