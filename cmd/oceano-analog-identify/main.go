@@ -1,5 +1,27 @@
-
 package main
+
+import (
+	"context"
+	"crypto/sha1"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"math"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
 
 // MusicRecognizer is an abstraction for music recognition providers.
 type MusicRecognizer interface {
@@ -113,28 +135,7 @@ func (s *ShazamRapidAPIRecognizer) Recognize(wavPath string) (*metadata, error) 
 	return m, nil
 }
 
-import (
-	"context"
-	"crypto/sha1"
-	"encoding/base64"
-	"encoding/binary"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"log"
-	"math"
-	"net/http"
-	"net/url"
-	"os"
-	"os/exec"
-	"os/signal"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"syscall"
-	"time"
-)
+
 
 type statePayload struct {
 	Source         string   `json:"source"`
@@ -240,7 +241,7 @@ func envFloat(name string, fallback float64) float64 {
 }
 
 func loadConfig() config {
-		captureSeconds := envInt("ANALOG_CAPTURE_SECONDS", 10)
+		captureSeconds := envInt("ANALOG_CAPTURE_SECONDS", 20)
 		if captureSeconds < 6 {
 			captureSeconds = 6
 		}
