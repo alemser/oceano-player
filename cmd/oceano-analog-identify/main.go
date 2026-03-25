@@ -526,8 +526,13 @@ func setError(state *statePayload, value string) {
 }
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	cfg := loadConfig()
+	log.Printf("[oceano-analog] config: DebugSaveFailedWAV=%v DebugWAVDir=%q", cfg.DebugSaveFailedWAV, cfg.DebugWAVDir)
 	if !cfg.Enabled {
+		log.Printf("[oceano-analog] analog input not enabled, exiting")
+		os.Stdout.Sync()
+		os.Stderr.Sync()
 		return
 	}
 
@@ -535,6 +540,7 @@ func main() {
 	_ = os.MkdirAll(filepath.Dir(cfg.CacheFile), 0o755)
 	if cfg.DebugSaveFailedWAV {
 		_ = os.MkdirAll(cfg.DebugWAVDir, 0o755)
+		log.Printf("[oceano-analog] ensured debug wav dir exists: %q", cfg.DebugWAVDir)
 	}
 
 	state := statePayload{
@@ -742,13 +748,22 @@ func main() {
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "")
 			} else {
-				if cfg.DebugSaveFailedWAV {
-					if path, saveErr := saveFailedSample(wav, cfg.DebugWAVDir, "lookup_failed"); saveErr == nil {
-						log.Printf("[oceano-analog] saved failed sample: %s", path)
-					} else {
-						log.Printf("[oceano-analog] failed to save debug sample: %v", saveErr)
-					}
-				}
+				       if cfg.DebugSaveFailedWAV {
+					       log.Printf("[oceano-analog] DEBUG: about to save failed sample. wav=%q dir=%q", wav, cfg.DebugWAVDir)
+					       os.Stdout.Sync()
+					       os.Stderr.Sync()
+					       if path, saveErr := saveFailedSample(wav, cfg.DebugWAVDir, "lookup_failed"); saveErr == nil {
+						       log.Printf("[oceano-analog] saved failed sample: %s", path)
+					       } else {
+						       log.Printf("[oceano-analog] failed to save debug sample: %v", saveErr)
+					       }
+					       os.Stdout.Sync()
+					       os.Stderr.Sync()
+				       } else {
+					       log.Printf("[oceano-analog] DEBUG: DebugSaveFailedWAV is false, not saving failed sample")
+					       os.Stdout.Sync()
+					       os.Stderr.Sync()
+				       }
 				log.Printf("[oceano-analog] metadata not found for fingerprint %s", fpKey)
 				state.Status = "playing"
 				state.UpdatedAt = time.Now().Unix()
