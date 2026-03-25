@@ -1,3 +1,10 @@
+# Set default microphone capture level if possible
+if command -v amixer >/dev/null 2>&1; then
+  if amixer -c Microphone scontrols | grep -q "Mic"; then
+    echo "Setting Mic gain to 4 (no clipping, Magnat)..."
+    amixer -c Microphone sset 'Mic' 4 || true
+  fi
+fi
 #!/usr/bin/env bash
 set -euo pipefail
 

@@ -126,10 +126,10 @@ func envFloat(name string, fallback float64) float64 {
 }
 
 func loadConfig() config {
-	captureSeconds := envInt("ANALOG_CAPTURE_SECONDS", 12)
-	if captureSeconds < 6 {
-		captureSeconds = 6
-	}
+	       captureSeconds := envInt("ANALOG_CAPTURE_SECONDS", 20)
+	       if captureSeconds < 6 {
+		       captureSeconds = 6
+	       }
 	identifyInterval := envInt("ANALOG_IDENTIFY_INTERVAL_SECONDS", 45)
 	if identifyInterval < 20 {
 		identifyInterval = 20
@@ -140,18 +140,18 @@ func loadConfig() config {
 	}
 	return config{
 		Enabled:                 envBool("ANALOG_INPUT_ENABLED", true),
-		Device:                  firstNonEmpty(os.Getenv("ANALOG_INPUT_DEVICE"), os.Getenv("ALSA_DEVICE"), "hw:1,0"),
-		StateFile:               firstNonEmpty(os.Getenv("ANALOG_METADATA_FILE"), "/run/oceano-player/analog-now-playing.json"),
-		CacheFile:               firstNonEmpty(os.Getenv("ANALOG_CACHE_FILE"), "/var/lib/oceano-player/analog-cache.json"),
-		DebugSaveFailedWAV:      envBool("ANALOG_DEBUG_SAVE_FAILED_WAV", false),
-		DebugWAVDir:             firstNonEmpty(os.Getenv("ANALOG_DEBUG_WAV_DIR"), "/var/lib/oceano-player/debug-wav"),
-		SignalThreshold:         envFloat("ANALOG_INPUT_THRESHOLD", 0.01),
-		SilenceSeconds:          envInt("ANALOG_SILENCE_SECONDS", 6),
-		CaptureSeconds:          captureSeconds,
-		IdentifyIntervalSeconds: identifyInterval,
-		ConfidenceThreshold:     envFloat("ANALOG_CONFIDENCE_THRESHOLD", 0.80),
-		CacheTTLSeconds:         cacheTTL,
-		AcoustIDAPIKey:          strings.TrimSpace(os.Getenv("ACOUSTID_API_KEY")),
+		       Device:                  firstNonEmpty(os.Getenv("ANALOG_INPUT_DEVICE"), os.Getenv("ALSA_DEVICE"), "hw:1,0"),
+		       StateFile:               firstNonEmpty(os.Getenv("ANALOG_METADATA_FILE"), "/run/oceano-player/analog-now-playing.json"),
+		       CacheFile:               firstNonEmpty(os.Getenv("ANALOG_CACHE_FILE"), "/var/lib/oceano-player/analog-cache.json"),
+		       DebugSaveFailedWAV:      envBool("ANALOG_DEBUG_SAVE_FAILED_WAV", false),
+		       DebugWAVDir:             firstNonEmpty(os.Getenv("ANALOG_DEBUG_WAV_DIR"), "/var/lib/oceano-player/debug-wav"),
+		       SignalThreshold:         envFloat("ANALOG_INPUT_THRESHOLD", 0.01),
+		       SilenceSeconds:          envInt("ANALOG_SILENCE_SECONDS", 6),
+		       CaptureSeconds:          captureSeconds,
+		       IdentifyIntervalSeconds: identifyInterval,
+		       ConfidenceThreshold:     envFloat("ANALOG_CONFIDENCE_THRESHOLD", 0.50),
+		       CacheTTLSeconds:         cacheTTL,
+		       AcoustIDAPIKey:          strings.TrimSpace(os.Getenv("ACOUSTID_API_KEY")),
 	}
 }
 
@@ -219,11 +219,11 @@ func isChannelsUnavailableError(msg string) bool {
 
 func detectCaptureChannels(device string) (int, error) {
 	var lastErr error
-	for _, channels := range []int{1, 2} {
-		_, stderr, err := runCommand(5*time.Second,
-			"arecord", "-q", "-D", device,
-			"-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "44100", "-d", "1", "-t", "raw", os.DevNull,
-		)
+	       for _, channels := range []int{1, 2} {
+		       _, stderr, err := runCommand(5*time.Second,
+			       "arecord", "-q", "-D", device,
+			       "-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "48000", "-d", "1", "-t", "raw", os.DevNull,
+		       )
 		if err == nil {
 			return channels, nil
 		}
@@ -243,10 +243,10 @@ func detectCaptureChannels(device string) (int, error) {
 }
 
 func sampleRMS(device string, channels int) (float64, error) {
-	stdout, stderr, err := runCommand(7*time.Second,
-		"arecord", "-q", "-D", device,
-		"-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "44100", "-d", "1", "-t", "raw",
-	)
+	       stdout, stderr, err := runCommand(7*time.Second,
+		       "arecord", "-q", "-D", device,
+		       "-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "48000", "-d", "1", "-t", "raw",
+	       )
 	if err != nil {
 		msg := strings.TrimSpace(string(stderr))
 		if msg == "" {
@@ -273,10 +273,10 @@ func sampleRMS(device string, channels int) (float64, error) {
 // is a functional capture device. Using arecord ensures the device supports
 // capture and is not a playback-only interface (e.g. the AirPlay output).
 func probeDevice(device string, channels int) error {
-	_, stderr, err := runCommand(5*time.Second,
-		"arecord", "-q", "-D", device,
-		"-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "44100", "-d", "1", "-t", "raw", os.DevNull,
-	)
+	       _, stderr, err := runCommand(5*time.Second,
+		       "arecord", "-q", "-D", device,
+		       "-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "48000", "-d", "1", "-t", "raw", os.DevNull,
+	       )
 	if err != nil {
 		msg := strings.TrimSpace(string(stderr))
 		if msg == "" {
@@ -315,10 +315,10 @@ func waitForDevice(device string, sig <-chan os.Signal) (bool, int) {
 }
 
 func captureWAV(device string, channels int, seconds int, dst string) error {
-	_, stderr, err := runCommand(time.Duration(seconds+8)*time.Second,
-		"arecord", "-q", "-D", device,
-		"-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "44100", "-d", strconv.Itoa(seconds), "-t", "wav", dst,
-	)
+	       _, stderr, err := runCommand(time.Duration(seconds+8)*time.Second,
+		       "arecord", "-q", "-D", device,
+		       "-f", "S16_LE", "-c", strconv.Itoa(channels), "-r", "48000", "-d", strconv.Itoa(seconds), "-t", "wav", dst,
+	       )
 	if err != nil {
 		return fmt.Errorf("capture wav failed: %w (%s)", err, strings.TrimSpace(string(stderr)))
 	}
@@ -367,7 +367,7 @@ func saveFailedSample(srcPath, dstDir, reason string) (string, error) {
 }
 
 func fingerprint(wavPath string) (string, int, error) {
-	stdout, stderr, err := runCommand(20*time.Second, "fpcalc", "-json", wavPath)
+	       stdout, stderr, err := runCommand(20*time.Second, "fpcalc", "-json", "-length", "120", wavPath)
 	if err != nil {
 		return "", 0, fmt.Errorf("fpcalc failed: %w (%s)", err, strings.TrimSpace(string(stderr)))
 	}
@@ -404,6 +404,9 @@ func acoustIDLookup(apiKey, fp string, duration int) (*metadata, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Log resposta bruta para debug
+	log.Printf("DEBUG AcoustID Response: %s", string(body))
+
 	var payload acoustIDResponse
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, err
@@ -749,16 +752,16 @@ func main() {
 				setError(&state, "")
 			} else {
 				    //    if cfg.DebugSaveFailedWAV {
-					       log.Printf("[oceano-analog] DEBUG: about to save failed sample. wav=%q dir=%q", wav, cfg.DebugWAVDir)
-					       os.Stdout.Sync()
-					       os.Stderr.Sync()
-					       if path, saveErr := saveFailedSample(wav, cfg.DebugWAVDir, "lookup_failed"); saveErr == nil {
-						       log.Printf("[oceano-analog] saved failed sample: %s", path)
-					       } else {
-						       log.Printf("[oceano-analog] failed to save debug sample: %v", saveErr)
-					       }
-					       os.Stdout.Sync()
-					       os.Stderr.Sync()
+					    //    log.Printf("[oceano-analog] DEBUG: about to save failed sample. wav=%q dir=%q", wav, cfg.DebugWAVDir)
+					    //    os.Stdout.Sync()
+					    //    os.Stderr.Sync()
+					    //    if path, saveErr := saveFailedSample(wav, cfg.DebugWAVDir, "lookup_failed"); saveErr == nil {
+						//        log.Printf("[oceano-analog] saved failed sample: %s", path)
+					    //    } else {
+						//        log.Printf("[oceano-analog] failed to save debug sample: %v", saveErr)
+					    //    }
+					    //    os.Stdout.Sync()
+					    //    os.Stderr.Sync()
 				    //    } else {
 					//        log.Printf("[oceano-analog] DEBUG: DebugSaveFailedWAV is false, not saving failed sample")
 					//        os.Stdout.Sync()
