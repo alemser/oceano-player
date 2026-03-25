@@ -1,3 +1,135 @@
+// MusicRecognizer is an abstraction for music recognition providers.
+type MusicRecognizer interface {
+	// Recognize tries to identify the song from the given WAV file.
+	// Returns metadata and error (if any). If no match, returns (nil, nil).
+	Recognize(wavPath string) (*metadata, error)
+}
+
+// AcoustIDRecognizer implements MusicRecognizer using AcoustID (fpcalc).
+type AcoustIDRecognizer struct {
+	ApiKey      string
+	Confidence  float64
+}
+
+func (a *AcoustIDRecognizer) Recognize(wavPath string) (*metadata, error) {
+	fp, duration, err := fingerprint(wavPath)
+	if err != nil {
+		return nil, fmt.Errorf("fpcalc failed: %w", err)
+	}
+	log.Printf("[recognizer] AcoustID: fingerprint generated (len=%d)", len(fp))
+	m, err := acoustIDLookup(a.ApiKey, fp, duration)
+	if err != nil {
+		log.Printf("[recognizer] AcoustID: lookup failed: %v", err)
+		return nil, nil // fallback to next recognizer
+	}
+	if m.Confidence < a.Confidence {
+		log.Printf("[recognizer] AcoustID: confidence %.3f below threshold %.3f", m.Confidence, a.Confidence)
+		return nil, nil
+	}
+	return withArtworkURL(m), nil
+}
+
+// ShazamRapidAPIRecognizer implements MusicRecognizer using Shazam via RapidAPI.
+type ShazamRapidAPIRecognizer struct {
+	ApiKey string
+}
+
+func (s *ShazamRapidAPIRecognizer) Recognize(wavPath string) (*metadata, error) {
+	// Read WAV file and extract raw PCM data
+	f, err := os.Open(wavPath)
+	if err != nil {
+		return nil, fmt.Errorf("Shazam: failed to open wav: %w", err)
+	}
+	defer f.Close()
+
+	// Skip WAV header (44 bytes)
+	if _, err := f.Seek(44, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("Shazam: failed to seek wav header: %w", err)
+	}
+	pcm, err := io.ReadAll(f)
+	if err != nil {
+		return nil, fmt.Errorf("Shazam: failed to read PCM: %w", err)
+	}
+	if len(pcm) == 0 {
+		return nil, fmt.Errorf("Shazam: empty PCM data")
+	}
+
+	// Encode PCM to base64
+	b64 := encodeBase64(pcm)
+
+	// Prepare HTTP request
+	req, err := http.NewRequest("POST", "https://shazam.p.rapidapi.com/songs/v2/detect", strings.NewReader(b64))
+	if err != nil {
+		return nil, fmt.Errorf("Shazam: failed to create request: %w", err)
+	}
+	req.Header.Set("content-type", "text/plain")
+	req.Header.Set("x-rapidapi-host", "shazam.p.rapidapi.com")
+	req.Header.Set("x-rapidapi-key", s.ApiKey)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Shazam: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("Shazam: failed to read response: %w", err)
+	}
+	log.Printf("[recognizer] Shazam: response: %s", string(body))
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Shazam: status %d", resp.StatusCode)
+	}
+
+	// Parse Shazam response (extract first match if available)
+	var shazamResp struct {
+		Track struct {
+			Title  string `json:"title"`
+			Subtitle string `json:"subtitle"`
+			Sections []struct {
+				Metadata []struct {
+					Title string `json:"title"`
+					Text  string `json:"text"`
+				} `json:"metadata"`
+			} `json:"sections"`
+			Images struct {
+				CoverArt string `json:"coverart"`
+			} `json:"images"`
+		} `json:"track"`
+	}
+	if err := json.Unmarshal(body, &shazamResp); err != nil {
+		return nil, fmt.Errorf("Shazam: failed to parse response: %w", err)
+	}
+	if shazamResp.Track.Title == "" && shazamResp.Track.Subtitle == "" {
+		return nil, nil // No match
+	}
+	m := &metadata{
+		Title:  shazamResp.Track.Title,
+		Artist: shazamResp.Track.Subtitle,
+		Album:  "Unknown",
+		Confidence: 1.0,
+	}
+	if shazamResp.Track.Images.CoverArt != "" {
+		m.ArtworkURL = &shazamResp.Track.Images.CoverArt
+	}
+	// Try to extract album from metadata section
+	for _, section := range shazamResp.Track.Sections {
+		for _, meta := range section.Metadata {
+			if strings.ToLower(meta.Title) == "album" {
+				m.Album = meta.Text
+			}
+		}
+	}
+	return m, nil
+}
+
+// encodeBase64 encodes bytes to base64 string (no line breaks)
+import "encoding/base64"
+func encodeBase64(data []byte) string {
+    return base64.StdEncoding.EncodeToString(data)
+}
+
 package main
 
 import (
@@ -126,10 +258,10 @@ func envFloat(name string, fallback float64) float64 {
 }
 
 func loadConfig() config {
-	       captureSeconds := envInt("ANALOG_CAPTURE_SECONDS", 20)
-	       if captureSeconds < 6 {
-		       captureSeconds = 6
-	       }
+		captureSeconds := envInt("ANALOG_CAPTURE_SECONDS", 10)
+		if captureSeconds < 6 {
+			captureSeconds = 6
+		}
 	identifyInterval := envInt("ANALOG_IDENTIFY_INTERVAL_SECONDS", 45)
 	if identifyInterval < 20 {
 		identifyInterval = 20
@@ -630,6 +762,12 @@ func main() {
 
 	cache := loadCache(cfg.CacheFile)
 
+	// Setup recognizers: AcoustID first, then Shazam fallback
+	recognizers := []MusicRecognizer{
+		&AcoustIDRecognizer{ApiKey: cfg.AcoustIDAPIKey, Confidence: cfg.ConfidenceThreshold},
+		&ShazamRapidAPIRecognizer{ApiKey: os.Getenv("RAPIDAPI_KEY")},
+	}
+
 	lastSignal := time.Now()
 	lastIdentify := time.Time{}
 	ticker := time.NewTicker(1 * time.Second)
@@ -733,47 +871,26 @@ func main() {
 				continue
 			}
 
-			fp, duration, err := fingerprint(wav)
-			if err != nil {
-				if cfg.DebugSaveFailedWAV {
-					if path, saveErr := saveFailedSample(wav, cfg.DebugWAVDir, "fingerprint_failed"); saveErr == nil {
-						log.Printf("[oceano-analog] saved failed sample: %s", path)
-					} else {
-						log.Printf("[oceano-analog] failed to save debug sample: %v", saveErr)
-					}
-				}
-				_ = os.RemoveAll(tmpDir)
-				log.Printf("[oceano-analog] fingerprint generation failed: %v", err)
-				state.Status = "playing"
-				state.UpdatedAt = time.Now().Unix()
-				setError(&state, "fingerprint_failed")
-				_ = atomicWriteJSON(cfg.StateFile, state)
-				continue
-			}
-			// Log do fingerprint real (string longa)
-			log.Printf("[oceano-analog] DEBUG: fingerprint gerado (len=%d): %s", len(fp), fp)
-
-			h := sha1.Sum([]byte(fp))
-			fpKey := fmt.Sprintf("%x", h[:])
+			// Try all recognizers in order (AcoustID, then Shazam)
 			var found *metadata
-			if entry, ok := cache[fpKey]; ok {
-				if int(now.Unix()-entry.CachedAt) <= cfg.CacheTTLSeconds {
-					m := entry.Metadata
-					found = &m
+			var recogErr error
+			for _, recognizer := range recognizers {
+				found, recogErr = recognizer.Recognize(wav)
+				if recogErr != nil {
+					log.Printf("[recognizer] error: %v", recogErr)
+				}
+				if found != nil {
+					break
 				}
 			}
 
-			if found == nil && cfg.AcoustIDAPIKey != "" {
-				m, err := acoustIDLookup(cfg.AcoustIDAPIKey, fp, duration)
-				if err == nil && m.Confidence >= cfg.ConfidenceThreshold {
-					found = withArtworkURL(m)
-					cache[fpKey] = cacheEntry{CachedAt: time.Now().Unix(), Metadata: *found}
-					saveCache(cfg.CacheFile, cache)
-				} else if err != nil {
-					log.Printf("[oceano-analog] acoustid lookup failed: %v", err)
-				} else {
-					log.Printf("[oceano-analog] acoustid confidence %.3f below threshold %.3f", m.Confidence, cfg.ConfidenceThreshold)
-				}
+			// Cache only AcoustID results (by fingerprint hash)
+			if found != nil {
+				fp, _, _ := fingerprint(wav)
+				h := sha1.Sum([]byte(fp))
+				fpKey := fmt.Sprintf("%x", h[:])
+				cache[fpKey] = cacheEntry{CachedAt: time.Now().Unix(), Metadata: *found}
+				saveCache(cfg.CacheFile, cache)
 			}
 
 			if found != nil {
@@ -783,6 +900,10 @@ func main() {
 				state.Album = found.Album
 				state.ArtworkURL = found.ArtworkURL
 				state.Confidence = found.Confidence
+				// Only set FingerprintID for AcoustID
+				fp, _, _ := fingerprint(wav)
+				h := sha1.Sum([]byte(fp))
+				fpKey := fmt.Sprintf("%x", h[:])
 				state.FingerprintID = &fpKey
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "")
@@ -803,7 +924,7 @@ func main() {
 					os.Stdout.Sync()
 					os.Stderr.Sync()
 				}
-				log.Printf("[oceano-analog] metadata not found for fingerprint %s", fpKey)
+				log.Printf("[oceano-analog] metadata not found for any recognizer")
 				state.Status = "playing"
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "lookup_failed")
