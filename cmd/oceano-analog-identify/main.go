@@ -529,6 +529,7 @@ func setError(state *statePayload, value string) {
 }
 
 func main() {
+
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	cfg := loadConfig()
 	log.Printf("[oceano-analog] config: DebugSaveFailedWAV=%v DebugWAVDir=%q", cfg.DebugSaveFailedWAV, cfg.DebugWAVDir)
@@ -539,11 +540,43 @@ func main() {
 		return
 	}
 
+	// 1. Check if AirPlay is active (by lock file or process)
+	airplayActive := false
+	// Example: check for a lock file or process (customize as needed)
+	if _, err := os.Stat("/run/oceano-player/airplay-active.lock"); err == nil {
+		airplayActive = true
+	}
+	// Optionally, check for process (replace 'shairport-sync' with your AirPlay daemon)
+	// out, _ := runCommand(2*time.Second, "pgrep", "shairport-sync")
+	// if len(out) > 0 { airplayActive = true }
+	if airplayActive {
+		log.Printf("[oceano-analog] AirPlay is active, not starting analog capture.")
+		os.Stdout.Sync()
+		os.Stderr.Sync()
+		return
+	}
+
 	_ = os.MkdirAll(filepath.Dir(cfg.StateFile), 0o755)
 	_ = os.MkdirAll(filepath.Dir(cfg.CacheFile), 0o755)
 	if cfg.DebugSaveFailedWAV {
 		_ = os.MkdirAll(cfg.DebugWAVDir, 0o755)
 		log.Printf("[oceano-analog] ensured debug wav dir exists: %q", cfg.DebugWAVDir)
+	}
+
+	// 2. Wait for actual audio signal before entering main loop
+	log.Printf("[oceano-analog] Waiting for audio signal above threshold %.3f...", cfg.SignalThreshold)
+	for {
+		rms, err := sampleRMS(cfg.Device, 1)
+		if err != nil {
+			log.Printf("[oceano-analog] Error sampling RMS: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		if rms >= cfg.SignalThreshold {
+			log.Printf("[oceano-analog] Detected audio signal (RMS=%.4f), starting recognition loop.", rms)
+			break
+		}
+		time.Sleep(1 * time.Second)
 	}
 
 	state := statePayload{
@@ -751,22 +784,22 @@ func main() {
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "")
 			} else {
-				       if cfg.DebugSaveFailedWAV {
-					       log.Printf("[oceano-analog] DEBUG: about to save failed sample. wav=%q dir=%q", wav, cfg.DebugWAVDir)
-					       os.Stdout.Sync()
-					       os.Stderr.Sync()
-					       if path, saveErr := saveFailedSample(wav, cfg.DebugWAVDir, "lookup_failed"); saveErr == nil {
-						       log.Printf("[oceano-analog] saved failed sample: %s", path)
-					       } else {
-						       log.Printf("[oceano-analog] failed to save debug sample: %v", saveErr)
-					       }
-					       os.Stdout.Sync()
-					       os.Stderr.Sync()
-				       } else {
-					       log.Printf("[oceano-analog] DEBUG: DebugSaveFailedWAV is false, not saving failed sample")
-					       os.Stdout.Sync()
-					       os.Stderr.Sync()
-				       }
+				if cfg.DebugSaveFailedWAV {
+					log.Printf("[oceano-analog] DEBUG: about to save failed sample. wav=%q dir=%q", wav, cfg.DebugWAVDir)
+					os.Stdout.Sync()
+					os.Stderr.Sync()
+					if path, saveErr := saveFailedSample(wav, cfg.DebugWAVDir, "lookup_failed"); saveErr == nil {
+						log.Printf("[oceano-analog] saved failed sample: %s", path)
+					} else {
+						log.Printf("[oceano-analog] failed to save debug sample: %v", saveErr)
+					}
+					os.Stdout.Sync()
+					os.Stderr.Sync()
+				} else {
+					log.Printf("[oceano-analog] DEBUG: DebugSaveFailedWAV is false, not saving failed sample")
+					os.Stdout.Sync()
+					os.Stderr.Sync()
+				}
 				log.Printf("[oceano-analog] metadata not found for fingerprint %s", fpKey)
 				state.Status = "playing"
 				state.UpdatedAt = time.Now().Unix()
