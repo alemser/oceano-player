@@ -55,7 +55,7 @@ type config struct {
 
 type fpcalcResponse struct {
 	Fingerprint string `json:"fingerprint"`
-	Duration    int    `json:"duration"`
+	Duration    float64 `json:"duration"`
 }
 
 type acoustIDResponse struct {
@@ -334,10 +334,11 @@ func fingerprint(wavPath string) (string, int, error) {
 	if unmarshalErr := json.Unmarshal(stdout, &resp); unmarshalErr != nil {
 		return "", 0, unmarshalErr
 	}
-	if strings.TrimSpace(resp.Fingerprint) == "" || resp.Duration <= 0 {
+	duration := int(math.Round(resp.Duration))
+	if strings.TrimSpace(resp.Fingerprint) == "" || duration <= 0 {
 		return "", 0, errors.New("fpcalc returned empty fingerprint")
 	}
-	return resp.Fingerprint, resp.Duration, nil
+	return resp.Fingerprint, duration, nil
 }
 
 func acoustIDLookup(apiKey, fp string, duration int) (*metadata, error) {
