@@ -27,6 +27,8 @@ Rust would also be an excellent choice. Python is fine too, but packaging and lo
 ### What's included today
 
 - `install.sh` / `update.sh`: plug-and-play scripts around system `shairport-sync`
+- `oceano-analog-identify.service`: optional analog input identifier that writes
+  now-playing snapshots to `/run/oceano-player/analog-now-playing.json`
 - (legacy/optional) `cmd/oceano-player`: original wrapper daemon, no longer required for default install
 
 ### Install (on the Pi)
@@ -46,6 +48,7 @@ This configures:
 - AirPlay name: `Triangle AirPlay`
 - USB target match: `M780` (auto-detected from ALSA devices)
 - metadata pipe: `/tmp/shairport-sync-metadata`
+- analog snapshot file: `/run/oceano-player/analog-now-playing.json`
 - persistent user config file: `/opt/oceano-player/config.env`
 
 2. Verify service:
@@ -94,13 +97,28 @@ USB_MATCH="M780"
 ALSA_DEVICE="plughw:CARD=M780,DEV=0"
 PREPLAY_WAIT_SECONDS="8"
 OUTPUT_STRATEGY="loopback"
+ANALOG_INPUT_ENABLED="true"
+ANALOG_INPUT_DEVICE="plughw:CARD=USBADC,DEV=0"
+ANALOG_IDENTIFY_INTERVAL_SECONDS="45"
+ANALOG_METADATA_FILE="/run/oceano-player/analog-now-playing.json"
 ```
 
-Tip: set `ALSA_DEVICE` explicitly for the most stable output.
+Sensitive credentials are stored separately in a root-only profile file:
+
+```bash
+/opt/oceano-player/.oceano-player
+```
+
+This file is loaded by `oceano-analog-identify.service` and created with `0600`
+permissions.
+
+Tip: set `ALSA_DEVICE` explicitly for stable AirPlay output and `ANALOG_INPUT_DEVICE` explicitly for stable analog capture.
 The scripts also auto-set a compatible ALSA `mixer_device` when using `plughw`.
 `PREPLAY_WAIT_SECONDS` lets AirPlay wait briefly for DAC/amp wake-up from standby before playback starts.
 - `OUTPUT_STRATEGY="loopback"` keeps AirPlay connected to a virtual sink while the real DAC is unavailable. When the DAC comes back from standby, a background watchdog automatically reconnects the audio stream. This is the **recommended setting** for equipment with standby modes.
 - `OUTPUT_STRATEGY="direct"` disables loopback bridging and outputs directly to the DAC (no standby resilience).
+- `ANALOG_INPUT_ENABLED="true"` runs analog input identification as a separate source extension.
+- Set the AcoustID key with `--acoustid-api-key` so it is stored in `/opt/oceano-player/.oceano-player`.
 
 ### Clean reinstall
 
@@ -126,6 +144,9 @@ If device detection fails, set values explicitly:
 sudo ./install.sh --airplay-name "Triangle AirPlay" --alsa-device "plughw:CARD=M780,DEV=0"
 sudo ./update.sh --airplay-name "Triangle AirPlay" --alsa-device "plughw:CARD=M780,DEV=0"
 
+# Explicit capture device for analog identification:
+sudo ./update.sh --analog-input-device "plughw:CARD=USBADC,DEV=0"
+
 # Helpful when DAC/amp standby causes first-try connection drop:
 sudo ./update.sh --preplay-wait-seconds 12
 
@@ -134,6 +155,15 @@ sudo ./update.sh --output-strategy loopback
 
 # Disable loopback bridging and output directly to DAC:
 sudo ./update.sh --output-strategy direct
+
+# Disable analog identification service:
+sudo ./update.sh --analog-input-enabled false
+
+# Increase analog fingerprint interval to 90 seconds:
+sudo ./update.sh --analog-identify-interval-seconds 90
+
+# Store/update AcoustID key securely (root-only profile file):
+sudo ./update.sh --acoustid-api-key "0cAcPUvHVU"
 ```
 
 Or keep auto ALSA selection but change match text:
@@ -151,6 +181,34 @@ sudo ./install.sh --usb-match "M780"
   - A companion bridge service (`oceano-airplay-bridge.service`) forwards audio to the real DAC when available
   - A watchdog service (`oceano-bridge-watchdog.service`) monitors the DAC every 10 seconds and automatically restarts the bridge when the DAC comes back from standby
   - This ensures uninterrupted AirPlay playback and automatic audio re-routing when equipment wakes up
+
+### Analog metadata snapshot
+
+When enabled, `oceano-analog-identify.service` (Go binary) captures USB analog input,
+attempts song recognition with `fpcalc` + AcoustID, and writes the latest state
+to:
+
+```text
+/run/oceano-player/analog-now-playing.json
+```
+
+The snapshot is atomically replaced and intended for external consumers such as
+`oceano-now-playing` configured with `MEDIA_PLAYER=analog_file`.
+
+### Fingerprint test (AcoustID)
+
+You can validate lookup immediately using the official AcoustID example
+fingerprint (M83 sample):
+
+```bash
+curl -G "https://api.acoustid.org/v2/lookup" \
+  --data-urlencode "client=0cAcPUvHVU" \
+  --data-urlencode "meta=recordings+releasegroups+releases" \
+  --data-urlencode "duration=641" \
+  --data-urlencode "fingerprint=AQABz0qUkZK4oOfhL-CPc4e5C_wW2H2QH9uDL4cvoT8UNQ-eHtsE8cceeFJx-LiiHT-aPzhxoc-Opj_eI5d2hOFyMJRzfDk-QSsu7fBxqZDMHcfxPfDIoPWxv9C1o3yg44d_3Df2GJaUQeeR-cb2HfaPNsdxHj2PJnpwPMN3aPcEMzd-_MeB_Ej4D_CLP8ghHjkJv_jh_UDuQ8xnILwunPg6hF2R8HgzvLhxHVYP_ziJX0eKPnIE1UePMByDJyg7wz_6yELsB8n4oDmDa0Gv40hf6D3CE3_wH6HFaxCPUD9-hNeF5MfWEP3SCGym4-SxnXiGs0mRjEXD6fgl4LmKWrSChzzC33ge9PB3otyJMk-IVC6R8MTNwD9qKQ_CC8kPv4THzEGZS8GPI3x0iGVUxC1hRSizC5VzoamYDi-uR7iKPhGSI82PkiWeB_eHijvsaIWfBCWH5AjjCfVxZ1TQ3CvCTclGnEMfHbnZFA8pjD6KXwd__Cn-Y8e_I9cq6CR-4S9KLXqQcsxxoWh3eMxiHI6TIzyPv0M43YHz4yte-Cv-4D16Hv9F9C9SPUdyGtZRHV-OHEeeGD--BKcjVLOK_NCDXMfx44dzHEiOZ0Z44Rf6DH5R3uiPj4d_PKolJNyRJzyu4_CTD2WOvzjKH9GPb4cUP1Av9EuQd8fGCFee4JlRHi18xQh96NLxkCgfWFKOH6WGeoe4I3za4c5hTscTPEZTES1x8kE-9MQPjT8a8gh5fPgQZtqCFj9MDvp6fDx6NCd07bjx7MLR9AhtnFnQ70GjOcV0opmm4zpY3SOa7HiwdTtyHa6NC4e-HN-OfC5-OP_gLe2QDxfUCz_0w9l65HiPAz9-IaGOUA7-4MZ5CWFOlIfe4yUa6AiZGxf6w0fFxsjTOdC6Itbh4mGD63iPH9-RFy909XAMj7mC5_BvlDyO6kGTZKJxHUd4NDwuZUffw_5RMsde5CWkJAgXnDReNEaP6DTOQ65yaD88HoeX8fge-DSeHo9Qa8cTHc80I-_RoHxx_UHeBxrJw62Q34Kd7MEfpCcu6BLeB1ePw6OO4sOF_sHhmB504WWDZiEu8sKPpkcfCT9xfej0o0lr4T5yNJeOvjmu40w-TDmqHXmYgfFhFy_M7tD1o0cO_B2ms2j-ACEEQgQgAIwzTgAGmBIKIImNQAABwgQATAlhDGCCEIGIIM4BaBgwQBogEBIOESEIA8ARI5xAhxEFmAGAMCKAURKQQpQzRAAkCCBQEAKkQYIYIQQxCixCDADCABMAE0gpJIgyxhEDiCKCCIGAEIgJIQByAhFgGACCACMRQEyBAoxQiHiCBCFOECQFAIgAABR2QAgFjCDMA0AUMIoAIMChQghChASGEGeYEAIAIhgBSErnJPPEGWYAMgw05AhiiGHiBBBGGSCQcQgwRYJwhDDhgCSCSSEIQYwILoyAjAIigBFEUQK8gAYAQ5BCAAjkjCCAEEMZAUQAZQCjCCkpCgFMCCiIcVIAZZgilAQAiSHQECOcQAQIc4QClAHAjDDGkAGAMUoBgyhihgEChFCAAWEIEYwIJYwViAAlHCBIGEIEAEIQAoBwwgwiEBAEEEOoEwBY4wRwxAhBgAcKAESIQAwwIowRFhoBhAE"
+```
+
+Expected outcome includes `"status":"ok"` and M83 recording metadata.
 
 ### Developer checks
 

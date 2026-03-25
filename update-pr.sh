@@ -28,6 +28,11 @@ Options:
   --alsa-device <device>          Passed to update.sh
   --preplay-wait-seconds <0-60>   Passed to update.sh
   --output-strategy <mode>        Passed to update.sh (direct|loopback)
+  --analog-input-enabled <bool>   Passed to update.sh (true|false)
+  --analog-identify-interval-seconds <sec>
+                                   Passed to update.sh (20-3600)
+  --analog-input-device <device>  Passed to update.sh (capture device override)
+  --acoustid-api-key <key>        Passed to update.sh (stored in secrets file)
   -h, --help                      Show this help
 
 Examples:
@@ -59,7 +64,7 @@ main() {
         remote="${2:-}"
         shift 2
         ;;
-      --airplay-name|--usb-match|--alsa-device|--preplay-wait-seconds|--output-strategy)
+      --airplay-name|--usb-match|--alsa-device|--preplay-wait-seconds|--output-strategy|--analog-input-enabled|--analog-identify-interval-seconds|--analog-input-device|--acoustid-api-key)
         update_args+=("$1" "${2:-}")
         shift 2
         ;;
@@ -117,6 +122,7 @@ main() {
   echo "Done. Service quick checks:"
   systemctl --no-pager --full status shairport-sync.service | head -n 12 || true
   systemctl --no-pager --full status oceano-airplay-bridge.service | head -n 12 || true
+  systemctl --no-pager --full status oceano-analog-identify.service | head -n 12 || true
   echo
   echo "Recent logs (last 20 lines):"
   journalctl -u shairport-sync.service -n 20 --no-pager || true
