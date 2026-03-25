@@ -1,3 +1,10 @@
+# Set default microphone capture level if possible
+if command -v amixer >/dev/null 2>&1; then
+  if amixer -c Microphone scontrols | grep -q "Mic"; then
+    echo "Setting Mic gain to 4 (no clipping, Magnat)..."
+    amixer -c Microphone sset 'Mic' 4 || true
+  fi
+fi
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -8,6 +15,8 @@ DEFAULT_AIRPLAY_NAME="Triangle AirPlay"
 DEFAULT_USB_MATCH="M780"
 DEFAULT_PREPLAY_WAIT_SECONDS="8"
 DEFAULT_OUTPUT_STRATEGY="loopback"
+DEFAULT_ANALOG_INPUT_ENABLED="true"
+DEFAULT_ANALOG_IDENTIFY_INTERVAL_SECONDS="45"
 SHAIRPORT_CONF="/etc/shairport-sync.conf"
 PREPLAY_WAIT_SCRIPT="/usr/local/bin/oceano-airplay-preplay-wait.sh"
 BRIDGE_SCRIPT="/usr/local/bin/oceano-airplay-bridge.sh"
@@ -15,6 +24,9 @@ BRIDGE_SERVICE="/etc/systemd/system/oceano-airplay-bridge.service"
 BRIDGE_WATCHDOG_SCRIPT="/usr/local/bin/oceano-bridge-watchdog.sh"
 BRIDGE_WATCHDOG_SERVICE="/etc/systemd/system/oceano-bridge-watchdog.service"
 MODULES_LOAD_FILE="/etc/modules-load.d/oceano-player.conf"
+ANALOG_SERVICE="/etc/systemd/system/oceano-analog-identify.service"
+ANALOG_BINARY="/usr/local/bin/oceano-analog-identify"
+SECRETS_FILE="/opt/oceano-player/.oceano-player"
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -65,12 +77,51 @@ detect_alsa_device() {
   return 1
 }
 
+detect_capture_device() {
+  local match="$1"
+  local ar_out card_id
+
+  # Prefer stable ALSA card identifiers from `arecord -L`, e.g.:
+  # plughw:CARD=USBADC,DEV=0
+  ar_out="$(arecord -L 2>/dev/null)"
+  card_id="$(
+    awk -v m="$match" '
+      BEGIN { IGNORECASE=1; dev="" }
+      /^[^[:space:]].*/ { dev=$0; next }
+      /^[[:space:]]+/ {
+        if (dev ~ /^plughw:CARD=/ && index(tolower($0), tolower(m))) {
+          sub(/^plughw:CARD=/, "", dev)
+          sub(/,DEV=.*/, "", dev)
+          print dev
+          exit
+        }
+      }
+    ' <<<"$ar_out"
+  )"
+  if [[ -n "$card_id" ]]; then
+    echo "plughw:CARD=${card_id},DEV=0"
+    return 0
+  fi
+
+  # Fallback to `arecord -l` numeric card/device index.
+  local line card device
+  line="$(arecord -l 2>/dev/null | awk -v m="$match" 'BEGIN{IGNORECASE=1} /card [0-9]+:.*device [0-9]+:/ && index(tolower($0), tolower(m)) {print; exit}')"
+  if [[ -n "$line" ]]; then
+    card="$(sed -E 's/.*card ([0-9]+):.*/\1/' <<<"$line")"
+    device="$(sed -E 's/.*device ([0-9]+):.*/\1/' <<<"$line")"
+    echo "plughw:${card},${device}"
+    return 0
+  fi
+
+  return 1
+}
+
 write_shairport_config() {
   local airplay_name="$1"
   local alsa_device="$2"
   local preplay_wait_seconds="$3"
   local output_strategy="$4"
-  local mixer_device="none"
+  local mixer_device="default"
   local shairport_output_device="${alsa_device}"
 
   if [[ "${output_strategy}" == "loopback" ]]; then
@@ -78,14 +129,6 @@ write_shairport_config() {
     # "Channels count not available" depending on negotiated stream params.
     shairport_output_device="plughw:CARD=Loopback,DEV=0"
     mixer_device="hw:CARD=Loopback"
-  else
-    # Some shairport-sync builds still probe an ALSA control device even when
-    # mixer control is disabled. For plughw outputs, force a hw ctl path.
-    if [[ "${alsa_device}" =~ ^plughw:CARD=([^,]+),DEV=([0-9]+)$ ]]; then
-      mixer_device="hw:CARD=${BASH_REMATCH[1]}"
-    elif [[ "${alsa_device}" =~ ^plughw:([0-9]+),([0-9]+)$ ]]; then
-      mixer_device="hw:${BASH_REMATCH[1]}"
-    fi
   fi
 
   if [[ -f "${SHAIRPORT_CONF}" && ! -f "${SHAIRPORT_CONF}.oceano.bak" ]]; then
@@ -123,7 +166,7 @@ metadata =
 sessioncontrol =
 {
   wait_for_completion = "yes";
-  run_this_before_play_begins = "${PREPLAY_WAIT_SCRIPT} \"${shairport_output_device}\" ${preplay_wait_seconds}";
+  run_this_before_play_begins = "${PREPLAY_WAIT_SCRIPT} ${shairport_output_device} ${preplay_wait_seconds}";
 };
 EOF
 }
@@ -294,6 +337,64 @@ disable_loopback_mode() {
   systemctl reset-failed oceano-bridge-watchdog.service >/dev/null 2>&1 || true
 }
 
+write_analog_service() {
+  cat > "${ANALOG_SERVICE}" <<EOF
+[Unit]
+Description=Oceano Analog Input Identifier
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${ANALOG_BINARY}
+EnvironmentFile=${CONFIG_FILE}
+EnvironmentFile=-${SECRETS_FILE}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+write_secrets_file() {
+  local acoustid_api_key="$1"
+
+  if [[ -z "${acoustid_api_key}" ]]; then
+    rm -f "${SECRETS_FILE}"
+    return 0
+  fi
+
+  cat > "${SECRETS_FILE}" <<EOF
+ACOUSTID_API_KEY="${acoustid_api_key}"
+EOF
+  chmod 0600 "${SECRETS_FILE}"
+}
+
+build_analog_binary() {
+  echo "Building analog identifier binary..."
+  (
+    cd "${SRC_DIR}"
+    go build -o "${ANALOG_BINARY}" ./cmd/oceano-analog-identify
+  )
+  chmod 0755 "${ANALOG_BINARY}"
+}
+
+enable_analog_service() {
+  local analog_enabled="$1"
+
+  if [[ "${analog_enabled}" == "true" ]]; then
+    build_analog_binary
+    write_analog_service
+    systemctl daemon-reload
+    systemctl enable oceano-analog-identify.service
+    systemctl restart oceano-analog-identify.service
+  else
+    systemctl disable --now oceano-analog-identify.service >/dev/null 2>&1 || true
+    systemctl reset-failed oceano-analog-identify.service >/dev/null 2>&1 || true
+  fi
+}
+
 main() {
   if ! is_root; then
     echo "Please run as root (use sudo): sudo ./update.sh" >&2
@@ -310,12 +411,20 @@ main() {
   local usb_match="${DEFAULT_USB_MATCH}"
   local preplay_wait_seconds="${DEFAULT_PREPLAY_WAIT_SECONDS}"
   local output_strategy="${DEFAULT_OUTPUT_STRATEGY}"
+  local analog_input_enabled="${DEFAULT_ANALOG_INPUT_ENABLED}"
+  local analog_identify_interval_seconds="${DEFAULT_ANALOG_IDENTIFY_INTERVAL_SECONDS}"
+  local acoustid_api_key=""
   local alsa_device=""
+  local analog_input_device=""
   local airplay_name_set=0
   local usb_match_set=0
   local alsa_device_set=0
   local preplay_wait_seconds_set=0
   local output_strategy_set=0
+  local analog_input_enabled_set=0
+  local analog_identify_interval_seconds_set=0
+  local acoustid_api_key_set=0
+  local analog_input_device_set=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -344,8 +453,28 @@ main() {
         output_strategy_set=1
         shift 2
         ;;
+      --analog-input-enabled)
+        analog_input_enabled="${2:-}"
+        analog_input_enabled_set=1
+        shift 2
+        ;;
+      --analog-identify-interval-seconds)
+        analog_identify_interval_seconds="${2:-}"
+        analog_identify_interval_seconds_set=1
+        shift 2
+        ;;
+      --analog-input-device)
+        analog_input_device="${2:-}"
+        analog_input_device_set=1
+        shift 2
+        ;;
+      --acoustid-api-key)
+        acoustid_api_key="${2:-}"
+        acoustid_api_key_set=1
+        shift 2
+        ;;
       -h|--help)
-        echo "Usage: sudo ./update.sh [--airplay-name <name>] [--usb-match <text>] [--alsa-device <plughw:CARD=...,DEV=0|hw:x,y>] [--preplay-wait-seconds <0-60>] [--output-strategy <direct|loopback>]" >&2
+        echo "Usage: sudo ./update.sh [--airplay-name <name>] [--usb-match <text>] [--alsa-device <plughw:CARD=...,DEV=0|hw:x,y>] [--preplay-wait-seconds <0-60>] [--output-strategy <direct|loopback>] [--analog-input-enabled <true|false>] [--analog-identify-interval-seconds <20-3600>] [--analog-input-device <device>] [--acoustid-api-key <key>]" >&2
         exit 0
         ;;
       *)
@@ -379,6 +508,21 @@ main() {
     if [[ "${output_strategy_set}" -eq 0 && -n "${OUTPUT_STRATEGY:-}" ]]; then
       output_strategy="${OUTPUT_STRATEGY}"
     fi
+    if [[ "${analog_input_enabled_set}" -eq 0 && -n "${ANALOG_INPUT_ENABLED:-}" ]]; then
+      analog_input_enabled="${ANALOG_INPUT_ENABLED}"
+    fi
+    if [[ "${analog_identify_interval_seconds_set}" -eq 0 && -n "${ANALOG_IDENTIFY_INTERVAL_SECONDS:-}" ]]; then
+      analog_identify_interval_seconds="${ANALOG_IDENTIFY_INTERVAL_SECONDS}"
+    fi
+    if [[ "${analog_input_device_set}" -eq 0 && -n "${ANALOG_INPUT_DEVICE:-}" ]]; then
+      analog_input_device="${ANALOG_INPUT_DEVICE}"
+    fi
+  fi
+
+  if [[ "${acoustid_api_key_set}" -eq 0 && -f "${SECRETS_FILE}" ]]; then
+    # shellcheck source=/dev/null
+    source "${SECRETS_FILE}"
+    acoustid_api_key="${ACOUSTID_API_KEY:-}"
   fi
 
   if ! [[ "${preplay_wait_seconds}" =~ ^[0-9]+$ ]] || (( preplay_wait_seconds < 0 || preplay_wait_seconds > 60 )); then
@@ -391,17 +535,48 @@ main() {
     exit 1
   fi
 
+  if [[ "${analog_input_enabled}" != "true" && "${analog_input_enabled}" != "false" ]]; then
+    echo "--analog-input-enabled must be true or false" >&2
+    exit 1
+  fi
+
+  if [[ "${analog_input_enabled}" == "true" ]]; then
+    require_cmd arecord
+    require_cmd go
+    require_cmd fpcalc
+  fi
+
+  if ! [[ "${analog_identify_interval_seconds}" =~ ^[0-9]+$ ]] || (( analog_identify_interval_seconds < 20 || analog_identify_interval_seconds > 3600 )); then
+    echo "--analog-identify-interval-seconds must be an integer between 20 and 3600" >&2
+    exit 1
+  fi
+
   echo "Updating source in ${SRC_DIR}..."
   git -C "${SRC_DIR}" pull --ff-only
 
   if [[ -z "${alsa_device}" ]]; then
     if alsa_device="$(detect_alsa_device "${usb_match}")"; then
-      echo "Detected USB audio device '${usb_match}' as ${alsa_device}"
+      echo "Detected USB playback device '${usb_match}' as ${alsa_device}"
     else
-      echo "Could not auto-detect USB device matching '${usb_match}'." >&2
+      echo "Could not auto-detect USB playback device matching '${usb_match}'." >&2
       echo "Set explicitly with: --alsa-device 'plughw:CARD=M780,DEV=0'" >&2
       exit 1
     fi
+  fi
+
+  if [[ "${analog_input_enabled}" == "true" && -z "${analog_input_device}" ]]; then
+    if analog_input_device="$(detect_capture_device "${usb_match}")"; then
+      echo "Detected USB capture device '${usb_match}' as ${analog_input_device}"
+    else
+      analog_input_device="${alsa_device}"
+      echo "Warning: could not auto-detect USB capture device; falling back to ${analog_input_device}" >&2
+      echo "Set explicitly with: --analog-input-device 'plughw:CARD=<capture_card>,DEV=0'" >&2
+    fi
+  fi
+
+  if [[ "${analog_input_enabled}" == "true" && "${analog_input_device}" == "${alsa_device}" ]]; then
+    echo "Warning: analog input device equals AirPlay output device (${alsa_device})." >&2
+    echo "If capture fails or conflicts, set --analog-input-device explicitly." >&2
   fi
 
   echo "Applying shairport-sync config..."
@@ -418,7 +593,24 @@ USB_MATCH="${usb_match}"
 ALSA_DEVICE="${alsa_device}"
 PREPLAY_WAIT_SECONDS="${preplay_wait_seconds}"
 OUTPUT_STRATEGY="${output_strategy}"
+ANALOG_INPUT_ENABLED="${analog_input_enabled}"
+ANALOG_INPUT_DEVICE="${analog_input_device}"
+ANALOG_METADATA_FILE="/run/oceano-player/analog-now-playing.json"
+ANALOG_CACHE_FILE="/var/lib/oceano-player/analog-cache.json"
+ANALOG_INPUT_THRESHOLD="0.01"
+ANALOG_SILENCE_SECONDS="6"
+ANALOG_CAPTURE_SECONDS="20"
+ANALOG_IDENTIFY_INTERVAL_SECONDS="${analog_identify_interval_seconds:-45}"
+ANALOG_CONFIDENCE_THRESHOLD="0.5"
+ANALOG_CACHE_TTL_SECONDS="86400"
+ANALOG_DEBUG_SAVE_FAILED_WAV="true"
+ANALOG_DEBUG_WAV_DIR="/var/lib/oceano-player/debug-wav"
 EOF
+
+  write_secrets_file "${acoustid_api_key}"
+
+  mkdir -p /run/oceano-player /var/lib/oceano-player
+  enable_analog_service "${analog_input_enabled}"
 
   # Ensure only one owner of AirPlay service.
   systemctl disable --now oceano-player.service >/dev/null 2>&1 || true
@@ -432,10 +624,14 @@ EOF
   echo "- Service status: systemctl status shairport-sync.service"
   echo "- Logs: journalctl -u shairport-sync.service -f"
   echo "- AirPlay name: ${airplay_name}"
-  echo "- ALSA device: ${alsa_device}"
+  echo "- AirPlay ALSA output device: ${alsa_device}"
+  echo "- Analog ALSA input device: ${analog_input_device}"
   echo "- Standby wake wait: ${preplay_wait_seconds}s"
   echo "- Output strategy: ${output_strategy}"
   echo "- Metadata pipe for now-playing: /tmp/shairport-sync-metadata"
+  echo "- Analog metadata snapshot: /run/oceano-player/analog-now-playing.json"
+  echo "- Analog input service: oceano-analog-identify.service (${analog_input_enabled})"
+  echo "- Secrets file (AcoustID key): ${SECRETS_FILE}"
   echo "- Saved config: ${CONFIG_FILE}"
 }
 
