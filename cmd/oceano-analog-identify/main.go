@@ -751,22 +751,22 @@ func main() {
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "")
 			} else {
-				    //    if cfg.DebugSaveFailedWAV {
-					    //    log.Printf("[oceano-analog] DEBUG: about to save failed sample. wav=%q dir=%q", wav, cfg.DebugWAVDir)
-					    //    os.Stdout.Sync()
-					    //    os.Stderr.Sync()
-					    //    if path, saveErr := saveFailedSample(wav, cfg.DebugWAVDir, "lookup_failed"); saveErr == nil {
-						//        log.Printf("[oceano-analog] saved failed sample: %s", path)
-					    //    } else {
-						//        log.Printf("[oceano-analog] failed to save debug sample: %v", saveErr)
-					    //    }
-					    //    os.Stdout.Sync()
-					    //    os.Stderr.Sync()
-				    //    } else {
-					//        log.Printf("[oceano-analog] DEBUG: DebugSaveFailedWAV is false, not saving failed sample")
-					//        os.Stdout.Sync()
-					//        os.Stderr.Sync()
-				    //    }
+				       if cfg.DebugSaveFailedWAV {
+					       log.Printf("[oceano-analog] DEBUG: about to save failed sample. wav=%q dir=%q", wav, cfg.DebugWAVDir)
+					       os.Stdout.Sync()
+					       os.Stderr.Sync()
+					       if path, saveErr := saveFailedSample(wav, cfg.DebugWAVDir, "lookup_failed"); saveErr == nil {
+						       log.Printf("[oceano-analog] saved failed sample: %s", path)
+					       } else {
+						       log.Printf("[oceano-analog] failed to save debug sample: %v", saveErr)
+					       }
+					       os.Stdout.Sync()
+					       os.Stderr.Sync()
+				       } else {
+					       log.Printf("[oceano-analog] DEBUG: DebugSaveFailedWAV is false, not saving failed sample")
+					       os.Stdout.Sync()
+					       os.Stderr.Sync()
+				       }
 				log.Printf("[oceano-analog] metadata not found for fingerprint %s", fpKey)
 				state.Status = "playing"
 				state.UpdatedAt = time.Now().Unix()

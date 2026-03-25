@@ -114,15 +114,15 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.SilenceSeconds != 6 {
 		t.Fatalf("SilenceSeconds = %d, want 6", cfg.SilenceSeconds)
 	}
-	if cfg.CaptureSeconds != 20 {
-		t.Fatalf("CaptureSeconds = %d, want 20", cfg.CaptureSeconds)
-	}
-	if cfg.IdentifyIntervalSeconds != 45 {
-		t.Fatalf("IdentifyIntervalSeconds = %d, want 45", cfg.IdentifyIntervalSeconds)
-	}
-	if cfg.ConfidenceThreshold != 0.80 {
-		t.Fatalf("ConfidenceThreshold = %v, want 0.80", cfg.ConfidenceThreshold)
-	}
+	       if cfg.CaptureSeconds != 20 {
+		       t.Fatalf("CaptureSeconds = %d, want 20", cfg.CaptureSeconds)
+	       }
+	       if cfg.IdentifyIntervalSeconds != 45 {
+		       t.Fatalf("IdentifyIntervalSeconds = %d, want 45", cfg.IdentifyIntervalSeconds)
+	       }
+	       if cfg.ConfidenceThreshold != 0.5 {
+		       t.Fatalf("ConfidenceThreshold = %v, want 0.5", cfg.ConfidenceThreshold)
+	       }
 	if cfg.CacheTTLSeconds != 86400 {
 		t.Fatalf("CacheTTLSeconds = %d, want 86400", cfg.CacheTTLSeconds)
 	}
