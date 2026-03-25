@@ -44,6 +44,8 @@ type config struct {
 	Device                  string
 	StateFile               string
 	CacheFile               string
+	DebugSaveFailedWAV      bool
+	DebugWAVDir             string
 	SignalThreshold         float64
 	SilenceSeconds          int
 	CaptureSeconds          int
@@ -141,6 +143,8 @@ func loadConfig() config {
 		Device:                  firstNonEmpty(os.Getenv("ANALOG_INPUT_DEVICE"), os.Getenv("ALSA_DEVICE"), "hw:1,0"),
 		StateFile:               firstNonEmpty(os.Getenv("ANALOG_METADATA_FILE"), "/run/oceano-player/analog-now-playing.json"),
 		CacheFile:               firstNonEmpty(os.Getenv("ANALOG_CACHE_FILE"), "/var/lib/oceano-player/analog-cache.json"),
+		DebugSaveFailedWAV:      envBool("ANALOG_DEBUG_SAVE_FAILED_WAV", false),
+		DebugWAVDir:             firstNonEmpty(os.Getenv("ANALOG_DEBUG_WAV_DIR"), "/var/lib/oceano-player/debug-wav"),
 		SignalThreshold:         envFloat("ANALOG_INPUT_THRESHOLD", 0.01),
 		SilenceSeconds:          envInt("ANALOG_SILENCE_SECONDS", 6),
 		CaptureSeconds:          captureSeconds,
@@ -325,6 +329,43 @@ func captureWAV(device string, channels int, seconds int, dst string) error {
 	return nil
 }
 
+func saveFailedSample(srcPath, dstDir, reason string) (string, error) {
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return "", err
+	}
+	in, err := os.Open(srcPath)
+	if err != nil {
+		return "", err
+	}
+	defer in.Close()
+
+	safeReason := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, reason)
+	if safeReason == "" {
+		safeReason = "unknown"
+	}
+
+	name := fmt.Sprintf("%s_%s.wav", time.Now().Format("20060102-150405"), safeReason)
+	dstPath := filepath.Join(dstDir, name)
+	out, err := os.Create(dstPath)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return "", err
+	}
+	if err := out.Sync(); err != nil {
+		return "", err
+	}
+	return dstPath, nil
+}
+
 func fingerprint(wavPath string) (string, int, error) {
 	stdout, stderr, err := runCommand(20*time.Second, "fpcalc", "-json", wavPath)
 	if err != nil {
@@ -492,6 +533,9 @@ func main() {
 
 	_ = os.MkdirAll(filepath.Dir(cfg.StateFile), 0o755)
 	_ = os.MkdirAll(filepath.Dir(cfg.CacheFile), 0o755)
+	if cfg.DebugSaveFailedWAV {
+		_ = os.MkdirAll(cfg.DebugWAVDir, 0o755)
+	}
 
 	state := statePayload{
 		Source:         "analog",
@@ -647,8 +691,15 @@ func main() {
 				continue
 			}
 			fp, duration, err := fingerprint(wav)
-			_ = os.RemoveAll(tmpDir)
 			if err != nil {
+				if cfg.DebugSaveFailedWAV {
+					if path, saveErr := saveFailedSample(wav, cfg.DebugWAVDir, "fingerprint_failed"); saveErr == nil {
+						log.Printf("[oceano-analog] saved failed sample: %s", path)
+					} else {
+						log.Printf("[oceano-analog] failed to save debug sample: %v", saveErr)
+					}
+				}
+				_ = os.RemoveAll(tmpDir)
 				log.Printf("[oceano-analog] fingerprint generation failed: %v", err)
 				state.Status = "playing"
 				state.UpdatedAt = time.Now().Unix()
@@ -691,12 +742,20 @@ func main() {
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "")
 			} else {
+				if cfg.DebugSaveFailedWAV {
+					if path, saveErr := saveFailedSample(wav, cfg.DebugWAVDir, "lookup_failed"); saveErr == nil {
+						log.Printf("[oceano-analog] saved failed sample: %s", path)
+					} else {
+						log.Printf("[oceano-analog] failed to save debug sample: %v", saveErr)
+					}
+				}
 				log.Printf("[oceano-analog] metadata not found for fingerprint %s", fpKey)
 				state.Status = "playing"
 				state.UpdatedAt = time.Now().Unix()
 				setError(&state, "lookup_failed")
 			}
 			_ = atomicWriteJSON(cfg.StateFile, state)
+			_ = os.RemoveAll(tmpDir)
 		}
 	}
 }

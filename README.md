@@ -112,6 +112,8 @@ ANALOG_INPUT_ENABLED="true"
 ANALOG_INPUT_DEVICE="plughw:CARD=USBADC,DEV=0"
 ANALOG_IDENTIFY_INTERVAL_SECONDS="45"
 ANALOG_METADATA_FILE="/run/oceano-player/analog-now-playing.json"
+ANALOG_DEBUG_SAVE_FAILED_WAV="false"
+ANALOG_DEBUG_WAV_DIR="/var/lib/oceano-player/debug-wav"
 ```
 
 Sensitive credentials are stored separately in a root-only profile file:
@@ -129,6 +131,8 @@ The scripts also auto-set a compatible ALSA `mixer_device` when using `plughw`.
 - `OUTPUT_STRATEGY="loopback"` keeps AirPlay connected to a virtual sink while the real DAC is unavailable. When the DAC comes back from standby, a background watchdog automatically reconnects the audio stream. This is the **recommended setting** for equipment with standby modes.
 - `OUTPUT_STRATEGY="direct"` disables loopback bridging and outputs directly to the DAC (no standby resilience). On some ALSA builds/devices this may be less tolerant than loopback mode.
 - `ANALOG_INPUT_ENABLED="true"` runs analog input identification as a separate source extension.
+- `ANALOG_DEBUG_SAVE_FAILED_WAV="true"` keeps captured WAV files when fingerprint/lookup fails (for debugging).
+- `ANALOG_DEBUG_WAV_DIR` controls where those WAV files are stored.
 - Set the AcoustID key with `--acoustid-api-key` so it is stored in `/opt/oceano-player/.oceano-player`.
 
 ### Clean reinstall
@@ -291,6 +295,28 @@ Expected format:
 
 ```text
 run_this_before_play_begins = "/usr/local/bin/oceano-airplay-preplay-wait.sh plughw:CARD=M780,DEV=0 0";
+```
+
+8. Analog capture works but metadata stays `lookup_failed`
+
+Enable debug WAV dump, then copy samples to your laptop and listen:
+
+```bash
+sudo sed -i 's/^ANALOG_DEBUG_SAVE_FAILED_WAV=.*/ANALOG_DEBUG_SAVE_FAILED_WAV="true"/' /opt/oceano-player/config.env
+sudo sed -i 's|^ANALOG_DEBUG_WAV_DIR=.*|ANALOG_DEBUG_WAV_DIR="/var/lib/oceano-player/debug-wav"|' /opt/oceano-player/config.env
+sudo systemctl restart oceano-analog-identify.service
+```
+
+When failures occur, service logs include lines like:
+
+```text
+[oceano-analog] saved failed sample: /var/lib/oceano-player/debug-wav/20260325-181650_lookup_failed.wav
+```
+
+Copy to your laptop:
+
+```bash
+scp root@player:/var/lib/oceano-player/debug-wav/*.wav ~/Downloads/
 ```
 
 ### Analog metadata snapshot
