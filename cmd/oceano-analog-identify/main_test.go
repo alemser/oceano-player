@@ -114,8 +114,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.SilenceSeconds != 6 {
 		t.Fatalf("SilenceSeconds = %d, want 6", cfg.SilenceSeconds)
 	}
-	if cfg.CaptureSeconds != 12 {
-		t.Fatalf("CaptureSeconds = %d, want 12", cfg.CaptureSeconds)
+	if cfg.CaptureSeconds != 20 {
+		t.Fatalf("CaptureSeconds = %d, want 20", cfg.CaptureSeconds)
 	}
 	if cfg.IdentifyIntervalSeconds != 45 {
 		t.Fatalf("IdentifyIntervalSeconds = %d, want 45", cfg.IdentifyIntervalSeconds)
