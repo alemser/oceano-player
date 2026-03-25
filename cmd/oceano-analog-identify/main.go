@@ -35,106 +35,89 @@ type ShazamRapidAPIRecognizer struct {
 }
 
 func (s *ShazamRapidAPIRecognizer) Recognize(wavPath string) (*metadata, error) {
-	// Read WAV file and extract raw PCM data
-	f, err := os.Open(wavPath)
-	if err != nil {
-		return nil, fmt.Errorf("Shazam: failed to open wav: %w", err)
-	}
-	defer f.Close()
-
-	// Skip WAV header (44 bytes)
-	if _, err := f.Seek(44, io.SeekStart); err != nil {
-		return nil, fmt.Errorf("Shazam: failed to seek wav header: %w", err)
-	}
-	pcm, err := io.ReadAll(f)
-	if err != nil {
-		return nil, fmt.Errorf("Shazam: failed to read PCM: %w", err)
-	}
-	if len(pcm) == 0 {
-		return nil, fmt.Errorf("Shazam: empty PCM data")
-	}
-
-	// Encode PCM to base64
-	b64 := encodeBase64(pcm)
-
-	// Prepare HTTP request
-	req, err := http.NewRequest("POST", "https://shazam.p.rapidapi.com/songs/v2/detect", strings.NewReader(b64))
-	if err != nil {
-		return nil, fmt.Errorf("Shazam: failed to create request: %w", err)
-	}
-	req.Header.Set("content-type", "text/plain")
-	req.Header.Set("x-rapidapi-host", "shazam.p.rapidapi.com")
-	req.Header.Set("x-rapidapi-key", s.ApiKey)
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("Shazam: request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("Shazam: failed to read response: %w", err)
-	}
-	log.Printf("[recognizer] Shazam: response: %s", string(body))
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Shazam: status %d", resp.StatusCode)
-	}
-
-	// Parse Shazam response (extract first match if available)
-	var shazamResp struct {
-		Track struct {
-			Title  string `json:"title"`
-			Subtitle string `json:"subtitle"`
-			Sections []struct {
-				Metadata []struct {
-					Title string `json:"title"`
-					Text  string `json:"text"`
-				} `json:"metadata"`
-			} `json:"sections"`
-			Images struct {
-				CoverArt string `json:"coverart"`
-			} `json:"images"`
-		} `json:"track"`
-	}
-	if err := json.Unmarshal(body, &shazamResp); err != nil {
-		return nil, fmt.Errorf("Shazam: failed to parse response: %w", err)
-	}
-	if shazamResp.Track.Title == "" && shazamResp.Track.Subtitle == "" {
-		return nil, nil // No match
-	}
-	m := &metadata{
-		Title:  shazamResp.Track.Title,
-		Artist: shazamResp.Track.Subtitle,
-		Album:  "Unknown",
-		Confidence: 1.0,
-	}
-	if shazamResp.Track.Images.CoverArt != "" {
-		m.ArtworkURL = &shazamResp.Track.Images.CoverArt
-	}
-	// Try to extract album from metadata section
-	for _, section := range shazamResp.Track.Sections {
-		for _, meta := range section.Metadata {
-			if strings.ToLower(meta.Title) == "album" {
-				m.Album = meta.Text
-			}
-		}
-	}
-	return m, nil
+    // Converte o WAV gravado para o formato que o Shazam ama: 44100Hz, Mono, PCM s16le
+    // Isso reduz o tamanho do upload e aumenta drasticamente a precisão
+    cmd := exec.Command("ffmpeg", "-i", wavPath, "-f", "s16le", "-ac", "1", "-ar", "44100", "pipe:1")
+    pcm, err := cmd.Output()
+    if err != nil {
+        return nil, fmt.Errorf("Shazam: ffmpeg conversion failed: %w", err)
+    }
+    if len(pcm) == 0 {
+        return nil, fmt.Errorf("Shazam: empty PCM data after conversion")
+    }
+    // Encode PCM para base64 real
+    b64 := base64.StdEncoding.EncodeToString(pcm)
+    req, err := http.NewRequest("POST", "https://shazam.p.rapidapi.com/songs/v2/detect", strings.NewReader(b64))
+    if err != nil {
+        return nil, fmt.Errorf("Shazam: failed to create request: %w", err)
+    }
+    req.Header.Set("content-type", "text/plain")
+    req.Header.Set("x-rapidapi-host", "shazam.p.rapidapi.com")
+    req.Header.Set("x-rapidapi-key", s.ApiKey)
+    client := &http.Client{Timeout: 20 * time.Second}
+    resp, err := client.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("Shazam: request failed: %w", err)
+    }
+    defer resp.Body.Close()
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return nil, fmt.Errorf("Shazam: failed to read response: %w", err)
+    }
+    log.Printf("[recognizer] Shazam: response: %s", string(body))
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("Shazam: status %d", resp.StatusCode)
+    }
+    // Parse Shazam response (extract first match if available)
+    var shazamResp struct {
+        Track struct {
+            Title    string `json:"title"`
+            Subtitle string `json:"subtitle"`
+            Sections []struct {
+                Metadata []struct {
+                    Title string `json:"title"`
+                    Text  string `json:"text"`
+                } `json:"metadata"`
+            } `json:"sections"`
+            Images struct {
+                CoverArt string `json:"coverart"`
+            } `json:"images"`
+        } `json:"track"`
+    }
+    if err := json.Unmarshal(body, &shazamResp); err != nil {
+        return nil, fmt.Errorf("Shazam: failed to parse response: %w", err)
+    }
+    if shazamResp.Track.Title == "" && shazamResp.Track.Subtitle == "" {
+        return nil, nil // No match
+    }
+    m := &metadata{
+        Title:      shazamResp.Track.Title,
+        Artist:     shazamResp.Track.Subtitle,
+        Album:      "Unknown",
+        Confidence: 1.0,
+    }
+    if shazamResp.Track.Images.CoverArt != "" {
+        m.ArtworkURL = &shazamResp.Track.Images.CoverArt
+    }
+    // Try to extract album from metadata section
+    for _, section := range shazamResp.Track.Sections {
+        for _, meta := range section.Metadata {
+            if strings.ToLower(meta.Title) == "album" {
+                m.Album = meta.Text
+            }
+        }
+    }
+    return m, nil
 }
 
-// encodeBase64 encodes bytes to base64 string (no line breaks)
-import "encoding/base64"
-func encodeBase64(data []byte) string {
-    return base64.StdEncoding.EncodeToString(data)
-}
+
 
 package main
 
 import (
 	"context"
 	"crypto/sha1"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -664,6 +647,8 @@ func main() {
 
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	cfg := loadConfig()
+	// Define o ganho ideal para o seu hardware (validado anteriormente como nível 4)
+	exec.Command("amixer", "-c", "Microphone", "sset", "Mic", "4").Run()
 	log.Printf("[oceano-analog] config: DebugSaveFailedWAV=%v DebugWAVDir=%q", cfg.DebugSaveFailedWAV, cfg.DebugWAVDir)
 	if !cfg.Enabled {
 		log.Printf("[oceano-analog] analog input not enabled, exiting")
