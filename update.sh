@@ -350,7 +350,7 @@ Type=simple
 ExecStart=${ANALOG_BINARY}
 EnvironmentFile=${CONFIG_FILE}
 EnvironmentFile=-${SECRETS_FILE}
-Restart=always
+Restart=on-failure
 RestartSec=3
 
 [Install]
@@ -362,6 +362,7 @@ write_secrets_file() {
   local acoustid_api_key="$1"
 
   if [[ -z "${acoustid_api_key}" ]]; then
+    rm -f "${SECRETS_FILE}"
     return 0
   fi
 
@@ -383,11 +384,10 @@ build_analog_binary() {
 enable_analog_service() {
   local analog_enabled="$1"
 
-  build_analog_binary
-  write_analog_service
-  systemctl daemon-reload
-
   if [[ "${analog_enabled}" == "true" ]]; then
+    build_analog_binary
+    write_analog_service
+    systemctl daemon-reload
     systemctl enable oceano-analog-identify.service
     systemctl restart oceano-analog-identify.service
   else
@@ -405,9 +405,6 @@ main() {
   require_cmd systemctl
   require_cmd git
   require_cmd aplay
-  require_cmd arecord
-  require_cmd go
-  require_cmd fpcalc
   require_cmd awk
   require_cmd sed
 
@@ -544,6 +541,12 @@ main() {
     exit 1
   fi
 
+  if [[ "${analog_input_enabled}" == "true" ]]; then
+    require_cmd arecord
+    require_cmd go
+    require_cmd fpcalc
+  fi
+
   if ! [[ "${analog_identify_interval_seconds}" =~ ^[0-9]+$ ]] || (( analog_identify_interval_seconds < 20 || analog_identify_interval_seconds > 3600 )); then
     echo "--analog-identify-interval-seconds must be an integer between 20 and 3600" >&2
     exit 1
@@ -562,7 +565,7 @@ main() {
     fi
   fi
 
-  if [[ -z "${analog_input_device}" ]]; then
+  if [[ "${analog_input_enabled}" == "true" && -z "${analog_input_device}" ]]; then
     if analog_input_device="$(detect_capture_device "${usb_match}")"; then
       echo "Detected USB capture device '${usb_match}' as ${analog_input_device}"
     else
@@ -572,7 +575,7 @@ main() {
     fi
   fi
 
-  if [[ "${analog_input_device}" == "${alsa_device}" ]]; then
+  if [[ "${analog_input_enabled}" == "true" && "${analog_input_device}" == "${alsa_device}" ]]; then
     echo "Warning: analog input device equals AirPlay output device (${alsa_device})." >&2
     echo "If capture fails or conflicts, set --analog-input-device explicitly." >&2
   fi

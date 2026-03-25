@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -83,6 +84,11 @@ type cacheEntry struct {
 	CachedAt int64    `json:"cached_at"`
 	Metadata metadata `json:"metadata"`
 }
+
+var (
+	acoustIDLookupURL = "https://api.acoustid.org/v2/lookup"
+	itunesSearchURL   = "https://itunes.apple.com/search"
+)
 
 func envBool(name string, fallback bool) bool {
 	v, ok := os.LookupEnv(name)
@@ -201,18 +207,22 @@ func runCommand(timeout time.Duration, name string, args ...string) ([]byte, []b
 	return stdout, nil, err
 }
 
-func sampleRMS(device string) float64 {
-	stdout, _, err := runCommand(7*time.Second,
+func sampleRMS(device string) (float64, error) {
+	stdout, stderr, err := runCommand(7*time.Second,
 		"arecord", "-q", "-D", device,
 		"-f", "S16_LE", "-c", "1", "-r", "44100", "-d", "1", "-t", "raw",
 	)
-	if err != nil || len(stdout) < 2 {
-		return 0.0
+	if err != nil {
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return 0.0, errors.New(msg)
 	}
 
 	sampleCount := len(stdout) / 2
 	if sampleCount == 0 {
-		return 0.0
+		return 0.0, nil
 	}
 
 	var total float64
@@ -221,7 +231,49 @@ func sampleRMS(device string) float64 {
 		v := float64(s) / 32768.0
 		total += v * v
 	}
-	return math.Sqrt(total / float64(sampleCount))
+	return math.Sqrt(total / float64(sampleCount)), nil
+}
+
+// probeDevice attempts a 1-second capture to /dev/null to verify the device
+// is a functional capture device. Using arecord ensures the device supports
+// capture and is not a playback-only interface (e.g. the AirPlay output).
+func probeDevice(device string) error {
+	_, stderr, err := runCommand(5*time.Second,
+		"arecord", "-q", "-D", device,
+		"-f", "S16_LE", "-c", "1", "-r", "44100", "-d", "1", "-t", "raw", os.DevNull,
+	)
+	if err != nil {
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return errors.New(msg)
+	}
+	return nil
+}
+
+// waitForDevice blocks until device is available (probe succeeds) or a signal
+// is received. Retries with exponential backoff from 5 s up to 60 s between
+// probes to avoid resource pressure. Returns true when ready, false on exit signal.
+func waitForDevice(device string, sig <-chan os.Signal) bool {
+	interval := 5 * time.Second
+	for {
+		select {
+		case <-sig:
+			return false
+		case <-time.After(interval):
+		}
+		if probeDevice(device) == nil {
+			log.Printf("[oceano-analog] capture device %q is now ready", device)
+			return true
+		}
+		if interval < 60*time.Second {
+			interval *= 2
+			if interval > 60*time.Second {
+				interval = 60 * time.Second
+			}
+		}
+	}
 }
 
 func captureWAV(device string, seconds int, dst string) error {
@@ -262,7 +314,7 @@ func acoustIDLookup(apiKey, fp string, duration int) (*metadata, error) {
 	query.Set("duration", strconv.Itoa(duration))
 	query.Set("fingerprint", fp)
 
-	u := "https://api.acoustid.org/v2/lookup?" + query.Encode()
+	u := acoustIDLookupURL + "?" + query.Encode()
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(u)
 	if err != nil {
@@ -340,7 +392,7 @@ func withArtworkURL(in *metadata) *metadata {
 	query.Set("entity", "album")
 	query.Set("limit", "1")
 	client := &http.Client{Timeout: 6 * time.Second}
-	resp, err := client.Get("https://itunes.apple.com/search?" + query.Encode())
+	resp, err := client.Get(itunesSearchURL + "?" + query.Encode())
 	if err != nil {
 		return &out
 	}
@@ -420,24 +472,79 @@ func main() {
 		InputDevice:    cfg.Device,
 		Error:          nil,
 	}
-	_ = atomicWriteJSON(cfg.StateFile, state)
-
-	cache := loadCache(cfg.CacheFile)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
+	// Probe the capture device before starting. If missing or not capture-capable
+	// (e.g. the AirPlay playback output was accidentally configured), log clearly
+	// and wait with backoff until available or a shutdown signal arrives.
+	if err := probeDevice(cfg.Device); err != nil {
+		hint := ""
+		if strings.Contains(strings.ToLower(err.Error()), "invalid argument") {
+			hint = " (device may be playback-only — verify ANALOG_INPUT_DEVICE is not the AirPlay output)"
+		}
+		log.Printf("[oceano-analog] capture device %q not available: %v%s", cfg.Device, err, hint)
+		state.Status = "error"
+		setError(&state, "device_not_found")
+		state.UpdatedAt = time.Now().Unix()
+		_ = atomicWriteJSON(cfg.StateFile, state)
+		if !waitForDevice(cfg.Device, sig) {
+			return
+		}
+		state.Status = "idle"
+		setError(&state, "")
+		state.UpdatedAt = time.Now().Unix()
+	}
+	_ = atomicWriteJSON(cfg.StateFile, state)
+
+	cache := loadCache(cfg.CacheFile)
+
 	lastSignal := time.Now()
 	lastIdentify := time.Time{}
 	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+	defer func() { ticker.Stop() }()
+	consecutiveErrors := 0
 
 	for {
 		select {
 		case <-sig:
 			return
 		case <-ticker.C:
-			rms := sampleRMS(cfg.Device)
+			rms, sampleErr := sampleRMS(cfg.Device)
+
+			if sampleErr != nil {
+				consecutiveErrors++
+				if consecutiveErrors < 3 {
+					continue
+				}
+				log.Printf("[oceano-analog] capture device %q lost: %v; waiting for reconnect", cfg.Device, sampleErr)
+				consecutiveErrors = 0
+				ticker.Stop()
+				state.Status = "error"
+				state.Title = "Unknown"
+				state.Artist = "Unknown"
+				state.Album = "Unknown"
+				state.ArtworkURL = nil
+				state.FingerprintID = nil
+				state.Confidence = 0.0
+				state.UpdatedAt = time.Now().Unix()
+				setError(&state, "device_not_found")
+				_ = atomicWriteJSON(cfg.StateFile, state)
+				if !waitForDevice(cfg.Device, sig) {
+					return
+				}
+				state.Status = "idle"
+				setError(&state, "")
+				state.UpdatedAt = time.Now().Unix()
+				_ = atomicWriteJSON(cfg.StateFile, state)
+				lastSignal = time.Now()
+				lastIdentify = time.Time{}
+				ticker = time.NewTicker(1 * time.Second)
+				continue
+			}
+			consecutiveErrors = 0
+
 			hasSignal := rms >= cfg.SignalThreshold
 			now := time.Now()
 
