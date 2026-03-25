@@ -60,9 +60,8 @@ type ShazamRapidAPIRecognizer struct {
 }
 
 func (s *ShazamRapidAPIRecognizer) Recognize(wavPath string) (*metadata, error) {
-	// Converte o WAV gravado para o formato que o Shazam ama: 44100Hz, Mono, PCM s16le
-	// Isso reduz o tamanho do upload e aumenta drasticamente a precisão
-	cmd := exec.Command("ffmpeg", "-i", wavPath, "-f", "s16le", "-ac", "1", "-ar", "44100", "pipe:1")
+	// Converte o WAV para 16kHz, mono, s16le (payload pequeno, ideal para API)
+	cmd := exec.Command("ffmpeg", "-i", wavPath, "-f", "s16le", "-ac", "1", "-ar", "16000", "pipe:1")
 	pcm, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("Shazam: ffmpeg conversion failed: %w", err)
@@ -241,7 +240,11 @@ func envFloat(name string, fallback float64) float64 {
 }
 
 func loadConfig() config {
-		captureSeconds := envInt("ANALOG_CAPTURE_SECONDS", 20)
+		defaultCapture := 20
+		if os.Getenv("RAPIDAPI_KEY") != "" {
+			defaultCapture = 8
+		}
+		captureSeconds := envInt("ANALOG_CAPTURE_SECONDS", defaultCapture)
 		if captureSeconds < 6 {
 			captureSeconds = 6
 		}
