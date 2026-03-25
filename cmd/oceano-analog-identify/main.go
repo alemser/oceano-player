@@ -732,6 +732,7 @@ func main() {
 				_ = atomicWriteJSON(cfg.StateFile, state)
 				continue
 			}
+
 			fp, duration, err := fingerprint(wav)
 			if err != nil {
 				if cfg.DebugSaveFailedWAV {
@@ -749,6 +750,8 @@ func main() {
 				_ = atomicWriteJSON(cfg.StateFile, state)
 				continue
 			}
+			// Log do fingerprint real (string longa)
+			log.Printf("[oceano-analog] DEBUG: fingerprint gerado (len=%d): %s", len(fp), fp)
 
 			h := sha1.Sum([]byte(fp))
 			fpKey := fmt.Sprintf("%x", h[:])
