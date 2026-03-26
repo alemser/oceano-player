@@ -58,7 +58,7 @@ func defaultConfig() Config {
 		SampleRate:      44100,
 		BufferSize:      4096,
 		SilenceThreshold: 0.0005,
-		VinylThreshold:  0.07, // ratio of low-freq energy to total energy
+		VinylThreshold:  0.8, // ratio of low-freq energy to total energy
 		DebounceWindows: 15,
 		OutputFile:      "/tmp/oceano-source.json",
 	}
