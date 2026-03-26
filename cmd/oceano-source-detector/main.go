@@ -54,7 +54,7 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{
-		AlsaDevice:      "plughw:CARD=M780,DEV=0",
+		AlsaDevice:      "plughw:CARD=Microphone,DEV=0",
 		SampleRate:      44100,
 		BufferSize:      4096,
 		SilenceThreshold: 0.0005,
