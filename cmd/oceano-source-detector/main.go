@@ -59,7 +59,7 @@ func defaultConfig() Config {
 		BufferSize:      4096,
 		SilenceThreshold: 0.0005,
 		VinylThreshold:  0.08, // ratio of low-freq energy to total energy
-		DebounceWindows: 15,
+		DebounceWindows: 20,
 		OutputFile:      "/tmp/oceano-source.json",
 	}
 }
@@ -123,7 +123,15 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 		}
 
 		detected := classify(samples, cfg)
-		
+
+		// IF the system thinks it's CD, but the volume (RMS) is high,
+        // it's probably just a transient from Vinyl.
+        // CD in the silence between tracks has RMS almost ZERO.		
+		if current == SourceVinyl && detected == SourceCD {
+            if rms > 0.02 { // If there is music playing (RMS > 0.02)
+                detected = SourceVinyl
+            }
+        }		
 		// debug to understand what pi is listening in real time
 		rms := computeRMS(samples)
 		spectrum := fft(samples)
