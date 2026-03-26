@@ -81,18 +81,12 @@ func main() {
 	log.Printf("  vinyl threshold:   %.4f", cfg.VinylThreshold)
 	log.Printf("  debounce windows:  %d", cfg.DebounceWindows)
 
-	ctx, stop := signal.NotifyContext(newContext(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(backgroundCtx{}, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if err := run(ctx, cfg); err != nil {
 		log.Fatalf("detector error: %v", err)
 	}
-}
-
-func newContext() interface{ Done() <-chan struct{} } {
-	// Thin wrapper so we can use signal.NotifyContext signature.
-	// Using os/signal directly for compatibility.
-	return nil
 }
 
 func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
@@ -106,14 +100,6 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 		return err
 	}
 
-	// Use signal context directly.
-	sigCtx, stop := signal.NotifyContext(
-		// context.Background equivalent without importing context explicitly
-		backgroundCtx{},
-		os.Interrupt, syscall.SIGTERM,
-	)
-	defer stop()
-
 	current := SourceNone
 	candidate := SourceNone
 	candidateCount := 0
@@ -122,7 +108,7 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 
 	for {
 		select {
-		case <-sigCtx.Done():
+		case <-ctx.Done():
 			log.Printf("shutting down, writing none")
 			_ = writeState(cfg.OutputFile, SourceNone)
 			return nil
