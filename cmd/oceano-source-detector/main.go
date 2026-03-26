@@ -128,7 +128,7 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
         // it's probably just a transient from Vinyl.
         // CD in the silence between tracks has RMS almost ZERO.		
 		if current == SourceVinyl && detected == SourceCD {
-            if rms > 0.02 { // If there is music playing (RMS > 0.02)
+            if rms > 0.015 { // If there is music playing (RMS > 0.02)
                 detected = SourceVinyl
             }
         }		
