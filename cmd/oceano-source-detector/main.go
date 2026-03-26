@@ -21,9 +21,9 @@ import (
 type Source string
 
 const (
-	SourceNone  Source = "none"
-	SourceCD    Source = "cd"
-	SourceVinyl Source = "vinyl"
+	SourceNone  Source = "None"
+	SourceCD    Source = "CD"
+	SourceVinyl Source = "Vinyl"
 )
 
 // State is written to the output file.
@@ -58,8 +58,8 @@ func defaultConfig() Config {
 		SampleRate:      44100,
 		BufferSize:      4096,
 		SilenceThreshold: 0.0005,
-		VinylThreshold:  0.15, // ratio of low-freq energy to total energy
-		DebounceWindows: 5,
+		VinylThreshold:  0.07, // ratio of low-freq energy to total energy
+		DebounceWindows: 15,
 		OutputFile:      "/tmp/oceano-source.json",
 	}
 }
@@ -123,6 +123,12 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 		}
 
 		detected := classify(samples, cfg)
+		
+		// debug to understand what pi is listening in real time
+		rms := computeRMS(samples)
+		spectrum := fft(samples)
+		ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
+		log.Printf("DEBUG: RMS: %.6f | Ratio: %.4f | Detected: %s", rms, ratio, detected)
 
 		// Debounce: only commit a new state after N consecutive agreeing windows.
 		if detected == candidate {
