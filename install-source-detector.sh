@@ -19,7 +19,7 @@ OUTPUT_FILE="/tmp/oceano-source.json"
 DEFAULT_BRANCH="main"
 DEFAULT_ALSA_DEVICE="plughw:CARD=Microphone,DEV=0"
 DEFAULT_SILENCE_THRESHOLD="0.0005"
-DEFAULT_VINYL_THRESHOLD="0.8"
+DEFAULT_VINYL_THRESHOLD="0.08"
 DEFAULT_DEBOUNCE="15"
 
 # ─── Output colors ───────────────────────────
