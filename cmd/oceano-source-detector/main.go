@@ -122,7 +122,7 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 			continue
 		}
 
-		detected := classify(samples, cfg)
+		detected, rms := classify(samples, cfg)
 
 		// IF the system thinks it's CD, but the volume (RMS) is high,
         // it's probably just a transient from Vinyl.
@@ -217,7 +217,7 @@ func classify(samples []float64, cfg Config) Source {
 	if lowFreqRatio > cfg.VinylThreshold {
 		return SourceVinyl
 	}
-	return SourceCD
+	return SourceCD, rms
 }
 
 // computeRMS returns the root mean square of the samples.
