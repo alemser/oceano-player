@@ -133,7 +133,7 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
             }
         }		
 		// debug to understand what pi is listening in real time
-		rms := computeRMS(samples)
+		//rms := computeRMS(samples)
 		spectrum := fft(samples)
 		ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
 		log.Printf("DEBUG: RMS: %.6f | Ratio: %.4f | Detected: %s", rms, ratio, detected)
@@ -202,12 +202,12 @@ func captureWindow(cfg Config) ([]float64, error) {
 }
 
 // classify analyses a window of samples and returns a Source.
-func classify(samples []float64, cfg Config) Source {
+func classify(samples []float64, cfg Config) (Source, float64) {
 	rms := computeRMS(samples)
 
 	// Nothing playing or amp is off.
 	if rms < cfg.SilenceThreshold {
-		return SourceNone
+		return SourceNone, rms
 	}
 
 	// Compute FFT and check low-frequency energy ratio.
@@ -215,7 +215,7 @@ func classify(samples []float64, cfg Config) Source {
 	lowFreqRatio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
 
 	if lowFreqRatio > cfg.VinylThreshold {
-		return SourceVinyl
+		return SourceVinyl, rms
 	}
 	return SourceCD, rms
 }
