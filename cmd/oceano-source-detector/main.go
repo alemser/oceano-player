@@ -118,7 +118,7 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 		samples, err := captureWindow(cfg)
 		if err != nil {
 			log.Printf("capture error: %v — retrying in 2s", err)
-			sleep(sigCtx, 2*time.Second)
+			sleep(ctx, 2*time.Second)
 			continue
 		}
 
