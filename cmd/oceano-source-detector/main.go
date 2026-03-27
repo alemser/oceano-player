@@ -190,8 +190,17 @@ func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 		detected, rms, ratio := classify(samples, cfg)
 
 		if cfg.Verbose {
-			log.Printf("window  rms=%.6f  ratio=%.4f  raw=%s  current=%s  silence_seen=%v",
-				rms, ratio, detected, current, seenSilenceSinceLastSource)
+			       log.Printf("window  rms=%.6f  ratio=%.4f  detected=%s  current=%s  silence_seen=%v  window=%v",
+				       rms, ratio, detected, current, seenSilenceSinceLastSource, window)
+		       }
+
+		       // Log votes for each source in the window
+		       if cfg.Verbose {
+			       voteCount := make(map[Source]int)
+			       for _, s := range window {
+				       voteCount[s]++
+			       }
+			       log.Printf("votes=%v", voteCount)
 		}
 
 		// Track whether we've passed through silence since the last active source.
