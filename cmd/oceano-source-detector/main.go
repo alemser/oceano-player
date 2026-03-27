@@ -123,6 +123,23 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 // from its stdout continuously. This avoids the per-window fork/exec overhead
 // that was causing ~8s latency per classification window.
 func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
+		       // Log reason for not switching to Vinyl if detected is not Vinyl
+		       if detected != SourceVinyl {
+			       if ratio := lowFrequencyRatio(fft(samples), cfg.SampleRate, cfg.BufferSize); ratio <= cfg.VinylThreshold {
+				       log.Printf("[debug] Not switching to Vinyl: ratio=%.4f <= threshold=%.4f", ratio, cfg.VinylThreshold)
+			       }
+			       if rms := computeRMS(samples); rms <= cfg.MinVinylRMS {
+				       log.Printf("[debug] Not switching to Vinyl: rms=%.4f <= min_vinyl_rms=%.4f", rms, cfg.MinVinylRMS)
+			       }
+			       // Log if window majority is not Vinyl
+			       voteCount := make(map[Source]int)
+			       for _, s := range window {
+				       voteCount[s]++
+			       }
+			       if voteCount[SourceVinyl] <= cfg.DebounceWindows/2 {
+				       log.Printf("[debug] Not switching to Vinyl: only %d/%d votes for Vinyl in window", voteCount[SourceVinyl], cfg.DebounceWindows)
+			       }
+		       }
 	cmd := exec.Command("arecord",
 		"-D", cfg.AlsaDevice,
 		"-f", "S16_LE",
