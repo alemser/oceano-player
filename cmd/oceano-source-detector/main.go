@@ -57,7 +57,7 @@ func defaultConfig() Config {
 		AlsaDevice:      "plughw:CARD=Microphone,DEV=0",
 		SampleRate:      44100,
 		BufferSize:      4096,
-		SilenceThreshold: 0.0005,
+		SilenceThreshold: 0.0050,
 		VinylThreshold:  0.08, // ratio of low-freq energy to total energy
 		DebounceWindows: 20,
 		OutputFile:      "/tmp/oceano-source.json",
@@ -124,11 +124,12 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 
 		detected, rms := classify(samples, cfg)
 
-		// IF the system thinks it's CD, but the volume (RMS) is high,
-        // it's probably just a transient from Vinyl.
-        // CD in the silence between tracks has RMS almost ZERO.		
+		// REFINED HISTERESE
 		if current == SourceVinyl && detected == SourceCD {
-            if rms > 0.015 { // If there is music playing (RMS > 0.02)
+			spectrum := fft(samples)
+			ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
+
+            if rms > 0.02 && ratio > 0.01 {
                 detected = SourceVinyl
             }
         }		
