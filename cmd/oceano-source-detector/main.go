@@ -147,30 +147,33 @@ func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 	log.Printf("arecord started (pid %d)", cmd.Process.Pid)
 
 	current := SourceNone
-	candidate := SourceNone
-	candidateCount := 0
 	hysteresisMargin := cfg.VinylThreshold * 0.5
+
+	// Sliding window of the last DebounceWindows classifications.
+	// We commit a new state when the majority of the window agrees,
+	// so a single outlier during a source transition does not reset
+	// the counter and cause multi-second delays.
+	window := make([]Source, cfg.DebounceWindows)
+	windowPos := 0
+	for i := range window {
+		window[i] = SourceNone
+	}
 
 	bytesPerWindow := cfg.BufferSize * 2 * 2 // stereo, 16-bit
 	raw := make([]byte, bytesPerWindow)
 	samples := make([]float64, cfg.BufferSize)
 
 	for {
-		// Check for shutdown before blocking on read.
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
 		}
 
-		// Read exactly one window of raw PCM — this blocks until the
-		// audio hardware delivers the samples, giving us natural pacing
-		// with zero sleep() calls needed.
 		if _, err := io.ReadFull(stdout, raw); err != nil {
 			return fmt.Errorf("read pcm: %w", err)
 		}
 
-		// Convert interleaved S16_LE stereo to mono float64.
 		for i := 0; i < cfg.BufferSize; i++ {
 			left := int16(binary.LittleEndian.Uint16(raw[i*4:]))
 			right := int16(binary.LittleEndian.Uint16(raw[i*4+2:]))
@@ -186,16 +189,30 @@ func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 
 		detected = applyHysteresis(detected, current, rms, ratio, cfg, hysteresisMargin)
 
-		if detected == candidate {
-			candidateCount++
-		} else {
-			candidate = detected
-			candidateCount = 1
+		// Insert into sliding window.
+		window[windowPos] = detected
+		windowPos = (windowPos + 1) % cfg.DebounceWindows
+
+		// Count votes for each source in the window.
+		votes := make(map[Source]int, 3)
+		for _, s := range window {
+			votes[s]++
 		}
 
-		if candidateCount >= cfg.DebounceWindows && detected != current {
-			log.Printf("source changed: %s → %s  (rms=%.5f  ratio=%.4f)", current, detected, rms, ratio)
-			current = detected
+		// The winner needs a strict majority (> half the window).
+		majority := cfg.DebounceWindows/2 + 1
+		winner := current
+		for src, count := range votes {
+			if count >= majority {
+				winner = src
+				break
+			}
+		}
+
+		if winner != current {
+			log.Printf("source changed: %s → %s  (rms=%.5f  ratio=%.4f  votes=%v)",
+				current, winner, rms, ratio, votes)
+			current = winner
 			if err := writeState(cfg.OutputFile, current); err != nil {
 				log.Printf("write state error: %v", err)
 			}
