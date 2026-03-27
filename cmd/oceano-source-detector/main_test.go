@@ -102,14 +102,14 @@ func TestHysteresis(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := applyHysteresis(tt.detected, tt.current, 0.1, tt.ratio, cfg, margin)
-			if got != tt.expected {
-				t.Errorf("applyHysteresis() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
+	       for _, tt := range tests {
+		       t.Run(tt.name, func(t *testing.T) {
+			       got := applyHysteresis(tt.detected, tt.current, 0.1, tt.ratio, cfg, margin, true)
+			       if got != tt.expected {
+				       t.Errorf("applyHysteresis() = %v, want %v", got, tt.expected)
+			       }
+		       })
+	       }
 }
 
 // TestComputeRMS validates the RMS calculation on known inputs.

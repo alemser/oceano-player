@@ -123,23 +123,6 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 // from its stdout continuously. This avoids the per-window fork/exec overhead
 // that was causing ~8s latency per classification window.
 func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
-		       // Log reason for not switching to Vinyl if detected is not Vinyl
-			       // Log reason for not switching to Vinyl, inside the main window loop where variables are defined
-			       if detected != SourceVinyl {
-				       if ratio <= cfg.VinylThreshold {
-					       log.Printf("[debug] Not switching to Vinyl: ratio=%.4f <= threshold=%.4f", ratio, cfg.VinylThreshold)
-				       }
-				       if rms <= cfg.MinVinylRMS {
-					       log.Printf("[debug] Not switching to Vinyl: rms=%.4f <= min_vinyl_rms=%.4f", rms, cfg.MinVinylRMS)
-				       }
-				       voteCount := make(map[Source]int)
-				       for _, s := range window {
-					       voteCount[s]++
-				       }
-				       if voteCount[SourceVinyl] <= cfg.DebounceWindows/2 {
-					       log.Printf("[debug] Not switching to Vinyl: only %d/%d votes for Vinyl in window", voteCount[SourceVinyl], cfg.DebounceWindows)
-				       }
-			       }
 	cmd := exec.Command("arecord",
 		"-D", cfg.AlsaDevice,
 		"-f", "S16_LE",
@@ -204,21 +187,32 @@ func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 			samples[i] = float64(left+right) / 2.0 / 32768.0
 		}
 
-		detected, rms, ratio := classify(samples, cfg)
+		       detected, rms, ratio := classify(samples, cfg)
 
-		if cfg.Verbose {
+		       if cfg.Verbose {
 			       log.Printf("window  rms=%.6f  ratio=%.4f  detected=%s  current=%s  silence_seen=%v  window=%v",
 				       rms, ratio, detected, current, seenSilenceSinceLastSource, window)
-		       }
 
-		       // Log votes for each source in the window
-		       if cfg.Verbose {
+			       // Log votes for each source in the window
 			       voteCount := make(map[Source]int)
 			       for _, s := range window {
 				       voteCount[s]++
 			       }
 			       log.Printf("votes=%v", voteCount)
-		}
+
+			       // Log reason for not switching to Vinyl
+			       if detected != SourceVinyl {
+				       if ratio <= cfg.VinylThreshold {
+					       log.Printf("[debug] Not switching to Vinyl: ratio=%.4f <= threshold=%.4f", ratio, cfg.VinylThreshold)
+				       }
+				       if rms <= cfg.MinVinylRMS {
+					       log.Printf("[debug] Not switching to Vinyl: rms=%.4f <= min_vinyl_rms=%.4f", rms, cfg.MinVinylRMS)
+				       }
+				       if voteCount[SourceVinyl] <= cfg.DebounceWindows/2 {
+					       log.Printf("[debug] Not switching to Vinyl: only %d/%d votes for Vinyl in window", voteCount[SourceVinyl], cfg.DebounceWindows)
+				       }
+			       }
+		       }
 
 		// Track whether we've passed through silence since the last active source.
 		if detected == SourceNone {
