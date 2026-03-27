@@ -194,9 +194,15 @@ func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 				rms, ratio, detected, current, seenSilenceSinceLastSource)
 		}
 
-		// Track whether we've passed through silence since the last source commit.
+		// Track whether we've passed through silence since the last active source.
 		if detected == SourceNone {
 			seenSilenceSinceLastSource = true
+			// Clear the sliding window when silence is detected so that
+			// stale votes from the previous source don't bleed into the
+			// next source classification.
+			for i := range window {
+				window[i] = SourceNone
+			}
 		}
 
 		detected = applyHysteresis(detected, current, rms, ratio, cfg, hysteresisMargin, seenSilenceSinceLastSource)
@@ -225,9 +231,11 @@ func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 			log.Printf("source changed: %s → %s  (rms=%.5f  ratio=%.4f  votes=%v)",
 				current, winner, rms, ratio, votes)
 			current = winner
-			// Reset silence gate — next Vinyl↔CD transition requires
-			// passing through silence again.
-			seenSilenceSinceLastSource = false
+			// Reset silence gate after each commit — the next Vinyl↔CD
+			// transition requires passing through None again.
+			if current != SourceNone {
+				seenSilenceSinceLastSource = false
+			}
 			if err := writeState(cfg.OutputFile, current); err != nil {
 				log.Printf("write state error: %v", err)
 			}
