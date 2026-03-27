@@ -34,33 +34,26 @@ type State struct {
 
 // Config holds all tunable parameters.
 type Config struct {
-	// ALSA capture device (e.g. "plughw:CARD=M780,DEV=0")
-	AlsaDevice string
-
-	// SampleRate and buffer size for capture
-	SampleRate int
-	BufferSize int
-
-	// Thresholds (tune after calibration)
+	AlsaDevice       string
+	SampleRate       int
+	BufferSize       int
 	SilenceThreshold float64 // RMS below this = silence / nothing playing
 	VinylThreshold   float64 // Low-freq energy ratio above this = vinyl
-
-	// Debounce: how many consecutive agreeing windows before we commit
-	DebounceWindows int
-
-	// Output file path
-	OutputFile string
+	DebounceWindows  int
+	OutputFile       string
+	Verbose          bool
 }
 
 func defaultConfig() Config {
 	return Config{
-		AlsaDevice:      "plughw:CARD=Microphone,DEV=0",
-		SampleRate:      44100,
-		BufferSize:      16384,
+		AlsaDevice:       "plughw:CARD=Microphone,DEV=0",
+		SampleRate:       44100,
+		BufferSize:       8192, // power of 2, required for Cooley-Tukey FFT
 		SilenceThreshold: 0.0050,
-		VinylThreshold:  0.08, // ratio of low-freq energy to total energy
-		DebounceWindows: 7,
-		OutputFile:      "/tmp/oceano-source.json",
+		VinylThreshold:   0.08,
+		DebounceWindows:  7,
+		OutputFile:       "/tmp/oceano-source.json",
+		Verbose:          false,
 	}
 }
 
@@ -72,6 +65,7 @@ func main() {
 	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS threshold for silence")
 	flag.Float64Var(&cfg.VinylThreshold, "vinyl-threshold", cfg.VinylThreshold, "Low-freq energy ratio threshold for vinyl")
 	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Consecutive windows before committing a state change")
+	flag.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "Log RMS and low-freq ratio on every window (useful for calibration)")
 	flag.Parse()
 
 	log.Printf("oceano-source-detector starting")
@@ -80,6 +74,11 @@ func main() {
 	log.Printf("  silence threshold: %.6f", cfg.SilenceThreshold)
 	log.Printf("  vinyl threshold:   %.4f", cfg.VinylThreshold)
 	log.Printf("  debounce windows:  %d", cfg.DebounceWindows)
+	log.Printf("  verbose:           %v", cfg.Verbose)
+
+	if !isPowerOfTwo(cfg.BufferSize) {
+		log.Fatalf("buffer-size must be a power of 2 (got %d)", cfg.BufferSize)
+	}
 
 	ctx, stop := signal.NotifyContext(backgroundCtx{}, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -90,12 +89,9 @@ func main() {
 }
 
 func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
-	// Ensure output directory exists.
 	if err := os.MkdirAll(filepath.Dir(cfg.OutputFile), 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
-
-	// Write initial state.
 	if err := writeState(cfg.OutputFile, SourceNone); err != nil {
 		return err
 	}
@@ -109,7 +105,7 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("shutting down, writing none")
+			log.Printf("shutting down, writing None")
 			_ = writeState(cfg.OutputFile, SourceNone)
 			return nil
 		default:
@@ -122,27 +118,22 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 			continue
 		}
 
-		detected, rms := classify(samples, cfg)
+		// classify returns the raw detection plus the signal metrics,
+		// so we never need to recompute FFT in the hysteresis step.
+		detected, rms, lowFreqRatio := classify(samples, cfg)
 
-		// REFINED HISTERESE
-		if current == SourceVinyl && detected == SourceCD {
-			spectrum := fft(samples)
-			ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
+		if cfg.Verbose {
+			log.Printf("window  rms=%.6f  low_freq_ratio=%.4f  raw=%s  current=%s",
+				rms, lowFreqRatio, detected, current)
+		}
 
-            if rms > 0.02 && ratio > 0.01 {
-                detected = SourceVinyl
-            }
-        }
+		// Hysteresis: make transitions harder in both directions using
+		// a symmetric band around VinylThreshold derived from config,
+		// so changing VinylThreshold adjusts hysteresis automatically.
+		hysteresisMargin := cfg.VinylThreshold * 0.5
+		detected = applyHysteresis(detected, current, rms, lowFreqRatio, cfg, hysteresisMargin)
 
-		if current == SourceCD && detected == SourceVinyl {
-			spectrum := fft(samples)
-            ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
-            if ratio < 0.20 {
-                detected = SourceCD
-            }
-        }			
-
-		// Debounce: only commit a new state after N consecutive agreeing windows.
+		// Debounce: only commit after N consecutive agreeing windows.
 		if detected == candidate {
 			candidateCount++
 		} else {
@@ -151,7 +142,7 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 		}
 
 		if candidateCount >= cfg.DebounceWindows && detected != current {
-			log.Printf("source changed: %s → %s", current, detected)
+			log.Printf("source changed: %s → %s  (rms=%.5f  ratio=%.4f)", current, detected, rms, lowFreqRatio)
 			current = detected
 			if err := writeState(cfg.OutputFile, current); err != nil {
 				log.Printf("write state error: %v", err)
@@ -160,14 +151,31 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 	}
 }
 
+// applyHysteresis resists flipping between Vinyl and CD near the threshold.
+// The margin creates a dead band: once in Vinyl, ratio must drop below
+// (threshold - margin) to flip to CD; once in CD, ratio must exceed
+// (threshold + margin) to flip to Vinyl.
+func applyHysteresis(detected, current Source, rms, ratio float64, cfg Config, margin float64) Source {
+	if current == SourceVinyl && detected == SourceCD {
+		if ratio > cfg.VinylThreshold-margin {
+			return SourceVinyl
+		}
+	}
+	if current == SourceCD && detected == SourceVinyl {
+		if ratio < cfg.VinylThreshold+margin {
+			return SourceCD
+		}
+	}
+	return detected
+}
+
 // captureWindow reads one buffer of PCM audio from ALSA via arecord.
-// arecord is available everywhere shairport-sync runs; no extra deps needed.
 func captureWindow(cfg Config) ([]float64, error) {
-	// arecord -D <device> -f S16_LE -r <rate> -c 2 --duration=0 -t raw
-	// We capture exactly BufferSize stereo frames = BufferSize*2 samples * 2 bytes.
 	frames := cfg.BufferSize
 	bytesNeeded := frames * 2 * 2 // stereo, 16-bit
 
+	// Use a fixed byte count pipe rather than --duration=0 + Kill,
+	// which avoids leaving zombie processes on every window.
 	cmd := exec.Command("arecord",
 		"-D", cfg.AlsaDevice,
 		"-f", "S16_LE",
@@ -205,23 +213,22 @@ func captureWindow(cfg Config) ([]float64, error) {
 	return samples, nil
 }
 
-// classify analyses a window of samples and returns a Source.
-func classify(samples []float64, cfg Config) (Source, float64) {
+// classify analyses a window of samples and returns Source, RMS, and low-freq ratio.
+// Returning all three avoids recomputing FFT in the hysteresis step.
+func classify(samples []float64, cfg Config) (Source, float64, float64) {
 	rms := computeRMS(samples)
 
-	// Nothing playing or amp is off.
 	if rms < cfg.SilenceThreshold {
-		return SourceNone, rms
+		return SourceNone, rms, 0
 	}
 
-	// Compute FFT and check low-frequency energy ratio.
 	spectrum := fft(samples)
-	lowFreqRatio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
+	ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
 
-	if lowFreqRatio > cfg.VinylThreshold {
-		return SourceVinyl, rms
+	if ratio > cfg.VinylThreshold {
+		return SourceVinyl, rms, ratio
 	}
-	return SourceCD, rms
+	return SourceCD, rms, ratio
 }
 
 // computeRMS returns the root mean square of the samples.
@@ -233,8 +240,8 @@ func computeRMS(samples []float64) float64 {
 	return math.Sqrt(sum / float64(len(samples)))
 }
 
-// lowFrequencyRatio returns the ratio of energy in the 20–80 Hz band
-// to total energy. Vinyl has a characteristic rumble in this range.
+// lowFrequencyRatio returns the ratio of energy in the 20–80 Hz band to total energy.
+// Vinyl has a characteristic rumble in this range due to motor and stylus friction.
 func lowFrequencyRatio(spectrum []complex128, sampleRate, bufferSize int) float64 {
 	binHz := float64(sampleRate) / float64(bufferSize)
 	lowMin := int(20.0 / binHz)
@@ -256,23 +263,65 @@ func lowFrequencyRatio(spectrum []complex128, sampleRate, bufferSize int) float6
 	return lowEnergy / totalEnergy
 }
 
-// fft computes a basic DFT. For production you'd use go-dsp or similar,
-// but this avoids external dependencies and is fine for BufferSize <= 8192.
+// fft computes the DFT using the Cooley-Tukey radix-2 algorithm (O(n log n)).
+// BufferSize must be a power of 2.
 func fft(samples []float64) []complex128 {
 	n := len(samples)
 	out := make([]complex128, n)
-	for k := 0; k < n/2; k++ {
-		var sum complex128
-		for t, s := range samples {
-			angle := -2 * math.Pi * float64(k) * float64(t) / float64(n)
-			sum += complex(s*math.Cos(angle), s*math.Sin(angle))
-		}
-		out[k] = sum
+	for i, s := range samples {
+		out[i] = complex(s, 0)
 	}
+	cooleyTukey(out)
 	return out
 }
 
-// writeState serialises the current source to the output JSON file.
+func cooleyTukey(a []complex128) {
+	n := len(a)
+	if n <= 1 {
+		return
+	}
+
+	// Bit-reversal permutation.
+	bits := int(math.Log2(float64(n)))
+	for i := 0; i < n; i++ {
+		j := bitReverse(i, bits)
+		if j > i {
+			a[i], a[j] = a[j], a[i]
+		}
+	}
+
+	// Butterfly stages.
+	for length := 2; length <= n; length <<= 1 {
+		half := length / 2
+		wBase := complex(math.Cos(-2*math.Pi/float64(length)), math.Sin(-2*math.Pi/float64(length)))
+		for i := 0; i < n; i += length {
+			w := complex(1, 0)
+			for j := 0; j < half; j++ {
+				u := a[i+j]
+				v := a[i+j+half] * w
+				a[i+j] = u + v
+				a[i+j+half] = u - v
+				w *= wBase
+			}
+		}
+	}
+}
+
+func bitReverse(x, bits int) int {
+	result := 0
+	for i := 0; i < bits; i++ {
+		result = (result << 1) | (x & 1)
+		x >>= 1
+	}
+	return result
+}
+
+// isPowerOfTwo returns true when n is a positive power of 2.
+func isPowerOfTwo(n int) bool {
+	return n > 0 && (n&(n-1)) == 0
+}
+
+// writeState serialises the current source to the output JSON file atomically.
 func writeState(path string, src Source) error {
 	state := State{
 		Source:    src,
@@ -282,7 +331,6 @@ func writeState(path string, src Source) error {
 	if err != nil {
 		return err
 	}
-	// Write atomically via a temp file.
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return err
@@ -298,8 +346,7 @@ func sleep(ctx interface{ Done() <-chan struct{} }, d time.Duration) {
 	}
 }
 
-// backgroundCtx is a minimal context.Background() substitute to avoid
-// importing context just for the signal.NotifyContext call.
+// backgroundCtx is a minimal context.Background() substitute.
 type backgroundCtx struct{}
 
 func (backgroundCtx) Deadline() (time.Time, bool) { return time.Time{}, false }
