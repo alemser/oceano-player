@@ -214,20 +214,65 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 
 // classify analyses a window of samples and returns Source, RMS, and low-freq ratio.
 // Returning all three avoids recomputing FFT in the hysteresis step.
+// classify analyses a window of samples and returns a Source.
+// Now uses extra heuristics: background hiss and click/pop detection for improved vinyl/CD distinction.
 func classify(samples []float64, cfg Config) (Source, float64, float64) {
-	rms := computeRMS(samples)
+       rms := computeRMS(samples)
 
-	if rms < cfg.SilenceThreshold {
-		return SourceNone, rms, 0
-	}
+       // Heuristic 1: Silence (CD) vs. background hiss (vinyl)
+       if rms < cfg.SilenceThreshold {
+	       hiss := estimateHiss(samples)
+	       if hiss > 0.002 { // empirical value, tune as needed
+		       return SourceVinyl, rms, 0
+	       }
+	       return SourceNone, rms, 0
+       }
 
-	spectrum := fft(samples)
-	ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
+       spectrum := fft(samples)
+       ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
 
-	if ratio > cfg.VinylThreshold {
-		return SourceVinyl, rms, ratio
-	}
-	return SourceCD, rms, ratio
+       // Heuristic 2: Clicks/pops typical of vinyl
+       if detectClicks(samples) {
+	       return SourceVinyl, rms, ratio
+       }
+
+       if ratio > cfg.VinylThreshold {
+	       return SourceVinyl, rms, ratio
+       }
+       return SourceCD, rms, ratio
+}
+
+// estimateHiss computes the standard deviation of sample-to-sample differences (proxy for background hiss/noise).
+func estimateHiss(samples []float64) float64 {
+       if len(samples) < 2 {
+	       return 0
+       }
+       var sum, sumSq float64
+       for i := 1; i < len(samples); i++ {
+	       diff := samples[i] - samples[i-1]
+	       sum += diff
+	       sumSq += diff * diff
+       }
+       n := float64(len(samples) - 1)
+       mean := sum / n
+       variance := (sumSq / n) - (mean * mean)
+       if variance < 0 {
+	       return 0
+       }
+       return math.Sqrt(variance)
+}
+
+// detectClicks looks for fast transients (sample-to-sample spikes) typical of vinyl clicks/pops.
+func detectClicks(samples []float64) bool {
+       threshold := 0.15 // empirical value, tune as needed
+       count := 0
+       for i := 1; i < len(samples); i++ {
+	       if math.Abs(samples[i]-samples[i-1]) > threshold {
+		       count++
+	       }
+       }
+       // If more than 3 spikes in a window, assume vinyl
+       return count > 3
 }
 
 // computeRMS returns the root mean square of the samples.
