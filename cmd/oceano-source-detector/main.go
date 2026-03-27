@@ -39,6 +39,7 @@ type Config struct {
 	BufferSize       int
 	SilenceThreshold float64 // RMS below this = silence / nothing playing
 	VinylThreshold   float64 // Low-freq energy ratio above this = vinyl
+	MinVinylRMS      float64 // RMS must also exceed this to classify as Vinyl (guards against ambient noise)
 	DebounceWindows  int
 	OutputFile       string
 	Verbose          bool
@@ -49,9 +50,10 @@ func defaultConfig() Config {
 		AlsaDevice:       "plughw:CARD=Microphone,DEV=0",
 		SampleRate:       44100,
 		BufferSize:       8192, // power of 2, required for Cooley-Tukey FFT
-		SilenceThreshold: 0.0050,
-		VinylThreshold:   0.08,
-		DebounceWindows:  7,
+		SilenceThreshold: 0.005,
+		VinylThreshold:   0.12,
+		MinVinylRMS:      0.08, // below this, a high ratio is ambient noise, not vinyl
+		DebounceWindows:  5,
 		OutputFile:       "/tmp/oceano-source.json",
 		Verbose:          false,
 	}
@@ -64,6 +66,7 @@ func main() {
 	flag.StringVar(&cfg.OutputFile, "output", cfg.OutputFile, "Output JSON file path")
 	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS threshold for silence")
 	flag.Float64Var(&cfg.VinylThreshold, "vinyl-threshold", cfg.VinylThreshold, "Low-freq energy ratio threshold for vinyl")
+	flag.Float64Var(&cfg.MinVinylRMS, "min-vinyl-rms", cfg.MinVinylRMS, "Minimum RMS to trust a vinyl classification (rejects ambient noise)")
 	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Consecutive windows before committing a state change")
 	flag.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "Log RMS and low-freq ratio on every window (useful for calibration)")
 	flag.Parse()
@@ -73,6 +76,7 @@ func main() {
 	log.Printf("  output:            %s", cfg.OutputFile)
 	log.Printf("  silence threshold: %.6f", cfg.SilenceThreshold)
 	log.Printf("  vinyl threshold:   %.4f", cfg.VinylThreshold)
+	log.Printf("  min vinyl rms:     %.4f", cfg.MinVinylRMS)
 	log.Printf("  debounce windows:  %d", cfg.DebounceWindows)
 	log.Printf("  verbose:           %v", cfg.Verbose)
 
@@ -219,6 +223,10 @@ func applyHysteresis(detected, current Source, rms, ratio float64, cfg Config, m
 
 // classify analyses a window of samples and returns Source, RMS, and low-freq ratio.
 // Returning all three avoids recomputing FFT in the hysteresis step.
+//
+// Vinyl requires BOTH a high low-freq ratio AND a minimum RMS signal strength.
+// This prevents ambient noise (which can have a high ratio at very low amplitude)
+// from being misclassified as Vinyl.
 func classify(samples []float64, cfg Config) (Source, float64, float64) {
 	rms := computeRMS(samples)
 
@@ -229,7 +237,7 @@ func classify(samples []float64, cfg Config) (Source, float64, float64) {
 	spectrum := fft(samples)
 	ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
 
-	if ratio > cfg.VinylThreshold {
+	if ratio > cfg.VinylThreshold && rms >= cfg.MinVinylRMS {
 		return SourceVinyl, rms, ratio
 	}
 	return SourceCD, rms, ratio

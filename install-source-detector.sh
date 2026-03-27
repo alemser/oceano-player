@@ -18,9 +18,10 @@ OUTPUT_FILE="/tmp/oceano-source.json"
 
 DEFAULT_BRANCH="main"
 DEFAULT_ALSA_DEVICE="plughw:CARD=Microphone,DEV=0"
-DEFAULT_SILENCE_THRESHOLD="0.0050"
-DEFAULT_VINYL_THRESHOLD="0.08"
-DEFAULT_DEBOUNCE="7"
+DEFAULT_SILENCE_THRESHOLD="0.005"
+DEFAULT_VINYL_THRESHOLD="0.12"
+DEFAULT_MIN_VINYL_RMS="0.08"
+DEFAULT_DEBOUNCE="5"
 
 # ─── Output colors ───────────────────────────
 RED='\033[0;31m'
@@ -54,10 +55,6 @@ is_installed() {
 }
 
 get_installed_version() {
-  if "${BINARY_DEST}" --version 2>/dev/null; then
-    return
-  fi
-  # Fall back to git hash of the installed source
   if [[ -d "${SRC_DIR}/.git" ]]; then
     git -C "${SRC_DIR}" rev-parse --short HEAD 2>/dev/null || echo "(unknown)"
   else
@@ -79,7 +76,6 @@ build_binary() {
 
   log_info "Building ${BINARY_NAME} from ${build_dir}..."
 
-  # Detect Go binary
   local go_bin
   if command -v go >/dev/null 2>&1; then
     go_bin="go"
@@ -95,7 +91,7 @@ build_binary() {
   go_version="$("${go_bin}" version)"
   log_info "Using ${go_version}"
 
-  GOFLAGS="" "${go_bin}" build -o "${BINARY_DEST}" "./${BINARY_SRC}"
+  GOFLAGS="" "${go_bin}" build -C "${SRC_DIR}" -o "${BINARY_DEST}" "./${BINARY_SRC}"
   chmod 0755 "${BINARY_DEST}"
   log_ok "Binary installed at ${BINARY_DEST}"
 }
@@ -106,7 +102,8 @@ write_service() {
   local alsa_device="$1"
   local silence_threshold="$2"
   local vinyl_threshold="$3"
-  local debounce="$4"
+  local min_vinyl_rms="$4"
+  local debounce="$5"
 
   cat > "${SERVICE_DEST}" <<EOF
 [Unit]
@@ -121,6 +118,7 @@ ExecStart=${BINARY_DEST} \\
   --output ${OUTPUT_FILE} \\
   --silence-threshold ${silence_threshold} \\
   --vinyl-threshold ${vinyl_threshold} \\
+  --min-vinyl-rms ${min_vinyl_rms} \\
   --debounce ${debounce}
 Restart=always
 RestartSec=3
@@ -149,15 +147,16 @@ main() {
   local alsa_device="${DEFAULT_ALSA_DEVICE}"
   local silence_threshold="${DEFAULT_SILENCE_THRESHOLD}"
   local vinyl_threshold="${DEFAULT_VINYL_THRESHOLD}"
+  local min_vinyl_rms="${DEFAULT_MIN_VINYL_RMS}"
   local debounce="${DEFAULT_DEBOUNCE}"
-  local alsa_device_set=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --branch)             branch="${2:-}";             shift 2 ;;
-      --device)             alsa_device="${2:-}";        alsa_device_set=1; shift 2 ;;
+      --device)             alsa_device="${2:-}";        shift 2 ;;
       --silence-threshold)  silence_threshold="${2:-}";  shift 2 ;;
       --vinyl-threshold)    vinyl_threshold="${2:-}";    shift 2 ;;
+      --min-vinyl-rms)      min_vinyl_rms="${2:-}";      shift 2 ;;
       --debounce)           debounce="${2:-}";           shift 2 ;;
       -h|--help)
         echo "Usage: sudo ./install-source-detector.sh [options]"
@@ -167,6 +166,7 @@ main() {
         echo "  --device <plughw:...>      ALSA capture device (default: '${DEFAULT_ALSA_DEVICE}')"
         echo "  --silence-threshold <f>    RMS threshold for silence (default: ${DEFAULT_SILENCE_THRESHOLD})"
         echo "  --vinyl-threshold <f>      Low-freq energy ratio for vinyl (default: ${DEFAULT_VINYL_THRESHOLD})"
+        echo "  --min-vinyl-rms <f>        Minimum RMS to trust a vinyl classification (default: ${DEFAULT_MIN_VINYL_RMS})"
         echo "  --debounce <n>             Consecutive windows before committing state (default: ${DEFAULT_DEBOUNCE})"
         exit 0
         ;;
@@ -241,7 +241,7 @@ main() {
 
   # ── Service ──
   log_section "systemd Service"
-  write_service "${alsa_device}" "${silence_threshold}" "${vinyl_threshold}" "${debounce}"
+  write_service "${alsa_device}" "${silence_threshold}" "${vinyl_threshold}" "${min_vinyl_rms}" "${debounce}"
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
@@ -261,6 +261,7 @@ ${BOLD}Configuration summary:${RESET}
   ALSA device        : ${alsa_device}
   Silence threshold  : ${silence_threshold}
   Vinyl threshold    : ${vinyl_threshold}
+  Min vinyl RMS      : ${min_vinyl_rms}
   Debounce windows   : ${debounce}
   Output file        : ${OUTPUT_FILE}
 
@@ -269,10 +270,12 @@ ${BOLD}Useful commands:${RESET}
   journalctl -u ${SERVICE_NAME} -f
   cat ${OUTPUT_FILE}
 
-${BOLD}Calibration tip:${RESET}
-  Run with arm up (motor on, needle off the record) and check the logs.
-  Adjust --silence-threshold and --vinyl-threshold until classification is stable.
-  Then re-run this script with the tuned values to update the service.
+${BOLD}Calibration tip (REC-OUT setup):${RESET}
+  Since REC-OUT is a fixed-level output, RMS values are predictable.
+  Run with --verbose to observe real values per window, then tune:
+    --silence-threshold  below the noise floor when nothing plays
+    --vinyl-threshold    between the CD ratio and the Vinyl ratio
+    --min-vinyl-rms      above the crosstalk/noise RMS, below real vinyl RMS
 "
 }
 
