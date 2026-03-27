@@ -121,19 +121,40 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 		// classify returns the raw detection plus the signal metrics,
 		// so we never need to recompute FFT in the hysteresis step.
 		detected, rms, lowFreqRatio := classify(samples, cfg)
-
-		if cfg.Verbose {
-			log.Printf("window  rms=%.6f  low_freq_ratio=%.4f  raw=%s  current=%s",
-				rms, lowFreqRatio, detected, current)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("shutting down, writing none")
+			_ = writeState(cfg.OutputFile, SourceNone)
+			return nil
+		default:
 		}
 
-		// Hysteresis: make transitions harder in both directions using
-		// a symmetric band around VinylThreshold derived from config,
-		// so changing VinylThreshold adjusts hysteresis automatically.
-		hysteresisMargin := cfg.VinylThreshold * 0.5
-		detected = applyHysteresis(detected, current, rms, lowFreqRatio, cfg, hysteresisMargin)
+		samples, err := captureWindow(cfg)
+		if err != nil {
+			log.Printf("capture error: %v — retrying in 2s", err)
+			sleep(ctx, 2*time.Second)
+			continue
+		}
 
-		// Debounce: only commit after N consecutive agreeing windows.
+		detected, rms, ratio := classify(samples, cfg)
+
+		// Histerese refinada: só permite troca se o novo estado for estável e bem definido
+		// Exemplo: só troca de Vinyl para CD se ratio < threshold e rms baixo
+		if current == SourceVinyl && detected == SourceCD {
+			if rms > 0.02 && ratio > 0.01 {
+				log.Printf("[hysteresis] Mantendo Vinyl: rms=%.4f ratio=%.4f", rms, ratio)
+				detected = SourceVinyl
+			}
+		}
+		if current == SourceCD && detected == SourceVinyl {
+			if ratio < 0.20 {
+				log.Printf("[hysteresis] Mantendo CD: rms=%.4f ratio=%.4f", rms, ratio)
+				detected = SourceCD
+			}
+		}
+
+		// Debounce: só troca se houver N janelas consecutivas
 		if detected == candidate {
 			candidateCount++
 		} else {
@@ -141,40 +162,18 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 			candidateCount = 1
 		}
 
+		log.Printf("detected=%s candidate=%s count=%d current=%s rms=%.4f ratio=%.4f", detected, candidate, candidateCount, current, rms, ratio)
+
 		if candidateCount >= cfg.DebounceWindows && detected != current {
-			log.Printf("source changed: %s → %s  (rms=%.5f  ratio=%.4f)", current, detected, rms, lowFreqRatio)
+			log.Printf("source changed: %s → %s [rms=%.4f ratio=%.4f]", current, detected, rms, ratio)
 			current = detected
+		}
+		if current != SourceNone {
 			if err := writeState(cfg.OutputFile, current); err != nil {
 				log.Printf("write state error: %v", err)
 			}
 		}
 	}
-}
-
-// applyHysteresis resists flipping between Vinyl and CD near the threshold.
-// The margin creates a dead band: once in Vinyl, ratio must drop below
-// (threshold - margin) to flip to CD; once in CD, ratio must exceed
-// (threshold + margin) to flip to Vinyl.
-func applyHysteresis(detected, current Source, rms, ratio float64, cfg Config, margin float64) Source {
-	if current == SourceVinyl && detected == SourceCD {
-		if ratio > cfg.VinylThreshold-margin {
-			return SourceVinyl
-		}
-	}
-	if current == SourceCD && detected == SourceVinyl {
-		if ratio < cfg.VinylThreshold+margin {
-			return SourceCD
-		}
-	}
-	return detected
-}
-
-// captureWindow reads one buffer of PCM audio from ALSA via arecord.
-func captureWindow(cfg Config) ([]float64, error) {
-	frames := cfg.BufferSize
-	bytesNeeded := frames * 2 * 2 // stereo, 16-bit
-
-	// Use a fixed byte count pipe rather than --duration=0 + Kill,
 	// which avoids leaving zombie processes on every window.
 	cmd := exec.Command("arecord",
 		"-D", cfg.AlsaDevice,
@@ -215,20 +214,65 @@ func captureWindow(cfg Config) ([]float64, error) {
 
 // classify analyses a window of samples and returns Source, RMS, and low-freq ratio.
 // Returning all three avoids recomputing FFT in the hysteresis step.
+// classify analyses a window of samples and returns a Source.
+// Now uses extra heuristics: background hiss and click/pop detection for improved vinyl/CD distinction.
 func classify(samples []float64, cfg Config) (Source, float64, float64) {
-	rms := computeRMS(samples)
+       rms := computeRMS(samples)
 
-	if rms < cfg.SilenceThreshold {
-		return SourceNone, rms, 0
-	}
+       // Heuristic 1: Silence (CD) vs. background hiss (vinyl)
+       if rms < cfg.SilenceThreshold {
+	       hiss := estimateHiss(samples)
+	       if hiss > 0.002 { // empirical value, tune as needed
+		       return SourceVinyl, rms, 0
+	       }
+	       return SourceNone, rms, 0
+       }
 
-	spectrum := fft(samples)
-	ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
+       spectrum := fft(samples)
+       ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
 
-	if ratio > cfg.VinylThreshold {
-		return SourceVinyl, rms, ratio
-	}
-	return SourceCD, rms, ratio
+       // Heuristic 2: Clicks/pops typical of vinyl
+       if detectClicks(samples) {
+	       return SourceVinyl, rms, ratio
+       }
+
+       if ratio > cfg.VinylThreshold {
+	       return SourceVinyl, rms, ratio
+       }
+       return SourceCD, rms, ratio
+}
+
+// estimateHiss computes the standard deviation of sample-to-sample differences (proxy for background hiss/noise).
+func estimateHiss(samples []float64) float64 {
+       if len(samples) < 2 {
+	       return 0
+       }
+       var sum, sumSq float64
+       for i := 1; i < len(samples); i++ {
+	       diff := samples[i] - samples[i-1]
+	       sum += diff
+	       sumSq += diff * diff
+       }
+       n := float64(len(samples) - 1)
+       mean := sum / n
+       variance := (sumSq / n) - (mean * mean)
+       if variance < 0 {
+	       return 0
+       }
+       return math.Sqrt(variance)
+}
+
+// detectClicks looks for fast transients (sample-to-sample spikes) typical of vinyl clicks/pops.
+func detectClicks(samples []float64) bool {
+       threshold := 0.15 // empirical value, tune as needed
+       count := 0
+       for i := 1; i < len(samples); i++ {
+	       if math.Abs(samples[i]-samples[i-1]) > threshold {
+		       count++
+	       }
+       }
+       // If more than 3 spikes in a window, assume vinyl
+       return count > 3
 }
 
 // computeRMS returns the root mean square of the samples.
