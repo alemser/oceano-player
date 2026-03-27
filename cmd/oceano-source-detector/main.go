@@ -51,8 +51,8 @@ func defaultConfig() Config {
 		SampleRate:       44100,
 		BufferSize:       8192, // power of 2, required for Cooley-Tukey FFT
 		SilenceThreshold: 0.005,
-		VinylThreshold:   0.04,
-		MinVinylRMS:      0.08, // below this, a high ratio is ambient noise, not vinyl
+		VinylThreshold:   0.08,
+		MinVinylRMS:      0.12, // below this, a high ratio is ambient noise, not vinyl
 		DebounceWindows:  5,
 		OutputFile:       "/tmp/oceano-source.json",
 		Verbose:          false,
