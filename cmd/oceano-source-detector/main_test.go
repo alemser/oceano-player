@@ -39,7 +39,7 @@ func TestClassify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := classify(tt.samples, cfg)
+			got, _, _ := classify(tt.samples, cfg)
 			if got != tt.expected {
 				t.Errorf("%s: classify() = %v, want %v", tt.name, got, tt.expected)
 			}
@@ -59,7 +59,7 @@ func TestHysteresis(t *testing.T) {
 	current := SourceVinyl
 	samples := generateSineWave(8000, 44100, 4096, 0.1) // 8kHz = Ratio baixo (CD)
 	
-	detected, rms := classify(samples, cfg)
+	detected, rms, _ := classify(samples, cfg)
 	
 	// Simula a lógica que colocamos na função run:
 	if current == SourceVinyl && detected == SourceCD {
