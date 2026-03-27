@@ -56,10 +56,10 @@ func defaultConfig() Config {
 	return Config{
 		AlsaDevice:      "plughw:CARD=Microphone,DEV=0",
 		SampleRate:      44100,
-		BufferSize:      4096,
+		BufferSize:      16384,
 		SilenceThreshold: 0.0050,
 		VinylThreshold:  0.08, // ratio of low-freq energy to total energy
-		DebounceWindows: 20,
+		DebounceWindows: 7,
 		OutputFile:      "/tmp/oceano-source.json",
 	}
 }
@@ -132,7 +132,15 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
             if rms > 0.02 && ratio > 0.01 {
                 detected = SourceVinyl
             }
-        }		
+        }
+
+		if current == SourceCD && detected == SourceVinyl {
+			spectrum := fft(samples)
+            ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
+            if ratio < 0.20 {
+                detected = SourceCD
+            }
+        }			
 		// debug to understand what pi is listening in real time
 		//rms := computeRMS(samples)
 		spectrum := fft(samples)
