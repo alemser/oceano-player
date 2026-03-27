@@ -126,19 +126,12 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 
 		// REFINED HISTERESE
 		if current == SourceVinyl && detected == SourceCD {
-            spectrum := fft(samples)
-            ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
+			spectrum := fft(samples)
+			ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
 
-            if ratio < 0.25 { 
-                detected = SourceCD // Força a ficar em CD se o grave não for massivo
+            if rms > 0.02 && ratio > 0.01 {
+                detected = SourceVinyl
             }
-
-			// spectrum := fft(samples)
-			// ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
-
-            // if rms > 0.02 && ratio > 0.01 {
-            //     detected = SourceVinyl
-            // }
         }		
 		// debug to understand what pi is listening in real time
 		//rms := computeRMS(samples)
