@@ -141,11 +141,6 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
                 detected = SourceCD
             }
         }			
-		// debug to understand what pi is listening in real time
-		//rms := computeRMS(samples)
-		spectrum := fft(samples)
-		ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
-		log.Printf("DEBUG: RMS: %.6f | Ratio: %.4f | Detected: %s", rms, ratio, detected)
 
 		// Debounce: only commit a new state after N consecutive agreeing windows.
 		if detected == candidate {
