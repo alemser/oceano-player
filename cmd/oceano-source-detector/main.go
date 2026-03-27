@@ -96,12 +96,9 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 		return err
 	}
 
-	current := SourceNone
-	candidate := SourceNone
-	candidateCount := 0
-
 	log.Printf("listening on %s ...", cfg.AlsaDevice)
 
+	// Retry loop: if arecord dies (e.g. device unplugged), restart it.
 	for {
 		select {
 		case <-ctx.Done():
@@ -111,29 +108,80 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 		default:
 		}
 
-		samples, err := captureWindow(cfg)
-		if err != nil {
-			log.Printf("capture error: %v — retrying in 2s", err)
+		if err := runStream(ctx, cfg); err != nil {
+			log.Printf("stream error: %v — restarting in 2s", err)
 			sleep(ctx, 2*time.Second)
-			continue
+		}
+	}
+}
+
+// runStream starts a single long-running arecord process and reads windows
+// from its stdout continuously. This avoids the per-window fork/exec overhead
+// that was causing ~8s latency per classification window.
+func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
+	cmd := exec.Command("arecord",
+		"-D", cfg.AlsaDevice,
+		"-f", "S16_LE",
+		"-r", fmt.Sprintf("%d", cfg.SampleRate),
+		"-c", "2",
+		"-t", "raw",
+		"--duration=0",
+	)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("arecord start: %w", err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+
+	log.Printf("arecord started (pid %d)", cmd.Process.Pid)
+
+	current := SourceNone
+	candidate := SourceNone
+	candidateCount := 0
+	hysteresisMargin := cfg.VinylThreshold * 0.5
+
+	bytesPerWindow := cfg.BufferSize * 2 * 2 // stereo, 16-bit
+	raw := make([]byte, bytesPerWindow)
+	samples := make([]float64, cfg.BufferSize)
+
+	for {
+		// Check for shutdown before blocking on read.
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
 		}
 
-		// classify returns the raw detection plus the signal metrics,
-		// so we never need to recompute FFT in the hysteresis step.
-		detected, rms, lowFreqRatio := classify(samples, cfg)
+		// Read exactly one window of raw PCM — this blocks until the
+		// audio hardware delivers the samples, giving us natural pacing
+		// with zero sleep() calls needed.
+		if _, err := io.ReadFull(stdout, raw); err != nil {
+			return fmt.Errorf("read pcm: %w", err)
+		}
+
+		// Convert interleaved S16_LE stereo to mono float64.
+		for i := 0; i < cfg.BufferSize; i++ {
+			left := int16(binary.LittleEndian.Uint16(raw[i*4:]))
+			right := int16(binary.LittleEndian.Uint16(raw[i*4+2:]))
+			samples[i] = float64(left+right) / 2.0 / 32768.0
+		}
+
+		detected, rms, ratio := classify(samples, cfg)
 
 		if cfg.Verbose {
-			log.Printf("window  rms=%.6f  low_freq_ratio=%.4f  raw=%s  current=%s",
-				rms, lowFreqRatio, detected, current)
+			log.Printf("window  rms=%.6f  ratio=%.4f  raw=%s  current=%s",
+				rms, ratio, detected, current)
 		}
 
-		// Hysteresis: make transitions harder in both directions using
-		// a symmetric band around VinylThreshold derived from config,
-		// so changing VinylThreshold adjusts hysteresis automatically.
-		hysteresisMargin := cfg.VinylThreshold * 0.5
-		detected = applyHysteresis(detected, current, rms, lowFreqRatio, cfg, hysteresisMargin)
+		detected = applyHysteresis(detected, current, rms, ratio, cfg, hysteresisMargin)
 
-		// Debounce: only commit after N consecutive agreeing windows.
 		if detected == candidate {
 			candidateCount++
 		} else {
@@ -142,7 +190,7 @@ func run(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 		}
 
 		if candidateCount >= cfg.DebounceWindows && detected != current {
-			log.Printf("source changed: %s → %s  (rms=%.5f  ratio=%.4f)", current, detected, rms, lowFreqRatio)
+			log.Printf("source changed: %s → %s  (rms=%.5f  ratio=%.4f)", current, detected, rms, ratio)
 			current = detected
 			if err := writeState(cfg.OutputFile, current); err != nil {
 				log.Printf("write state error: %v", err)
@@ -167,50 +215,6 @@ func applyHysteresis(detected, current Source, rms, ratio float64, cfg Config, m
 		}
 	}
 	return detected
-}
-
-// captureWindow reads one buffer of PCM audio from ALSA via arecord.
-func captureWindow(cfg Config) ([]float64, error) {
-	frames := cfg.BufferSize
-	bytesNeeded := frames * 2 * 2 // stereo, 16-bit
-
-	// Use a fixed byte count pipe rather than --duration=0 + Kill,
-	// which avoids leaving zombie processes on every window.
-	cmd := exec.Command("arecord",
-		"-D", cfg.AlsaDevice,
-		"-f", "S16_LE",
-		"-r", fmt.Sprintf("%d", cfg.SampleRate),
-		"-c", "2",
-		"-t", "raw",
-		"--duration=0",
-	)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("arecord start: %w", err)
-	}
-
-	raw := make([]byte, bytesNeeded)
-	_, err = io.ReadFull(stdout, raw)
-	_ = cmd.Process.Kill()
-	_ = cmd.Wait()
-
-	if err != nil {
-		return nil, fmt.Errorf("read pcm: %w", err)
-	}
-
-	// Convert interleaved S16_LE stereo to mono float64 samples.
-	samples := make([]float64, frames)
-	for i := 0; i < frames; i++ {
-		left := int16(binary.LittleEndian.Uint16(raw[i*4:]))
-		right := int16(binary.LittleEndian.Uint16(raw[i*4+2:]))
-		samples[i] = float64(left+right) / 2.0 / 32768.0
-	}
-
-	return samples, nil
 }
 
 // classify analyses a window of samples and returns Source, RMS, and low-freq ratio.
