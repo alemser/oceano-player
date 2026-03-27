@@ -149,6 +149,13 @@ func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 	current := SourceNone
 	hysteresisMargin := cfg.VinylThreshold * 0.5
 
+	// seenSilenceSinceLastSource tracks whether the signal has passed through
+	// None (silence) since the last committed source change. Direct Vinyl↔CD
+	// transitions are blocked until this is true, because a real amplifier
+	// source switch always produces a brief silence. A ratio dip during a
+	// loud passage is track content, not a source change.
+	seenSilenceSinceLastSource := true // allow initial detection from None
+
 	// Sliding window of the last DebounceWindows classifications.
 	// We commit a new state when the majority of the window agrees,
 	// so a single outlier during a source transition does not reset
@@ -183,11 +190,16 @@ func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 		detected, rms, ratio := classify(samples, cfg)
 
 		if cfg.Verbose {
-			log.Printf("window  rms=%.6f  ratio=%.4f  raw=%s  current=%s",
-				rms, ratio, detected, current)
+			log.Printf("window  rms=%.6f  ratio=%.4f  raw=%s  current=%s  silence_seen=%v",
+				rms, ratio, detected, current, seenSilenceSinceLastSource)
 		}
 
-		detected = applyHysteresis(detected, current, rms, ratio, cfg, hysteresisMargin)
+		// Track whether we've passed through silence since the last source commit.
+		if detected == SourceNone {
+			seenSilenceSinceLastSource = true
+		}
+
+		detected = applyHysteresis(detected, current, rms, ratio, cfg, hysteresisMargin, seenSilenceSinceLastSource)
 
 		// Insert into sliding window.
 		window[windowPos] = detected
@@ -213,6 +225,9 @@ func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 			log.Printf("source changed: %s → %s  (rms=%.5f  ratio=%.4f  votes=%v)",
 				current, winner, rms, ratio, votes)
 			current = winner
+			// Reset silence gate — next Vinyl↔CD transition requires
+			// passing through silence again.
+			seenSilenceSinceLastSource = false
 			if err := writeState(cfg.OutputFile, current); err != nil {
 				log.Printf("write state error: %v", err)
 			}
@@ -224,7 +239,22 @@ func runStream(ctx interface{ Done() <-chan struct{} }, cfg Config) error {
 // The margin creates a dead band: once in Vinyl, ratio must drop below
 // (threshold - margin) to flip to CD; once in CD, ratio must exceed
 // (threshold + margin) to flip to Vinyl.
-func applyHysteresis(detected, current Source, rms, ratio float64, cfg Config, margin float64) Source {
+//
+// Additionally, direct Vinyl↔CD transitions are blocked unless the signal
+// passed through None (silence) first. This reflects the physical reality
+// that switching sources on an amplifier always produces a brief silence.
+// A high RMS signal can never be a source change — it must be the same source.
+func applyHysteresis(detected, current Source, rms, ratio float64, cfg Config, margin float64, seenSilenceSinceLastSource bool) Source {
+	// Block direct Vinyl↔CD flip if we haven't seen silence since the
+	// last committed source change. Real source switches always pass through
+	// a quiet moment; a ratio dip during loud music is just the track content.
+	if (current == SourceVinyl && detected == SourceCD) ||
+		(current == SourceCD && detected == SourceVinyl) {
+		if !seenSilenceSinceLastSource {
+			return current
+		}
+	}
+
 	if current == SourceVinyl && detected == SourceCD {
 		if ratio > cfg.VinylThreshold-margin {
 			return SourceVinyl
