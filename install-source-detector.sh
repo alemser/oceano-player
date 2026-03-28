@@ -256,7 +256,7 @@ ${BOLD}Configuration summary:${RESET}
   Branch             : ${branch}
   ALSA device        : ${alsa_device}
   Silence threshold  : ${silence_threshold}
-  Vinyl threshold    : ${vinyl_threshold}
+  Vinyl threshold    : ${bass_vinyl_threshold}
   Debounce windows   : ${debounce}
   Output file        : ${OUTPUT_FILE}
 
