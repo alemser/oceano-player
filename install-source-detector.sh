@@ -101,7 +101,7 @@ write_service() {
   local alsa_device="$1"
   local silence_threshold="$2"
   local bass_vinyl_threshold="$3"
-  local debounce="$5"
+  local debounce="$4"
 
   cat > "${SERVICE_DEST}" <<EOF
 [Unit]
