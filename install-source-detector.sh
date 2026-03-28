@@ -20,7 +20,6 @@ DEFAULT_BRANCH="main"
 DEFAULT_ALSA_DEVICE="plughw:CARD=Microphone,DEV=0"
 DEFAULT_SILENCE_THRESHOLD="0.005"
 DEFAULT_VINYL_THRESHOLD="0.08"
-DEFAULT_MIN_VINYL_RMS="0.12"
 DEFAULT_DEBOUNCE="5"
 
 # ─── Output colors ───────────────────────────
@@ -101,8 +100,7 @@ build_binary() {
 write_service() {
   local alsa_device="$1"
   local silence_threshold="$2"
-  local vinyl_threshold="$3"
-  local min_vinyl_rms="$4"
+  local bass_vinyl_threshold="$3"
   local debounce="$5"
 
   cat > "${SERVICE_DEST}" <<EOF
@@ -113,13 +111,12 @@ Wants=sound.target
 
 [Service]
 Type=simple
-ExecStart=${BINARY_DEST} \\
-  --device ${alsa_device} \\
-  --output ${OUTPUT_FILE} \\
-  --silence-threshold ${silence_threshold} \\
-  --vinyl-threshold ${vinyl_threshold} \\
-  --min-vinyl-rms ${min_vinyl_rms} \\
-  --debounce ${debounce} \\
+ExecStart=${BINARY_DEST} \
+  --device ${alsa_device} \
+  --output ${OUTPUT_FILE} \
+  --silence-threshold ${silence_threshold} \
+  --bass-vinyl-threshold ${bass_vinyl_threshold} \
+  --debounce ${debounce} \
   --verbose
 Restart=always
 RestartSec=3
@@ -147,8 +144,7 @@ main() {
   local branch="${DEFAULT_BRANCH}"
   local alsa_device="${DEFAULT_ALSA_DEVICE}"
   local silence_threshold="${DEFAULT_SILENCE_THRESHOLD}"
-  local vinyl_threshold="${DEFAULT_VINYL_THRESHOLD}"
-  local min_vinyl_rms="${DEFAULT_MIN_VINYL_RMS}"
+  local bass_vinyl_threshold="${DEFAULT_VINYL_THRESHOLD}"
   local debounce="${DEFAULT_DEBOUNCE}"
 
   while [[ $# -gt 0 ]]; do
@@ -156,7 +152,7 @@ main() {
       --branch)             branch="${2:-}";             shift 2 ;;
       --device)             alsa_device="${2:-}";        shift 2 ;;
       --silence-threshold)  silence_threshold="${2:-}";  shift 2 ;;
-      --vinyl-threshold)    vinyl_threshold="${2:-}";    shift 2 ;;
+      --bass-vinyl-threshold)    bass_vinyl_threshold="${2:-}";    shift 2 ;;
       --min-vinyl-rms)      min_vinyl_rms="${2:-}";      shift 2 ;;
       --debounce)           debounce="${2:-}";           shift 2 ;;
       -h|--help)
@@ -166,8 +162,7 @@ main() {
         echo "  --branch <n>               Git branch to build from (default: '${DEFAULT_BRANCH}')"
         echo "  --device <plughw:...>      ALSA capture device (default: '${DEFAULT_ALSA_DEVICE}')"
         echo "  --silence-threshold <f>    RMS threshold for silence (default: ${DEFAULT_SILENCE_THRESHOLD})"
-        echo "  --vinyl-threshold <f>      Low-freq energy ratio for vinyl (default: ${DEFAULT_VINYL_THRESHOLD})"
-        echo "  --min-vinyl-rms <f>        Minimum RMS to trust a vinyl classification (default: ${DEFAULT_MIN_VINYL_RMS})"
+        echo "  --bass-vinyl-threshold <f>      Bass RMS threshold for vinyl (default: ${DEFAULT_VINYL_THRESHOLD})"
         echo "  --debounce <n>             Consecutive windows before committing state (default: ${DEFAULT_DEBOUNCE})"
         exit 0
         ;;
@@ -262,7 +257,6 @@ ${BOLD}Configuration summary:${RESET}
   ALSA device        : ${alsa_device}
   Silence threshold  : ${silence_threshold}
   Vinyl threshold    : ${vinyl_threshold}
-  Min vinyl RMS      : ${min_vinyl_rms}
   Debounce windows   : ${debounce}
   Output file        : ${OUTPUT_FILE}
 
@@ -275,7 +269,7 @@ ${BOLD}Calibration tip (REC-OUT setup):${RESET}
   Since REC-OUT is a fixed-level output, RMS values are predictable.
   Run with --verbose to observe real values per window, then tune:
     --silence-threshold  below the noise floor when nothing plays
-    --vinyl-threshold    between the CD ratio and the Vinyl ratio
+    --bass-vinyl-threshold    between the CD ratio and the Vinyl ratio
     --min-vinyl-rms      above the crosstalk/noise RMS, below real vinyl RMS
 "
 }
