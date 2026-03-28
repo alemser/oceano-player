@@ -1,7 +1,7 @@
 package main
 
 import (
-	"context" // Importação correta do context
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"flag"
@@ -18,6 +18,7 @@ import (
 	"time"
 )
 
+// Source represents the detected audio source.
 type Source string
 
 const (
@@ -26,18 +27,20 @@ const (
 	SourceVinyl Source = "Vinyl"
 )
 
+// State is written to the output file.
 type State struct {
 	Source    Source `json:"source"`
 	UpdatedAt string `json:"updated_at"`
 }
 
+// Config holds all tunable parameters.
 type Config struct {
 	AlsaDevice         string
 	SampleRate         int
 	BufferSize         int
-	SilenceThreshold   float64
-	QuietThreshold     float64
-	BassVinylThreshold float64
+	SilenceThreshold   float64 // RMS below this = amp off / no source
+	QuietThreshold     float64 // RMS below this = quiet passage (classify here)
+	BassVinylThreshold float64 // Bass RMS above this = Vinyl
 	DebounceWindows    int
 	OutputFile         string
 	Verbose            bool
@@ -62,29 +65,28 @@ func main() {
 
 	flag.StringVar(&cfg.AlsaDevice, "device", cfg.AlsaDevice, "ALSA capture device")
 	flag.StringVar(&cfg.OutputFile, "output", cfg.OutputFile, "Output JSON file path")
-	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS abaixo disso = desligado")
-	flag.Float64Var(&cfg.QuietThreshold, "quiet-threshold", cfg.QuietThreshold, "RMS abaixo disso = passagem calma")
-	flag.Float64Var(&cfg.BassVinylThreshold, "bass-vinyl-threshold", cfg.BassVinylThreshold, "Bass RMS acima disso = Vinyl")
-	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Janelas consecutivas")
-	flag.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "Log detalhado")
+	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS below this = nothing playing")
+	flag.Float64Var(&cfg.QuietThreshold, "quiet-threshold", cfg.QuietThreshold, "RMS below this = quiet passage, classify source here")
+	flag.Float64Var(&cfg.BassVinylThreshold, "bass-vinyl-threshold", cfg.BassVinylThreshold, "Bass RMS above this = Vinyl")
+	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Consecutive windows before committing")
+	flag.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "Log every window")
 	flag.Parse()
 
-	log.Printf("Oceano Source Detector iniciado")
+	log.Printf("oceano-source-detector starting")
+	log.Printf("  device: %s | output: %s", cfg.AlsaDevice, cfg.OutputFile)
 
 	if !isPowerOfTwo(cfg.BufferSize) {
-		log.Fatalf("buffer-size deve ser potência de 2")
+		log.Fatalf("buffer-size must be a power of 2 (got %d)", cfg.BufferSize)
 	}
 
-	// Corrigido: context.WithSignal (ou o padrão NotifyContext)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if err := run(ctx, cfg); err != nil {
-		log.Fatalf("Erro: %v", err)
+		log.Fatalf("detector error: %v", err)
 	}
 }
 
-// Corrigido: context.Context como tipo de argumento
 func run(ctx context.Context, cfg Config) error {
 	_ = os.MkdirAll(filepath.Dir(cfg.OutputFile), 0o755)
 	_ = writeState(cfg.OutputFile, SourceNone)
@@ -92,26 +94,34 @@ func run(ctx context.Context, cfg Config) error {
 	for {
 		select {
 		case <-ctx.Done():
+			log.Printf("shutting down, writing None")
 			_ = writeState(cfg.OutputFile, SourceNone)
 			return nil
 		default:
 			if err := runStream(ctx, cfg); err != nil {
-				log.Printf("Erro na stream: %v — Reiniciando em 2s", err)
+				log.Printf("stream error: %v — restarting in 2s", err)
 				time.Sleep(2 * time.Second)
 			}
 		}
 	}
 }
 
-// Corrigido: context.Context como tipo de argumento
 func runStream(ctx context.Context, cfg Config) error {
-	cmd := exec.Command("arecord", "-D", cfg.AlsaDevice, "-f", "S16_LE", "-r", fmt.Sprintf("%d", cfg.SampleRate), "-c", "2", "-t", "raw", "--duration=0")
+	cmd := exec.Command("arecord",
+		"-D", cfg.AlsaDevice,
+		"-f", "S16_LE",
+		"-r", fmt.Sprintf("%d", cfg.SampleRate),
+		"-c", "2",
+		"-t", "raw",
+		"--duration=0",
+	)
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return fmt.Errorf("stdout pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return err
+		return fmt.Errorf("arecord start: %w", err)
 	}
 	defer func() {
 		_ = cmd.Process.Kill()
@@ -133,7 +143,7 @@ func runStream(ctx context.Context, cfg Config) error {
 		}
 
 		if _, err := io.ReadFull(stdout, raw); err != nil {
-			return err
+			return fmt.Errorf("read pcm: %w", err)
 		}
 
 		for i := 0; i < cfg.BufferSize; i++ {
@@ -144,24 +154,27 @@ func runStream(ctx context.Context, cfg Config) error {
 
 		rms := computeRMS(samples)
 
+		// 1. True silence
 		if rms < cfg.SilenceThreshold {
 			if current != SourceNone {
-				log.Printf("Mudança: %s → None", current)
+				log.Printf("source changed: %s → None (silence)", current)
 				current, candidate, candidateCount = SourceNone, SourceNone, 0
 				_ = writeState(cfg.OutputFile, current)
 			}
 			continue
 		}
 
-		// FIX: Se None, permite classificar mesmo em volume alto
+		// 2. Logic Check: Allow classification if current state is None, even if loud.
+		// If we already have a source, hold it during active music.
 		if rms >= cfg.QuietThreshold && current != SourceNone {
 			if cfg.Verbose {
-				log.Printf("Hold: %s (RMS: %.4f)", current, rms)
+				log.Printf("active music (rms=%.5f) - holding source: %s", rms, current)
 			}
 			candidate, candidateCount = SourceNone, 0
 			continue
 		}
 
+		// 3. Classification (FFT Analysis)
 		spectrum := fft(samples)
 		bassRMS := computeBassRMS(spectrum, cfg.SampleRate, cfg.BufferSize)
 
@@ -172,6 +185,12 @@ func runStream(ctx context.Context, cfg Config) error {
 			detected = SourceCD
 		}
 
+		if cfg.Verbose {
+			log.Printf("analyzing: rms=%.5f bass=%.5f det=%s cand=%s(%d) curr=%s",
+				rms, bassRMS, detected, candidate, candidateCount, current)
+		}
+
+		// Debounce
 		if detected == candidate {
 			candidateCount++
 		} else {
@@ -179,9 +198,11 @@ func runStream(ctx context.Context, cfg Config) error {
 		}
 
 		if candidateCount >= cfg.DebounceWindows && candidate != current {
-			log.Printf("DETECTADO: %s → %s (Bass: %.5f)", current, candidate, bassRMS)
+			log.Printf("source changed: %s → %s (bass_rms=%.5f)", current, candidate, bassRMS)
 			current = candidate
-			_ = writeState(cfg.OutputFile, current)
+			if err := writeState(cfg.OutputFile, current); err != nil {
+				log.Printf("write state error: %v", err)
+			}
 		}
 	}
 }
@@ -262,8 +283,13 @@ func writeState(path string, src Source) error {
 		Source:    src,
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	b, _ := json.MarshalIndent(state, "", "  ")
+	b, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
 	tmp := path + ".tmp"
-	_ = os.WriteFile(tmp, b, 0o644)
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
 	return os.Rename(tmp, path)
 }
