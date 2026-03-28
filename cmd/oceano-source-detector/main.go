@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context" // Importação correta do context
 	"encoding/binary"
 	"encoding/json"
 	"flag"
@@ -47,9 +48,9 @@ func defaultConfig() Config {
 		AlsaDevice:         "plughw:2,0",
 		SampleRate:         44100,
 		BufferSize:         8192,
-		SilenceThreshold:   0.008,  // Ajustado via CSV: ruído base do Magnat/Lehmann
-		QuietThreshold:     0.040,  // Janela para calibração fina
-		BassVinylThreshold: 0.0025, // Diferença real entre o rumble do Rega e o digital
+		SilenceThreshold:   0.008,
+		QuietThreshold:     0.040,
+		BassVinylThreshold: 0.0025,
 		DebounceWindows:    5,
 		OutputFile:         "/tmp/oceano-source.json",
 		Verbose:            false,
@@ -62,20 +63,20 @@ func main() {
 	flag.StringVar(&cfg.AlsaDevice, "device", cfg.AlsaDevice, "ALSA capture device")
 	flag.StringVar(&cfg.OutputFile, "output", cfg.OutputFile, "Output JSON file path")
 	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS abaixo disso = desligado")
-	flag.Float64Var(&cfg.QuietThreshold, "quiet-threshold", cfg.QuietThreshold, "RMS abaixo disso = passagem calma (classifica)")
+	flag.Float64Var(&cfg.QuietThreshold, "quiet-threshold", cfg.QuietThreshold, "RMS abaixo disso = passagem calma")
 	flag.Float64Var(&cfg.BassVinylThreshold, "bass-vinyl-threshold", cfg.BassVinylThreshold, "Bass RMS acima disso = Vinyl")
-	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Janelas consecutivas para confirmar")
+	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Janelas consecutivas")
 	flag.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "Log detalhado")
 	flag.Parse()
 
 	log.Printf("Oceano Source Detector iniciado")
-	log.Printf("  Dispositivo: %s | Saída: %s", cfg.AlsaDevice, cfg.OutputFile)
 
 	if !isPowerOfTwo(cfg.BufferSize) {
-		log.Fatalf("buffer-size deve ser potência de 2 (ex: 8192)")
+		log.Fatalf("buffer-size deve ser potência de 2")
 	}
 
-	ctx, stop := signal.NotifyContext(os.Background(), os.Interrupt, syscall.SIGTERM)
+	// Corrigido: context.WithSignal (ou o padrão NotifyContext)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if err := run(ctx, cfg); err != nil {
@@ -83,7 +84,8 @@ func main() {
 	}
 }
 
-func run(ctx os.Context, cfg Config) error {
+// Corrigido: context.Context como tipo de argumento
+func run(ctx context.Context, cfg Config) error {
 	_ = os.MkdirAll(filepath.Dir(cfg.OutputFile), 0o755)
 	_ = writeState(cfg.OutputFile, SourceNone)
 
@@ -101,7 +103,8 @@ func run(ctx os.Context, cfg Config) error {
 	}
 }
 
-func runStream(ctx os.Context, cfg Config) error {
+// Corrigido: context.Context como tipo de argumento
+func runStream(ctx context.Context, cfg Config) error {
 	cmd := exec.Command("arecord", "-D", cfg.AlsaDevice, "-f", "S16_LE", "-r", fmt.Sprintf("%d", cfg.SampleRate), "-c", "2", "-t", "raw", "--duration=0")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -123,6 +126,12 @@ func runStream(ctx os.Context, cfg Config) error {
 	samples := make([]float64, cfg.BufferSize)
 
 	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
 		if _, err := io.ReadFull(stdout, raw); err != nil {
 			return err
 		}
@@ -135,28 +144,24 @@ func runStream(ctx os.Context, cfg Config) error {
 
 		rms := computeRMS(samples)
 
-		// 1. SILÊNCIO TOTAL
 		if rms < cfg.SilenceThreshold {
 			if current != SourceNone {
-				log.Printf("Mudança: %s → None (Mudo)", current)
+				log.Printf("Mudança: %s → None", current)
 				current, candidate, candidateCount = SourceNone, SourceNone, 0
 				_ = writeState(cfg.OutputFile, current)
 			}
 			continue
 		}
 
-		// 2. LÓGICA DE DECISÃO (FIX APLICADO AQUI)
-		// Se já temos uma fonte e o som está alto, seguramos (Hold).
-		// Se a fonte for "None", permitimos classificar mesmo em som alto para sair do estado inicial.
+		// FIX: Se None, permite classificar mesmo em volume alto
 		if rms >= cfg.QuietThreshold && current != SourceNone {
 			if cfg.Verbose {
-				log.Printf("Música ativa (RMS: %.4f) - Mantendo: %s", rms, current)
+				log.Printf("Hold: %s (RMS: %.4f)", current, rms)
 			}
 			candidate, candidateCount = SourceNone, 0
 			continue
 		}
 
-		// 3. CLASSIFICAÇÃO (FFT)
 		spectrum := fft(samples)
 		bassRMS := computeBassRMS(spectrum, cfg.SampleRate, cfg.BufferSize)
 
@@ -167,12 +172,6 @@ func runStream(ctx os.Context, cfg Config) error {
 			detected = SourceCD
 		}
 
-		if cfg.Verbose {
-			log.Printf("Analise: rms=%.5f bass=%.5f det=%s cand=%s(%d) curr=%s",
-				rms, bassRMS, detected, candidate, candidateCount, current)
-		}
-
-		// Debounce
 		if detected == candidate {
 			candidateCount++
 		} else {
@@ -180,7 +179,7 @@ func runStream(ctx os.Context, cfg Config) error {
 		}
 
 		if candidateCount >= cfg.DebounceWindows && candidate != current {
-			log.Printf("FONTE DETECTADA: %s → %s (Bass: %.5f)", current, candidate, bassRMS)
+			log.Printf("DETECTADO: %s → %s (Bass: %.5f)", current, candidate, bassRMS)
 			current = candidate
 			_ = writeState(cfg.OutputFile, current)
 		}
