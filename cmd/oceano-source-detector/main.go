@@ -36,7 +36,6 @@ type Config struct {
 	SampleRate         int
 	BufferSize         int
 	SilenceThreshold   float64
-	QuietThreshold     float64
 	MinVinylRMS        float64
 	VinylRatioThreshold float64
 	DebounceWindows    int
@@ -50,7 +49,6 @@ func defaultConfig() Config {
 		SampleRate:          44100,
 		BufferSize:          8192,
 		SilenceThreshold:    0.008,
-		QuietThreshold:      0.040,
 		// Dual-gate: both must be true to detect Vinyl.
 		// MinVinylRMS: any signal above silence is enough (tune up if noisy).
 		// VinylRatioThreshold: sub-bass (15-40 Hz) energy as fraction of total.
@@ -71,7 +69,6 @@ func main() {
 	flag.StringVar(&cfg.AlsaDevice, "device", cfg.AlsaDevice, "ALSA capture device")
 	flag.StringVar(&cfg.OutputFile, "output", cfg.OutputFile, "Output JSON file path")
 	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS below this = silence")
-	flag.Float64Var(&cfg.QuietThreshold, "quiet-threshold", cfg.QuietThreshold, "RMS below this = quiet passage")
 	flag.Float64Var(&cfg.MinVinylRMS, "min-vinyl-rms", cfg.MinVinylRMS, "Minimum RMS required to classify as Vinyl")
 	flag.Float64Var(&cfg.VinylRatioThreshold, "vinyl-ratio-threshold", cfg.VinylRatioThreshold, "Low-freq energy ratio (15-140 Hz / total) above this = Vinyl")
 	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Consecutive windows to confirm")
@@ -132,7 +129,6 @@ func runStream(ctx context.Context, cfg Config) error {
 		voteWindow[i] = SourceNone
 	}
 	voteIdx := 0
-	confirmed := false
 	bytesPerWindow := cfg.BufferSize * 4
 	raw := make([]byte, bytesPerWindow)
 	samples := make([]float64, cfg.BufferSize)
@@ -166,20 +162,11 @@ func runStream(ctx context.Context, cfg Config) error {
 			if current != SourceNone {
 				log.Printf("source changed: %s → None", current)
 				current = SourceNone
-				confirmed = false
 				for i := range voteWindow {
 					voteWindow[i] = SourceNone
 				}
 				voteIdx = 0
 				_ = writeState(cfg.OutputFile, current)
-			}
-			continue
-		}
-
-		// Hold confirmed source during active music to prevent misclassification.
-		if rms >= cfg.QuietThreshold && current != SourceNone && confirmed {
-			if cfg.Verbose {
-				log.Printf("active music (rms=%.5f) - holding: %s", rms, current)
 			}
 			continue
 		}
@@ -244,10 +231,7 @@ func runStream(ctx context.Context, cfg Config) error {
 			log.Printf("SOURCE DETECTED: %s → %s (rms=%.5f bass_ratio=%.4f hf_ratio=%.4f cd_votes=%d vinyl_votes=%d)",
 				current, winner, rms, bassRatio, hfRatio, cdVotes, vinylVotes)
 			current = winner
-			confirmed = true
 			_ = writeState(cfg.OutputFile, current)
-		} else if winner == current {
-			confirmed = true
 		}
 	}
 }
