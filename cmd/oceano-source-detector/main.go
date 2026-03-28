@@ -18,7 +18,6 @@ import (
 	"time"
 )
 
-// Source represents the detected audio source.
 type Source string
 
 const (
@@ -27,20 +26,18 @@ const (
 	SourceVinyl Source = "Vinyl"
 )
 
-// State is written to the output file.
 type State struct {
 	Source    Source `json:"source"`
 	UpdatedAt string `json:"updated_at"`
 }
 
-// Config holds all tunable parameters.
 type Config struct {
 	AlsaDevice         string
 	SampleRate         int
 	BufferSize         int
-	SilenceThreshold   float64 // RMS below this = amp off / no source
-	QuietThreshold     float64 // RMS below this = quiet passage
-	BassVinylThreshold float64 // Bass RMS above this = Vinyl
+	SilenceThreshold   float64
+	QuietThreshold     float64
+	BassVinylThreshold float64
 	DebounceWindows    int
 	OutputFile         string
 	Verbose            bool
@@ -53,8 +50,9 @@ func defaultConfig() Config {
 		BufferSize:         8192,
 		SilenceThreshold:   0.008,
 		QuietThreshold:     0.040,
-		BassVinylThreshold: 0.00010, // Set to 0.00010 based on real-world logs
-		DebounceWindows:    5,
+		// Final calibration: sitting between CD (0.00005) and Vinyl (0.00020)
+		BassVinylThreshold: 0.00015, 
+		DebounceWindows:    10, // Increased for better stability
 		OutputFile:         "/tmp/oceano-source.json",
 		Verbose:            false,
 	}
@@ -68,14 +66,14 @@ func main() {
 	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS below this = silence")
 	flag.Float64Var(&cfg.QuietThreshold, "quiet-threshold", cfg.QuietThreshold, "RMS below this = quiet passage")
 	flag.Float64Var(&cfg.BassVinylThreshold, "bass-vinyl-threshold", cfg.BassVinylThreshold, "Bass RMS above this = Vinyl")
-	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Consecutive windows to confirm source")
+	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Consecutive windows to confirm")
 	flag.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "Detailed logging")
 	flag.Parse()
 
 	log.Printf("oceano-source-detector starting")
 
 	if !isPowerOfTwo(cfg.BufferSize) {
-		log.Fatalf("buffer-size must be a power of 2 (e.g. 8192)")
+		log.Fatalf("buffer-size must be a power of 2")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -144,26 +142,23 @@ func runStream(ctx context.Context, cfg Config) error {
 
 		rms := computeRMS(samples)
 
-		// 1. Silence Handling
 		if rms < cfg.SilenceThreshold {
 			if current != SourceNone {
-				log.Printf("source changed: %s → None (silence)", current)
+				log.Printf("source changed: %s → None", current)
 				current, candidate, candidateCount = SourceNone, SourceNone, 0
 				_ = writeState(cfg.OutputFile, current)
 			}
 			continue
 		}
 
-		// 2. Logic: Only 'Hold' if we have a confirmed state (candidateCount >= debounce)
-		// This prevents getting stuck on a wrong initial guess when music is active.
+		// Hold source if confirmed and music is loud
 		if rms >= cfg.QuietThreshold && current != SourceNone && candidateCount >= cfg.DebounceWindows {
 			if cfg.Verbose {
-				log.Printf("active music (rms=%.5f) - holding source: %s", rms, current)
+				log.Printf("active music (rms=%.5f) - holding: %s", rms, current)
 			}
 			continue
 		}
 
-		// 3. Analysis (FFT)
 		spectrum := fft(samples)
 		bassRMS := computeBassRMS(spectrum, cfg.SampleRate, cfg.BufferSize)
 
@@ -179,7 +174,6 @@ func runStream(ctx context.Context, cfg Config) error {
 				rms, bassRMS, detected, candidate, candidateCount, current)
 		}
 
-		// Debouncing
 		if detected == candidate {
 			candidateCount++
 		} else {
