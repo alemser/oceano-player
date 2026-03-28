@@ -37,7 +37,8 @@ type Config struct {
 	BufferSize         int
 	SilenceThreshold   float64
 	QuietThreshold     float64
-	BassVinylThreshold float64
+	MinVinylRMS        float64
+	VinylRatioThreshold float64
 	DebounceWindows    int
 	OutputFile         string
 	Verbose            bool
@@ -45,16 +46,20 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{
-		AlsaDevice:         "plughw:2,0",
-		SampleRate:         44100,
-		BufferSize:         8192,
-		SilenceThreshold:   0.008,
-		QuietThreshold:     0.040,
-		// Final calibration: sitting between CD (0.00005) and Vinyl (0.00020)
-		BassVinylThreshold: 0.00015, 
-		DebounceWindows:    10, // Increased for better stability
-		OutputFile:         "/tmp/oceano-source.json",
-		Verbose:            false,
+		AlsaDevice:          "plughw:2,0",
+		SampleRate:          44100,
+		BufferSize:          8192,
+		SilenceThreshold:    0.008,
+		QuietThreshold:      0.040,
+		// Dual-gate: both must be true to detect Vinyl.
+		// MinVinylRMS: any signal above silence is enough (tune up if noisy).
+		// VinylRatioThreshold: low-freq (15-140 Hz) energy as fraction of total.
+		//   Vinyl ~0.10-0.30, CD ~0.02-0.08 — start at 0.08, tune from calibration.
+		MinVinylRMS:         0.010,
+		VinylRatioThreshold: 0.08,
+		DebounceWindows:     10,
+		OutputFile:          "/tmp/oceano-source.json",
+		Verbose:             false,
 	}
 }
 
@@ -65,7 +70,8 @@ func main() {
 	flag.StringVar(&cfg.OutputFile, "output", cfg.OutputFile, "Output JSON file path")
 	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS below this = silence")
 	flag.Float64Var(&cfg.QuietThreshold, "quiet-threshold", cfg.QuietThreshold, "RMS below this = quiet passage")
-	flag.Float64Var(&cfg.BassVinylThreshold, "bass-vinyl-threshold", cfg.BassVinylThreshold, "Bass RMS above this = Vinyl")
+	flag.Float64Var(&cfg.MinVinylRMS, "min-vinyl-rms", cfg.MinVinylRMS, "Minimum RMS required to classify as Vinyl")
+	flag.Float64Var(&cfg.VinylRatioThreshold, "vinyl-ratio-threshold", cfg.VinylRatioThreshold, "Low-freq energy ratio (15-140 Hz / total) above this = Vinyl")
 	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Consecutive windows to confirm")
 	flag.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "Detailed logging")
 	flag.Parse()
@@ -123,6 +129,12 @@ func runStream(ctx context.Context, cfg Config) error {
 	raw := make([]byte, bytesPerWindow)
 	samples := make([]float64, cfg.BufferSize)
 
+	// Precompute Hann window coefficients once.
+	hann := make([]float64, cfg.BufferSize)
+	for i := range hann {
+		hann[i] = 0.5 * (1 - math.Cos(2*math.Pi*float64(i)/float64(cfg.BufferSize-1)))
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -151,7 +163,7 @@ func runStream(ctx context.Context, cfg Config) error {
 			continue
 		}
 
-		// Hold source if confirmed and music is loud
+		// Hold confirmed source during active music to prevent misclassification.
 		if rms >= cfg.QuietThreshold && current != SourceNone && candidateCount >= cfg.DebounceWindows {
 			if cfg.Verbose {
 				log.Printf("active music (rms=%.5f) - holding: %s", rms, current)
@@ -159,19 +171,27 @@ func runStream(ctx context.Context, cfg Config) error {
 			continue
 		}
 
-		spectrum := fft(samples)
-		bassRMS := computeBassRMS(spectrum, cfg.SampleRate, cfg.BufferSize)
+		// Apply Hann window before FFT to reduce spectral leakage.
+		windowed := make([]float64, cfg.BufferSize)
+		for i, s := range samples {
+			windowed[i] = s * hann[i]
+		}
 
+		spectrum := fft(windowed)
+		bassRatio := computeLowFreqRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
+		hfRatio := computeHFRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
+
+		// Dual gate: require meaningful signal AND high low-freq ratio for Vinyl.
 		var detected Source
-		if bassRMS > cfg.BassVinylThreshold {
+		if rms >= cfg.MinVinylRMS && bassRatio >= cfg.VinylRatioThreshold {
 			detected = SourceVinyl
 		} else {
 			detected = SourceCD
 		}
 
 		if cfg.Verbose {
-			log.Printf("analyzing: rms=%.5f bass=%.5f det=%s cand=%s(%d) curr=%s",
-				rms, bassRMS, detected, candidate, candidateCount, current)
+			log.Printf("analyzing: rms=%.5f bass_ratio=%.4f hf_ratio=%.4f det=%s cand=%s(%d) curr=%s",
+				rms, bassRatio, hfRatio, detected, candidate, candidateCount, current)
 		}
 
 		if detected == candidate {
@@ -181,7 +201,8 @@ func runStream(ctx context.Context, cfg Config) error {
 		}
 
 		if candidateCount >= cfg.DebounceWindows && candidate != current {
-			log.Printf("SOURCE DETECTED: %s → %s (bass_rms=%.5f)", current, candidate, bassRMS)
+			log.Printf("SOURCE DETECTED: %s → %s (rms=%.5f bass_ratio=%.4f hf_ratio=%.4f)",
+				current, candidate, rms, bassRatio, hfRatio)
 			current = candidate
 			_ = writeState(cfg.OutputFile, current)
 		}
@@ -196,16 +217,51 @@ func computeRMS(samples []float64) float64 {
 	return math.Sqrt(sum / float64(len(samples)))
 }
 
-func computeBassRMS(spectrum []complex128, sampleRate, bufferSize int) float64 {
+// computeLowFreqRatio returns the fraction of spectral energy in the 15–140 Hz band.
+// This is volume-independent: vinyl rumble stays high relative to total energy
+// regardless of how loud the music is.
+func computeLowFreqRatio(spectrum []complex128, sampleRate, bufferSize int) float64 {
 	binHz := float64(sampleRate) / float64(bufferSize)
-	lowMin := int(20.0 / binHz)
-	lowMax := int(80.0 / binHz)
-	var energy float64
-	for i := lowMin; i <= lowMax; i++ {
+	lowMin := int(15.0 / binHz)
+	lowMax := int(140.0 / binHz)
+
+	var lowEnergy, totalEnergy float64
+	nyquist := bufferSize / 2
+	for i := 0; i <= nyquist; i++ {
 		mag := cmplx.Abs(spectrum[i])
-		energy += mag * mag
+		e := mag * mag
+		totalEnergy += e
+		if i >= lowMin && i <= lowMax {
+			lowEnergy += e
+		}
 	}
-	return (math.Sqrt(energy/float64(bufferSize)) / float64(bufferSize/2))
+	if totalEnergy == 0 {
+		return 0
+	}
+	return lowEnergy / totalEnergy
+}
+
+// computeHFRatio returns the fraction of spectral energy above 8 kHz.
+// Vinyl surface noise creates broadband HF hiss that CD lacks.
+// Logged in verbose mode as a diagnostic aid for future threshold tuning.
+func computeHFRatio(spectrum []complex128, sampleRate, bufferSize int) float64 {
+	binHz := float64(sampleRate) / float64(bufferSize)
+	hfMin := int(8000.0 / binHz)
+	nyquist := bufferSize / 2
+
+	var hfEnergy, totalEnergy float64
+	for i := 0; i <= nyquist; i++ {
+		mag := cmplx.Abs(spectrum[i])
+		e := mag * mag
+		totalEnergy += e
+		if i >= hfMin {
+			hfEnergy += e
+		}
+	}
+	if totalEnergy == 0 {
+		return 0
+	}
+	return hfEnergy / totalEnergy
 }
 
 func fft(samples []float64) []complex128 {

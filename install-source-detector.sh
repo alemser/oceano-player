@@ -19,7 +19,8 @@ OUTPUT_FILE="/tmp/oceano-source.json"
 DEFAULT_BRANCH="main"
 DEFAULT_ALSA_DEVICE="plughw:2,0"
 DEFAULT_SILENCE_THRESHOLD="0.008"
-DEFAULT_BASS_VINYL_THRESHOLD="0.00015"
+DEFAULT_MIN_VINYL_RMS="0.010"
+DEFAULT_VINYL_RATIO_THRESHOLD="0.08"
 DEFAULT_DEBOUNCE="10"
 
 # ─── Output colors ───────────────────────────
@@ -94,8 +95,9 @@ build_binary() {
 write_service() {
   local alsa_device="$1"
   local silence_threshold="$2"
-  local bass_vinyl_threshold="$3"
-  local debounce="$4"
+  local min_vinyl_rms="$3"
+  local vinyl_ratio_threshold="$4"
+  local debounce="$5"
 
   cat > "${SERVICE_DEST}" <<EOF
 [Unit]
@@ -109,7 +111,8 @@ ExecStart=${BINARY_DEST} \\
   --device "${alsa_device}" \\
   --output "${OUTPUT_FILE}" \\
   --silence-threshold "${silence_threshold}" \\
-  --bass-vinyl-threshold "${bass_vinyl_threshold}" \\
+  --min-vinyl-rms "${min_vinyl_rms}" \\
+  --vinyl-ratio-threshold "${vinyl_ratio_threshold}" \\
   --debounce "${debounce}" \\
   --verbose
 Restart=always
@@ -138,25 +141,28 @@ main() {
   local branch="${DEFAULT_BRANCH}"
   local alsa_device="${DEFAULT_ALSA_DEVICE}"
   local silence_threshold="${DEFAULT_SILENCE_THRESHOLD}"
-  local bass_vinyl_threshold="${DEFAULT_BASS_VINYL_THRESHOLD}"
+  local min_vinyl_rms="${DEFAULT_MIN_VINYL_RMS}"
+  local vinyl_ratio_threshold="${DEFAULT_VINYL_RATIO_THRESHOLD}"
   local debounce="${DEFAULT_DEBOUNCE}"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --branch)               branch="${2:-}";             shift 2 ;;
-      --device)               alsa_device="${2:-}";        shift 2 ;;
-      --silence-threshold)    silence_threshold="${2:-}";  shift 2 ;;
-      --bass-vinyl-threshold) bass_vinyl_threshold="${2:-}"; shift 2 ;;
-      --debounce)             debounce="${2:-}";           shift 2 ;;
+      --branch)                branch="${2:-}";               shift 2 ;;
+      --device)                alsa_device="${2:-}";          shift 2 ;;
+      --silence-threshold)     silence_threshold="${2:-}";    shift 2 ;;
+      --min-vinyl-rms)         min_vinyl_rms="${2:-}";        shift 2 ;;
+      --vinyl-ratio-threshold) vinyl_ratio_threshold="${2:-}"; shift 2 ;;
+      --debounce)              debounce="${2:-}";             shift 2 ;;
       -h|--help)
         echo "Usage: sudo ./install-source-detector.sh [options]"
         echo ""
         echo "Options:"
-        echo "  --branch <name>            Git branch to build (default: ${DEFAULT_BRANCH})"
-        echo "  --device <hw>              ALSA device (default: ${DEFAULT_ALSA_DEVICE})"
-        echo "  --silence-threshold <f>    RMS threshold for silence (default: ${DEFAULT_SILENCE_THRESHOLD})"
-        echo "  --bass-vinyl-threshold <f> Bass threshold for Vinyl (default: ${DEFAULT_BASS_VINYL_THRESHOLD})"
-        echo "  --debounce <n>             Consecutive windows (default: ${DEFAULT_DEBOUNCE})"
+        echo "  --branch <name>               Git branch to build (default: ${DEFAULT_BRANCH})"
+        echo "  --device <hw>                 ALSA device (default: ${DEFAULT_ALSA_DEVICE})"
+        echo "  --silence-threshold <f>       RMS threshold for silence (default: ${DEFAULT_SILENCE_THRESHOLD})"
+        echo "  --min-vinyl-rms <f>           Minimum RMS to classify as Vinyl (default: ${DEFAULT_MIN_VINYL_RMS})"
+        echo "  --vinyl-ratio-threshold <f>   Low-freq ratio (15-140 Hz) threshold (default: ${DEFAULT_VINYL_RATIO_THRESHOLD})"
+        echo "  --debounce <n>                Consecutive windows (default: ${DEFAULT_DEBOUNCE})"
         exit 0
         ;;
       *) log_error "Unknown argument: $1"; exit 1 ;;
@@ -187,7 +193,7 @@ main() {
 
   # Service Configuration
   log_section "systemd Service"
-  write_service "${alsa_device}" "${silence_threshold}" "${bass_vinyl_threshold}" "${debounce}"
+  write_service "${alsa_device}" "${silence_threshold}" "${min_vinyl_rms}" "${vinyl_ratio_threshold}" "${debounce}"
   
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
