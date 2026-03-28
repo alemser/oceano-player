@@ -53,7 +53,7 @@ func defaultConfig() Config {
 		BufferSize:         8192,
 		SilenceThreshold:   0.008,
 		QuietThreshold:     0.040,
-		BassVinylThreshold: 0.0010, // Lowered to 0.0010 for better Rega detection
+		BassVinylThreshold: 0.00010, // Set to 0.00010 based on real-world logs
 		DebounceWindows:    5,
 		OutputFile:         "/tmp/oceano-source.json",
 		Verbose:            false,
