@@ -53,10 +53,12 @@ func defaultConfig() Config {
 		QuietThreshold:      0.040,
 		// Dual-gate: both must be true to detect Vinyl.
 		// MinVinylRMS: any signal above silence is enough (tune up if noisy).
-		// VinylRatioThreshold: low-freq (15-140 Hz) energy as fraction of total.
-		//   Vinyl ~0.10-0.30, CD ~0.02-0.08 — start at 0.08, tune from calibration.
+		// VinylRatioThreshold: sub-bass (15-40 Hz) energy as fraction of total.
+		//   15-40 Hz is below musical content (kick drums start at ~50 Hz, bass guitar ~40-200 Hz).
+		//   Vinyl platter/arm resonance lives at 7-40 Hz; CD has near-zero energy here.
+		//   Start at 0.02 and tune from calibration output.
 		MinVinylRMS:         0.010,
-		VinylRatioThreshold: 0.08,
+		VinylRatioThreshold: 0.02,
 		DebounceWindows:     10,
 		OutputFile:          "/tmp/oceano-source.json",
 		Verbose:             false,
@@ -123,8 +125,14 @@ func runStream(ctx context.Context, cfg Config) error {
 	}()
 
 	current := SourceNone
-	candidate := SourceNone
-	candidateCount := 0
+	// Majority vote over the last N windows. Tolerates occasional miscounts without
+	// resetting the streak to zero — unlike a consecutive-only debounce.
+	voteWindow := make([]Source, cfg.DebounceWindows)
+	for i := range voteWindow {
+		voteWindow[i] = SourceNone
+	}
+	voteIdx := 0
+	confirmed := false
 	bytesPerWindow := cfg.BufferSize * 4
 	raw := make([]byte, bytesPerWindow)
 	samples := make([]float64, cfg.BufferSize)
@@ -157,14 +165,19 @@ func runStream(ctx context.Context, cfg Config) error {
 		if rms < cfg.SilenceThreshold {
 			if current != SourceNone {
 				log.Printf("source changed: %s → None", current)
-				current, candidate, candidateCount = SourceNone, SourceNone, 0
+				current = SourceNone
+				confirmed = false
+				for i := range voteWindow {
+					voteWindow[i] = SourceNone
+				}
+				voteIdx = 0
 				_ = writeState(cfg.OutputFile, current)
 			}
 			continue
 		}
 
 		// Hold confirmed source during active music to prevent misclassification.
-		if rms >= cfg.QuietThreshold && current != SourceNone && candidateCount >= cfg.DebounceWindows {
+		if rms >= cfg.QuietThreshold && current != SourceNone && confirmed {
 			if cfg.Verbose {
 				log.Printf("active music (rms=%.5f) - holding: %s", rms, current)
 			}
@@ -181,7 +194,7 @@ func runStream(ctx context.Context, cfg Config) error {
 		bassRatio := computeLowFreqRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
 		hfRatio := computeHFRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
 
-		// Dual gate: require meaningful signal AND high low-freq ratio for Vinyl.
+		// Dual gate: require meaningful signal AND high sub-bass ratio for Vinyl.
 		var detected Source
 		if rms >= cfg.MinVinylRMS && bassRatio >= cfg.VinylRatioThreshold {
 			detected = SourceVinyl
@@ -189,22 +202,52 @@ func runStream(ctx context.Context, cfg Config) error {
 			detected = SourceCD
 		}
 
+		// Record vote in rolling window.
+		voteWindow[voteIdx%cfg.DebounceWindows] = detected
+		voteIdx++
+
+		// Count votes only once the window is full.
+		if voteIdx < cfg.DebounceWindows {
+			if cfg.Verbose {
+				log.Printf("warming up: rms=%.5f bass_ratio=%.4f hf_ratio=%.4f det=%s (%d/%d)",
+					rms, bassRatio, hfRatio, detected, voteIdx, cfg.DebounceWindows)
+			}
+			continue
+		}
+
+		cdVotes, vinylVotes := 0, 0
+		for _, v := range voteWindow {
+			if v == SourceCD {
+				cdVotes++
+			} else if v == SourceVinyl {
+				vinylVotes++
+			}
+		}
+		majority := cfg.DebounceWindows/2 + 1
+
+		var winner Source
+		switch {
+		case vinylVotes >= majority:
+			winner = SourceVinyl
+		case cdVotes >= majority:
+			winner = SourceCD
+		default:
+			winner = current // no majority yet, keep current
+		}
+
 		if cfg.Verbose {
-			log.Printf("analyzing: rms=%.5f bass_ratio=%.4f hf_ratio=%.4f det=%s cand=%s(%d) curr=%s",
-				rms, bassRatio, hfRatio, detected, candidate, candidateCount, current)
+			log.Printf("analyzing: rms=%.5f bass_ratio=%.4f hf_ratio=%.4f det=%s votes(cd=%d vinyl=%d) curr=%s",
+				rms, bassRatio, hfRatio, detected, cdVotes, vinylVotes, current)
 		}
 
-		if detected == candidate {
-			candidateCount++
-		} else {
-			candidate, candidateCount = detected, 1
-		}
-
-		if candidateCount >= cfg.DebounceWindows && candidate != current {
-			log.Printf("SOURCE DETECTED: %s → %s (rms=%.5f bass_ratio=%.4f hf_ratio=%.4f)",
-				current, candidate, rms, bassRatio, hfRatio)
-			current = candidate
+		if winner != SourceNone && winner != current {
+			log.Printf("SOURCE DETECTED: %s → %s (rms=%.5f bass_ratio=%.4f hf_ratio=%.4f cd_votes=%d vinyl_votes=%d)",
+				current, winner, rms, bassRatio, hfRatio, cdVotes, vinylVotes)
+			current = winner
+			confirmed = true
 			_ = writeState(cfg.OutputFile, current)
+		} else if winner == current {
+			confirmed = true
 		}
 	}
 }
@@ -217,13 +260,14 @@ func computeRMS(samples []float64) float64 {
 	return math.Sqrt(sum / float64(len(samples)))
 }
 
-// computeLowFreqRatio returns the fraction of spectral energy in the 15–140 Hz band.
-// This is volume-independent: vinyl rumble stays high relative to total energy
-// regardless of how loud the music is.
+// computeLowFreqRatio returns the fraction of spectral energy in the 15–40 Hz sub-bass band.
+// This band is below musical content: kick drums start ~50 Hz, bass guitar ~40-200 Hz.
+// Vinyl platter/arm resonance concentrates at 7-40 Hz; CD digital audio has near-zero
+// energy here. Using a sub-musical band avoids false Vinyl detections on bass-heavy CD tracks.
 func computeLowFreqRatio(spectrum []complex128, sampleRate, bufferSize int) float64 {
 	binHz := float64(sampleRate) / float64(bufferSize)
 	lowMin := int(15.0 / binHz)
-	lowMax := int(140.0 / binHz)
+	lowMax := int(40.0 / binHz)
 
 	var lowEnergy, totalEnergy float64
 	nyquist := bufferSize / 2
