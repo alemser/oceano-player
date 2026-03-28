@@ -237,7 +237,7 @@ main() {
 
   # ── Service ──
   log_section "systemd Service"
-  write_service "${alsa_device}" "${silence_threshold}" "${vinyl_threshold}" "${min_vinyl_rms}" "${debounce}"
+  write_service "${alsa_device}" "${silence_threshold}" "${bass_vinyl_threshold}" "${debounce}"
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
