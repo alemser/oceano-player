@@ -85,12 +85,15 @@ type Config struct {
 	PCMSocket                 string
 	RecognizerCaptureDuration time.Duration
 	// RecognizerMaxInterval is the fallback re-recognition interval when no track
-	// boundary is detected (e.g. long continuous playback without a silence gap).
+	// boundary is detected and no result is held yet.
 	RecognizerMaxInterval time.Duration
 	// VUSocket is the Unix socket path for VU frames from oceano-source-detector.
 	// The state manager subscribes to detect silence→audio transitions (track boundaries)
 	// and uses them to trigger recognition at the right moment.
 	VUSocket string
+	// IdleDelay is how long to keep showing the last physical track after audio stops
+	// before switching to the idle screen. Defaults to 60 seconds.
+	IdleDelay time.Duration
 }
 
 func defaultConfig() Config {
@@ -103,6 +106,7 @@ func defaultConfig() Config {
 		VUSocket:                  "/tmp/oceano-vu.sock",
 		RecognizerCaptureDuration: 10 * time.Second,
 		RecognizerMaxInterval:     5 * time.Minute,
+		IdleDelay:                 60 * time.Second,
 	}
 }
 
@@ -125,6 +129,7 @@ type mgr struct {
 
 	// Physical source (updated by source watcher goroutine)
 	physicalSource    string             // "Physical" or "None"
+	lastPhysicalAt    time.Time          // last time physicalSource was "Physical"
 	recognitionResult *RecognitionResult // last successful recognition; nil until identified
 
 	// recognizeTrigger is sent to when a new recognition attempt should start:
@@ -432,7 +437,11 @@ func (m *mgr) pollSourceFile() {
 
 	m.mu.Lock()
 	changed := m.physicalSource != src
-	if changed && src != "Physical" {
+	if src == "Physical" {
+		m.lastPhysicalAt = time.Now()
+	}
+	if changed && src == "Physical" {
+		// New physical session — clear stale result from a previous session.
 		m.recognitionResult = nil
 	}
 	m.physicalSource = src
@@ -455,6 +464,10 @@ func (m *mgr) pollSourceFile() {
 
 // buildState merges AirPlay and physical source state into the output schema.
 // Source priority: AirPlay (active session) > physical detector (Vinyl/CD) > None.
+//
+// Idle delay: when physical audio stops, the last track is kept visible for
+// IdleDelay seconds before switching to the idle screen. This covers the normal
+// gap between tracks on a record without blanking the display.
 func (m *mgr) buildState() PlayerState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -462,13 +475,18 @@ func (m *mgr) buildState() PlayerState {
 	source := "None"
 	state := "stopped"
 
+	// physicalActive is true either when audio is currently detected, or when
+	// it stopped recently enough to still be within the idle delay window.
+	physicalActive := m.physicalSource == "Physical" ||
+		(!m.lastPhysicalAt.IsZero() && time.Since(m.lastPhysicalAt) < m.cfg.IdleDelay)
+
 	switch {
 	case m.airplayPlaying:
 		// Streaming source takes priority — physical media detection is ignored
 		// when AirPlay (or future Bluetooth/UPnP) is active.
 		source = "AirPlay"
 		state = "playing"
-	case m.physicalSource == "Physical":
+	case physicalActive:
 		source = "Physical"
 		state = "playing"
 	}
@@ -579,19 +597,14 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 			activeCount = 0
 			if silenceCount >= silenceFrames && !inSilence {
 				inSilence = true
-				// Silence confirmed — clear the recognition result immediately so
-				// the UI shows nothing rather than the previous track.
-				m.mu.Lock()
-				m.recognitionResult = nil
-				m.mu.Unlock()
-				m.markDirty()
-				log.Printf("VU monitor: silence detected — cleared recognition result")
+				log.Printf("VU monitor: silence detected")
 			}
 		} else {
 			activeCount++
 			silenceCount = 0
 			if inSilence && activeCount >= activeFrames {
 				inSilence = false
+				// Audio resumed after silence — new track starting, trigger recognition.
 				log.Printf("VU monitor: track boundary detected — triggering recognition")
 				select {
 				case m.recognizeTrigger <- struct{}{}:
@@ -625,7 +638,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer) {
 	var backoffUntil time.Time
 
 	for {
-		// Wait for a trigger or the max interval fallback.
+		// Wait for a trigger (track boundary or new physical session).
+		// The max interval fallback only fires when we have no result yet —
+		// once a track is identified, recognition waits for the next boundary.
 		select {
 		case <-ctx.Done():
 			return
@@ -633,8 +648,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer) {
 		case <-time.After(m.cfg.RecognizerMaxInterval):
 			m.mu.Lock()
 			isPhysical := m.physicalSource == "Physical"
+			hasResult := m.recognitionResult != nil
 			m.mu.Unlock()
-			if !isPhysical {
+			if !isPhysical || hasResult {
 				continue
 			}
 		}
@@ -705,8 +721,24 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer) {
 }
 
 // runWriter consumes change notifications and atomically writes the state JSON file.
+// It also re-evaluates state on a 5-second tick so that the idle delay expiry is
+// reflected in the output file without waiting for another event.
 // Runs in the main goroutine.
 func (m *mgr) runWriter(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	write := func() {
+		ps := m.buildState()
+		if err := writeStateFile(m.cfg.OutputFile, ps); err != nil {
+			log.Printf("failed to write state: %v", err)
+			return
+		}
+		if m.cfg.Verbose {
+			log.Printf("state written: source=%s state=%s", ps.Source, ps.State)
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -717,13 +749,16 @@ func (m *mgr) runWriter(ctx context.Context) {
 			})
 			return
 		case <-m.notify:
-			ps := m.buildState()
-			if err := writeStateFile(m.cfg.OutputFile, ps); err != nil {
-				log.Printf("failed to write state: %v", err)
-				continue
-			}
-			if m.cfg.Verbose {
-				log.Printf("state written: source=%s state=%s", ps.Source, ps.State)
+			write()
+		case <-ticker.C:
+			// Re-evaluate periodically so idle delay expiry is written promptly.
+			m.mu.Lock()
+			inIdleWindow := m.physicalSource != "Physical" &&
+				!m.lastPhysicalAt.IsZero() &&
+				time.Since(m.lastPhysicalAt) < m.cfg.IdleDelay
+			m.mu.Unlock()
+			if inIdleWindow {
+				write()
 			}
 		}
 	}
@@ -763,7 +798,8 @@ func main() {
 	flag.StringVar(&cfg.PCMSocket, "pcm-socket", cfg.PCMSocket, "Unix socket for raw PCM from oceano-source-detector")
 	flag.StringVar(&cfg.VUSocket, "vu-socket", cfg.VUSocket, "Unix socket for VU frames from oceano-source-detector")
 	flag.DurationVar(&cfg.RecognizerCaptureDuration, "recognizer-capture-duration", cfg.RecognizerCaptureDuration, "audio capture duration per recognition attempt")
-	flag.DurationVar(&cfg.RecognizerMaxInterval, "recognizer-max-interval", cfg.RecognizerMaxInterval, "fallback re-recognition interval when no track boundary is detected")
+	flag.DurationVar(&cfg.RecognizerMaxInterval, "recognizer-max-interval", cfg.RecognizerMaxInterval, "fallback re-recognition interval when no track boundary is detected and no result is held")
+	flag.DurationVar(&cfg.IdleDelay, "idle-delay", cfg.IdleDelay, "how long to keep showing the last track after audio stops before switching to idle screen")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")
