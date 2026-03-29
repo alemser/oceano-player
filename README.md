@@ -2,8 +2,9 @@
 
 Audio backend for **Raspberry Pi 5 → USB DAC → Magnat MR 780**.
 
-Provides a unified playback state file (`/tmp/oceano-state.json`) that the UI reads,
-regardless of the active source (AirPlay, physical media, or silence).
+Provides a unified playback state file (`/tmp/oceano-state.json`) and a real-time
+VU meter socket (`/tmp/oceano-vu.sock`) that the UI reads, regardless of the
+active source (AirPlay, physical media, or silence).
 
 ## Services
 
@@ -12,7 +13,7 @@ regardless of the active source (AirPlay, physical media, or silence).
 | `shairport-sync.service` | `install.sh` | AirPlay receiver |
 | `oceano-airplay-bridge.service` | `install.sh` | Routes loopback audio to DAC |
 | `oceano-bridge-watchdog.service` | `install.sh` | Reconnects bridge when DAC wakes from standby |
-| `oceano-source-detector.service` | `install-source-detector.sh` | Detects physical media presence via USB capture card |
+| `oceano-source-detector.service` | `install-source-detector.sh` | Captures REC-OUT via USB capture card; detects physical media presence; publishes VU frames |
 | `oceano-state-manager.service` | `install-source-manager.sh` | Merges all sources into `/tmp/oceano-state.json` |
 
 ---
@@ -39,8 +40,12 @@ journalctl -u shairport-sync.service -f
 
 ### Step 2 — Source detector
 
-Detects whether physical media (vinyl, CD, or any analog source) is playing via the
-amplifier REC-OUT → USB capture card (DIGITNOW on `plughw:2,0`).
+Reads the amplifier REC-OUT via a USB capture card. Detects whether physical
+media is playing (any source routed through the amplifier: vinyl, CD, tuner, etc.)
+and publishes real-time stereo RMS levels to the VU meter socket.
+
+The capture card is auto-detected by name — if the ALSA card number changes
+after a reboot, the service recovers automatically.
 
 ```bash
 sudo ./install-source-detector.sh
@@ -96,8 +101,8 @@ Written atomically whenever state changes. The UI polls or watches this file.
 
 `source` values: `AirPlay` | `Physical` | `None`
 
-`track` is `null` when `source` is `Physical` (metadata identification is a future feature)
-or `None`.
+`track` is `null` when `source` is `Physical` (metadata identification is a future
+feature) or `None`.
 
 **UI progress interpolation** — to avoid polling for seek position:
 ```
@@ -108,10 +113,21 @@ current_position_ms = seek_ms + (now - seek_updated_at) * 1000
 
 ## VU meter socket
 
-The source detector also publishes real-time audio levels to `/tmp/oceano-vu.sock`
-(Unix socket). Each frame is 8 bytes: `float32 left RMS` + `float32 right RMS`, little-endian.
-Connect any number of consumers simultaneously. Frames are dropped silently if consumers
-fall behind — the audio loop is never blocked.
+`/tmp/oceano-vu.sock` — Unix stream socket published by `oceano-source-detector`.
+
+The REC-OUT of the Magnat MR 780 is always active regardless of the selected
+input (AirPlay, vinyl, CD, tuner), so this socket provides a consistent stereo
+signal for all sources.
+
+| Field | Type | Description |
+|---|---|---|
+| Left RMS | `float32` LE | Left channel level [0.0, 1.0] |
+| Right RMS | `float32` LE | Right channel level [0.0, 1.0] |
+
+Each frame is 8 bytes. Multiple consumers can connect simultaneously; frames are
+dropped silently if a consumer falls behind — the audio loop is never blocked.
+
+Frame rate: ~22 fps (2048-sample buffer at 44.1 kHz ≈ 46 ms per frame).
 
 ---
 
@@ -153,7 +169,8 @@ Persistent config at `/opt/oceano-player/config.env` — edit and re-run to appl
 
 | Option | Default | Description |
 |---|---|---|
-| `--device` | `plughw:2,0` | ALSA capture device (USB capture card) |
+| `--device-match` | `USB Microphone` | Substring to match in `/proc/asound/cards` (auto-detects card number) |
+| `--device` | *(none)* | Explicit ALSA fallback device if match fails |
 | `--silence-threshold` | `0.008` | RMS below this = no physical source |
 | `--debounce` | `10` | Majority vote window size |
 | `--vu-socket` | `/tmp/oceano-vu.sock` | Unix socket for VU meter frames |
@@ -210,7 +227,8 @@ git config core.hooksPath .githooks
 
 ## Next steps
 
-- Bluetooth receiver (BlueZ + pipewire)
+- Bluetooth receiver (BlueZ + PipeWire)
 - UPnP/OpenHome (`upmpdcli` / `gmrender-resurrect`)
 - HTTP + SSE server in state manager (real-time push to UI, replaces file polling)
 - Track identification for physical media (Chromaprint + AcoustID)
+- Configuration UI for device settings (ALSA device, thresholds, display mode)

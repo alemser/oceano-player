@@ -16,7 +16,8 @@ SERVICE_DEST="/etc/systemd/system/${SERVICE_NAME}"
 OUTPUT_FILE="/tmp/oceano-source.json"
 
 DEFAULT_BRANCH="main"
-DEFAULT_ALSA_DEVICE="plughw:2,0"
+DEFAULT_DEVICE_MATCH="USB Microphone"
+DEFAULT_ALSA_DEVICE=""
 DEFAULT_SILENCE_THRESHOLD="0.008"
 DEFAULT_DEBOUNCE="10"
 DEFAULT_VU_SOCKET="/tmp/oceano-vu.sock"
@@ -76,10 +77,18 @@ build_binary() {
 }
 
 write_service() {
-  local alsa_device="$1"
-  local silence_threshold="$2"
-  local debounce="$3"
-  local vu_socket="$4"
+  local device_match="$1"
+  local alsa_device="$2"
+  local silence_threshold="$3"
+  local debounce="$4"
+  local vu_socket="$5"
+
+  # Build the ExecStart device flags:
+  # --device-match is always set; --device is added as explicit fallback when provided.
+  local device_flags="--device-match \"${device_match}\""
+  if [[ -n "${alsa_device}" ]]; then
+    device_flags="${device_flags} \\\n  --device \"${alsa_device}\""
+  fi
 
   cat > "${SERVICE_DEST}" <<EOF
 [Unit]
@@ -90,7 +99,7 @@ Wants=sound.target
 [Service]
 Type=simple
 ExecStart=${BINARY_DEST} \\
-  --device "${alsa_device}" \\
+  ${device_flags} \\
   --output "${OUTPUT_FILE}" \\
   --silence-threshold "${silence_threshold}" \\
   --debounce "${debounce}" \\
@@ -116,6 +125,7 @@ main() {
   require_cmd arecord
 
   local branch="${DEFAULT_BRANCH}"
+  local device_match="${DEFAULT_DEVICE_MATCH}"
   local alsa_device="${DEFAULT_ALSA_DEVICE}"
   local silence_threshold="${DEFAULT_SILENCE_THRESHOLD}"
   local debounce="${DEFAULT_DEBOUNCE}"
@@ -124,6 +134,7 @@ main() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --branch)            branch="${2:-}";            shift 2 ;;
+      --device-match)      device_match="${2:-}";      shift 2 ;;
       --device)            alsa_device="${2:-}";       shift 2 ;;
       --silence-threshold) silence_threshold="${2:-}"; shift 2 ;;
       --debounce)          debounce="${2:-}";          shift 2 ;;
@@ -133,7 +144,8 @@ main() {
         echo ""
         echo "Options:"
         echo "  --branch <name>             Git branch to build (default: ${DEFAULT_BRANCH})"
-        echo "  --device <hw>               ALSA capture device (default: ${DEFAULT_ALSA_DEVICE})"
+        echo "  --device-match <str>        Substring to match in /proc/asound/cards (default: '${DEFAULT_DEVICE_MATCH}')"
+        echo "  --device <hw>               Explicit ALSA fallback device (optional)"
         echo "  --silence-threshold <f>     RMS below this = no physical source (default: ${DEFAULT_SILENCE_THRESHOLD})"
         echo "  --debounce <n>              Majority vote window size (default: ${DEFAULT_DEBOUNCE})"
         echo "  --vu-socket <path>          Unix socket for VU meter frames (default: ${DEFAULT_VU_SOCKET})"
@@ -163,7 +175,7 @@ main() {
   build_binary
 
   log_section "systemd Service"
-  write_service "${alsa_device}" "${silence_threshold}" "${debounce}" "${vu_socket}"
+  write_service "${device_match}" "${alsa_device}" "${silence_threshold}" "${debounce}" "${vu_socket}"
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"

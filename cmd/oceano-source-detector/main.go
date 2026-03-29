@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -41,6 +42,7 @@ type VUFrame struct {
 
 type Config struct {
 	AlsaDevice       string
+	DeviceMatch      string // substring to match in /proc/asound/cards (e.g. "USB Microphone")
 	SampleRate       int
 	BufferSize       int
 	SilenceThreshold float64
@@ -52,9 +54,10 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{
-		AlsaDevice:       "plughw:2,0",
+		AlsaDevice:       "",
+		DeviceMatch:      "USB Microphone",
 		SampleRate:       44100,
-		BufferSize:       8192,
+		BufferSize:       2048,
 		SilenceThreshold: 0.008,
 		DebounceWindows:  10,
 		OutputFile:       "/tmp/oceano-source.json",
@@ -63,10 +66,57 @@ func defaultConfig() Config {
 	}
 }
 
+// findAlsaCaptureDevice searches /proc/asound/cards for a card whose name
+// contains match (case-insensitive). Returns a plughw:N,0 string or "".
+func findAlsaCaptureDevice(match string) string {
+	data, err := os.ReadFile("/proc/asound/cards")
+	if err != nil {
+		return ""
+	}
+	lower := strings.ToLower(match)
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(strings.ToLower(line), lower) {
+			// Lines alternate: " N [ShortName]: ..." and "            LongName"
+			// Card number is the leading integer.
+			fields := strings.Fields(line)
+			if len(fields) == 0 {
+				continue
+			}
+			var cardNum int
+			if _, err := fmt.Sscanf(fields[0], "%d", &cardNum); err != nil {
+				continue
+			}
+			return fmt.Sprintf("plughw:%d,0", cardNum)
+		}
+	}
+	return ""
+}
+
+// resolveDevice returns the ALSA device string to use, re-detecting each call
+// when DeviceMatch is set. Falls back to AlsaDevice if no match is found.
+func resolveDevice(cfg Config) (string, error) {
+	if cfg.DeviceMatch != "" {
+		dev := findAlsaCaptureDevice(cfg.DeviceMatch)
+		if dev != "" {
+			return dev, nil
+		}
+		if cfg.AlsaDevice != "" {
+			log.Printf("device-match %q not found — falling back to --device %s", cfg.DeviceMatch, cfg.AlsaDevice)
+			return cfg.AlsaDevice, nil
+		}
+		return "", fmt.Errorf("capture device matching %q not found in /proc/asound/cards", cfg.DeviceMatch)
+	}
+	if cfg.AlsaDevice != "" {
+		return cfg.AlsaDevice, nil
+	}
+	return "", fmt.Errorf("no capture device configured (set --device-match or --device)")
+}
+
 func main() {
 	cfg := defaultConfig()
 
-	flag.StringVar(&cfg.AlsaDevice, "device", cfg.AlsaDevice, "ALSA capture device")
+	flag.StringVar(&cfg.DeviceMatch, "device-match", cfg.DeviceMatch, "Substring to match in /proc/asound/cards (auto-detects card number)")
+	flag.StringVar(&cfg.AlsaDevice, "device", cfg.AlsaDevice, "Explicit ALSA capture device (overridden by --device-match if both set)")
 	flag.StringVar(&cfg.OutputFile, "output", cfg.OutputFile, "Output JSON file path")
 	flag.StringVar(&cfg.VUSocket, "vu-socket", cfg.VUSocket, "Unix socket path for VU meter frames (8 bytes: float32 L + float32 R)")
 	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS below this = silence / no physical source")
@@ -98,17 +148,24 @@ func run(ctx context.Context, cfg Config) error {
 			_ = writeState(cfg.OutputFile, SourceNone)
 			return nil
 		default:
-			if err := runStream(ctx, cfg, hub); err != nil {
-				log.Printf("stream error: %v — restarting in 2s", err)
+			dev, err := resolveDevice(cfg)
+			if err != nil {
+				log.Printf("device error: %v — retrying in 5s", err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+			if err := runStream(ctx, cfg, dev, hub); err != nil {
+				log.Printf("stream error on %s: %v — restarting in 2s", dev, err)
 				time.Sleep(2 * time.Second)
 			}
 		}
 	}
 }
 
-func runStream(ctx context.Context, cfg Config, hub *vuHub) error {
+func runStream(ctx context.Context, cfg Config, device string, hub *vuHub) error {
+	log.Printf("opening capture device %s", device)
 	cmd := exec.Command("arecord",
-		"-D", cfg.AlsaDevice,
+		"-D", device,
 		"-f", "S16_LE",
 		"-r", fmt.Sprintf("%d", cfg.SampleRate),
 		"-c", "2",
