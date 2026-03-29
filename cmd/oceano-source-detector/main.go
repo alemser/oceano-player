@@ -57,7 +57,7 @@ func defaultConfig() Config {
 		AlsaDevice:       "",
 		DeviceMatch:      "USB Microphone",
 		SampleRate:       44100,
-		BufferSize:       8192,
+		BufferSize:       2048,
 		SilenceThreshold: 0.008,
 		DebounceWindows:  10,
 		OutputFile:       "/tmp/oceano-source.json",
