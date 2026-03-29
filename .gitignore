@@ -10,9 +10,9 @@ dist/
 *.out
 *.prof
 
-# Compiled binaries at repo root
-oceano-source-detector
-oceano-state-manager
+# Compiled binaries at repo root (must not match cmd/ subdirectories)
+/oceano-source-detector
+/oceano-state-manager
 
 # Logs / runtime
 *.log
