@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─────────────────────────────────────────────
+#  Oceano State Manager — Install / Update Script
+#  Builds cmd/oceano-state-manager from source and installs as a systemd service.
+# ─────────────────────────────────────────────
+
+INSTALL_DIR="/opt/oceano-player"
+SRC_DIR="/opt/oceano-player/src"
+BINARY_SRC="cmd/oceano-state-manager"
+BINARY_NAME="oceano-state-manager"
+BINARY_DEST="/usr/local/bin/${BINARY_NAME}"
+SERVICE_NAME="oceano-state-manager.service"
+SERVICE_DEST="/etc/systemd/system/${SERVICE_NAME}"
+
+DEFAULT_BRANCH="main"
+DEFAULT_METADATA_PIPE="/tmp/shairport-sync-metadata"
+DEFAULT_SOURCE_FILE="/tmp/oceano-source.json"
+DEFAULT_OUTPUT_FILE="/tmp/oceano-state.json"
+DEFAULT_ARTWORK_DIR="/tmp"
+
+# ─── Output colors ───────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+log_info()    { echo -e "${CYAN}[INFO]${RESET}  $*"; }
+log_ok()      { echo -e "${GREEN}[OK]${RESET}    $*"; }
+log_warn()    { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
+log_error()   { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
+log_section() { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; }
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    log_error "Required command not found: $1"
+    exit 1
+  }
+}
+
+is_root() {
+  [[ "${EUID:-$(id -u)}" -eq 0 ]]
+}
+
+is_installed() {
+  [[ -f "${BINARY_DEST}" && -f "${SERVICE_DEST}" ]]
+}
+
+build_binary() {
+  local build_dir="${SRC_DIR}/${BINARY_SRC}"
+
+  if [[ ! -d "${build_dir}" ]]; then
+    log_error "Source not found at ${build_dir}"
+    exit 1
+  fi
+
+  log_info "Building ${BINARY_NAME} from ${build_dir}..."
+
+  local go_bin
+  if command -v go >/dev/null 2>&1; then
+    go_bin="go"
+  elif [[ -x "/usr/local/go/bin/go" ]]; then
+    go_bin="/usr/local/go/bin/go"
+  else
+    log_error "Go not found. Please install Go (1.21+) first."
+    exit 1
+  fi
+
+  GOFLAGS="" "${go_bin}" build -C "${SRC_DIR}" -o "${BINARY_DEST}" "./${BINARY_SRC}"
+  chmod 0755 "${BINARY_DEST}"
+  log_ok "Binary installed at ${BINARY_DEST}"
+}
+
+write_service() {
+  local metadata_pipe="$1"
+  local source_file="$2"
+  local output_file="$3"
+  local artwork_dir="$4"
+
+  cat > "${SERVICE_DEST}" <<EOF
+[Unit]
+Description=Oceano State Manager (unified playback state)
+After=shairport-sync.service oceano-source-detector.service
+Wants=shairport-sync.service
+
+[Service]
+Type=simple
+ExecStart=${BINARY_DEST} \\
+  --metadata-pipe "${metadata_pipe}" \\
+  --source-file "${source_file}" \\
+  --output "${output_file}" \\
+  --artwork-dir "${artwork_dir}" \\
+  --verbose
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  log_ok "Service file written to ${SERVICE_DEST}"
+}
+
+main() {
+  if ! is_root; then
+    log_error "Please run as root: sudo ./install-source-manager.sh"
+    exit 1
+  fi
+
+  require_cmd systemctl
+  require_cmd git
+
+  local branch="${DEFAULT_BRANCH}"
+  local metadata_pipe="${DEFAULT_METADATA_PIPE}"
+  local source_file="${DEFAULT_SOURCE_FILE}"
+  local output_file="${DEFAULT_OUTPUT_FILE}"
+  local artwork_dir="${DEFAULT_ARTWORK_DIR}"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --branch)         branch="${2:-}";        shift 2 ;;
+      --metadata-pipe)  metadata_pipe="${2:-}"; shift 2 ;;
+      --source-file)    source_file="${2:-}";   shift 2 ;;
+      --output)         output_file="${2:-}";   shift 2 ;;
+      --artwork-dir)    artwork_dir="${2:-}";   shift 2 ;;
+      -h|--help)
+        echo "Usage: sudo ./install-source-manager.sh [options]"
+        echo ""
+        echo "Options:"
+        echo "  --branch <name>          Git branch to build (default: ${DEFAULT_BRANCH})"
+        echo "  --metadata-pipe <path>   shairport-sync metadata FIFO (default: ${DEFAULT_METADATA_PIPE})"
+        echo "  --source-file <path>     oceano-source-detector output JSON (default: ${DEFAULT_SOURCE_FILE})"
+        echo "  --output <path>          output state JSON file (default: ${DEFAULT_OUTPUT_FILE})"
+        echo "  --artwork-dir <path>     directory for artwork cache files (default: ${DEFAULT_ARTWORK_DIR})"
+        exit 0
+        ;;
+      *) log_error "Unknown argument: $1"; exit 1 ;;
+    esac
+  done
+
+  local mode
+  mode=$(is_installed && echo "UPDATE" || echo "INSTALL")
+
+  echo -e "\n${BOLD}╔══════════════════════════════════════╗"
+  echo -e "║   Oceano State Manager — ${mode}     ║"
+  echo -e "╚══════════════════════════════════════╝${RESET}"
+
+  log_section "Repository"
+  if [[ ! -d "${SRC_DIR}/.git" ]]; then
+    log_error "Repo not found at ${SRC_DIR}. Run main install.sh first."
+    exit 1
+  fi
+  git -C "${SRC_DIR}" fetch origin
+  git -C "${SRC_DIR}" reset --hard "origin/${branch}"
+  log_ok "Repository synced to branch ${branch}."
+
+  log_section "Build"
+  build_binary
+
+  log_section "systemd Service"
+  write_service "${metadata_pipe}" "${source_file}" "${output_file}" "${artwork_dir}"
+  systemctl daemon-reload
+  systemctl enable "${SERVICE_NAME}"
+  systemctl restart "${SERVICE_NAME}"
+  log_ok "${SERVICE_NAME} is now running."
+
+  log_section "Done"
+  log_ok "${mode} completed successfully!"
+  echo -e "Use ${BOLD}journalctl -u ${SERVICE_NAME} -f${RESET} to monitor logs."
+}
+
+main "$@"

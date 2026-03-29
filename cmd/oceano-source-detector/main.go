@@ -9,11 +9,12 @@ import (
 	"io"
 	"log"
 	"math"
-	"math/cmplx"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -21,9 +22,8 @@ import (
 type Source string
 
 const (
-	SourceNone  Source = "None"
-	SourceCD    Source = "CD"
-	SourceVinyl Source = "Vinyl"
+	SourceNone     Source = "None"
+	SourcePhysical Source = "Physical"
 )
 
 type State struct {
@@ -31,30 +31,35 @@ type State struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// VUFrame is published to the VU socket every audio window (~186 ms at 44.1 kHz).
+// Each value is a float32 RMS level in [0.0, 1.0], little-endian.
+// Total: 8 bytes per frame.
+type VUFrame struct {
+	Left  float32
+	Right float32
+}
+
 type Config struct {
-	AlsaDevice         string
-	SampleRate         int
-	BufferSize         int
-	SilenceThreshold   float64
-	QuietThreshold     float64
-	BassVinylThreshold float64
-	DebounceWindows    int
-	OutputFile         string
-	Verbose            bool
+	AlsaDevice       string
+	SampleRate       int
+	BufferSize       int
+	SilenceThreshold float64
+	DebounceWindows  int
+	OutputFile       string
+	VUSocket         string
+	Verbose          bool
 }
 
 func defaultConfig() Config {
 	return Config{
-		AlsaDevice:         "plughw:2,0",
-		SampleRate:         44100,
-		BufferSize:         8192,
-		SilenceThreshold:   0.008,
-		QuietThreshold:     0.040,
-		// Final calibration: sitting between CD (0.00005) and Vinyl (0.00020)
-		BassVinylThreshold: 0.00015, 
-		DebounceWindows:    10, // Increased for better stability
-		OutputFile:         "/tmp/oceano-source.json",
-		Verbose:            false,
+		AlsaDevice:       "plughw:2,0",
+		SampleRate:       44100,
+		BufferSize:       8192,
+		SilenceThreshold: 0.008,
+		DebounceWindows:  10,
+		OutputFile:       "/tmp/oceano-source.json",
+		VUSocket:         "/tmp/oceano-vu.sock",
+		Verbose:          false,
 	}
 }
 
@@ -63,18 +68,13 @@ func main() {
 
 	flag.StringVar(&cfg.AlsaDevice, "device", cfg.AlsaDevice, "ALSA capture device")
 	flag.StringVar(&cfg.OutputFile, "output", cfg.OutputFile, "Output JSON file path")
-	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS below this = silence")
-	flag.Float64Var(&cfg.QuietThreshold, "quiet-threshold", cfg.QuietThreshold, "RMS below this = quiet passage")
-	flag.Float64Var(&cfg.BassVinylThreshold, "bass-vinyl-threshold", cfg.BassVinylThreshold, "Bass RMS above this = Vinyl")
-	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Consecutive windows to confirm")
+	flag.StringVar(&cfg.VUSocket, "vu-socket", cfg.VUSocket, "Unix socket path for VU meter frames (8 bytes: float32 L + float32 R)")
+	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS below this = silence / no physical source")
+	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Majority vote window size")
 	flag.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "Detailed logging")
 	flag.Parse()
 
 	log.Printf("oceano-source-detector starting")
-
-	if !isPowerOfTwo(cfg.BufferSize) {
-		log.Fatalf("buffer-size must be a power of 2")
-	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -88,13 +88,17 @@ func run(ctx context.Context, cfg Config) error {
 	_ = os.MkdirAll(filepath.Dir(cfg.OutputFile), 0o755)
 	_ = writeState(cfg.OutputFile, SourceNone)
 
+	hub := newVUHub()
+	go hub.run(ctx)
+	go listenVU(ctx, cfg.VUSocket, hub)
+
 	for {
 		select {
 		case <-ctx.Done():
 			_ = writeState(cfg.OutputFile, SourceNone)
 			return nil
 		default:
-			if err := runStream(ctx, cfg); err != nil {
+			if err := runStream(ctx, cfg, hub); err != nil {
 				log.Printf("stream error: %v — restarting in 2s", err)
 				time.Sleep(2 * time.Second)
 			}
@@ -102,8 +106,15 @@ func run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func runStream(ctx context.Context, cfg Config) error {
-	cmd := exec.Command("arecord", "-D", cfg.AlsaDevice, "-f", "S16_LE", "-r", fmt.Sprintf("%d", cfg.SampleRate), "-c", "2", "-t", "raw", "--duration=0")
+func runStream(ctx context.Context, cfg Config, hub *vuHub) error {
+	cmd := exec.Command("arecord",
+		"-D", cfg.AlsaDevice,
+		"-f", "S16_LE",
+		"-r", fmt.Sprintf("%d", cfg.SampleRate),
+		"-c", "2",
+		"-t", "raw",
+		"--duration=0",
+	)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -117,11 +128,16 @@ func runStream(ctx context.Context, cfg Config) error {
 	}()
 
 	current := SourceNone
-	candidate := SourceNone
-	candidateCount := 0
-	bytesPerWindow := cfg.BufferSize * 4
-	raw := make([]byte, bytesPerWindow)
-	samples := make([]float64, cfg.BufferSize)
+	voteWindow := make([]Source, cfg.DebounceWindows)
+	for i := range voteWindow {
+		voteWindow[i] = SourceNone
+	}
+	voteIdx := 0
+	lastHeartbeat := time.Now()
+
+	raw := make([]byte, cfg.BufferSize*4)
+	left := make([]float64, cfg.BufferSize)
+	right := make([]float64, cfg.BufferSize)
 
 	for {
 		select {
@@ -135,58 +151,185 @@ func runStream(ctx context.Context, cfg Config) error {
 		}
 
 		for i := 0; i < cfg.BufferSize; i++ {
-			left := int16(binary.LittleEndian.Uint16(raw[i*4:]))
-			right := int16(binary.LittleEndian.Uint16(raw[i*4+2:]))
-			samples[i] = float64(left+right) / 2.0 / 32768.0
+			l := int16(binary.LittleEndian.Uint16(raw[i*4:]))
+			r := int16(binary.LittleEndian.Uint16(raw[i*4+2:]))
+			left[i] = float64(l) / 32768.0
+			right[i] = float64(r) / 32768.0
 		}
 
-		rms := computeRMS(samples)
+		rmsL := computeRMS(left)
+		rmsR := computeRMS(right)
+		rms := (rmsL + rmsR) / 2.0
 
-		if rms < cfg.SilenceThreshold {
-			if current != SourceNone {
-				log.Printf("source changed: %s → None", current)
-				current, candidate, candidateCount = SourceNone, SourceNone, 0
-				_ = writeState(cfg.OutputFile, current)
-			}
-			continue
-		}
-
-		// Hold source if confirmed and music is loud
-		if rms >= cfg.QuietThreshold && current != SourceNone && candidateCount >= cfg.DebounceWindows {
-			if cfg.Verbose {
-				log.Printf("active music (rms=%.5f) - holding: %s", rms, current)
-			}
-			continue
-		}
-
-		spectrum := fft(samples)
-		bassRMS := computeBassRMS(spectrum, cfg.SampleRate, cfg.BufferSize)
+		// Publish VU levels regardless of silence state — the consumer decides
+		// whether to display them.
+		hub.publish(VUFrame{Left: float32(rmsL), Right: float32(rmsR)})
 
 		var detected Source
-		if bassRMS > cfg.BassVinylThreshold {
-			detected = SourceVinyl
+		if rms >= cfg.SilenceThreshold {
+			detected = SourcePhysical
 		} else {
-			detected = SourceCD
+			detected = SourceNone
+		}
+
+		voteWindow[voteIdx%cfg.DebounceWindows] = detected
+		voteIdx++
+
+		if voteIdx < cfg.DebounceWindows {
+			if cfg.Verbose {
+				log.Printf("warming up: rms=%.5f det=%s (%d/%d)", rms, detected, voteIdx, cfg.DebounceWindows)
+			}
+			continue
+		}
+
+		noneVotes, physicalVotes := 0, 0
+		for _, v := range voteWindow {
+			if v == SourceNone {
+				noneVotes++
+			} else {
+				physicalVotes++
+			}
+		}
+		majority := cfg.DebounceWindows/2 + 1
+
+		var winner Source
+		switch {
+		case physicalVotes >= majority:
+			winner = SourcePhysical
+		case noneVotes >= majority:
+			winner = SourceNone
+		default:
+			winner = current
 		}
 
 		if cfg.Verbose {
-			log.Printf("analyzing: rms=%.5f bass=%.5f det=%s cand=%s(%d) curr=%s",
-				rms, bassRMS, detected, candidate, candidateCount, current)
+			log.Printf("rms=%.5f det=%s votes(none=%d physical=%d) curr=%s",
+				rms, detected, noneVotes, physicalVotes, current)
+		} else if now := time.Now(); now.Sub(lastHeartbeat) >= time.Minute {
+			log.Printf("heartbeat: source=%s rms=%.5f", current, rms)
+			lastHeartbeat = now
 		}
 
-		if detected == candidate {
-			candidateCount++
-		} else {
-			candidate, candidateCount = detected, 1
-		}
-
-		if candidateCount >= cfg.DebounceWindows && candidate != current {
-			log.Printf("SOURCE DETECTED: %s → %s (bass_rms=%.5f)", current, candidate, bassRMS)
-			current = candidate
+		if winner != current {
+			log.Printf("SOURCE: %s → %s (rms=%.5f)", current, winner, rms)
+			current = winner
 			_ = writeState(cfg.OutputFile, current)
 		}
 	}
 }
+
+// --- VU hub: fan-out to all connected socket clients ---
+
+type vuHub struct {
+	mu      sync.Mutex
+	clients map[chan VUFrame]struct{}
+	publish_ chan VUFrame
+}
+
+func newVUHub() *vuHub {
+	return &vuHub{
+		clients: make(map[chan VUFrame]struct{}),
+		publish_: make(chan VUFrame, 4),
+	}
+}
+
+func (h *vuHub) publish(f VUFrame) {
+	select {
+	case h.publish_ <- f:
+	default:
+		// No consumer keeping up — drop frame rather than block the audio loop.
+	}
+}
+
+func (h *vuHub) subscribe() chan VUFrame {
+	ch := make(chan VUFrame, 8)
+	h.mu.Lock()
+	h.clients[ch] = struct{}{}
+	h.mu.Unlock()
+	return ch
+}
+
+func (h *vuHub) unsubscribe(ch chan VUFrame) {
+	h.mu.Lock()
+	delete(h.clients, ch)
+	h.mu.Unlock()
+}
+
+func (h *vuHub) run(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case frame := <-h.publish_:
+			h.mu.Lock()
+			for ch := range h.clients {
+				select {
+				case ch <- frame:
+				default:
+					// Slow client — drop frame.
+				}
+			}
+			h.mu.Unlock()
+		}
+	}
+}
+
+// --- VU Unix socket server ---
+
+// listenVU accepts connections on a Unix socket and streams VU frames.
+// Each frame is 8 bytes: float32 left RMS + float32 right RMS, little-endian.
+func listenVU(ctx context.Context, socketPath string, hub *vuHub) {
+	_ = os.Remove(socketPath)
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		log.Printf("VU socket: failed to listen on %s: %v", socketPath, err)
+		return
+	}
+	defer func() {
+		ln.Close()
+		_ = os.Remove(socketPath)
+	}()
+	log.Printf("VU socket listening on %s", socketPath)
+
+	go func() {
+		<-ctx.Done()
+		ln.Close()
+	}()
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("VU socket: accept error: %v", err)
+			return
+		}
+		go handleVUConn(ctx, conn, hub)
+	}
+}
+
+func handleVUConn(ctx context.Context, conn net.Conn, hub *vuHub) {
+	defer conn.Close()
+	ch := hub.subscribe()
+	defer hub.unsubscribe(ch)
+
+	buf := make([]byte, 8)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case frame := <-ch:
+			binary.LittleEndian.PutUint32(buf[0:4], math.Float32bits(frame.Left))
+			binary.LittleEndian.PutUint32(buf[4:8], math.Float32bits(frame.Right))
+			if _, err := conn.Write(buf); err != nil {
+				return // client disconnected
+			}
+		}
+	}
+}
+
+// --- Helpers ---
 
 func computeRMS(samples []float64) float64 {
 	var sum float64
@@ -194,69 +337,6 @@ func computeRMS(samples []float64) float64 {
 		sum += s * s
 	}
 	return math.Sqrt(sum / float64(len(samples)))
-}
-
-func computeBassRMS(spectrum []complex128, sampleRate, bufferSize int) float64 {
-	binHz := float64(sampleRate) / float64(bufferSize)
-	lowMin := int(20.0 / binHz)
-	lowMax := int(80.0 / binHz)
-	var energy float64
-	for i := lowMin; i <= lowMax; i++ {
-		mag := cmplx.Abs(spectrum[i])
-		energy += mag * mag
-	}
-	return (math.Sqrt(energy/float64(bufferSize)) / float64(bufferSize/2))
-}
-
-func fft(samples []float64) []complex128 {
-	n := len(samples)
-	out := make([]complex128, n)
-	for i, s := range samples {
-		out[i] = complex(s, 0)
-	}
-	cooleyTukey(out)
-	return out
-}
-
-func cooleyTukey(a []complex128) {
-	n := len(a)
-	if n <= 1 {
-		return
-	}
-	bits := int(math.Log2(float64(n)))
-	for i := 0; i < n; i++ {
-		j := bitReverse(i, bits)
-		if j > i {
-			a[i], a[j] = a[j], a[i]
-		}
-	}
-	for length := 2; length <= n; length <<= 1 {
-		half := length / 2
-		wBase := complex(math.Cos(-2*math.Pi/float64(length)), math.Sin(-2*math.Pi/float64(length)))
-		for i := 0; i < n; i += length {
-			w := complex(1, 0)
-			for j := 0; j < half; j++ {
-				u := a[i+j]
-				v := a[i+j+half] * w
-				a[i+j] = u + v
-				a[i+j+half] = u - v
-				w *= wBase
-			}
-		}
-	}
-}
-
-func bitReverse(x, bits int) int {
-	result := 0
-	for i := 0; i < bits; i++ {
-		result = (result << 1) | (x & 1)
-		x >>= 1
-	}
-	return result
-}
-
-func isPowerOfTwo(n int) bool {
-	return n > 0 && (n&(n-1)) == 0
 }
 
 func writeState(path string, src Source) error {

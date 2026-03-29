@@ -1,175 +1,84 @@
-# README — Reliable Go CD/Vinyl Detector
+# README — Oceano Source Detector
 
 ## Purpose
 
-This document describes the **runtime Go detector** that consumes live ALSA audio and classifies the current source as:
+Detects whether physical media (vinyl, CD, or any analog source) is playing via the
+amplifier REC-OUT → USB capture card path, and writes the result to `/tmp/oceano-source.json`.
 
-* `None`
-* `CD`
-* `Vinyl`
+The detector outputs only `Physical` or `None` — it does not distinguish between Vinyl and CD.
+Source type disambiguation (Vinyl vs CD) is a future capability pending reliable calibration data.
 
-The thresholds should come from the calibration workflow documented in the main README.
+The result is consumed by `oceano-state-manager`. When a streaming source (AirPlay, Bluetooth,
+UPnP) is active, the state manager ignores the detector output entirely — there is no need to
+monitor the microphone if streaming is already confirmed.
 
 ---
 
-## Recommended Threshold Inputs
+## How it works
 
-Run the Python calibration first:
+Each audio buffer (~186 ms at 44.1 kHz) is processed as follows:
+
+1. **RMS** — root mean square of the buffer samples
+2. **Silence gate** — if `rms < silence-threshold`, the window votes `None`; otherwise `Physical`
+3. **Majority vote** over the last N windows — source changes only when one label exceeds N/2 votes,
+   preventing transient noise from triggering false detections
+
+---
+
+## Installation
 
 ```bash
-python3 analyze_sources.py
+sudo ./install-source-detector.sh
 ```
 
-Use the generated values as detector flags:
+With explicit silence threshold (tune from your noise floor):
 
 ```bash
-./detector \
-  -device plughw:CARD=Microphone,DEV=0 \
-  -silence-threshold 0.008 \
-  -vinyl-threshold 0.165 \
-  -min-vinyl-rms 0.090
+sudo ./install-source-detector.sh --silence-threshold 0.010
 ```
 
-Replace the numbers with your measured values.
+---
+
+## CLI flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--device` | `plughw:2,0` | ALSA capture device (DIGITNOW USB on card 2) |
+| `--output` | `/tmp/oceano-source.json` | Output JSON file |
+| `--silence-threshold` | `0.008` | RMS below this = no physical source |
+| `--debounce` | `10` | Majority vote window size |
+| `--verbose` | `false` | Log per-window RMS and vote counts |
 
 ---
 
-## Core Detection Logic
+## Output format
 
-The detector should classify using 3 signals:
-
-1. RMS level
-2. low-frequency rumble ratio
-3. silence persistence
-
-### Recommended rumble band
-
-Use:
-
-* **15–140 Hz**
-
-instead of 20–80 Hz.
-
-This captures:
-
-* platter rumble
-* arm resonance
-* floor vibration
-* subsonic energy
-
-with much better stability.
-
----
-
-## Recommended `classify()`
-
-```go
-func classify(samples []float64, cfg Config) (Source, float64, float64) {
-    rms := computeRMS(samples)
-
-    if rms < cfg.SilenceThreshold {
-        return SourceNone, rms, 0
-    }
-
-    spectrum := fft(samples)
-    ratio := lowFrequencyRatio(spectrum, cfg.SampleRate, cfg.BufferSize)
-
-    if rms >= cfg.MinVinylRMS && ratio >= cfg.VinylThreshold {
-        return SourceVinyl, rms, ratio
-    }
-
-    return SourceCD, rms, ratio
+```json
+{
+  "source": "Physical",
+  "updated_at": "2026-03-29T20:14:47Z"
 }
 ```
 
----
-
-## Recommended `lowFrequencyRatio()` band
-
-```go
-lowMin := int(15.0 / binHz)
-lowMax := int(140.0 / binHz)
-```
+`source` is one of: `Physical` | `None`
 
 ---
 
-## Runtime Stability Best Practices
+## Tuning the silence threshold
 
-### 1) Keep long-running `arecord`
+With `--verbose`, the log shows the RMS for each window:
 
-Do not reopen ALSA per window.
+```
+rms=0.00312 det=None votes(none=10 physical=0) curr=None
+rms=0.08420 det=Physical votes(none=0 physical=10) curr=Physical
+```
 
-Your current streaming approach is correct.
-
-### 2) Use sliding majority vote
-
-Your debounce vote window is good.
-
-Recommended:
-
-* 5 windows for fast switching
-* 7 windows for extra stability
-
-### 3) Keep silence-gated transitions
-
-Your rule requiring silence before CD↔Vinyl transitions is excellent.
-
-This mirrors real amplifier source switching.
+Set `--silence-threshold` to a value comfortably above your noise floor (typically `0.006`–`0.012`).
 
 ---
 
-## Expected Runtime Behavior
+## Monitoring
 
-### CD stopped
-
-```json
-{"source":"None"}
+```bash
+journalctl -u oceano-source-detector.service -f
 ```
-
-### Phono idle
-
-Usually:
-
-```json
-{"source":"None"}
-```
-
-unless platter rumble exceeds the silence threshold.
-
-### CD playing
-
-```json
-{"source":"CD"}
-```
-
-### Vinyl playing
-
-```json
-{"source":"Vinyl"}
-```
-
----
-
-## Reliability Strategy
-
-The biggest reliability gain comes from using:
-
-> calibrated thresholds from your exact hardware chain
-
-instead of hardcoded defaults.
-
-This makes the detector portable across:
-
-* different amps
-* phono stages
-* USB grabbers
-* Raspberry Pi models
-* gain settings
-
----
-
-## Final Recommendation
-
-Treat the Python calibration as the **training phase** and the Go program as the **runtime inference engine**.
-
-Whenever the hardware path changes, regenerate the CSVs and update the thresholds.

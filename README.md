@@ -1,37 +1,27 @@
 # Oceano Player
 
-Minimal "receiver-only" audio stack for **Raspberry Pi 5 → USB → Magnat MR 780**.
+Audio backend for **Raspberry Pi 5 → USB DAC → Magnat MR 780**.
 
-## Goals
+Provides a unified playback state file (`/tmp/oceano-state.json`) that the UI reads,
+regardless of the active source (AirPlay, physical media, or silence).
 
-- **Minimal**: no UI required
-- **Receiver focused**: AirPlay first, then UPnP + Bluetooth
-- **Config-driven**: works out-of-box for your hardware, others bring their own config
-- **Integrates with your SPI "now playing"**: plug your existing screen app into the same playback events later
+## Services
 
-## How it works
+| Service | Install script | Role |
+|---|---|---|
+| `shairport-sync.service` | `install.sh` | AirPlay receiver |
+| `oceano-airplay-bridge.service` | `install.sh` | Routes loopback audio to DAC |
+| `oceano-bridge-watchdog.service` | `install.sh` | Reconnects bridge when DAC wakes from standby |
+| `oceano-source-detector.service` | `install-source-detector.sh` | Detects physical media presence via USB capture card |
+| `oceano-state-manager.service` | `install-source-manager.sh` | Merges all sources into `/tmp/oceano-state.json` |
 
-Oceano Player is a **bash installer** that configures and supervises a set of systemd services around `shairport-sync`. There is no custom daemon — systemd handles process supervision, restarts, and boot behaviour directly.
+---
 
-In `loopback` mode (default), three services are installed:
+## Installation (on the Pi)
 
-| Service | Role |
-|---|---|
-| `shairport-sync.service` | AirPlay receiver |
-| `oceano-airplay-bridge.service` | Forwards audio from loopback virtual device to real DAC |
-| `oceano-bridge-watchdog.service` | Monitors DAC every 10s, restarts bridge when DAC wakes from standby |
+Raspberry Pi OS 64-bit (Bookworm) recommended.
 
-In `direct` mode, only `shairport-sync.service` is installed.
-
-## Why this approach
-
-**AirPlay** support is best handled by the battle-tested `shairport-sync` daemon (widely used in audiophile Pi setups). Oceano Player stays small: it just **configures, launches, and supervises** protocol daemons via systemd, starting with AirPlay.
-
-## Install (on the Pi)
-
-Raspberry Pi OS 64-bit recommended.
-
-### 1. Install
+### Step 1 — AirPlay stack
 
 ```bash
 curl -fsSL -o install.sh https://raw.githubusercontent.com/alemser/oceano-player/main/install.sh
@@ -39,151 +29,188 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-This configures:
+This installs and starts `shairport-sync`, the loopback bridge, and the watchdog.
 
-- AirPlay name: `Triangle AirPlay`
-- USB target match: `M780` (auto-detected from ALSA devices)
-- Metadata pipe: `/tmp/shairport-sync-metadata`
-- Persistent config file: `/opt/oceano-player/config.env`
-
-### 2. Verify
-
+Verify:
 ```bash
 sudo systemctl status shairport-sync.service
 journalctl -u shairport-sync.service -f
 ```
 
-### 3. Update
+### Step 2 — Source detector
 
-Re-running `install.sh` on an already-configured system automatically runs in **update mode** — pulls the latest code, re-applies configuration, and restarts services:
+Detects whether physical media (vinyl, CD, or any analog source) is playing via the
+amplifier REC-OUT → USB capture card (DIGITNOW on `plughw:2,0`).
+
+```bash
+sudo ./install-source-detector.sh
+```
+
+Verify:
+```bash
+sudo systemctl status oceano-source-detector.service
+journalctl -u oceano-source-detector.service -f
+cat /tmp/oceano-source.json
+```
+
+### Step 3 — State manager
+
+Merges AirPlay metadata and physical source detection into a single state file.
+AirPlay takes priority — physical detection is ignored when streaming is active.
+
+```bash
+sudo ./install-source-manager.sh
+```
+
+Verify:
+```bash
+sudo systemctl status oceano-state-manager.service
+journalctl -u oceano-state-manager.service -f
+cat /tmp/oceano-state.json
+```
+
+---
+
+## Output: `/tmp/oceano-state.json`
+
+Written atomically whenever state changes. The UI polls or watches this file.
+
+```json
+{
+  "source": "AirPlay",
+  "state": "playing",
+  "track": {
+    "title": "So What",
+    "artist": "Miles Davis",
+    "album": "Kind of Blue",
+    "duration_ms": 562000,
+    "seek_ms": 12400,
+    "seek_updated_at": "2026-03-29T20:30:00Z",
+    "samplerate": "44.1 kHz",
+    "bitdepth": "16 bit",
+    "artwork_path": "/tmp/oceano-artwork-a1b2c3d4.jpg"
+  },
+  "updated_at": "2026-03-29T20:30:05Z"
+}
+```
+
+`source` values: `AirPlay` | `Physical` | `None`
+
+`track` is `null` when `source` is `Physical` (metadata identification is a future feature)
+or `None`.
+
+**UI progress interpolation** — to avoid polling for seek position:
+```
+current_position_ms = seek_ms + (now - seek_updated_at) * 1000
+```
+
+---
+
+## VU meter socket
+
+The source detector also publishes real-time audio levels to `/tmp/oceano-vu.sock`
+(Unix socket). Each frame is 8 bytes: `float32 left RMS` + `float32 right RMS`, little-endian.
+Connect any number of consumers simultaneously. Frames are dropped silently if consumers
+fall behind — the audio loop is never blocked.
+
+---
+
+## Update
+
+Re-run any install script to pull the latest code and restart the service:
 
 ```bash
 sudo ./install.sh
+sudo ./install-source-detector.sh
+sudo ./install-source-manager.sh
 ```
 
-Or re-download and run:
+To deploy a specific branch:
 
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/alemser/oceano-player/main/install.sh
-chmod +x install.sh
-sudo ./install.sh
+sudo ./install.sh --branch my-branch
+sudo ./install-source-detector.sh --branch my-branch
+sudo ./install-source-manager.sh --branch my-branch
 ```
 
-### 4. Test a development branch
+---
 
-Use `--branch` to deploy a specific branch. If omitted, `main` is always used:
+## Configuration reference
 
-```bash
-sudo ./install.sh --branch fix-disconnection
-```
-
-You can combine it with other options:
-
-```bash
-sudo ./install.sh --branch fix-disconnection --output-strategy loopback --preplay-wait-seconds 8
-```
-
-> ⚠️ The script displays a warning when running on a branch other than `main`. Do not use development branches in production without testing.
-
-## Configuration
-
-### Easy mode
-
-Edit the config file and re-run:
-
-```bash
-sudo nano /opt/oceano-player/config.env
-sudo ./install.sh
-```
-
-`/opt/oceano-player/config.env` format:
-
-```bash
-AIRPLAY_NAME="Triangle AirPlay"
-USB_MATCH="M780"
-ALSA_DEVICE="plughw:CARD=M780,DEV=0"
-PREPLAY_WAIT_SECONDS="8"
-OUTPUT_STRATEGY="loopback"
-```
-
-### Options reference
+### `install.sh`
 
 | Option | Default | Description |
 |---|---|---|
-| `--branch` | `main` | Git branch to install/update |
 | `--airplay-name` | `Triangle AirPlay` | AirPlay receiver name |
 | `--usb-match` | `M780` | Text to match USB DAC in ALSA device list |
 | `--alsa-device` | *(auto-detected)* | Explicit ALSA device string |
 | `--preplay-wait-seconds` | `8` | Seconds to wait for DAC wake-up before playback |
 | `--output-strategy` | `loopback` | `loopback` or `direct` |
 
-### Output strategy
+Persistent config at `/opt/oceano-player/config.env` — edit and re-run to apply.
 
-- **`loopback`** *(recommended)* — `shairport-sync` plays to a virtual ALSA loopback sink. The bridge service forwards audio to the real DAC when available, and the watchdog automatically reconnects when the DAC wakes from standby. Best for equipment with standby modes.
-- **`direct`** — outputs directly to the DAC. Simpler, but no standby resilience.
+### `install-source-detector.sh`
 
-### Tips
+| Option | Default | Description |
+|---|---|---|
+| `--device` | `plughw:2,0` | ALSA capture device (USB capture card) |
+| `--silence-threshold` | `0.008` | RMS below this = no physical source |
+| `--debounce` | `10` | Majority vote window size |
+| `--vu-socket` | `/tmp/oceano-vu.sock` | Unix socket for VU meter frames |
 
-- Set `ALSA_DEVICE` explicitly for the most stable output.
-- The script auto-sets a compatible ALSA `mixer_device` when using `plughw`.
-- `PREPLAY_WAIT_SECONDS` lets AirPlay wait briefly for DAC/amp wake-up from standby before playback starts.
+### `install-source-manager.sh`
 
-## Custom overrides
+| Option | Default | Description |
+|---|---|---|
+| `--metadata-pipe` | `/tmp/shairport-sync-metadata` | shairport-sync metadata FIFO |
+| `--source-file` | `/tmp/oceano-source.json` | Source detector output |
+| `--output` | `/tmp/oceano-state.json` | Unified state output |
+| `--artwork-dir` | `/tmp` | Directory for artwork cache files |
 
-Pass options directly to override config without editing the file:
-
-```bash
-# Set AirPlay name and ALSA device explicitly
-sudo ./install.sh --airplay-name "Triangle AirPlay" --alsa-device "plughw:CARD=M780,DEV=0"
-
-# Increase wait time for DAC/amp standby wake-up
-sudo ./install.sh --preplay-wait-seconds 12
-
-# Use loopback mode (recommended for standby-capable equipment)
-sudo ./install.sh --output-strategy loopback
-
-# Use direct output (no loopback bridging)
-sudo ./install.sh --output-strategy direct
-
-# Override USB auto-detection match string
-sudo ./install.sh --usb-match "M780"
-```
+---
 
 ## Clean reinstall
 
 ```bash
-sudo systemctl disable --now shairport-sync.service 2>/dev/null || true
-sudo systemctl disable --now oceano-airplay-bridge.service 2>/dev/null || true
-sudo systemctl disable --now oceano-bridge-watchdog.service 2>/dev/null || true
+sudo systemctl disable --now shairport-sync.service oceano-airplay-bridge.service \
+  oceano-bridge-watchdog.service oceano-source-detector.service \
+  oceano-state-manager.service 2>/dev/null || true
 sudo rm -rf /opt/oceano-player
 sudo systemctl daemon-reload
 
 curl -fsSL -o install.sh https://raw.githubusercontent.com/alemser/oceano-player/main/install.sh
 chmod +x install.sh
 sudo ./install.sh
+sudo ./install-source-detector.sh
+sudo ./install-source-manager.sh
 ```
 
-## Developer checks
+---
 
-To block pushes unless checks pass:
+## Developer
+
+### Run tests
 
 ```bash
-chmod +x scripts/test.sh .githooks/pre-push
+go test ./...
+```
+
+### Enable pre-commit hook (runs tests on every commit)
+
+```bash
 git config core.hooksPath .githooks
 ```
 
-Now every `git push` runs a shell syntax check on `install.sh`.
+### Output strategy
 
-Manual run:
+- **`loopback`** *(recommended)* — shairport-sync plays to a virtual ALSA loopback sink. The bridge forwards audio to the real DAC; the watchdog reconnects when the DAC wakes from standby.
+- **`direct`** — outputs directly to the DAC. Simpler, but no standby resilience.
 
-```bash
-./scripts/test.sh
-```
+---
 
 ## Next steps
 
-- Add **AirPlay 2 validation** + recommended `shairport-sync` config path for distros where CLI flags differ
-- Add future protocol managers:
-  - **UPnP/OpenHome** (`upmpdcli` / `gmrender-resurrect`)
-  - **Bluetooth receiver** (BlueZ + `bluealsa` / `pipewire`)
-- Event output for SPI now-playing app (JSON over a UNIX socket or HTTP)
+- Bluetooth receiver (BlueZ + pipewire)
+- UPnP/OpenHome (`upmpdcli` / `gmrender-resurrect`)
+- HTTP + SSE server in state manager (real-time push to UI, replaces file polling)
+- Track identification for physical media (Chromaprint + AcoustID)
