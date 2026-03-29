@@ -220,6 +220,16 @@ Options:
 
 ---
 
+## Documentation hygiene
+
+Whenever a feature is added, a flag is changed, or a workflow changes:
+
+- **README.md** — keep "Installation", "First-time setup", "Troubleshooting", and "Configuration reference" in sync. A user following the README from scratch should succeed without consulting the code.
+- **CLAUDE.md** — keep Architecture, Deployment, and What NOT to do current. If a section describes something that no longer exists, update or remove it.
+- **Install scripts** — `--help` output must match the flags actually accepted.
+
+If you make a change and notice that any of these are stale, update them in the same commit.
+
 ## What NOT to do
 
 - Do not block the ALSA device with multiple `arecord` calls — consume the PCM socket from `oceano-source-detector` instead; PipeWire monitor taps are the long-term replacement
