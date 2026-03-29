@@ -94,8 +94,7 @@ ExecStart=${BINARY_DEST} \\
   --output "${OUTPUT_FILE}" \\
   --silence-threshold "${silence_threshold}" \\
   --debounce "${debounce}" \\
-  --vu-socket "${vu_socket}" \\
-  --verbose
+  --vu-socket "${vu_socket}"
 Restart=always
 RestartSec=3
 
