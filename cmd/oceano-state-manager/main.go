@@ -577,8 +577,15 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 		if avg < silenceThreshold {
 			silenceCount++
 			activeCount = 0
-			if silenceCount >= silenceFrames {
+			if silenceCount >= silenceFrames && !inSilence {
 				inSilence = true
+				// Silence confirmed — clear the recognition result immediately so
+				// the UI shows nothing rather than the previous track.
+				m.mu.Lock()
+				m.recognitionResult = nil
+				m.mu.Unlock()
+				m.markDirty()
+				log.Printf("VU monitor: silence detected — cleared recognition result")
 			}
 		} else {
 			activeCount++
