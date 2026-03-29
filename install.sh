@@ -70,6 +70,77 @@ get_latest_version() {
   git -C "${SRC_DIR}" describe --tags --always 2>/dev/null || git -C "${SRC_DIR}" rev-parse --short HEAD 2>/dev/null || echo "(no version)"
 }
 
+# ─── Go installation ─────────────────────────
+
+GO_VERSION="1.24.1"
+GO_INSTALL_DIR="/usr/local/go"
+
+go_bin() {
+  if command -v go >/dev/null 2>&1; then
+    command -v go
+  elif [[ -x "${GO_INSTALL_DIR}/bin/go" ]]; then
+    echo "${GO_INSTALL_DIR}/bin/go"
+  fi
+}
+
+ensure_go() {
+  local existing
+  existing="$(go_bin)"
+
+  if [[ -n "${existing}" ]]; then
+    local ver
+    ver="$("${existing}" version 2>/dev/null | awk '{print $3}' | sed 's/go//')"
+    log_ok "Go already installed: ${ver} (${existing})"
+    return 0
+  fi
+
+  log_info "Go not found — installing Go ${GO_VERSION}..."
+
+  local arch
+  arch="$(uname -m)"
+  case "${arch}" in
+    aarch64|arm64) arch="arm64" ;;
+    armv7l|armv6l) arch="armv6l" ;;
+    x86_64)        arch="amd64" ;;
+    *)
+      log_error "Unsupported architecture: ${arch}"
+      exit 1
+      ;;
+  esac
+
+  local tarball="go${GO_VERSION}.linux-${arch}.tar.gz"
+  local url="https://go.dev/dl/${tarball}"
+  local tmp="/tmp/${tarball}"
+
+  log_info "Downloading ${url}..."
+  curl -fsSL -o "${tmp}" "${url}" || {
+    log_error "Failed to download Go. Check internet connection."
+    exit 1
+  }
+
+  log_info "Extracting to ${GO_INSTALL_DIR}..."
+  rm -rf "${GO_INSTALL_DIR}"
+  tar -C /usr/local -xzf "${tmp}"
+  rm -f "${tmp}"
+
+  # Make go available in PATH for this session and future ones
+  export PATH="${GO_INSTALL_DIR}/bin:${PATH}"
+
+  if ! command -v go >/dev/null 2>&1; then
+    log_error "Go installation failed — binary not found after extraction."
+    exit 1
+  fi
+
+  log_ok "Go ${GO_VERSION} installed at ${GO_INSTALL_DIR}/bin/go"
+
+  # Persist PATH for all users
+  local profile="/etc/profile.d/go.sh"
+  if [[ ! -f "${profile}" ]]; then
+    echo 'export PATH="/usr/local/go/bin:$PATH"' > "${profile}"
+    log_info "Added Go to PATH via ${profile}"
+  fi
+}
+
 # ─── ALSA device detection ───────────────────
 
 detect_alsa_device() {
@@ -388,6 +459,7 @@ main() {
 
   require_cmd systemctl
   require_cmd git
+  require_cmd curl
   require_cmd aplay
   require_cmd awk
   require_cmd sed
@@ -487,12 +559,34 @@ main() {
       log_ok "USB device '${usb_match}' detected: ${alsa_device}"
     else
       log_error "Could not detect USB device matching '${usb_match}'."
-      log_error "Set explicitly with: --alsa-device 'plughw:CARD=M780,DEV=0'"
+      echo ""
+      echo -e "${YELLOW}  The Magnat MR 780 USB DAC only appears in the ALSA device list when:${RESET}"
+      echo -e "${YELLOW}    1. The amplifier is powered on${RESET}"
+      echo -e "${YELLOW}    2. The input selector is set to USB (press INPUT until 'USB' shows on display)${RESET}"
+      echo ""
+      echo -e "  Switch the input and re-run:"
+      echo -e "  ${BOLD}sudo ./install.sh${RESET}"
+      echo ""
+      echo -e "  Or specify the device explicitly if you already know it:"
+      echo -e "  ${BOLD}sudo ./install.sh --alsa-device 'plughw:CARD=M780,DEV=0'${RESET}"
+      echo ""
+      echo -e "  To list all current ALSA playback devices:"
+      echo -e "  ${BOLD}aplay -l${RESET}"
       exit 1
     fi
   else
     log_info "Using manually specified ALSA device: ${alsa_device}"
   fi
+
+  # ── Save config — must happen before services start (watchdog uses EnvironmentFile) ──
+  mkdir -p "${INSTALL_DIR}"
+  cat > "${CONFIG_FILE}" <<EOF
+AIRPLAY_NAME="${airplay_name}"
+USB_MATCH="${usb_match}"
+ALSA_DEVICE="${alsa_device}"
+PREPLAY_WAIT_SECONDS="${preplay_wait_seconds}"
+OUTPUT_STRATEGY="${output_strategy}"
+EOF
 
   # ── Configuration ──
   log_section "Configuration"
@@ -511,16 +605,6 @@ main() {
     log_ok "Direct mode active."
   fi
 
-  # ── Save config ──
-  mkdir -p "${INSTALL_DIR}"
-  cat > "${CONFIG_FILE}" <<EOF
-AIRPLAY_NAME="${airplay_name}"
-USB_MATCH="${usb_match}"
-ALSA_DEVICE="${alsa_device}"
-PREPLAY_WAIT_SECONDS="${preplay_wait_seconds}"
-OUTPUT_STRATEGY="${output_strategy}"
-EOF
-
   # ── systemd services ──
   log_section "systemd Services"
   systemctl disable --now oceano-player.service >/dev/null 2>&1 || true
@@ -532,6 +616,10 @@ EOF
 
   # ── Version ──
   save_version
+
+  # ── Go runtime ──
+  log_section "Go Runtime"
+  ensure_go
 
   # ── Go services ──
   log_section "Source Detector"
