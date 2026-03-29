@@ -6,21 +6,15 @@ Provides a unified playback state file (`/tmp/oceano-state.json`) and a real-tim
 VU meter socket (`/tmp/oceano-vu.sock`) that the UI reads, regardless of the
 active source (AirPlay, physical media, or silence).
 
-## Services
-
-| Service | Install script | Role |
-|---|---|---|
-| `shairport-sync.service` | `install.sh` | AirPlay receiver |
-| `oceano-airplay-bridge.service` | `install.sh` | Routes loopback audio to DAC |
-| `oceano-bridge-watchdog.service` | `install.sh` | Reconnects bridge when DAC wakes from standby |
-| `oceano-source-detector.service` | `install-source-detector.sh` | Captures REC-OUT via USB capture card; detects physical media presence; publishes VU frames |
-| `oceano-state-manager.service` | `install-source-manager.sh` | Merges all sources into `/tmp/oceano-state.json` |
-
 ---
 
 ## Installation (on the Pi)
 
 Raspberry Pi OS 64-bit (Bookworm) recommended.
+
+**Before running the installer**, make sure the amplifier is powered on and the
+input selector is set to **USB** — the DAC only appears in the ALSA device list
+when it is active.
 
 ```bash
 curl -fsSL -o install.sh https://raw.githubusercontent.com/alemser/oceano-player/main/install.sh
@@ -28,7 +22,8 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-This single command installs and starts all services:
+This single command installs all services and dependencies (including Go,
+`shairport-sync`, and `alsa-utils`):
 
 | Service | Role |
 |---|---|
@@ -39,15 +34,77 @@ This single command installs and starts all services:
 | `oceano-state-manager` | Merges all sources into `/tmp/oceano-state.json` |
 | `oceano-web` | Configuration UI at `http://<pi-ip>:8080` |
 
-After install, open `http://<pi-ip>:8080` in your browser to:
-- Set ACRCloud credentials for track recognition
-- Configure audio input/output devices
-- Adjust silence threshold and debounce settings
+---
 
-Verify:
+## First-time setup after install
+
+After installation, open `http://<pi-ip>:8080` in your browser and configure:
+
+### 1. Audio capture level (required for track recognition)
+
+The USB capture card volume must be set so that RMS stays between **0.05–0.25**
+during playback. The calibrated value for the Magnat MR 780 + DIGITNOW card is:
+
 ```bash
-sudo systemctl status shairport-sync.service oceano-source-detector.service oceano-state-manager.service oceano-web.service
-journalctl -u oceano-web.service -f
+amixer -c 3 sset 'Mic' 3   # reduces level to ~19% → RMS ≈ 0.19
+alsactl store               # persist across reboots
+```
+
+Run this on the Pi before configuring recognition. Check the level with:
+```bash
+journalctl -u oceano-source-detector.service -f
+# look for: heartbeat: source=Physical rms=X
+```
+
+### 2. ACRCloud credentials (required for track recognition)
+
+Track identification (artist, title, album) for physical media (vinyl, CD) is
+powered by [ACRCloud](https://www.acrcloud.com). Without credentials, `track`
+will always be `null` for physical sources.
+
+In the web UI at `http://<pi-ip>:8080`, go to **Track Recognition** and fill in:
+- **ACRCloud Host** — e.g. `identify-eu-west-1.acrcloud.com`
+- **Access Key**
+- **Secret Key**
+
+Click **Save & Restart Services**. Confirm recognition is active:
+```bash
+journalctl -u oceano-state-manager.service -f | grep recognizer
+# should show: recognizer [ACRCloud]: capturing ...
+```
+
+### 3. Audio input device (if auto-detection fails)
+
+The capture card is auto-detected by name (`USB Microphone`). If it is not found,
+set it explicitly in the web UI under **Audio Input → Device** (e.g. `plughw:3,0`).
+
+To list available capture devices:
+```bash
+arecord -l
+```
+
+---
+
+## Update
+
+Re-run the main installer to update all services at once:
+
+```bash
+sudo ./install.sh
+```
+
+To deploy a specific branch:
+
+```bash
+sudo ./install.sh --branch my-branch
+```
+
+Individual services can still be updated independently:
+
+```bash
+sudo ./install-source-detector.sh --branch my-branch
+sudo ./install-source-manager.sh --branch my-branch
+sudo ./install-oceano-web.sh --branch my-branch
 ```
 
 ---
@@ -77,8 +134,7 @@ Written atomically whenever state changes. The UI polls or watches this file.
 
 `source` values: `AirPlay` | `Physical` | `None`
 
-`track` is `null` when `source` is `Physical` (metadata identification is a future
-feature) or `None`.
+`track` is `null` when source is `Physical` and no recognition result is available yet, or when source is `None`.
 
 **UI progress interpolation** — to avoid polling for seek position:
 ```
@@ -107,33 +163,79 @@ Frame rate: ~22 fps (2048-sample buffer at 44.1 kHz ≈ 46 ms per frame).
 
 ---
 
-## Update
+## Troubleshooting
 
-Re-run the main installer to update all services at once:
+### AirPlay not appearing on iPhone / devices
 
-```bash
-sudo ./install.sh
-```
+1. **Amplifier input not set to USB** — shairport-sync needs the DAC to be present at startup. Set the input to USB and re-run `sudo ./install.sh`.
 
-To deploy a specific branch:
+2. **shairport-sync not running**:
+   ```bash
+   sudo systemctl status shairport-sync.service
+   journalctl -u shairport-sync.service -n 30 --no-pager
+   ```
 
-```bash
-sudo ./install.sh --branch my-branch
-```
+3. **Loopback module not loaded**:
+   ```bash
+   lsmod | grep snd_aloop
+   # if empty: sudo modprobe snd-aloop
+   ```
 
-Individual services can still be updated independently when needed:
+---
 
-```bash
-sudo ./install-source-detector.sh --branch my-branch
-sudo ./install-source-manager.sh --branch my-branch
-sudo ./install-oceano-web.sh --branch my-branch
-```
+### Track recognition not working (`track: null` for physical source)
+
+1. **ACRCloud credentials not configured** — the most common cause after a fresh install. Open `http://<pi-ip>:8080` → **Track Recognition** → fill in credentials → **Save & Restart Services**.
+
+2. **RMS too high (> 0.40)** — clipping corrupts the audio fingerprint. Reduce capture volume:
+   ```bash
+   amixer -c 3 sset 'Mic' 3
+   alsactl store
+   ```
+   The working value on the Magnat MR 780 + DIGITNOW card is **level 3 → RMS ≈ 0.19**.
+
+3. **Source detector showing `None`** — the capture card may not be detected:
+   ```bash
+   journalctl -u oceano-source-detector.service -f
+   # look for: heartbeat: source=Physical rms=X
+   # if source=None while music is playing, check --device-match in the web UI
+   ```
+
+4. **Network unreachable (IPv6)** — ACRCloud client forces IPv4. Confirm connectivity:
+   ```bash
+   curl -4 https://identify-eu-west-1.acrcloud.com
+   ```
+
+---
+
+### Source oscillating rapidly between Physical and None
+
+The silence threshold is too close to the noise floor at the current capture volume. In the web UI under **Audio Input**, raise **Silence Threshold** to `0.025`.
+
+---
+
+### Track info stays on screen after record is changed
+
+The last recognized track is shown for 60 seconds after audio stops (configurable via `--idle-delay`). If the phono stage has residual hum keeping RMS above the threshold, the source stays `Physical` and the old track persists until the next recognition cycle.
+
+Options:
+- Raise **Silence Threshold** slightly in the web UI so phono hum is treated as silence
+- The recognizer retries at every track boundary (silence → audio transition)
+
+---
+
+### Album art shows wrong album
+
+Expected when playing a compilation or "Best Of". ACRCloud identifies by audio fingerprint and returns the best-known release for that recording — which may be credited to "Various Artists" in music databases, causing the artwork lookup to fail.
 
 ---
 
 ## Configuration reference
 
-### `install.sh`
+All service parameters are managed through the web UI at `http://<pi-ip>:8080`.
+The underlying config is stored at `/etc/oceano/config.json`.
+
+### `install.sh` options
 
 | Option | Default | Description |
 |---|---|---|
@@ -142,27 +244,9 @@ sudo ./install-oceano-web.sh --branch my-branch
 | `--alsa-device` | *(auto-detected)* | Explicit ALSA device string |
 | `--preplay-wait-seconds` | `8` | Seconds to wait for DAC wake-up before playback |
 | `--output-strategy` | `loopback` | `loopback` or `direct` |
+| `--branch` | `main` | Git branch to install |
 
-Persistent config at `/opt/oceano-player/config.env` — edit and re-run to apply.
-
-### `install-source-detector.sh`
-
-| Option | Default | Description |
-|---|---|---|
-| `--device-match` | `USB Microphone` | Substring to match in `/proc/asound/cards` (auto-detects card number) |
-| `--device` | *(none)* | Explicit ALSA fallback device if match fails |
-| `--silence-threshold` | `0.008` | RMS below this = no physical source |
-| `--debounce` | `10` | Majority vote window size |
-| `--vu-socket` | `/tmp/oceano-vu.sock` | Unix socket for VU meter frames |
-
-### `install-source-manager.sh`
-
-| Option | Default | Description |
-|---|---|---|
-| `--metadata-pipe` | `/tmp/shairport-sync-metadata` | shairport-sync metadata FIFO |
-| `--source-file` | `/tmp/oceano-source.json` | Source detector output |
-| `--output` | `/tmp/oceano-state.json` | Unified state output |
-| `--artwork-dir` | `/tmp` | Directory for artwork cache files |
+Persistent config at `/opt/oceano-player/config.env`.
 
 ---
 
@@ -179,6 +263,8 @@ curl -fsSL -o install.sh https://raw.githubusercontent.com/alemser/oceano-player
 chmod +x install.sh
 sudo ./install.sh
 ```
+
+After reinstall, remember to re-configure ACRCloud credentials in the web UI and re-run `amixer` to set the capture level.
 
 ---
 
@@ -210,4 +296,3 @@ git config core.hooksPath .githooks
 - HTTP + SSE server in state manager (real-time push to UI, replaces file polling)
 - PipeWire migration — replace `arecord` single-reader model with monitor taps
 - Local recognition cache — use Chromaprint (`fpcalc`) fingerprint as cache key for ACRCloud results, persisted to disk; avoids redundant API calls when replaying the same vinyl pressing
-- Configuration UI for device settings (ALSA device, thresholds, display mode)
