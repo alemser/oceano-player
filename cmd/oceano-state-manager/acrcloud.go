@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,11 +31,18 @@ type ACRCloudRecognizer struct {
 	client *http.Client
 }
 
-// NewACRCloudRecognizer creates a recognizer with a 25s HTTP timeout.
+// NewACRCloudRecognizer creates a recognizer that forces IPv4 and has a 25s timeout.
+// IPv4 is forced because some Pi networks don't have IPv6 routing configured.
 func NewACRCloudRecognizer(cfg ACRCloudConfig) *ACRCloudRecognizer {
+	dialer := &net.Dialer{}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, "tcp4", addr)
+		},
+	}
 	return &ACRCloudRecognizer{
 		cfg:    cfg,
-		client: &http.Client{Timeout: 25 * time.Second},
+		client: &http.Client{Timeout: 25 * time.Second, Transport: transport},
 	}
 }
 
