@@ -150,22 +150,15 @@ Then pass the suggested `--vinyl-ratio-threshold` to `install-source-detector.sh
 ## Deployment
 
 ```bash
-# On the Pi — AirPlay stack
+# On the Pi — installs everything (AirPlay stack + detector + state manager + web UI)
 sudo ./install.sh
 
-# On the Pi — source detector (exposes VU + PCM sockets)
-sudo ./install-source-detector.sh \
-  --vinyl-ratio-threshold 0.02 \
-  --min-vinyl-rms 0.010
+# Then open http://<pi-ip>:8080 to set ACRCloud credentials and audio devices.
 
-# On the Pi — state manager (with ACRCloud recognition)
-sudo ./install-source-manager.sh \
-  --acrcloud-host identify-eu-west-1.acrcloud.com \
-  --acrcloud-access-key <key> \
-  --acrcloud-secret-key <secret>
-
-# On the Pi — web configuration UI (accessible at http://<pi-ip>:8080)
-sudo ./install-oceano-web.sh
+# Individual services can still be updated independently:
+sudo ./install-source-detector.sh --branch my-branch
+sudo ./install-source-manager.sh --branch my-branch
+sudo ./install-oceano-web.sh --branch my-branch
 
 # Monitor logs
 journalctl -u oceano-source-detector.service -f
