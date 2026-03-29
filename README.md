@@ -230,5 +230,6 @@ git config core.hooksPath .githooks
 - Bluetooth receiver (BlueZ + PipeWire)
 - UPnP/OpenHome (`upmpdcli` / `gmrender-resurrect`)
 - HTTP + SSE server in state manager (real-time push to UI, replaces file polling)
-- Track identification for physical media (Chromaprint + AcoustID)
+- PipeWire migration — replace `arecord` single-reader model with monitor taps
+- Local recognition cache — use Chromaprint (`fpcalc`) fingerprint as cache key for ACRCloud results, persisted to disk; avoids redundant API calls when replaying the same vinyl pressing
 - Configuration UI for device settings (ALSA device, thresholds, display mode)
