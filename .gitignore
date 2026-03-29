@@ -10,6 +10,10 @@ dist/
 *.out
 *.prof
 
+# Compiled binaries at repo root
+oceano-source-detector
+oceano-state-manager
+
 # Logs / runtime
 *.log
 run/
