@@ -133,6 +133,7 @@ func runStream(ctx context.Context, cfg Config, hub *vuHub) error {
 		voteWindow[i] = SourceNone
 	}
 	voteIdx := 0
+	lastHeartbeat := time.Now()
 
 	raw := make([]byte, cfg.BufferSize*4)
 	left := make([]float64, cfg.BufferSize)
@@ -204,6 +205,9 @@ func runStream(ctx context.Context, cfg Config, hub *vuHub) error {
 		if cfg.Verbose {
 			log.Printf("rms=%.5f det=%s votes(none=%d physical=%d) curr=%s",
 				rms, detected, noneVotes, physicalVotes, current)
+		} else if now := time.Now(); now.Sub(lastHeartbeat) >= time.Minute {
+			log.Printf("heartbeat: source=%s rms=%.5f", current, rms)
+			lastHeartbeat = now
 		}
 
 		if winner != current {
