@@ -172,7 +172,6 @@ func managerArgs(cfg Config) []string {
 		"--pcm-socket", adv.PCMSocket,
 		"--recognizer-capture-duration", fmt.Sprintf("%ds", rec.CaptureDurationSecs),
 		"--recognizer-max-interval", fmt.Sprintf("%ds", rec.MaxIntervalSecs),
-		"--verbose",
 	}
 	if rec.ACRCloudHost != "" {
 		args = append(args,
@@ -181,6 +180,9 @@ func managerArgs(cfg Config) []string {
 			"--acrcloud-secret-key", rec.ACRCloudSecretKey,
 		)
 	}
+	// --verbose is a boolean flag with no value — must be last so formatExecStart
+	// does not pair it with the next argument.
+	args = append(args, "--verbose")
 	return args
 }
 
