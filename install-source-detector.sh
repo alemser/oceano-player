@@ -21,6 +21,7 @@ DEFAULT_ALSA_DEVICE=""
 DEFAULT_SILENCE_THRESHOLD="0.008"
 DEFAULT_DEBOUNCE="10"
 DEFAULT_VU_SOCKET="/tmp/oceano-vu.sock"
+DEFAULT_PCM_SOCKET="/tmp/oceano-pcm.sock"
 
 # ─── Output colors ───────────────────────────
 RED='\033[0;31m'
@@ -82,13 +83,17 @@ write_service() {
   local silence_threshold="$3"
   local debounce="$4"
   local vu_socket="$5"
+  local pcm_socket="$6"
 
-  # Build the ExecStart device flags:
-  # --device-match is always set; --device is added as explicit fallback when provided.
-  local device_flags="--device-match \"${device_match}\""
-  if [[ -n "${alsa_device}" ]]; then
-    device_flags="${device_flags} \\\n  --device \"${alsa_device}\""
-  fi
+  # Build ExecStart programmatically to avoid heredoc line-continuation pitfalls.
+  local exec_start="${BINARY_DEST}"
+  exec_start+=" \\${NL}  --device-match \"${device_match}\""
+  [[ -n "${alsa_device}" ]] && exec_start+=" \\${NL}  --device \"${alsa_device}\""
+  exec_start+=" \\${NL}  --output \"${OUTPUT_FILE}\""
+  exec_start+=" \\${NL}  --silence-threshold \"${silence_threshold}\""
+  exec_start+=" \\${NL}  --debounce \"${debounce}\""
+  exec_start+=" \\${NL}  --vu-socket \"${vu_socket}\""
+  exec_start+=" \\${NL}  --pcm-socket \"${pcm_socket}\""
 
   cat > "${SERVICE_DEST}" <<EOF
 [Unit]
@@ -98,12 +103,7 @@ Wants=sound.target
 
 [Service]
 Type=simple
-ExecStart=${BINARY_DEST} \\
-  ${device_flags} \\
-  --output "${OUTPUT_FILE}" \\
-  --silence-threshold "${silence_threshold}" \\
-  --debounce "${debounce}" \\
-  --vu-socket "${vu_socket}"
+ExecStart=${exec_start}
 Restart=always
 RestartSec=3
 
@@ -113,6 +113,9 @@ EOF
 
   log_ok "Service file written to ${SERVICE_DEST}"
 }
+
+# Newline character used when building multi-line ExecStart strings.
+NL=$'\n'
 
 main() {
   if ! is_root; then
@@ -130,6 +133,7 @@ main() {
   local silence_threshold="${DEFAULT_SILENCE_THRESHOLD}"
   local debounce="${DEFAULT_DEBOUNCE}"
   local vu_socket="${DEFAULT_VU_SOCKET}"
+  local pcm_socket="${DEFAULT_PCM_SOCKET}"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -139,6 +143,7 @@ main() {
       --silence-threshold) silence_threshold="${2:-}"; shift 2 ;;
       --debounce)          debounce="${2:-}";          shift 2 ;;
       --vu-socket)         vu_socket="${2:-}";         shift 2 ;;
+      --pcm-socket)        pcm_socket="${2:-}";        shift 2 ;;
       -h|--help)
         echo "Usage: sudo ./install-source-detector.sh [options]"
         echo ""
@@ -149,6 +154,7 @@ main() {
         echo "  --silence-threshold <f>     RMS below this = no physical source (default: ${DEFAULT_SILENCE_THRESHOLD})"
         echo "  --debounce <n>              Majority vote window size (default: ${DEFAULT_DEBOUNCE})"
         echo "  --vu-socket <path>          Unix socket for VU meter frames (default: ${DEFAULT_VU_SOCKET})"
+        echo "  --pcm-socket <path>         Unix socket for raw PCM relay (default: ${DEFAULT_PCM_SOCKET})"
         exit 0
         ;;
       *) log_error "Unknown argument: $1"; exit 1 ;;
@@ -175,7 +181,7 @@ main() {
   build_binary
 
   log_section "systemd Service"
-  write_service "${device_match}" "${alsa_device}" "${silence_threshold}" "${debounce}" "${vu_socket}"
+  write_service "${device_match}" "${alsa_device}" "${silence_threshold}" "${debounce}" "${vu_socket}" "${pcm_socket}"
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"

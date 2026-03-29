@@ -23,6 +23,10 @@ DEFAULT_PCM_SOCKET="/tmp/oceano-pcm.sock"
 DEFAULT_VU_SOCKET="/tmp/oceano-vu.sock"
 DEFAULT_RECOGNIZER_CAPTURE_DURATION="10s"
 DEFAULT_RECOGNIZER_MAX_INTERVAL="5m0s"
+DEFAULT_IDLE_DELAY="60s"
+
+# Newline character used when building multi-line ExecStart strings.
+NL=$'\n'
 
 # ─── Output colors ───────────────────────────
 RED='\033[0;31m'
@@ -90,33 +94,35 @@ write_service() {
   local vu_socket="$9"
   local recognizer_capture_duration="${10}"
   local recognizer_max_interval="${11}"
+  local idle_delay="${12}"
 
-  local acrcloud_flags=""
+  # Build ExecStart programmatically to avoid heredoc line-continuation pitfalls.
+  local exec_start="${BINARY_DEST}"
+  exec_start+=" \\${NL}  --metadata-pipe \"${metadata_pipe}\""
+  exec_start+=" \\${NL}  --source-file \"${source_file}\""
+  exec_start+=" \\${NL}  --output \"${output_file}\""
+  exec_start+=" \\${NL}  --artwork-dir \"${artwork_dir}\""
+  exec_start+=" \\${NL}  --pcm-socket \"${pcm_socket}\""
+  exec_start+=" \\${NL}  --vu-socket \"${vu_socket}\""
+  exec_start+=" \\${NL}  --recognizer-capture-duration \"${recognizer_capture_duration}\""
+  exec_start+=" \\${NL}  --recognizer-max-interval \"${recognizer_max_interval}\""
+  exec_start+=" \\${NL}  --idle-delay \"${idle_delay}\""
   if [[ -n "${acrcloud_host}" ]]; then
-    acrcloud_flags="  --acrcloud-host \"${acrcloud_host}\" \\
-  --acrcloud-access-key \"${acrcloud_access_key}\" \\
-  --acrcloud-secret-key \"${acrcloud_secret_key}\" \\"
+    exec_start+=" \\${NL}  --acrcloud-host \"${acrcloud_host}\""
+    exec_start+=" \\${NL}  --acrcloud-access-key \"${acrcloud_access_key}\""
+    exec_start+=" \\${NL}  --acrcloud-secret-key \"${acrcloud_secret_key}\""
   fi
+  exec_start+=" \\${NL}  --verbose"
 
   cat > "${SERVICE_DEST}" <<EOF
 [Unit]
-Description=Oceano State Manager (unified playback state)
+Description=Oceano State Manager (unified playback state + ACRCloud recognition)
 After=shairport-sync.service oceano-source-detector.service
 Wants=shairport-sync.service
 
 [Service]
 Type=simple
-ExecStart=${BINARY_DEST} \\
-  --metadata-pipe "${metadata_pipe}" \\
-  --source-file "${source_file}" \\
-  --output "${output_file}" \\
-  --artwork-dir "${artwork_dir}" \\
-  --pcm-socket "${pcm_socket}" \\
-  --vu-socket "${vu_socket}" \\
-  --recognizer-capture-duration "${recognizer_capture_duration}" \\
-  --recognizer-max-interval "${recognizer_max_interval}" \\
-${acrcloud_flags}
-  --verbose
+ExecStart=${exec_start}
 Restart=always
 RestartSec=3
 
@@ -148,6 +154,7 @@ main() {
   local vu_socket="${DEFAULT_VU_SOCKET}"
   local recognizer_capture_duration="${DEFAULT_RECOGNIZER_CAPTURE_DURATION}"
   local recognizer_max_interval="${DEFAULT_RECOGNIZER_MAX_INTERVAL}"
+  local idle_delay="${DEFAULT_IDLE_DELAY}"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -163,6 +170,7 @@ main() {
       --vu-socket)                    vu_socket="${2:-}";                    shift 2 ;;
       --recognizer-capture-duration)  recognizer_capture_duration="${2:-}";  shift 2 ;;
       --recognizer-max-interval)      recognizer_max_interval="${2:-}";      shift 2 ;;
+      --idle-delay)                   idle_delay="${2:-}";                   shift 2 ;;
       -h|--help)
         echo "Usage: sudo ./install-source-manager.sh [options]"
         echo ""
@@ -179,6 +187,7 @@ main() {
         echo "  --vu-socket <path>                     VU socket from source detector"
         echo "  --recognizer-capture-duration <dur>    capture duration per attempt (default: ${DEFAULT_RECOGNIZER_CAPTURE_DURATION})"
         echo "  --recognizer-max-interval <dur>        fallback re-recognition interval (default: ${DEFAULT_RECOGNIZER_MAX_INTERVAL})"
+        echo "  --idle-delay <dur>                     time to keep showing last track after audio stops (default: ${DEFAULT_IDLE_DELAY})"
         exit 0
         ;;
       *) log_error "Unknown argument: $1"; exit 1 ;;
@@ -207,7 +216,8 @@ main() {
   log_section "systemd Service"
   write_service "${metadata_pipe}" "${source_file}" "${output_file}" "${artwork_dir}" \
     "${acrcloud_host}" "${acrcloud_access_key}" "${acrcloud_secret_key}" \
-    "${pcm_socket}" "${vu_socket}" "${recognizer_capture_duration}" "${recognizer_max_interval}"
+    "${pcm_socket}" "${vu_socket}" "${recognizer_capture_duration}" "${recognizer_max_interval}" \
+    "${idle_delay}"
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"

@@ -544,6 +544,13 @@ main() {
     exit 1
   fi
 
+  # ── System dependencies ──
+  log_section "System Dependencies"
+  log_info "Installing system packages..."
+  apt-get update -qq
+  apt-get install -y --no-install-recommends shairport-sync alsa-utils
+  log_ok "System packages ready."
+
   # ── Repository ──
   log_section "Repository"
   if [[ "${mode}" == "install" ]]; then
