@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oceano Player</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0a0a;
+      --surface:   #141414;
+      --border:    #222;
+      --muted:     #555;
+      --text:      #ddd;
+      --text-dim:  #888;
+      --accent:    #4a9eff;
+      --accent-dim:#1e4a7a;
+      --ok:        #3a7a3a;
+      --ok-text:   #7ecf7e;
+      --warn:      #7a5a1a;
+      --warn-text: #f0c060;
+      --radius:    8px;
+      --gap:       24px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: var(--gap);
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+
+    .logo svg { display: block; }
+
+    .header-text h1 {
+      font-size: 1.6rem;
+      font-weight: 300;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #fff;
+    }
+    .header-text p {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-top: 3px;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Status bar ── */
+    #status-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 18px;
+      margin-bottom: var(--gap);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+    #status-bar .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+    }
+    #status-bar.playing .dot { background: var(--ok-text); }
+    #status-bar .track { color: var(--text); font-weight: 500; }
+
+    /* ── Layout ── */
+    .sections {
+      display: grid;
+      gap: var(--gap);
+      grid-template-columns: 1fr 1fr;
+    }
+    @media (max-width: 720px) { .sections { grid-template-columns: 1fr; } }
+
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .section-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 18px;
+    }
+
+    /* ── Form fields ── */
+    .field { margin-bottom: 16px; }
+    .field:last-child { margin-bottom: 0; }
+
+    label {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      margin-bottom: 5px;
+    }
+    label span { color: var(--text); font-weight: 500; }
+
+    input[type="text"],
+    input[type="number"],
+    input[type="password"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text);
+      font-size: 0.88rem;
+      padding: 8px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: var(--accent); }
+    input::placeholder { color: var(--muted); }
+
+    .hint {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* ── Device row (auto-detect / manual toggle) ── */
+    .device-row { display: flex; gap: 8px; align-items: center; }
+    .device-row input { flex: 1; }
+    .detect-btn {
+      flex-shrink: 0;
+      background: var(--accent-dim);
+      border: none;
+      border-radius: 5px;
+      color: var(--accent);
+      font-size: 0.75rem;
+      padding: 8px 10px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+    }
+    .detect-btn:hover { background: #2a6aaa; }
+
+    /* ── Dropdown for detected devices ── */
+    .device-picker {
+      display: none;
+      position: absolute;
+      background: #1a1a1a;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      z-index: 10;
+      min-width: 280px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .device-picker.open { display: block; }
+    .device-picker-item {
+      padding: 10px 14px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+    }
+    .device-picker-item:last-child { border-bottom: none; }
+    .device-picker-item:hover { background: var(--border); }
+    .device-picker-item .card-num { color: var(--muted); font-size: 0.72rem; }
+    .device-picker-wrap { position: relative; }
+
+    /* ── Actions ── */
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: var(--gap);
+      justify-content: flex-end;
+    }
+    .btn-save {
+      background: var(--accent);
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 0.9rem;
+      font-weight: 600;
+      padding: 10px 28px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+      transition: opacity 0.15s;
+    }
+    .btn-save:hover { opacity: 0.85; }
+    .btn-save:disabled { opacity: 0.4; cursor: default; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      background: var(--ok);
+      color: var(--ok-text);
+      border-radius: 6px;
+      padding: 12px 20px;
+      font-size: 0.85rem;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+    }
+    #toast.error { background: var(--warn); color: var(--warn-text); }
+    #toast.show { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <!-- Sound bars — mirrors the idle screen renderer -->
+    <svg width="52" height="60" viewBox="0 0 52 60" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0"  y="18" width="8" height="24" rx="3" fill="#282828"/>
+      <rect x="11" y="6"  width="8" height="42" rx="3" fill="#484848"/>
+      <rect x="22" y="0"  width="8" height="60" rx="3" fill="#686868"/>
+      <rect x="33" y="6"  width="8" height="42" rx="3" fill="#484848"/>
+      <rect x="44" y="18" width="8" height="24" rx="3" fill="#282828"/>
+    </svg>
+  </div>
+  <div class="header-text">
+    <h1>Oceano</h1>
+    <p>Audio player configuration</p>
+  </div>
+</header>
+
+<div id="status-bar">
+  <div class="dot"></div>
+  <span id="status-text">Loading…</span>
+</div>
+
+<form id="cfg-form">
+  <div class="sections">
+
+    <!-- Audio Input -->
+    <div class="section">
+      <div class="section-title">Audio Input</div>
+      <p class="hint" style="margin-bottom:14px">Capture card connected to amplifier REC OUT</p>
+
+      <div class="field">
+        <label><span>Device</span></label>
+        <div class="device-picker-wrap">
+          <div class="device-row">
+            <input type="text" id="inp-device" name="inp-device"
+                   placeholder="auto — USB Microphone">
+            <button type="button" class="detect-btn" onclick="detectDevices('inp')">Detect</button>
+          </div>
+          <div class="device-picker" id="picker-inp"></div>
+        </div>
+        <div class="hint">Leave empty to auto-detect by name. Or enter an explicit device (e.g. <code>plughw:3,0</code>).</div>
+      </div>
+
+      <div class="field">
+        <label><span>Auto-detect name</span></label>
+        <input type="text" id="inp-device-match" name="inp-device-match"
+               placeholder="USB Microphone">
+        <div class="hint">Substring matched in /proc/asound/cards when device is empty.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Silence threshold</span></label>
+        <input type="number" id="inp-silence" name="inp-silence"
+               step="0.001" min="0.001" max="0.5" placeholder="0.025">
+        <div class="hint">RMS below this = silence. Raise if phono hum causes source oscillation (calibrated: 0.025).</div>
+      </div>
+
+      <div class="field">
+        <label><span>Debounce windows</span></label>
+        <input type="number" id="inp-debounce" name="inp-debounce"
+               step="1" min="1" max="50" placeholder="10">
+        <div class="hint">Majority-vote window. Higher = slower but more stable transitions.</div>
+      </div>
+    </div>
+
+    <!-- Audio Output -->
+    <div class="section">
+      <div class="section-title">Audio Output</div>
+      <p class="hint" style="margin-bottom:14px">USB DAC used by AirPlay (shairport-sync)</p>
+
+      <div class="field">
+        <label><span>AirPlay name</span></label>
+        <input type="text" id="out-airplay-name" name="out-airplay-name"
+               placeholder="Oceano">
+        <div class="hint">Name shown in AirPlay device lists.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Device</span></label>
+        <div class="device-picker-wrap">
+          <div class="device-row">
+            <input type="text" id="out-device" name="out-device"
+                   placeholder="auto — MR 780">
+            <button type="button" class="detect-btn" onclick="detectDevices('out')">Detect</button>
+          </div>
+          <div class="device-picker" id="picker-out"></div>
+        </div>
+        <div class="hint">Leave empty to auto-detect by name. Or enter an explicit device (e.g. <code>plughw:1,0</code>).</div>
+      </div>
+
+      <div class="field">
+        <label><span>Auto-detect name</span></label>
+        <input type="text" id="out-device-match" name="out-device-match"
+               placeholder="MR 780">
+      </div>
+    </div>
+
+    <!-- Track Recognition -->
+    <div class="section">
+      <div class="section-title">Track Recognition</div>
+      <p class="hint" style="margin-bottom:14px">ACRCloud audio fingerprinting for physical media</p>
+
+      <div class="field">
+        <label><span>ACRCloud host</span></label>
+        <input type="text" id="rec-host" name="rec-host"
+               placeholder="identify-eu-west-1.acrcloud.com">
+      </div>
+
+      <div class="field">
+        <label><span>Access key</span></label>
+        <input type="text" id="rec-access-key" name="rec-access-key"
+               autocomplete="off" placeholder="0dc1dbb4…">
+      </div>
+
+      <div class="field">
+        <label><span>Secret key</span></label>
+        <input type="password" id="rec-secret-key" name="rec-secret-key"
+               autocomplete="off" placeholder="••••••••">
+      </div>
+
+      <div class="field">
+        <label><span>Capture duration (seconds)</span></label>
+        <input type="number" id="rec-duration" name="rec-duration"
+               step="1" min="5" max="30" placeholder="10">
+        <div class="hint">Audio sent per attempt. ACRCloud works well with 10s; minimum ~5s.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Max re-recognition interval (seconds)</span></label>
+        <input type="number" id="rec-interval" name="rec-interval"
+               step="30" min="60" placeholder="300">
+        <div class="hint">Fallback interval when no track boundary (silence gap) is detected.</div>
+      </div>
+    </div>
+
+    <!-- Advanced -->
+    <div class="section">
+      <div class="section-title">Advanced</div>
+      <p class="hint" style="margin-bottom:14px">Internal paths — rarely need to change</p>
+
+      <div class="field">
+        <label><span>VU socket</span></label>
+        <input type="text" id="adv-vu-socket" name="adv-vu-socket" placeholder="/tmp/oceano-vu.sock">
+      </div>
+      <div class="field">
+        <label><span>PCM socket</span></label>
+        <input type="text" id="adv-pcm-socket" name="adv-pcm-socket" placeholder="/tmp/oceano-pcm.sock">
+      </div>
+      <div class="field">
+        <label><span>State file</span></label>
+        <input type="text" id="adv-state-file" name="adv-state-file" placeholder="/tmp/oceano-state.json">
+      </div>
+      <div class="field">
+        <label><span>Artwork directory</span></label>
+        <input type="text" id="adv-artwork-dir" name="adv-artwork-dir" placeholder="/tmp">
+      </div>
+      <div class="field">
+        <label><span>shairport-sync metadata pipe</span></label>
+        <input type="text" id="adv-metadata-pipe" name="adv-metadata-pipe" placeholder="/tmp/shairport-sync-metadata">
+      </div>
+    </div>
+
+  </div><!-- .sections -->
+
+  <div class="actions">
+    <button type="submit" class="btn-save" id="btn-save">Save &amp; Restart Services</button>
+  </div>
+</form>
+
+<div id="toast"></div>
+
+<script>
+// ── Load config ──────────────────────────────────────────────────────────────
+async function loadConfig() {
+  const r = await fetch('/api/config');
+  const cfg = await r.json();
+
+  set('inp-device',        cfg.audio_input?.device ?? '');
+  set('inp-device-match',  cfg.audio_input?.device_match ?? '');
+  set('inp-silence',       cfg.audio_input?.silence_threshold ?? 0.025);
+  set('inp-debounce',      cfg.audio_input?.debounce_windows ?? 10);
+
+  set('out-airplay-name',  cfg.audio_output?.airplay_name ?? '');
+  set('out-device',        cfg.audio_output?.device ?? '');
+  set('out-device-match',  cfg.audio_output?.device_match ?? '');
+
+  set('rec-host',          cfg.recognition?.acrcloud_host ?? '');
+  set('rec-access-key',    cfg.recognition?.acrcloud_access_key ?? '');
+  set('rec-secret-key',    cfg.recognition?.acrcloud_secret_key ?? '');
+  set('rec-duration',      cfg.recognition?.capture_duration_secs ?? 10);
+  set('rec-interval',      cfg.recognition?.max_interval_secs ?? 300);
+
+  set('adv-vu-socket',     cfg.advanced?.vu_socket ?? '');
+  set('adv-pcm-socket',    cfg.advanced?.pcm_socket ?? '');
+  set('adv-state-file',    cfg.advanced?.state_file ?? '');
+  set('adv-artwork-dir',   cfg.advanced?.artwork_dir ?? '');
+  set('adv-metadata-pipe', cfg.advanced?.metadata_pipe ?? '');
+}
+
+function set(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.value = val;
+}
+
+// ── Status bar ───────────────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/status');
+    if (!r.ok) { setStatus(null); return; }
+    const s = await r.json();
+    setStatus(s);
+  } catch { setStatus(null); }
+  setTimeout(loadStatus, 3000);
+}
+
+function setStatus(s) {
+  const bar  = document.getElementById('status-bar');
+  const text = document.getElementById('status-text');
+  if (!s || s.state !== 'playing') {
+    bar.className = '';
+    text.textContent = s ? `${s.source} — stopped` : 'Backend unreachable';
+    return;
+  }
+  bar.className = 'playing';
+  const t = s.track;
+  text.innerHTML = t
+    ? `<span class="track">${esc(t.title || t.artist || s.source)}</span>&nbsp;&mdash;&nbsp;${esc(t.artist || '')}`
+    : `<span class="track">${esc(s.source)}</span>`;
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Device detection ─────────────────────────────────────────────────────────
+let cachedDevices = null;
+
+async function detectDevices(prefix) {
+  if (!cachedDevices) {
+    const r = await fetch('/api/devices');
+    cachedDevices = await r.json();
+  }
+  showPicker(prefix, cachedDevices);
+}
+
+function showPicker(prefix, devices) {
+  // Close any open picker
+  document.querySelectorAll('.device-picker.open').forEach(p => p.classList.remove('open'));
+
+  const picker = document.getElementById('picker-' + prefix);
+  picker.innerHTML = '';
+  (devices || []).forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'device-picker-item';
+    el.innerHTML = `${esc(d.name)} <span class="card-num">plughw:${d.card},0 — ${esc(d.desc)}</span>`;
+    el.onclick = () => {
+      document.getElementById(prefix + '-device').value = `plughw:${d.card},0`;
+      picker.classList.remove('open');
+    };
+    picker.appendChild(el);
+  });
+  picker.classList.add('open');
+}
+
+// Close pickers on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('.device-picker-wrap')) {
+    document.querySelectorAll('.device-picker.open').forEach(p => p.classList.remove('open'));
+  }
+});
+
+// ── Save config ──────────────────────────────────────────────────────────────
+document.getElementById('cfg-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('btn-save');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  const cfg = {
+    audio_input: {
+      device:             val('inp-device'),
+      device_match:       val('inp-device-match'),
+      silence_threshold:  parseFloat(val('inp-silence')) || 0.025,
+      debounce_windows:   parseInt(val('inp-debounce'))  || 10,
+    },
+    audio_output: {
+      airplay_name:  val('out-airplay-name'),
+      device:        val('out-device'),
+      device_match:  val('out-device-match'),
+    },
+    recognition: {
+      acrcloud_host:        val('rec-host'),
+      acrcloud_access_key:  val('rec-access-key'),
+      acrcloud_secret_key:  val('rec-secret-key'),
+      capture_duration_secs: parseInt(val('rec-duration'))  || 10,
+      max_interval_secs:     parseInt(val('rec-interval'))  || 300,
+    },
+    advanced: {
+      vu_socket:     val('adv-vu-socket'),
+      pcm_socket:    val('adv-pcm-socket'),
+      state_file:    val('adv-state-file'),
+      artwork_dir:   val('adv-artwork-dir'),
+      metadata_pipe: val('adv-metadata-pipe'),
+    },
+  };
+
+  try {
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    const res = await r.json();
+    toast(res.results?.join(' · ') || 'Saved', !r.ok);
+  } catch (err) {
+    toast('Save failed: ' + err.message, true);
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Save & Restart Services';
+});
+
+function val(id) { return (document.getElementById(id)?.value || '').trim(); }
+
+function toast(msg, isError = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = isError ? 'error show' : 'show';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = isError ? 'error' : '', 3500);
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+loadConfig();
+loadStatus();
+</script>
+</body>
+</html>

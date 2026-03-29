@@ -63,18 +63,50 @@ detection takes priority over any concurrently active AirPlay stream.
 **PipeWire migration**: once PipeWire replaces `arecord`, the PCM and VU sockets become PipeWire
 monitor taps. Only `oceano-source-detector/main.go` changes; the state manager is unaffected.
 
+## Web configuration UI
+
+`cmd/oceano-web` is a self-contained HTTP server (default `:8080`) that provides:
+
+- **Config editor** — reads/writes `/etc/oceano/config.json`, the single source of truth for all
+  service parameters (audio devices, ACRCloud credentials, thresholds, socket paths).
+- **Service restarter** — on save, rewrites the systemd unit files for `oceano-source-detector`
+  and `oceano-state-manager` and restarts them via `systemctl`.
+- **Status bar** — polls `/api/status` (proxies `/tmp/oceano-state.json`) to show live playback state.
+- **Device picker** — `/api/devices` scans `/proc/asound/cards` and returns ALSA card names so
+  the user can pick a device without knowing the card number.
+
+The static UI (`cmd/oceano-web/static/index.html`) is embedded into the binary at compile time via
+`//go:embed static`, so a single binary is deployed.
+
+Config sections mirror the service CLI flags:
+
+| Section | Controls |
+|---|---|
+| Audio Input | capture device (auto-detect by name or explicit `plughw:N,0`), silence threshold, debounce window |
+| Audio Output | AirPlay name, DAC device (auto-detect or explicit) |
+| Track Recognition | ACRCloud host / key / secret, capture duration, max re-recognition interval |
+| Advanced | socket paths, state/source file paths, artwork dir, metadata pipe |
+
+Install:
+```bash
+sudo ./install-oceano-web.sh
+# optional: --addr :9090  --branch my-branch
+```
+
 ## Repository layout
 
 ```
 cmd/
   oceano-source-detector/   # Go: Physical/None detector + VU + PCM relay (systemd service)
   oceano-state-manager/     # Go: unified state aggregator + ACRCloud recognition (systemd service)
+  oceano-web/               # Go: configuration web UI + status API (systemd service, port 8080)
 calibration/                # Python: capture and analyse calibration sessions
 scripts/
   test-acoustid.sh          # Standalone ACRCloud recognition test (stop detector first)
 install.sh                  # Installer: AirPlay stack (shairport-sync + bridge + watchdog)
 install-source-detector.sh  # Installer: builds and installs the Go detector
 install-source-manager.sh   # Installer: builds and installs the Go state manager
+install-oceano-web.sh       # Installer: builds and installs the web UI
 config.yaml                 # ALSA device + AirPlay name
 ```
 
@@ -132,9 +164,13 @@ sudo ./install-source-manager.sh \
   --acrcloud-access-key <key> \
   --acrcloud-secret-key <secret>
 
+# On the Pi — web configuration UI (accessible at http://<pi-ip>:8080)
+sudo ./install-oceano-web.sh
+
 # Monitor logs
 journalctl -u oceano-source-detector.service -f
 journalctl -u oceano-state-manager.service -f
+journalctl -u oceano-web.service -f
 ```
 
 ## Troubleshooting
