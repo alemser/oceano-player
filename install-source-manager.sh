@@ -19,6 +19,10 @@ DEFAULT_METADATA_PIPE="/tmp/shairport-sync-metadata"
 DEFAULT_SOURCE_FILE="/tmp/oceano-source.json"
 DEFAULT_OUTPUT_FILE="/tmp/oceano-state.json"
 DEFAULT_ARTWORK_DIR="/tmp"
+DEFAULT_PCM_SOCKET="/tmp/oceano-pcm.sock"
+DEFAULT_VU_SOCKET="/tmp/oceano-vu.sock"
+DEFAULT_RECOGNIZER_CAPTURE_DURATION="10s"
+DEFAULT_RECOGNIZER_MAX_INTERVAL="5m0s"
 
 # ─── Output colors ───────────────────────────
 RED='\033[0;31m'
@@ -79,6 +83,20 @@ write_service() {
   local source_file="$2"
   local output_file="$3"
   local artwork_dir="$4"
+  local acrcloud_host="$5"
+  local acrcloud_access_key="$6"
+  local acrcloud_secret_key="$7"
+  local pcm_socket="$8"
+  local vu_socket="$9"
+  local recognizer_capture_duration="${10}"
+  local recognizer_max_interval="${11}"
+
+  local acrcloud_flags=""
+  if [[ -n "${acrcloud_host}" ]]; then
+    acrcloud_flags="  --acrcloud-host \"${acrcloud_host}\" \\
+  --acrcloud-access-key \"${acrcloud_access_key}\" \\
+  --acrcloud-secret-key \"${acrcloud_secret_key}\" \\"
+  fi
 
   cat > "${SERVICE_DEST}" <<EOF
 [Unit]
@@ -93,6 +111,11 @@ ExecStart=${BINARY_DEST} \\
   --source-file "${source_file}" \\
   --output "${output_file}" \\
   --artwork-dir "${artwork_dir}" \\
+  --pcm-socket "${pcm_socket}" \\
+  --vu-socket "${vu_socket}" \\
+  --recognizer-capture-duration "${recognizer_capture_duration}" \\
+  --recognizer-max-interval "${recognizer_max_interval}" \\
+${acrcloud_flags}
   --verbose
 Restart=always
 RestartSec=3
@@ -118,23 +141,44 @@ main() {
   local source_file="${DEFAULT_SOURCE_FILE}"
   local output_file="${DEFAULT_OUTPUT_FILE}"
   local artwork_dir="${DEFAULT_ARTWORK_DIR}"
+  local acrcloud_host=""
+  local acrcloud_access_key=""
+  local acrcloud_secret_key=""
+  local pcm_socket="${DEFAULT_PCM_SOCKET}"
+  local vu_socket="${DEFAULT_VU_SOCKET}"
+  local recognizer_capture_duration="${DEFAULT_RECOGNIZER_CAPTURE_DURATION}"
+  local recognizer_max_interval="${DEFAULT_RECOGNIZER_MAX_INTERVAL}"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --branch)         branch="${2:-}";        shift 2 ;;
-      --metadata-pipe)  metadata_pipe="${2:-}"; shift 2 ;;
-      --source-file)    source_file="${2:-}";   shift 2 ;;
-      --output)         output_file="${2:-}";   shift 2 ;;
-      --artwork-dir)    artwork_dir="${2:-}";   shift 2 ;;
+      --branch)                       branch="${2:-}";                       shift 2 ;;
+      --metadata-pipe)                metadata_pipe="${2:-}";                shift 2 ;;
+      --source-file)                  source_file="${2:-}";                  shift 2 ;;
+      --output)                       output_file="${2:-}";                  shift 2 ;;
+      --artwork-dir)                  artwork_dir="${2:-}";                  shift 2 ;;
+      --acrcloud-host)                acrcloud_host="${2:-}";                shift 2 ;;
+      --acrcloud-access-key)          acrcloud_access_key="${2:-}";          shift 2 ;;
+      --acrcloud-secret-key)          acrcloud_secret_key="${2:-}";          shift 2 ;;
+      --pcm-socket)                   pcm_socket="${2:-}";                   shift 2 ;;
+      --vu-socket)                    vu_socket="${2:-}";                    shift 2 ;;
+      --recognizer-capture-duration)  recognizer_capture_duration="${2:-}";  shift 2 ;;
+      --recognizer-max-interval)      recognizer_max_interval="${2:-}";      shift 2 ;;
       -h|--help)
         echo "Usage: sudo ./install-source-manager.sh [options]"
         echo ""
         echo "Options:"
-        echo "  --branch <name>          Git branch to build (default: ${DEFAULT_BRANCH})"
-        echo "  --metadata-pipe <path>   shairport-sync metadata FIFO (default: ${DEFAULT_METADATA_PIPE})"
-        echo "  --source-file <path>     oceano-source-detector output JSON (default: ${DEFAULT_SOURCE_FILE})"
-        echo "  --output <path>          output state JSON file (default: ${DEFAULT_OUTPUT_FILE})"
-        echo "  --artwork-dir <path>     directory for artwork cache files (default: ${DEFAULT_ARTWORK_DIR})"
+        echo "  --branch <name>                        Git branch to build (default: ${DEFAULT_BRANCH})"
+        echo "  --metadata-pipe <path>                 shairport-sync metadata FIFO"
+        echo "  --source-file <path>                   oceano-source-detector output JSON"
+        echo "  --output <path>                        output state JSON file"
+        echo "  --artwork-dir <path>                   artwork cache directory"
+        echo "  --acrcloud-host <host>                 ACRCloud API host"
+        echo "  --acrcloud-access-key <key>            ACRCloud access key"
+        echo "  --acrcloud-secret-key <secret>         ACRCloud secret key"
+        echo "  --pcm-socket <path>                    PCM relay socket from source detector"
+        echo "  --vu-socket <path>                     VU socket from source detector"
+        echo "  --recognizer-capture-duration <dur>    capture duration per attempt (default: ${DEFAULT_RECOGNIZER_CAPTURE_DURATION})"
+        echo "  --recognizer-max-interval <dur>        fallback re-recognition interval (default: ${DEFAULT_RECOGNIZER_MAX_INTERVAL})"
         exit 0
         ;;
       *) log_error "Unknown argument: $1"; exit 1 ;;
@@ -161,7 +205,9 @@ main() {
   build_binary
 
   log_section "systemd Service"
-  write_service "${metadata_pipe}" "${source_file}" "${output_file}" "${artwork_dir}"
+  write_service "${metadata_pipe}" "${source_file}" "${output_file}" "${artwork_dir}" \
+    "${acrcloud_host}" "${acrcloud_access_key}" "${acrcloud_secret_key}" \
+    "${pcm_socket}" "${vu_socket}" "${recognizer_capture_duration}" "${recognizer_max_interval}"
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
