@@ -137,6 +137,60 @@ journalctl -u oceano-source-detector.service -f
 journalctl -u oceano-state-manager.service -f
 ```
 
+## Troubleshooting
+
+### ACRCloud not recognising tracks / recognition fails silently
+
+**Symptom:** `no match` in state manager logs, or `network is unreachable`.
+
+1. **Check RMS level** — target is 0.05–0.25 during playback:
+   ```bash
+   journalctl -u oceano-source-detector.service -f
+   # look at: heartbeat: source=Physical rms=X
+   ```
+
+2. **RMS too high (> 0.40)** — REC OUT is overdriving the capture card, causing clipping that corrupts the fingerprint. Reduce capture volume:
+   ```bash
+   amixer -c 3 sset 'Mic' 3      # start here; adjust up/down until RMS ≈ 0.15
+   alsactl store                  # persist across reboots
+   ```
+   The working value on the Magnat MR 780 + DIGITNOW card is **level 3 / 53% → RMS ≈ 0.19**.
+
+3. **Network unreachable (IPv6)** — the ACRCloud client forces IPv4 since Pi networks often lack IPv6 routing. If this error appears, confirm IPv4 connectivity:
+   ```bash
+   curl -4 https://identify-eu-west-1.acrcloud.com
+   ```
+
+4. **Album art shows wrong album** — expected when playing a compilation (e.g. a "Best Of"). ACRCloud identifies by audio fingerprint and returns the best-known release for that recording. No workaround without manual input.
+
+---
+
+### Source oscillating rapidly between Physical and None
+
+**Symptom:** logs show `None → Physical → None → Physical` several times per second.
+
+The silence threshold is too close to the noise floor at the current capture volume. Raise it:
+
+```bash
+sudo ./install-source-detector.sh \
+  --branch music-recognition \
+  --silence-threshold 0.025
+```
+
+The default threshold (0.008) is calibrated for higher capture volumes. After reducing capture volume to level 3, use **0.025** as the silence threshold.
+
+---
+
+### Track info stays on screen after record is changed or side is flipped
+
+If the phono stage has residual hum, the source may remain `Physical` during record changes. The VU monitor clears the recognition result after ~2 s of silence, but only if RMS drops below the silence threshold. If hum keeps RMS above the threshold, the old track persists.
+
+Options:
+- Raise `--silence-threshold` slightly so phono hum is treated as silence
+- The `--recognizer-max-interval` (default 5 min) will eventually trigger a new recognition
+
+---
+
 ## What NOT to do
 
 - Do not block the ALSA device with multiple `arecord` calls — consume the PCM socket from `oceano-source-detector` instead; PipeWire monitor taps are the long-term replacement
