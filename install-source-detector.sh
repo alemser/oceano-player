@@ -113,8 +113,7 @@ ExecStart=${BINARY_DEST} \\
   --silence-threshold "${silence_threshold}" \\
   --min-vinyl-rms "${min_vinyl_rms}" \\
   --vinyl-ratio-threshold "${vinyl_ratio_threshold}" \\
-  --debounce "${debounce}" \\
-  --verbose
+  --debounce "${debounce}"
 Restart=always
 RestartSec=3
 
