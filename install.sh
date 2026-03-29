@@ -533,6 +533,16 @@ EOF
   # ── Version ──
   save_version
 
+  # ── Go services ──
+  log_section "Source Detector"
+  bash "${SRC_DIR}/install-source-detector.sh" --branch "${branch}"
+
+  log_section "State Manager"
+  bash "${SRC_DIR}/install-source-manager.sh" --branch "${branch}"
+
+  log_section "Web UI"
+  bash "${SRC_DIR}/install-oceano-web.sh" --branch "${branch}"
+
   # ── Summary ──
   log_section "Done"
   if [[ "${mode}" == "install" ]]; then
@@ -542,6 +552,9 @@ EOF
     log_info "Installed version: $(get_installed_version)"
   fi
 
+  local ip
+  ip=$(hostname -I 2>/dev/null | awk '{print $1}') || ip="<pi-ip>"
+
   echo -e "
 ${BOLD}Configuration summary:${RESET}
   Branch             : ${branch}
@@ -549,13 +562,16 @@ ${BOLD}Configuration summary:${RESET}
   ALSA device        : ${alsa_device}
   Output strategy    : ${output_strategy}
   Preplay wait       : ${preplay_wait_seconds}s
-  Metadata pipe      : /tmp/shairport-sync-metadata
   Config saved to    : ${CONFIG_FILE}
   Version            : $(get_installed_version)
 
+${BOLD}Web UI:${RESET}
+  http://${ip}:8080
+  (set ACRCloud credentials and audio devices here)
+
 ${BOLD}Useful commands:${RESET}
-  systemctl status shairport-sync.service
-  journalctl -u shairport-sync.service -f
+  systemctl status shairport-sync.service oceano-source-detector.service oceano-state-manager.service oceano-web.service
+  journalctl -u oceano-web.service -f
 "
 }
 

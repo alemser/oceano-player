@@ -22,56 +22,32 @@ active source (AirPlay, physical media, or silence).
 
 Raspberry Pi OS 64-bit (Bookworm) recommended.
 
-### Step 1 — AirPlay stack
-
 ```bash
 curl -fsSL -o install.sh https://raw.githubusercontent.com/alemser/oceano-player/main/install.sh
 chmod +x install.sh
 sudo ./install.sh
 ```
 
-This installs and starts `shairport-sync`, the loopback bridge, and the watchdog.
+This single command installs and starts all services:
+
+| Service | Role |
+|---|---|
+| `shairport-sync` | AirPlay receiver |
+| `oceano-airplay-bridge` | Routes loopback audio to DAC |
+| `oceano-bridge-watchdog` | Reconnects bridge when DAC wakes from standby |
+| `oceano-source-detector` | Captures REC-OUT, detects physical media, publishes VU + PCM |
+| `oceano-state-manager` | Merges all sources into `/tmp/oceano-state.json` |
+| `oceano-web` | Configuration UI at `http://<pi-ip>:8080` |
+
+After install, open `http://<pi-ip>:8080` in your browser to:
+- Set ACRCloud credentials for track recognition
+- Configure audio input/output devices
+- Adjust silence threshold and debounce settings
 
 Verify:
 ```bash
-sudo systemctl status shairport-sync.service
-journalctl -u shairport-sync.service -f
-```
-
-### Step 2 — Source detector
-
-Reads the amplifier REC-OUT via a USB capture card. Detects whether physical
-media is playing (any source routed through the amplifier: vinyl, CD, tuner, etc.)
-and publishes real-time stereo RMS levels to the VU meter socket.
-
-The capture card is auto-detected by name — if the ALSA card number changes
-after a reboot, the service recovers automatically.
-
-```bash
-sudo ./install-source-detector.sh
-```
-
-Verify:
-```bash
-sudo systemctl status oceano-source-detector.service
-journalctl -u oceano-source-detector.service -f
-cat /tmp/oceano-source.json
-```
-
-### Step 3 — State manager
-
-Merges AirPlay metadata and physical source detection into a single state file.
-AirPlay takes priority — physical detection is ignored when streaming is active.
-
-```bash
-sudo ./install-source-manager.sh
-```
-
-Verify:
-```bash
-sudo systemctl status oceano-state-manager.service
-journalctl -u oceano-state-manager.service -f
-cat /tmp/oceano-state.json
+sudo systemctl status shairport-sync.service oceano-source-detector.service oceano-state-manager.service oceano-web.service
+journalctl -u oceano-web.service -f
 ```
 
 ---
@@ -133,20 +109,24 @@ Frame rate: ~22 fps (2048-sample buffer at 44.1 kHz ≈ 46 ms per frame).
 
 ## Update
 
-Re-run any install script to pull the latest code and restart the service:
+Re-run the main installer to update all services at once:
 
 ```bash
 sudo ./install.sh
-sudo ./install-source-detector.sh
-sudo ./install-source-manager.sh
 ```
 
 To deploy a specific branch:
 
 ```bash
 sudo ./install.sh --branch my-branch
+```
+
+Individual services can still be updated independently when needed:
+
+```bash
 sudo ./install-source-detector.sh --branch my-branch
 sudo ./install-source-manager.sh --branch my-branch
+sudo ./install-oceano-web.sh --branch my-branch
 ```
 
 ---
@@ -191,15 +171,13 @@ Persistent config at `/opt/oceano-player/config.env` — edit and re-run to appl
 ```bash
 sudo systemctl disable --now shairport-sync.service oceano-airplay-bridge.service \
   oceano-bridge-watchdog.service oceano-source-detector.service \
-  oceano-state-manager.service 2>/dev/null || true
+  oceano-state-manager.service oceano-web.service 2>/dev/null || true
 sudo rm -rf /opt/oceano-player
 sudo systemctl daemon-reload
 
 curl -fsSL -o install.sh https://raw.githubusercontent.com/alemser/oceano-player/main/install.sh
 chmod +x install.sh
 sudo ./install.sh
-sudo ./install-source-detector.sh
-sudo ./install-source-manager.sh
 ```
 
 ---
@@ -230,5 +208,6 @@ git config core.hooksPath .githooks
 - Bluetooth receiver (BlueZ + PipeWire)
 - UPnP/OpenHome (`upmpdcli` / `gmrender-resurrect`)
 - HTTP + SSE server in state manager (real-time push to UI, replaces file polling)
-- Track identification for physical media (Chromaprint + AcoustID)
+- PipeWire migration — replace `arecord` single-reader model with monitor taps
+- Local recognition cache — use Chromaprint (`fpcalc`) fingerprint as cache key for ACRCloud results, persisted to disk; avoids redundant API calls when replaying the same vinyl pressing
 - Configuration UI for device settings (ALSA device, thresholds, display mode)
