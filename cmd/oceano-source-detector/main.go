@@ -401,14 +401,14 @@ func handlePCMConn(ctx context.Context, conn net.Conn, hub *pcmHub) {
 // --- VU hub: fan-out to all connected socket clients ---
 
 type vuHub struct {
-	mu      sync.Mutex
-	clients map[chan VUFrame]struct{}
+	mu       sync.Mutex
+	clients  map[chan VUFrame]struct{}
 	publish_ chan VUFrame
 }
 
 func newVUHub() *vuHub {
 	return &vuHub{
-		clients: make(map[chan VUFrame]struct{}),
+		clients:  make(map[chan VUFrame]struct{}),
 		publish_: make(chan VUFrame, 4),
 	}
 }
