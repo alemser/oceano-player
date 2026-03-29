@@ -49,6 +49,7 @@ type Config struct {
 	DebounceWindows  int
 	OutputFile       string
 	VUSocket         string
+	PCMSocket        string // Unix socket for raw PCM relay; consumers read S16_LE stereo at SampleRate Hz
 	Verbose          bool
 }
 
@@ -62,6 +63,7 @@ func defaultConfig() Config {
 		DebounceWindows:  10,
 		OutputFile:       "/tmp/oceano-source.json",
 		VUSocket:         "/tmp/oceano-vu.sock",
+		PCMSocket:        "/tmp/oceano-pcm.sock",
 		Verbose:          false,
 	}
 }
@@ -119,6 +121,7 @@ func main() {
 	flag.StringVar(&cfg.AlsaDevice, "device", cfg.AlsaDevice, "Explicit ALSA capture device (overridden by --device-match if both set)")
 	flag.StringVar(&cfg.OutputFile, "output", cfg.OutputFile, "Output JSON file path")
 	flag.StringVar(&cfg.VUSocket, "vu-socket", cfg.VUSocket, "Unix socket path for VU meter frames (8 bytes: float32 L + float32 R)")
+	flag.StringVar(&cfg.PCMSocket, "pcm-socket", cfg.PCMSocket, "Unix socket path for raw PCM relay (S16_LE stereo at sample-rate Hz)")
 	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS below this = silence / no physical source")
 	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Majority vote window size")
 	flag.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "Detailed logging")
@@ -142,6 +145,10 @@ func run(ctx context.Context, cfg Config) error {
 	go hub.run(ctx)
 	go listenVU(ctx, cfg.VUSocket, hub)
 
+	pcm := newPCMHub()
+	go pcm.run(ctx)
+	go listenPCM(ctx, cfg.PCMSocket, pcm)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -154,7 +161,7 @@ func run(ctx context.Context, cfg Config) error {
 				time.Sleep(5 * time.Second)
 				continue
 			}
-			if err := runStream(ctx, cfg, dev, hub); err != nil {
+			if err := runStream(ctx, cfg, dev, hub, pcm); err != nil {
 				log.Printf("stream error on %s: %v — restarting in 2s", dev, err)
 				time.Sleep(2 * time.Second)
 			}
@@ -162,7 +169,7 @@ func run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func runStream(ctx context.Context, cfg Config, device string, hub *vuHub) error {
+func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *pcmHub) error {
 	log.Printf("opening capture device %s", device)
 	cmd := exec.Command("arecord",
 		"-D", device,
@@ -206,6 +213,12 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub) error
 		if _, err := io.ReadFull(stdout, raw); err != nil {
 			return err
 		}
+
+		// Relay raw PCM to any connected consumers (e.g. recognizer).
+		// Copy the buffer since raw is reused on the next iteration.
+		chunk := make([]byte, len(raw))
+		copy(chunk, raw)
+		pcm.publish(chunk)
 
 		for i := 0; i < cfg.BufferSize; i++ {
 			l := int16(binary.LittleEndian.Uint16(raw[i*4:]))
@@ -271,6 +284,116 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub) error
 			log.Printf("SOURCE: %s → %s (rms=%.5f)", current, winner, rms)
 			current = winner
 			_ = writeState(cfg.OutputFile, current)
+		}
+	}
+}
+
+// --- PCM hub: fan-out raw PCM chunks to all connected socket clients ---
+// Consumers receive continuous S16_LE stereo bytes at cfg.SampleRate Hz.
+// This allows multiple readers (e.g. the recognizer) without opening the
+// ALSA device a second time.
+
+type pcmHub struct {
+	mu       sync.Mutex
+	clients  map[chan []byte]struct{}
+	publish_ chan []byte
+}
+
+func newPCMHub() *pcmHub {
+	return &pcmHub{
+		clients:  make(map[chan []byte]struct{}),
+		publish_: make(chan []byte, 4),
+	}
+}
+
+func (h *pcmHub) publish(chunk []byte) {
+	select {
+	case h.publish_ <- chunk:
+	default:
+		// No consumer keeping up — drop chunk rather than block the audio loop.
+	}
+}
+
+func (h *pcmHub) subscribe() chan []byte {
+	ch := make(chan []byte, 32) // larger buffer: PCM chunks are ~8 KB each
+	h.mu.Lock()
+	h.clients[ch] = struct{}{}
+	h.mu.Unlock()
+	return ch
+}
+
+func (h *pcmHub) unsubscribe(ch chan []byte) {
+	h.mu.Lock()
+	delete(h.clients, ch)
+	h.mu.Unlock()
+}
+
+func (h *pcmHub) run(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case chunk := <-h.publish_:
+			h.mu.Lock()
+			for ch := range h.clients {
+				select {
+				case ch <- chunk:
+				default:
+					// Slow client — drop chunk.
+				}
+			}
+			h.mu.Unlock()
+		}
+	}
+}
+
+// listenPCM accepts connections on a Unix socket and streams raw PCM bytes.
+// The stream format is S16_LE, 2 channels, at cfg.SampleRate Hz (default 44100).
+// There is no framing — bytes arrive as a continuous stream.
+func listenPCM(ctx context.Context, socketPath string, hub *pcmHub) {
+	_ = os.Remove(socketPath)
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		log.Printf("PCM socket: failed to listen on %s: %v", socketPath, err)
+		return
+	}
+	defer func() {
+		ln.Close()
+		_ = os.Remove(socketPath)
+	}()
+	log.Printf("PCM socket listening on %s", socketPath)
+
+	go func() {
+		<-ctx.Done()
+		ln.Close()
+	}()
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("PCM socket: accept error: %v", err)
+			return
+		}
+		go handlePCMConn(ctx, conn, hub)
+	}
+}
+
+func handlePCMConn(ctx context.Context, conn net.Conn, hub *pcmHub) {
+	defer conn.Close()
+	ch := hub.subscribe()
+	defer hub.unsubscribe(ch)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case chunk := <-ch:
+			if _, err := conn.Write(chunk); err != nil {
+				return // client disconnected
+			}
 		}
 	}
 }
