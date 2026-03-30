@@ -21,3 +21,4 @@ run/
 # Local overrides
 config.local.yaml
 
+/oceano-web
