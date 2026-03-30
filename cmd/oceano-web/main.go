@@ -19,12 +19,14 @@ import (
 var staticFiles embed.FS
 
 const (
-	detectorBinary = "/usr/local/bin/oceano-source-detector"
-	managerBinary  = "/usr/local/bin/oceano-state-manager"
-	detectorUnit   = "oceano-source-detector.service"
-	managerUnit    = "oceano-state-manager.service"
-	detectorSvc    = "/etc/systemd/system/" + detectorUnit
-	managerSvc     = "/etc/systemd/system/" + managerUnit
+	detectorBinary  = "/usr/local/bin/oceano-source-detector"
+	managerBinary   = "/usr/local/bin/oceano-state-manager"
+	detectorUnit    = "oceano-source-detector.service"
+	managerUnit     = "oceano-state-manager.service"
+	displayUnit     = "oceano-now-playing.service"
+	detectorSvc     = "/etc/systemd/system/" + detectorUnit
+	managerSvc      = "/etc/systemd/system/" + managerUnit
+	displayEnvPath  = "/etc/oceano/display.env"
 )
 
 // ALSADevice is a detected ALSA sound card.
@@ -69,6 +71,43 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
+	})
+
+	// API: current artwork
+	mux.HandleFunc("/api/artwork", func(w http.ResponseWriter, r *http.Request) {
+		cfg, _ := loadConfig(*configPath)
+		data, err := os.ReadFile(cfg.Advanced.StateFile)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		var state struct {
+			Track *struct {
+				ArtworkPath string `json:"artwork_path"`
+			} `json:"track"`
+		}
+		if err := json.Unmarshal(data, &state); err != nil || state.Track == nil || state.Track.ArtworkPath == "" {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, state.Track.ArtworkPath)
+	})
+
+	// API: service logs
+	mux.HandleFunc("/api/logs", func(w http.ResponseWriter, r *http.Request) {
+		service := r.URL.Query().Get("service")
+		unit := map[string]string{
+			"detector": detectorUnit,
+			"manager":  managerUnit,
+			"display":  displayUnit,
+		}[service]
+		if unit == "" {
+			http.Error(w, "unknown service", http.StatusBadRequest)
+			return
+		}
+		out, _ := exec.Command("journalctl", "-u", unit, "-n", "100", "--no-pager", "--output=short").CombinedOutput()
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Write(out)
 	})
 
 	// API: scan ALSA capture and playback devices
@@ -127,6 +166,22 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 			results = append(results, "manager restart: "+err.Error())
 		} else {
 			results = append(results, "oceano-state-manager restarted")
+		}
+	}
+
+	// Write display env and restart oceano-now-playing if it is installed.
+	if err := saveDisplayEnv(displayEnvPath, cfg.Display); err != nil {
+		results = append(results, "display env write: "+err.Error())
+	} else {
+		displaySvc := "/etc/systemd/system/" + displayUnit
+		if _, err := os.Stat(displaySvc); err == nil {
+			if err := restartService(displayUnit); err != nil {
+				results = append(results, "display restart: "+err.Error())
+			} else {
+				results = append(results, "oceano-now-playing restarted")
+			}
+		} else {
+			results = append(results, "display.env written (oceano-now-playing not installed)")
 		}
 	}
 

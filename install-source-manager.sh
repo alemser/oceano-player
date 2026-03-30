@@ -194,6 +194,22 @@ main() {
     esac
   done
 
+  # If config.json exists and CLI args didn't override, read values from it.
+  local config_file="/etc/oceano/config.json"
+  if [[ -f "${config_file}" ]] && command -v python3 >/dev/null 2>&1; then
+    _cfg() { python3 -c "import json,sys; c=json.load(open('${config_file}')); print(c$1)" 2>/dev/null || true; }
+    [[ -z "${acrcloud_host}" ]]        && acrcloud_host="$(_cfg "['recognition']['acrcloud_host']")"
+    [[ -z "${acrcloud_access_key}" ]]  && acrcloud_access_key="$(_cfg "['recognition']['acrcloud_access_key']")"
+    [[ -z "${acrcloud_secret_key}" ]]  && acrcloud_secret_key="$(_cfg "['recognition']['acrcloud_secret_key']")"
+    _src="$(_cfg "['advanced']['source_file']")"; [[ -n "${_src}" ]] && source_file="${_src}"
+    _out="$(_cfg "['advanced']['state_file']")";  [[ -n "${_out}" ]] && output_file="${_out}"
+    _art="$(_cfg "['advanced']['artwork_dir']")"; [[ -n "${_art}" ]] && artwork_dir="${_art}"
+    _vu="$(_cfg "['advanced']['vu_socket']")";   [[ -n "${_vu}" ]]  && vu_socket="${_vu}"
+    _pcm="$(_cfg "['advanced']['pcm_socket']")"; [[ -n "${_pcm}" ]] && pcm_socket="${_pcm}"
+    _meta="$(_cfg "['advanced']['metadata_pipe']")"; [[ -n "${_meta}" ]] && metadata_pipe="${_meta}"
+    log_info "Configuration loaded from ${config_file}"
+  fi
+
   local mode
   mode=$(is_installed && echo "UPDATE" || echo "INSTALL")
 

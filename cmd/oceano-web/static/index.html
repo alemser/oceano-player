@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Oceano Player</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 52 52'><rect x='0' y='16' width='8' height='20' rx='4' fill='%23888'/><rect x='11' y='9' width='8' height='34' rx='4' fill='%23888'/><rect x='22' y='3' width='8' height='46' rx='4' fill='%23888'/><rect x='33' y='12' width='8' height='28' rx='4' fill='%23888'/><rect x='44' y='17' width='8' height='18' rx='4' fill='%23888'/></svg>">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -77,6 +78,14 @@
     }
     #status-bar.playing .dot { background: var(--ok-text); }
     #status-bar .track { color: var(--text); font-weight: 500; }
+    #status-artwork {
+      width: 40px; height: 40px;
+      border-radius: 4px;
+      object-fit: cover;
+      flex-shrink: 0;
+      display: none;
+    }
+    #status-bar.playing #status-artwork { display: block; }
 
     /* ── Layout ── */
     .sections {
@@ -128,6 +137,102 @@
     }
     input:focus { border-color: var(--accent); }
     input::placeholder { color: var(--muted); }
+
+    select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text);
+      font-size: 0.88rem;
+      padding: 8px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+      cursor: pointer;
+    }
+    select:focus { border-color: var(--accent); }
+    optgroup { color: var(--text-dim); font-style: normal; font-weight: 600; }
+    option { background: #1a1a1a; color: var(--text); }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: var(--gap);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0;
+    }
+    .tab {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      padding: 8px 16px;
+      text-transform: uppercase;
+      margin-bottom: -1px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Log viewer ── */
+    .log-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      align-items: center;
+    }
+    .log-service-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.78rem;
+      padding: 6px 12px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .log-service-btn:hover { color: var(--text); }
+    .log-service-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+    .log-refresh-btn {
+      margin-left: auto;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.78rem;
+      padding: 6px 12px;
+    }
+    .log-refresh-btn:hover { color: var(--text); }
+    .log-auto-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      cursor: pointer;
+    }
+    #log-output {
+      background: #0d0d0d;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: #bbb;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 0.73rem;
+      line-height: 1.6;
+      overflow-y: auto;
+      padding: 14px 16px;
+      height: 480px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
 
     .hint {
       font-size: 0.72rem;
@@ -220,13 +325,12 @@
 
 <header>
   <div class="logo">
-    <!-- Sound bars — mirrors the idle screen renderer -->
-    <svg width="52" height="60" viewBox="0 0 52 60" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0"  y="18" width="8" height="24" rx="3" fill="#282828"/>
-      <rect x="11" y="6"  width="8" height="42" rx="3" fill="#484848"/>
-      <rect x="22" y="0"  width="8" height="60" rx="3" fill="#686868"/>
-      <rect x="33" y="6"  width="8" height="42" rx="3" fill="#484848"/>
-      <rect x="44" y="18" width="8" height="24" rx="3" fill="#282828"/>
+    <svg width="52" height="52" viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0"  y="16" width="8" height="20" rx="4" fill="#888"/>
+      <rect x="11" y="9"  width="8" height="34" rx="4" fill="#888"/>
+      <rect x="22" y="3"  width="8" height="46" rx="4" fill="#888"/>
+      <rect x="33" y="12" width="8" height="28" rx="4" fill="#888"/>
+      <rect x="44" y="17" width="8" height="18" rx="4" fill="#888"/>
     </svg>
   </div>
   <div class="header-text">
@@ -237,9 +341,16 @@
 
 <div id="status-bar">
   <div class="dot"></div>
+  <img id="status-artwork" src="/api/artwork" alt="">
   <span id="status-text">Loading…</span>
 </div>
 
+<div class="tabs">
+  <button type="button" class="tab active" onclick="switchTab('config')">Configuration</button>
+  <button type="button" class="tab" onclick="switchTab('logs')">Logs</button>
+</div>
+
+<div id="tab-config" class="tab-panel active">
 <form id="cfg-form">
   <div class="sections">
 
@@ -353,6 +464,47 @@
       </div>
     </div>
 
+    <!-- Display -->
+    <div class="section">
+      <div class="section-title">Display</div>
+      <p class="hint" style="margin-bottom:14px">SPI screen (oceano-now-playing)</p>
+
+      <div class="field">
+        <label><span>UI preset</span></label>
+        <select id="disp-preset" name="disp-preset">
+          <option value="high_contrast_rotate">Rotate (text ↔ artwork)</option>
+          <option value="high_contrast_text">Text only</option>
+          <option value="high_contrast_artwork">Artwork only</option>
+          <option value="high_contrast_hybrid">Hybrid (text + artwork)</option>
+          <option value="high_contrast_vu">VU meter</option>
+        </select>
+        <div class="hint">Visual style and layout shown on the screen.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Cycle time (seconds)</span></label>
+        <input type="number" id="disp-cycle-time" name="disp-cycle-time"
+               step="5" min="5" max="300" placeholder="30">
+        <div class="hint">Seconds between text and artwork in rotate mode.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Standby timeout (seconds)</span></label>
+        <input type="number" id="disp-standby-timeout" name="disp-standby-timeout"
+               step="30" min="30" placeholder="600">
+        <div class="hint">Seconds of silence before the display goes to sleep.</div>
+      </div>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="disp-external-artwork" name="disp-external-artwork"
+                 style="width:auto;accent-color:var(--accent)">
+          <span>External artwork lookup</span>
+        </label>
+        <div class="hint">Fetch album art from online providers when not included in the stream.</div>
+      </div>
+    </div>
+
     <!-- Advanced -->
     <div class="section">
       <div class="section-title">Advanced</div>
@@ -367,8 +519,14 @@
         <input type="text" id="adv-pcm-socket" name="adv-pcm-socket" placeholder="/tmp/oceano-pcm.sock">
       </div>
       <div class="field">
+        <label><span>Source file</span></label>
+        <input type="text" id="adv-source-file" name="adv-source-file" placeholder="/tmp/oceano-source.json">
+        <div class="hint">Written by oceano-source-detector, read by oceano-state-manager.</div>
+      </div>
+      <div class="field">
         <label><span>State file</span></label>
         <input type="text" id="adv-state-file" name="adv-state-file" placeholder="/tmp/oceano-state.json">
+        <div class="hint">Written by oceano-state-manager, read by the display.</div>
       </div>
       <div class="field">
         <label><span>Artwork directory</span></label>
@@ -386,6 +544,20 @@
     <button type="submit" class="btn-save" id="btn-save">Save &amp; Restart Services</button>
   </div>
 </form>
+</div><!-- #tab-config -->
+
+<div id="tab-logs" class="tab-panel">
+  <div class="log-toolbar">
+    <button type="button" class="log-service-btn active" onclick="setLogService('detector')">Source Detector</button>
+    <button type="button" class="log-service-btn" onclick="setLogService('manager')">State Manager</button>
+    <button type="button" class="log-service-btn" onclick="setLogService('display')">Display</button>
+    <button type="button" class="log-refresh-btn" onclick="fetchLogs()">Refresh</button>
+    <label class="log-auto-label">
+      <input type="checkbox" id="log-auto" checked style="accent-color:var(--accent)"> Auto
+    </label>
+  </div>
+  <div id="log-output">Loading…</div>
+</div><!-- #tab-logs -->
 
 <div id="toast"></div>
 
@@ -412,9 +584,16 @@ async function loadConfig() {
 
   set('adv-vu-socket',     cfg.advanced?.vu_socket ?? '');
   set('adv-pcm-socket',    cfg.advanced?.pcm_socket ?? '');
+  set('adv-source-file',   cfg.advanced?.source_file ?? '');
   set('adv-state-file',    cfg.advanced?.state_file ?? '');
   set('adv-artwork-dir',   cfg.advanced?.artwork_dir ?? '');
   set('adv-metadata-pipe', cfg.advanced?.metadata_pipe ?? '');
+
+  set('disp-preset',          cfg.display?.ui_preset ?? 'high_contrast_rotate');
+  set('disp-cycle-time',      cfg.display?.cycle_time ?? 30);
+  set('disp-standby-timeout', cfg.display?.standby_timeout ?? 600);
+  const artworkEl = document.getElementById('disp-external-artwork');
+  if (artworkEl) artworkEl.checked = cfg.display?.external_artwork_enabled ?? true;
 }
 
 function set(id, val) {
@@ -433,9 +612,12 @@ async function loadStatus() {
   setTimeout(loadStatus, 3000);
 }
 
+let _lastArtworkPath = null;
+
 function setStatus(s) {
-  const bar  = document.getElementById('status-bar');
-  const text = document.getElementById('status-text');
+  const bar     = document.getElementById('status-bar');
+  const text    = document.getElementById('status-text');
+  const artwork = document.getElementById('status-artwork');
   if (!s || s.state !== 'playing') {
     bar.className = '';
     text.textContent = s ? `${s.source} — stopped` : 'Backend unreachable';
@@ -446,6 +628,12 @@ function setStatus(s) {
   text.innerHTML = t
     ? `<span class="track">${esc(t.title || t.artist || s.source)}</span>&nbsp;&mdash;&nbsp;${esc(t.artist || '')}`
     : `<span class="track">${esc(s.source)}</span>`;
+
+  const artPath = t?.artwork_path || null;
+  if (artPath !== _lastArtworkPath) {
+    _lastArtworkPath = artPath;
+    artwork.src = artPath ? `/api/artwork?t=${Date.now()}` : '';
+  }
 }
 
 function esc(s) {
@@ -518,9 +706,16 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
     advanced: {
       vu_socket:     val('adv-vu-socket'),
       pcm_socket:    val('adv-pcm-socket'),
+      source_file:   val('adv-source-file'),
       state_file:    val('adv-state-file'),
       artwork_dir:   val('adv-artwork-dir'),
       metadata_pipe: val('adv-metadata-pipe'),
+    },
+    display: {
+      ui_preset:                val('disp-preset'),
+      cycle_time:               parseInt(val('disp-cycle-time')) || 30,
+      standby_timeout:          parseInt(val('disp-standby-timeout')) || 600,
+      external_artwork_enabled: document.getElementById('disp-external-artwork')?.checked ?? true,
     },
   };
 
@@ -549,6 +744,51 @@ function toast(msg, isError = false) {
   clearTimeout(el._t);
   el._t = setTimeout(() => el.className = isError ? 'error' : '', 3500);
 }
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelectorAll('.tab').forEach(t => {
+    if (t.textContent.toLowerCase().includes(name === 'config' ? 'config' : 'log')) {
+      t.classList.add('active');
+    }
+  });
+  if (name === 'logs') fetchLogs();
+}
+
+// ── Logs ─────────────────────────────────────────────────────────────────────
+let currentLogService = 'detector';
+let logAutoTimer = null;
+
+function setLogService(service) {
+  currentLogService = service;
+  document.querySelectorAll('.log-service-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  fetchLogs();
+}
+
+async function fetchLogs() {
+  const el = document.getElementById('log-output');
+  try {
+    const r = await fetch('/api/logs?service=' + currentLogService);
+    const text = await r.text();
+    el.textContent = text;
+    el.scrollTop = el.scrollHeight;
+  } catch (e) {
+    el.textContent = 'Error fetching logs: ' + e.message;
+  }
+  if (document.getElementById('log-auto')?.checked) {
+    clearTimeout(logAutoTimer);
+    logAutoTimer = setTimeout(fetchLogs, 3000);
+  }
+}
+
+document.getElementById('log-auto')?.addEventListener('change', function() {
+  if (this.checked) fetchLogs();
+  else clearTimeout(logAutoTimer);
+});
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 loadConfig();
