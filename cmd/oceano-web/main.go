@@ -73,6 +73,23 @@ func main() {
 		w.Write(data)
 	})
 
+	// API: service logs
+	mux.HandleFunc("/api/logs", func(w http.ResponseWriter, r *http.Request) {
+		service := r.URL.Query().Get("service")
+		unit := map[string]string{
+			"detector": detectorUnit,
+			"manager":  managerUnit,
+			"display":  displayUnit,
+		}[service]
+		if unit == "" {
+			http.Error(w, "unknown service", http.StatusBadRequest)
+			return
+		}
+		out, _ := exec.Command("journalctl", "-u", unit, "-n", "100", "--no-pager", "--output=short").CombinedOutput()
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Write(out)
+	})
+
 	// API: scan ALSA capture and playback devices
 	mux.HandleFunc("/api/devices", func(w http.ResponseWriter, r *http.Request) {
 		devices := scanALSADevices()
