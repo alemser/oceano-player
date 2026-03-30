@@ -161,6 +161,19 @@ main() {
     esac
   done
 
+  # If config.json exists and CLI args didn't override, read values from it.
+  local config_file="/etc/oceano/config.json"
+  if [[ -f "${config_file}" ]] && command -v python3 >/dev/null 2>&1; then
+    _cfg() { python3 -c "import json,sys; c=json.load(open('${config_file}')); print(c$1)" 2>/dev/null || true; }
+    _dev="$(_cfg "['audio_input']['device']")";       [[ -n "${_dev}" ]]  && alsa_device="${_dev}"
+    _dm="$(_cfg "['audio_input']['device_match']")";  [[ -n "${_dm}" ]]   && device_match="${_dm}"
+    _st="$(_cfg "['audio_input']['silence_threshold']")"; [[ -n "${_st}" ]] && silence_threshold="${_st}"
+    _db="$(_cfg "['audio_input']['debounce_windows']")";  [[ -n "${_db}" ]] && debounce="${_db}"
+    _vu="$(_cfg "['advanced']['vu_socket']")";        [[ -n "${_vu}" ]]   && vu_socket="${_vu}"
+    _pcm="$(_cfg "['advanced']['pcm_socket']")";      [[ -n "${_pcm}" ]]  && pcm_socket="${_pcm}"
+    log_info "Configuration loaded from ${config_file}"
+  fi
+
   local mode
   mode=$(is_installed && echo "UPDATE" || echo "INSTALL")
 
