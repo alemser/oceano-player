@@ -73,6 +73,26 @@ func main() {
 		w.Write(data)
 	})
 
+	// API: current artwork
+	mux.HandleFunc("/api/artwork", func(w http.ResponseWriter, r *http.Request) {
+		cfg, _ := loadConfig(*configPath)
+		data, err := os.ReadFile(cfg.Advanced.StateFile)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		var state struct {
+			Track *struct {
+				ArtworkPath string `json:"artwork_path"`
+			} `json:"track"`
+		}
+		if err := json.Unmarshal(data, &state); err != nil || state.Track == nil || state.Track.ArtworkPath == "" {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, state.Track.ArtworkPath)
+	})
+
 	// API: service logs
 	mux.HandleFunc("/api/logs", func(w http.ResponseWriter, r *http.Request) {
 		service := r.URL.Query().Get("service")

@@ -615,8 +615,14 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 			silenceCount = 0
 			if inSilence && activeCount >= activeFrames {
 				inSilence = false
-				// Audio resumed after silence — new track starting, trigger recognition.
+				// Audio resumed after silence — new track starting.
+				// Clear previous result so the display shows an empty state
+				// while the new track is being identified.
+				m.mu.Lock()
+				m.recognitionResult = nil
+				m.mu.Unlock()
 				log.Printf("VU monitor: track boundary detected — triggering recognition")
+				m.markDirty()
 				select {
 				case m.recognizeTrigger <- struct{}{}:
 				default:
@@ -763,12 +769,15 @@ func (m *mgr) runWriter(ctx context.Context) {
 			write()
 		case <-ticker.C:
 			// Re-evaluate periodically so idle delay expiry is written promptly.
+			// Also write once just after the window expires so state=stopped is pushed.
 			m.mu.Lock()
-			inIdleWindow := m.physicalSource != "Physical" &&
-				!m.lastPhysicalAt.IsZero() &&
-				time.Since(m.lastPhysicalAt) < m.cfg.IdleDelay
+			physNone := m.physicalSource != "Physical"
+			wasPhysical := !m.lastPhysicalAt.IsZero()
+			elapsed := time.Since(m.lastPhysicalAt)
+			inIdleWindow := physNone && wasPhysical && elapsed < m.cfg.IdleDelay
+			justExpired := physNone && wasPhysical && elapsed >= m.cfg.IdleDelay && elapsed < m.cfg.IdleDelay+10*time.Second
 			m.mu.Unlock()
-			if inIdleWindow {
+			if inIdleWindow || justExpired {
 				write()
 			}
 		}
