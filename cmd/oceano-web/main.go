@@ -169,6 +169,15 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		}
 	}
 
+	// Update AirPlay name in shairport-sync.conf and restart if name changed.
+	if cfg.AudioOutput.AirPlayName != "" {
+		if err := updateShairportName(cfg.AudioOutput.AirPlayName); err != nil {
+			results = append(results, "shairport-sync name update: "+err.Error())
+		} else {
+			results = append(results, "shairport-sync restarted (new AirPlay name)")
+		}
+	}
+
 	// Write display env and restart oceano-now-playing if it is installed.
 	if err := saveDisplayEnv(displayEnvPath, cfg.Display); err != nil {
 		results = append(results, "display env write: "+err.Error())
@@ -190,6 +199,38 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		"ok":      len(results) > 0,
 		"results": results,
 	})
+}
+
+// updateShairportName replaces the name field in /etc/shairport-sync.conf
+// and restarts shairport-sync so the new name is advertised on mDNS immediately.
+func updateShairportName(name string) error {
+	const confPath = "/etc/shairport-sync.conf"
+	data, err := os.ReadFile(confPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", confPath, err)
+	}
+	lines := strings.Split(string(data), "\n")
+	updated := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "name") && strings.Contains(trimmed, "=") {
+			indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+			lines[i] = fmt.Sprintf(`%sname = "%s";`, indent, name)
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		return fmt.Errorf("name field not found in %s", confPath)
+	}
+	tmp := confPath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, confPath); err != nil {
+		return err
+	}
+	return restartService("shairport-sync.service")
 }
 
 // writeDetectorService rewrites the oceano-source-detector systemd unit.
