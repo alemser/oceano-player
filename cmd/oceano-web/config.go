@@ -7,6 +7,21 @@ import (
 	"strings"
 )
 
+// DisplayConfig controls the oceano-now-playing SPI display service.
+// Values are written to /etc/oceano/display.env and read as environment
+// variables by the service — no code changes required in oceano-now-playing.
+type DisplayConfig struct {
+	// UIPreset is the combined layout+mode preset (e.g. "high_contrast_rotate").
+	// Controls both visual style and what is shown on the display.
+	UIPreset string `json:"ui_preset"`
+	// CycleTime is the number of seconds between text and artwork in rotate mode.
+	CycleTime int `json:"cycle_time"`
+	// StandbyTimeout is the number of seconds before the display sleeps.
+	StandbyTimeout int `json:"standby_timeout"`
+	// ExternalArtworkEnabled controls whether artwork is fetched from online providers.
+	ExternalArtworkEnabled bool `json:"external_artwork_enabled"`
+}
+
 // Config is the central configuration for all Oceano services.
 // It is stored at /etc/oceano/config.json and managed exclusively
 // through the web UI. Each service reads its section on startup.
@@ -23,6 +38,7 @@ type Config struct {
 	AudioOutput AudioOutputConfig `json:"audio_output"`
 	Recognition RecognitionConfig `json:"recognition"`
 	Advanced    AdvancedConfig    `json:"advanced"`
+	Display     DisplayConfig     `json:"display"`
 }
 
 // AudioInputConfig controls the ALSA capture device used by
@@ -106,6 +122,12 @@ func defaultConfig() Config {
 			ArtworkDir:   "/tmp",
 			MetadataPipe: "/tmp/shairport-sync-metadata",
 		},
+		Display: DisplayConfig{
+			UIPreset:               "high_contrast_rotate",
+			CycleTime:              30,
+			StandbyTimeout:         600,
+			ExternalArtworkEnabled: true,
+		},
 	}
 }
 
@@ -184,6 +206,24 @@ func managerArgs(cfg Config) []string {
 	// does not pair it with the next argument.
 	args = append(args, "--verbose")
 	return args
+}
+
+// saveDisplayEnv writes /etc/oceano/display.env so that oceano-now-playing
+// picks up display settings as environment variables (EnvironmentFile=).
+func saveDisplayEnv(path string, cfg DisplayConfig) error {
+	artwork := "true"
+	if !cfg.ExternalArtworkEnabled {
+		artwork = "false"
+	}
+	content := fmt.Sprintf(
+		"UI_PRESET=%s\nCYCLE_TIME=%d\nSTANDBY_TIMEOUT=%d\nEXTERNAL_ARTWORK_ENABLED=%s\n",
+		cfg.UIPreset, cfg.CycleTime, cfg.StandbyTimeout, artwork,
+	)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // formatExecStart builds the ExecStart line for a systemd service file.

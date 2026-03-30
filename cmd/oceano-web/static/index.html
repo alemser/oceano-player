@@ -129,6 +129,22 @@
     input:focus { border-color: var(--accent); }
     input::placeholder { color: var(--muted); }
 
+    select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text);
+      font-size: 0.88rem;
+      padding: 8px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+      cursor: pointer;
+    }
+    select:focus { border-color: var(--accent); }
+    optgroup { color: var(--text-dim); font-style: normal; font-weight: 600; }
+    option { background: #1a1a1a; color: var(--text); }
+
     .hint {
       font-size: 0.72rem;
       color: var(--muted);
@@ -353,6 +369,54 @@
       </div>
     </div>
 
+    <!-- Display -->
+    <div class="section">
+      <div class="section-title">Display</div>
+      <p class="hint" style="margin-bottom:14px">SPI screen (oceano-now-playing)</p>
+
+      <div class="field">
+        <label><span>UI preset</span></label>
+        <select id="disp-preset" name="disp-preset">
+          <optgroup label="High contrast">
+            <option value="high_contrast_rotate">Rotate (text ↔ artwork)</option>
+            <option value="high_contrast_text">Text only</option>
+            <option value="high_contrast_artwork">Artwork only</option>
+            <option value="high_contrast_hybrid">Hybrid (text + artwork)</option>
+          </optgroup>
+          <optgroup label="Classic">
+            <option value="classic_rotate">Rotate (text ↔ artwork)</option>
+            <option value="classic_text">Text only</option>
+            <option value="classic_artwork">Artwork only</option>
+            <option value="classic_hybrid">Hybrid (text + artwork)</option>
+          </optgroup>
+        </select>
+        <div class="hint">Visual style and layout shown on the screen.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Cycle time (seconds)</span></label>
+        <input type="number" id="disp-cycle-time" name="disp-cycle-time"
+               step="5" min="5" max="300" placeholder="30">
+        <div class="hint">Seconds between text and artwork in rotate mode.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Standby timeout (seconds)</span></label>
+        <input type="number" id="disp-standby-timeout" name="disp-standby-timeout"
+               step="30" min="30" placeholder="600">
+        <div class="hint">Seconds of silence before the display goes to sleep.</div>
+      </div>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="disp-external-artwork" name="disp-external-artwork"
+                 style="width:auto;accent-color:var(--accent)">
+          <span>External artwork lookup</span>
+        </label>
+        <div class="hint">Fetch album art from online providers when not included in the stream.</div>
+      </div>
+    </div>
+
     <!-- Advanced -->
     <div class="section">
       <div class="section-title">Advanced</div>
@@ -415,6 +479,12 @@ async function loadConfig() {
   set('adv-state-file',    cfg.advanced?.state_file ?? '');
   set('adv-artwork-dir',   cfg.advanced?.artwork_dir ?? '');
   set('adv-metadata-pipe', cfg.advanced?.metadata_pipe ?? '');
+
+  set('disp-preset',          cfg.display?.ui_preset ?? 'high_contrast_rotate');
+  set('disp-cycle-time',      cfg.display?.cycle_time ?? 30);
+  set('disp-standby-timeout', cfg.display?.standby_timeout ?? 600);
+  const artworkEl = document.getElementById('disp-external-artwork');
+  if (artworkEl) artworkEl.checked = cfg.display?.external_artwork_enabled ?? true;
 }
 
 function set(id, val) {
@@ -521,6 +591,12 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       state_file:    val('adv-state-file'),
       artwork_dir:   val('adv-artwork-dir'),
       metadata_pipe: val('adv-metadata-pipe'),
+    },
+    display: {
+      ui_preset:                val('disp-preset'),
+      cycle_time:               parseInt(val('disp-cycle-time')) || 30,
+      standby_timeout:          parseInt(val('disp-standby-timeout')) || 600,
+      external_artwork_enabled: document.getElementById('disp-external-artwork')?.checked ?? true,
     },
   };
 
