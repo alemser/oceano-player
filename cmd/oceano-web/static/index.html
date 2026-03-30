@@ -62,30 +62,64 @@
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 12px 18px;
+      padding: 14px 18px;
       margin-bottom: var(--gap);
       display: flex;
       align-items: center;
-      gap: 12px;
-      font-size: 0.85rem;
-      color: var(--text-dim);
+      gap: 16px;
+      min-height: 76px;
+      transition: border-color 0.4s;
     }
-    #status-bar .dot {
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: var(--muted);
+    #status-bar.playing { border-color: #2a2a2a; }
+
+    #status-art-wrap {
       flex-shrink: 0;
+      width: 48px; height: 48px;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #1c1c1c;
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
     }
-    #status-bar.playing .dot { background: var(--ok-text); }
-    #status-bar .track { color: var(--text); font-weight: 500; }
     #status-artwork {
-      width: 40px; height: 40px;
-      border-radius: 4px;
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
       object-fit: cover;
-      flex-shrink: 0;
-      display: none;
+      opacity: 0;
+      transition: opacity 0.3s;
     }
-    #status-bar.playing #status-artwork { display: block; }
+    #status-artwork.loaded { opacity: 1; }
+    #status-art-placeholder { color: #383838; }
+
+    #status-info { flex: 1; min-width: 0; }
+    #status-title {
+      font-size: 0.92rem; font-weight: 500; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #status-subtitle {
+      font-size: 0.78rem; color: var(--text-dim); margin-top: 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    #status-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .source-badge {
+      font-size: 0.67rem; font-weight: 600; letter-spacing: 0.1em;
+      text-transform: uppercase; padding: 3px 9px; border-radius: 20px;
+      background: #1e1e1e; color: var(--text-dim);
+      border: 1px solid #2a2a2a;
+    }
+    .source-badge.airplay   { background: #0e1e30; color: #4a9eff; border-color: #1a3a5a; }
+    .source-badge.physical  { background: #0e2010; color: var(--ok-text); border-color: #1a3a1a; }
+
+    .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--muted); flex-shrink: 0;
+    }
+    #status-bar.playing .dot {
+      background: var(--ok-text);
+      animation: blink 2.4s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
 
     /* ── Layout ── */
     .sections {
@@ -340,9 +374,21 @@
 </header>
 
 <div id="status-bar">
-  <div class="dot"></div>
-  <img id="status-artwork" src="/api/artwork" alt="">
-  <span id="status-text">Loading…</span>
+  <div id="status-art-wrap">
+    <svg id="status-art-placeholder" width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <path d="M9 18V5l12-2v13M9 18c0 1.657-1.343 3-3 3s-3-1.343-3-3 1.343-3 3-3 3 1.343 3 3zm12-2c0 1.657-1.343 3-3 3s-3-1.343-3-3 1.343-3 3-3 3 1.343 3 3z"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <img id="status-artwork" alt="">
+  </div>
+  <div id="status-info">
+    <div id="status-title">—</div>
+    <div id="status-subtitle"></div>
+  </div>
+  <div id="status-right">
+    <span id="status-badge" class="source-badge" style="display:none"></span>
+    <div class="dot"></div>
+  </div>
 </div>
 
 <div class="tabs">
@@ -615,24 +661,42 @@ async function loadStatus() {
 let _lastArtworkPath = null;
 
 function setStatus(s) {
-  const bar     = document.getElementById('status-bar');
-  const text    = document.getElementById('status-text');
-  const artwork = document.getElementById('status-artwork');
+  const bar      = document.getElementById('status-bar');
+  const titleEl  = document.getElementById('status-title');
+  const subEl    = document.getElementById('status-subtitle');
+  const artImg   = document.getElementById('status-artwork');
+  const badgeEl  = document.getElementById('status-badge');
+
   if (!s || s.state !== 'playing') {
     bar.className = '';
-    text.textContent = s ? `${s.source} — stopped` : 'Backend unreachable';
+    titleEl.textContent = s ? (s.source === 'None' ? 'Not playing' : `${s.source} — stopped`) : 'Backend unreachable';
+    subEl.textContent = '';
+    artImg.classList.remove('loaded');
+    badgeEl.style.display = 'none';
     return;
   }
+
   bar.className = 'playing';
   const t = s.track;
-  text.innerHTML = t
-    ? `<span class="track">${esc(t.title || t.artist || s.source)}</span>&nbsp;&mdash;&nbsp;${esc(t.artist || '')}`
-    : `<span class="track">${esc(s.source)}</span>`;
+  titleEl.textContent = t ? (t.title || t.artist || s.source) : s.source;
+  subEl.textContent   = t ? [t.artist, t.album].filter(Boolean).join(' · ') : '';
+
+  const src = (s.source || '').toLowerCase();
+  badgeEl.textContent = s.source;
+  badgeEl.className   = `source-badge ${src}`;
+  badgeEl.style.display = '';
 
   const artPath = t?.artwork_path || null;
   if (artPath !== _lastArtworkPath) {
     _lastArtworkPath = artPath;
-    artwork.src = artPath ? `/api/artwork?t=${Date.now()}` : '';
+    if (artPath) {
+      artImg.onload  = () => artImg.classList.add('loaded');
+      artImg.onerror = () => artImg.classList.remove('loaded');
+      artImg.src = `/api/artwork?t=${Date.now()}`;
+    } else {
+      artImg.classList.remove('loaded');
+      artImg.src = '';
+    }
   }
 }
 
