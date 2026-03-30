@@ -437,25 +437,36 @@ func (m *mgr) pollSourceFile() {
 
 	m.mu.Lock()
 	changed := m.physicalSource != src
+	newSession := false
 	if src == "Physical" {
+		// A new session is one where we've been silent longer than the idle delay —
+		// meaning the user stopped the record and started a new one, not just a
+		// gap between tracks or brief oscillation around the threshold.
+		if m.lastPhysicalAt.IsZero() || time.Since(m.lastPhysicalAt) > m.cfg.IdleDelay {
+			newSession = true
+		}
 		m.lastPhysicalAt = time.Now()
 	}
-	if changed && src == "Physical" {
-		// New physical session — clear stale result from a previous session.
+	if newSession {
 		m.recognitionResult = nil
 	}
+	needsTrigger := src == "Physical" && m.recognitionResult == nil
 	m.physicalSource = src
 	m.mu.Unlock()
 
 	if changed {
 		log.Printf("physical source: %s", src)
 		m.markDirty()
-		if src == "Physical" {
-			// New physical session — trigger recognition immediately.
-			select {
-			case m.recognizeTrigger <- struct{}{}:
-			default:
-			}
+	} else if src == "Physical" {
+		// Even without a state change, mark dirty so the idle screen wakes
+		// promptly if the writer missed a previous Physical transition.
+		m.markDirty()
+	}
+
+	if needsTrigger {
+		select {
+		case m.recognizeTrigger <- struct{}{}:
+		default:
 		}
 	}
 }
