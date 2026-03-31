@@ -132,9 +132,10 @@ type mgr struct {
 	artworkPath    string
 
 	// Physical source (updated by source watcher goroutine)
-	physicalSource    string             // "Physical" or "None"
-	lastPhysicalAt    time.Time          // last time physicalSource was "Physical"
-	recognitionResult *RecognitionResult // last successful recognition; nil until identified
+	physicalSource      string             // "Physical" or "None"
+	lastPhysicalAt      time.Time          // last time physicalSource was "Physical"
+	recognitionResult   *RecognitionResult // last successful recognition; nil until identified
+	physicalArtworkPath string             // artwork path for current physical track (from library or fetch)
 
 	// recognizeTrigger is sent to when a new recognition attempt should start:
 	// on Physical source activation and on track-boundary events from runVUMonitor.
@@ -453,6 +454,7 @@ func (m *mgr) pollSourceFile() {
 	}
 	if newSession {
 		m.recognitionResult = nil
+		m.physicalArtworkPath = ""
 	}
 	needsTrigger := src == "Physical" && m.recognitionResult == nil
 	m.physicalSource = src
@@ -523,9 +525,10 @@ func (m *mgr) buildState() PlayerState {
 	case "Physical":
 		if r := m.recognitionResult; r != nil {
 			track = &TrackInfo{
-				Title:  r.Title,
-				Artist: r.Artist,
-				Album:  r.Album,
+				Title:       r.Title,
+				Artist:      r.Artist,
+				Album:       r.Album,
+				ArtworkPath: m.physicalArtworkPath,
 			}
 		}
 		// track remains nil until recognition identifies the track.
@@ -624,6 +627,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 				// while the new track is being identified.
 				m.mu.Lock()
 				m.recognitionResult = nil
+				m.physicalArtworkPath = ""
 				m.mu.Unlock()
 				log.Printf("VU monitor: track boundary detected — triggering recognition")
 				m.markDirty()
@@ -730,6 +734,8 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 		if result != nil {
 			log.Printf("recognizer [%s]: score=%d  %s — %s", rec.Name(), result.Score, result.Artist, result.Title)
 			if lib != nil {
+				artworkPath := ""
+
 				// Check if we already have this track with user-edited metadata.
 				if entry, lookupErr := lib.Lookup(result.ACRID); lookupErr != nil {
 					log.Printf("recognizer: library lookup error: %v", lookupErr)
@@ -739,8 +745,20 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 					result.Title = entry.Title
 					result.Artist = entry.Artist
 					result.Album = entry.Album
+					artworkPath = entry.ArtworkPath
 				}
-				if err := lib.RecordPlay(result, ""); err != nil {
+
+				// Fetch artwork if not already stored for this track.
+				if artworkPath == "" && result.Album != "" {
+					if ap, artErr := fetchArtwork(result.Artist, result.Album, m.cfg.ArtworkDir); artErr != nil {
+						log.Printf("recognizer: artwork fetch error: %v", artErr)
+					} else if ap != "" {
+						log.Printf("recognizer: artwork saved at %s", ap)
+						artworkPath = ap
+					}
+				}
+
+				if err := lib.RecordPlay(result, artworkPath); err != nil {
 					log.Printf("recognizer: library record error: %v", err)
 				}
 			}
@@ -761,6 +779,16 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 
 		m.mu.Lock()
 		m.recognitionResult = result
+		if lib != nil && result != nil {
+			// physicalArtworkPath may have been set above; read it back from DB
+			// so buildState can include it in the state file for the display.
+			if entry, _ := lib.Lookup(result.ACRID); entry != nil {
+				m.physicalArtworkPath = entry.ArtworkPath
+			}
+		}
+		if result == nil {
+			m.physicalArtworkPath = ""
+		}
 		m.mu.Unlock()
 		m.markDirty()
 	}
