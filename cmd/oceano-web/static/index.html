@@ -551,39 +551,6 @@
       </div>
     </div>
 
-    <!-- Advanced -->
-    <div class="section">
-      <div class="section-title">Advanced</div>
-      <p class="hint" style="margin-bottom:14px">Internal paths — rarely need to change</p>
-
-      <div class="field">
-        <label><span>VU socket</span></label>
-        <input type="text" id="adv-vu-socket" name="adv-vu-socket" placeholder="/tmp/oceano-vu.sock">
-      </div>
-      <div class="field">
-        <label><span>PCM socket</span></label>
-        <input type="text" id="adv-pcm-socket" name="adv-pcm-socket" placeholder="/tmp/oceano-pcm.sock">
-      </div>
-      <div class="field">
-        <label><span>Source file</span></label>
-        <input type="text" id="adv-source-file" name="adv-source-file" placeholder="/tmp/oceano-source.json">
-        <div class="hint">Written by oceano-source-detector, read by oceano-state-manager.</div>
-      </div>
-      <div class="field">
-        <label><span>State file</span></label>
-        <input type="text" id="adv-state-file" name="adv-state-file" placeholder="/tmp/oceano-state.json">
-        <div class="hint">Written by oceano-state-manager, read by the display.</div>
-      </div>
-      <div class="field">
-        <label><span>Artwork directory</span></label>
-        <input type="text" id="adv-artwork-dir" name="adv-artwork-dir" placeholder="/tmp">
-      </div>
-      <div class="field">
-        <label><span>shairport-sync metadata pipe</span></label>
-        <input type="text" id="adv-metadata-pipe" name="adv-metadata-pipe" placeholder="/tmp/shairport-sync-metadata">
-      </div>
-    </div>
-
   </div><!-- .sections -->
 
   <div class="actions">
@@ -609,6 +576,10 @@
 
 <script>
 // ── Load config ──────────────────────────────────────────────────────────────
+// Advanced values are not shown in the UI but are kept here and sent back on
+// save so they are never accidentally reset to defaults.
+let _advancedConfig = {};
+
 async function loadConfig() {
   const r = await fetch('/api/config');
   const cfg = await r.json();
@@ -628,18 +599,14 @@ async function loadConfig() {
   set('rec-duration',      cfg.recognition?.capture_duration_secs ?? 10);
   set('rec-interval',      cfg.recognition?.max_interval_secs ?? 300);
 
-  set('adv-vu-socket',     cfg.advanced?.vu_socket ?? '');
-  set('adv-pcm-socket',    cfg.advanced?.pcm_socket ?? '');
-  set('adv-source-file',   cfg.advanced?.source_file ?? '');
-  set('adv-state-file',    cfg.advanced?.state_file ?? '');
-  set('adv-artwork-dir',   cfg.advanced?.artwork_dir ?? '');
-  set('adv-metadata-pipe', cfg.advanced?.metadata_pipe ?? '');
-
   set('disp-preset',          cfg.display?.ui_preset ?? 'high_contrast_rotate');
   set('disp-cycle-time',      cfg.display?.cycle_time ?? 30);
   set('disp-standby-timeout', cfg.display?.standby_timeout ?? 600);
   const artworkEl = document.getElementById('disp-external-artwork');
   if (artworkEl) artworkEl.checked = cfg.display?.external_artwork_enabled ?? true;
+
+  // Preserve advanced values as-is from server.
+  _advancedConfig = cfg.advanced ?? {};
 }
 
 function set(id, val) {
@@ -767,14 +734,7 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       capture_duration_secs: parseInt(val('rec-duration'))  || 10,
       max_interval_secs:     parseInt(val('rec-interval'))  || 300,
     },
-    advanced: {
-      vu_socket:     val('adv-vu-socket'),
-      pcm_socket:    val('adv-pcm-socket'),
-      source_file:   val('adv-source-file'),
-      state_file:    val('adv-state-file'),
-      artwork_dir:   val('adv-artwork-dir'),
-      metadata_pipe: val('adv-metadata-pipe'),
-    },
+    advanced: _advancedConfig,
     display: {
       ui_preset:                val('disp-preset'),
       cycle_time:               parseInt(val('disp-cycle-time')) || 30,
