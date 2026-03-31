@@ -495,6 +495,7 @@ main() {
   require_cmd aplay
   require_cmd awk
   require_cmd sed
+  require_cmd python3
 
   # ── Parse arguments ──
   local airplay_name="${DEFAULT_AIRPLAY_NAME}"
@@ -656,6 +657,19 @@ EOF
 
   # ── Initial config — must exist before sub-scripts so they read consistent defaults ──
   write_initial_config "${airplay_name}" "${alsa_device}"
+
+  # ── Initial display.env — written once so oceano-now-playing has env vars from the start ──
+  local display_env="/etc/oceano/display.env"
+  if [[ ! -f "${display_env}" ]]; then
+    cat > "${display_env}" <<'DISPLAYENV'
+UI_PRESET=high_contrast_rotate
+CYCLE_TIME=30
+STANDBY_TIMEOUT=600
+EXTERNAL_ARTWORK_ENABLED=true
+DISPLAYENV
+    chmod 0644 "${display_env}"
+    log_ok "Display env initialized at ${display_env}"
+  fi
 
   # ── Go runtime ──
   log_section "Go Runtime"

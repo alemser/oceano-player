@@ -294,6 +294,20 @@ git config core.hooksPath .githooks
 
 ---
 
+## Display UI
+
+For a real-time display showing track metadata, artwork, and VU meters on an SPI-connected screen, install the companion project **[oceano-now-playing](https://github.com/alemser/oceano-now-playing)** — it reads `/tmp/oceano-state.json` and `/tmp/oceano-vu.sock` produced by this backend.
+
+```bash
+git clone https://github.com/alemser/oceano-now-playing.git
+cd oceano-now-playing
+./install.sh
+```
+
+Install oceano-player first (this project), then oceano-now-playing.
+
+---
+
 ## Next steps
 
 - Bluetooth receiver (BlueZ + PipeWire)
