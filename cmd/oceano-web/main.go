@@ -39,6 +39,7 @@ type ALSADevice struct {
 func main() {
 	configPath := flag.String("config", "/etc/oceano/config.json", "path to Oceano config file")
 	addr := flag.String("addr", ":8080", "listen address")
+	libraryDB := flag.String("library-db", "/var/lib/oceano/library.db", "path to collection SQLite database")
 	flag.Parse()
 
 	_ = os.MkdirAll("/etc/oceano", 0o755)
@@ -109,6 +110,9 @@ func main() {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write(out)
 	})
+
+	// API: physical media collection (library)
+	registerLibraryRoutes(mux, *libraryDB)
 
 	// API: scan ALSA capture and playback devices
 	mux.HandleFunc("/api/devices", func(w http.ResponseWriter, r *http.Request) {

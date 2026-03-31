@@ -243,6 +243,7 @@ main() {
   chown "$(stat -c '%u:%g' /etc/oceano 2>/dev/null || echo "root:root")" "${lib_dir}" 2>/dev/null || true
   log_ok "Library directory ready at ${lib_dir}"
 
+
   log_section "systemd Service"
   write_service "${metadata_pipe}" "${source_file}" "${output_file}" "${artwork_dir}" \
     "${acrcloud_host}" "${acrcloud_access_key}" "${acrcloud_secret_key}" \

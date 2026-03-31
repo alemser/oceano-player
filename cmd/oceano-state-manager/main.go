@@ -727,22 +727,32 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 
 		backoffUntil = time.Time{} // reset backoff on any successful API response
 
-		m.mu.Lock()
-		m.recognitionResult = result
-		m.mu.Unlock()
-		m.markDirty()
-
 		if result != nil {
 			log.Printf("recognizer [%s]: score=%d  %s — %s", rec.Name(), result.Score, result.Artist, result.Title)
 			if lib != nil {
+				// Check if we already have this track with user-edited metadata.
+				if entry, lookupErr := lib.Lookup(result.ACRID); lookupErr != nil {
+					log.Printf("recognizer: library lookup error: %v", lookupErr)
+				} else if entry != nil {
+					log.Printf("recognizer: known track (plays: %d) — using saved metadata", entry.PlayCount)
+					// Prefer user-corrected metadata over ACRCloud result.
+					result.Title = entry.Title
+					result.Artist = entry.Artist
+					result.Album = entry.Album
+				}
 				if err := lib.RecordPlay(result, ""); err != nil {
-					log.Printf("%v", err)
+					log.Printf("recognizer: library record error: %v", err)
 				}
 			}
 		} else {
 			log.Printf("recognizer [%s]: no match — retrying in %s", rec.Name(), noMatchBackoff)
 			backoffUntil = time.Now().Add(noMatchBackoff)
 		}
+
+		m.mu.Lock()
+		m.recognitionResult = result
+		m.mu.Unlock()
+		m.markDirty()
 	}
 }
 
