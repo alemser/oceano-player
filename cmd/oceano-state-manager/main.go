@@ -109,7 +109,7 @@ func defaultConfig() Config {
 		VUSocket:                  "/tmp/oceano-vu.sock",
 		RecognizerCaptureDuration: 10 * time.Second,
 		RecognizerMaxInterval:     5 * time.Minute,
-		IdleDelay:                 60 * time.Second,
+		IdleDelay:                 10 * time.Second,
 		LibraryDB:                 "/var/lib/oceano/library.db",
 	}
 }
@@ -553,7 +553,7 @@ func (m *mgr) buildState() PlayerState {
 func (m *mgr) runVUMonitor(ctx context.Context) {
 	const (
 		silenceThreshold = float32(0.01)
-		silenceFrames    = 43  // ~2 s of silence
+		silenceFrames    = 22  // ~1 s of silence (vinyl inter-track gaps can be < 2 s)
 		activeFrames     = 11  // ~0.5 s of audio resumption
 		retryDelay       = 5 * time.Second
 	)

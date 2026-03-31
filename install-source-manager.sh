@@ -23,7 +23,7 @@ DEFAULT_PCM_SOCKET="/tmp/oceano-pcm.sock"
 DEFAULT_VU_SOCKET="/tmp/oceano-vu.sock"
 DEFAULT_RECOGNIZER_CAPTURE_DURATION="10s"
 DEFAULT_RECOGNIZER_MAX_INTERVAL="5m0s"
-DEFAULT_IDLE_DELAY="60s"
+DEFAULT_IDLE_DELAY="10s"
 DEFAULT_LIBRARY_DB="/var/lib/oceano/library.db"
 
 # Newline character used when building multi-line ExecStart strings.

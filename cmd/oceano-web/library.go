@@ -59,6 +59,30 @@ func (l *LibraryDB) close() {
 	}
 }
 
+// recentArtworks returns the last 8 distinct entries that have artwork,
+// ordered by last_played. Used to populate the artwork picker in the edit modal.
+func (l *LibraryDB) recentArtworks() ([]LibraryEntry, error) {
+	rows, err := l.db.Query(`
+		SELECT id, title, artist, COALESCE(album,''), COALESCE(artwork_path,'')
+		FROM collection
+		WHERE artwork_path IS NOT NULL AND artwork_path != ''
+		ORDER BY last_played DESC LIMIT 8`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []LibraryEntry
+	for rows.Next() {
+		var e LibraryEntry
+		if err := rows.Scan(&e.ID, &e.Title, &e.Artist, &e.Album, &e.ArtworkPath); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
 // list returns all entries ordered by last_played descending.
 func (l *LibraryDB) list() ([]LibraryEntry, error) {
 	rows, err := l.db.Query(`
@@ -125,7 +149,6 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string) {
 			return
 		}
 		if lib == nil {
-			// DB not yet created — return empty list
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte("[]"))
 			return
@@ -133,6 +156,36 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string) {
 		defer lib.close()
 
 		entries, err := lib.list()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if entries == nil {
+			entries = []LibraryEntry{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(entries)
+	})
+
+	// GET /api/library/artworks — recent tracks with artwork, for the picker.
+	mux.HandleFunc("/api/library/artworks", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		lib, err := openLibraryDB(libraryDBPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("[]"))
+			return
+		}
+		defer lib.close()
+
+		entries, err := lib.recentArtworks()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

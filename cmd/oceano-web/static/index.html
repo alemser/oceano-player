@@ -467,6 +467,28 @@
       transition: background 0.15s;
     }
     .btn-modal-delete:hover { background: #2a0a0a; }
+
+    /* ── Artwork picker ── */
+    .artwork-picker-label {
+      font-size: 0.72rem; color: var(--muted); margin-bottom: 8px; margin-top: 18px;
+    }
+    .artwork-picker {
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .artwork-picker-thumb {
+      width: 48px; height: 48px; border-radius: 5px; overflow: hidden;
+      border: 2px solid transparent; cursor: pointer; flex-shrink: 0;
+      background: #1a1a1a; position: relative;
+      transition: border-color 0.15s, transform 0.1s;
+    }
+    .artwork-picker-thumb:hover { border-color: var(--accent); transform: scale(1.08); }
+    .artwork-picker-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .artwork-picker-thumb .thumb-label {
+      display: none; position: absolute; bottom: 0; left: 0; right: 0;
+      background: rgba(0,0,0,0.75); font-size: 0.55rem; color: #fff;
+      padding: 2px 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .artwork-picker-thumb:hover .thumb-label { display: block; }
   </style>
 </head>
 <body>
@@ -705,6 +727,10 @@
       </div>
     </div>
     <input type="file" id="artwork-file-input" accept="image/jpeg,image/png" style="display:none" onchange="uploadArtwork(this)">
+    <div id="artwork-picker-wrap" style="display:none">
+      <div class="artwork-picker-label">Copy artwork from recent tracks</div>
+      <div class="artwork-picker" id="artwork-picker"></div>
+    </div>
     <div class="modal-row">
       <div class="modal-field">
         <label>Title</label>
@@ -1053,6 +1079,7 @@ function openModal(id) {
   }
 
   document.getElementById('lib-modal').classList.add('open');
+  loadArtworkPicker(id);
 }
 
 function closeModal() {
@@ -1092,6 +1119,59 @@ async function deleteEntry() {
 
 function triggerArtworkUpload() {
   document.getElementById('artwork-file-input').click();
+}
+
+async function loadArtworkPicker(excludeId) {
+  const wrap    = document.getElementById('artwork-picker-wrap');
+  const picker  = document.getElementById('artwork-picker');
+  try {
+    const r       = await fetch('/api/library/artworks');
+    const artworks = await r.json();
+    // Exclude the entry being edited
+    const others  = artworks.filter(a => a.id !== excludeId);
+    if (others.length === 0) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    picker.innerHTML = others.map(a => `
+      <div class="artwork-picker-thumb" onclick="copyArtworkFrom(${a.id})" title="${esc(a.artist)} — ${esc(a.title)}">
+        <img src="/api/library/${a.id}/artwork?t=${Date.now()}" alt="">
+        <div class="thumb-label">${esc(a.artist)}</div>
+      </div>`).join('');
+  } catch(e) {
+    wrap.style.display = 'none';
+  }
+}
+
+async function copyArtworkFrom(sourceId) {
+  if (!_editingId) return;
+  const source = _library.find(x => x.id === sourceId);
+  if (!source?.artwork_path) return;
+
+  // Update DB directly: set artwork_path to the source entry's path.
+  const entry  = _library.find(x => x.id === _editingId);
+  if (!entry) return;
+  const body = {
+    title:        document.getElementById('modal-title').value.trim()   || entry.title,
+    artist:       document.getElementById('modal-artist').value.trim()  || entry.artist,
+    album:        document.getElementById('modal-album').value.trim(),
+    format:       document.getElementById('modal-format').value,
+    label:        document.getElementById('modal-label').value.trim(),
+    released:     document.getElementById('modal-released').value.trim(),
+    track_number: document.getElementById('modal-track-number').value.trim(),
+    artwork_path: source.artwork_path,
+  };
+  const r = await fetch(`/api/library/${_editingId}`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  if (!r.ok) { toast('Copy failed', true); return; }
+
+  // Update local state and modal preview.
+  entry.artwork_path = source.artwork_path;
+  const img = document.getElementById('modal-art-img');
+  img.classList.remove('loaded');
+  img.src = `/api/library/${_editingId}/artwork?t=${Date.now()}`;
+  img.onload = () => img.classList.add('loaded');
+  toast('Artwork copied');
+  await loadLibrary();
 }
 
 async function uploadArtwork(input) {

@@ -160,7 +160,9 @@ func (l *Library) RecordPlay(result *RecognitionResult, artworkPath string) erro
 				title        = CASE WHEN excluded.score > score THEN excluded.title   ELSE title   END,
 				artist       = CASE WHEN excluded.score > score THEN excluded.artist  ELSE artist  END,
 				album        = CASE WHEN excluded.score > score THEN excluded.album   ELSE album   END,
-				score        = CASE WHEN excluded.score > score THEN excluded.score   ELSE score   END`,
+				score        = CASE WHEN excluded.score > score THEN excluded.score   ELSE score   END,
+				artwork_path = CASE WHEN (artwork_path IS NULL OR artwork_path = '') AND excluded.artwork_path != ''
+				               THEN excluded.artwork_path ELSE artwork_path END`,
 			result.ACRID, result.Title, result.Artist, result.Album,
 			result.Label, result.Released, result.Score, artworkPath, now, now,
 		)
