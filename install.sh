@@ -558,11 +558,18 @@ main() {
   fi
 
   # ── Load existing config (update) ──
+  # Prefer config.json (managed by web UI) over config.env for AirPlay name and ALSA device,
+  # so that changes made in the web UI survive a re-install/update.
+  if [[ -f "${CONFIG_JSON}" ]] && command -v python3 >/dev/null 2>&1; then
+    _cfg() { python3 -c "import json,sys; c=json.load(open('${CONFIG_JSON}')); print(c$1)" 2>/dev/null || true; }
+    _name="$(_cfg "['audio_output']['airplay_name']")"; [[ "${airplay_name_set}" -eq 0 && -n "${_name}" ]] && airplay_name="${_name}"
+    _dev="$(_cfg "['audio_output']['device']")";        [[ "${alsa_device_set}" -eq 0  && -n "${_dev}"  ]] && alsa_device="${_dev}"
+  fi
   if [[ -f "${CONFIG_FILE}" ]]; then
     source "${CONFIG_FILE}"
-    [[ "${airplay_name_set}" -eq 0 && -n "${AIRPLAY_NAME:-}" ]]          && airplay_name="${AIRPLAY_NAME}"
+    [[ "${airplay_name_set}" -eq 0 && -n "${AIRPLAY_NAME:-}" && -z "${_name:-}" ]] && airplay_name="${AIRPLAY_NAME}"
     [[ "${usb_match_set}" -eq 0 && -n "${USB_MATCH:-}" ]]                && usb_match="${USB_MATCH}"
-    [[ "${alsa_device_set}" -eq 0 && -n "${ALSA_DEVICE:-}" ]]            && alsa_device="${ALSA_DEVICE}"
+    [[ "${alsa_device_set}" -eq 0 && -n "${ALSA_DEVICE:-}" && -z "${_dev:-}" ]] && alsa_device="${ALSA_DEVICE}"
     [[ "${preplay_wait_seconds_set}" -eq 0 && -n "${PREPLAY_WAIT_SECONDS:-}" ]] && preplay_wait_seconds="${PREPLAY_WAIT_SECONDS}"
     [[ "${output_strategy_set}" -eq 0 && -n "${OUTPUT_STRATEGY:-}" ]]    && output_strategy="${OUTPUT_STRATEGY}"
   fi
