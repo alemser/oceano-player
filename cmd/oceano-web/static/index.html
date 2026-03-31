@@ -454,8 +454,10 @@
     .modal-field select option { background: #1a1a1a; }
     .modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .modal-actions {
-      display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px;
+      display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px;
+      align-items: center;
     }
+    .modal-actions .btn-modal-prev { margin-right: auto; }
     .btn-modal-save {
       background: var(--accent); border: none; border-radius: 6px; color: #fff;
       font-size: 0.85rem; font-weight: 600; padding: 9px 22px; cursor: pointer;
@@ -1008,12 +1010,14 @@ function toast(msg, isError = false) {
 
 // ── Library ──────────────────────────────────────────────────────────────────
 let _library = [];
+let _libLoadedAt = 0;
 let _editingId = null;
 
 async function loadLibrary() {
   try {
     const r = await fetch('/api/library');
     _library = await r.json();
+    _libLoadedAt = Date.now();
   } catch(e) {
     _library = [];
   }
@@ -1048,7 +1052,7 @@ function renderLibrary() {
   grid.innerHTML = filtered.map(e => {
     const fmtClass = (e.format||'unknown').toLowerCase();
     const plays    = e.play_count === 1 ? '1 play' : e.play_count + ' plays';
-    const artUrl   = e.artwork_path ? `/api/library/${e.id}/artwork` : '';
+    const artUrl   = e.artwork_path ? `/api/library/${e.id}/artwork?t=${_libLoadedAt}` : '';
     return `<div class="lib-card" onclick="openModal(${e.id})">
       <div class="lib-card-art">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
