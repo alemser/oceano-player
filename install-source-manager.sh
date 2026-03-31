@@ -141,6 +141,7 @@ main() {
 
   require_cmd systemctl
   require_cmd git
+  require_cmd python3
 
   local branch="${DEFAULT_BRANCH}"
   local metadata_pipe="${DEFAULT_METADATA_PIPE}"

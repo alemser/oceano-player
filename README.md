@@ -1,6 +1,6 @@
 # Oceano Player
 
-Audio backend for **Raspberry Pi 5 → USB DAC → Magnat MR 780**.
+Audio backend for **Raspberry Pi 5** connected to an amplifier or USB DAC.
 
 Provides a unified playback state file (`/tmp/oceano-state.json`) and a real-time
 VU meter socket (`/tmp/oceano-vu.sock`) that the UI reads, regardless of the
@@ -12,9 +12,9 @@ active source (AirPlay, physical media, or silence).
 
 Raspberry Pi OS 64-bit (Bookworm) recommended.
 
-**Before running the installer**, make sure the amplifier is powered on and the
-input selector is set to **USB** — the DAC only appears in the ALSA device list
-when it is active.
+**Before running the installer**, make sure your USB DAC / amplifier is powered
+on and connected via USB — the device only appears in the ALSA device list when
+active.
 
 ```bash
 curl -fsSL -o install.sh https://raw.githubusercontent.com/alemser/oceano-player/main/install.sh
@@ -43,17 +43,23 @@ After installation, open `http://<pi-ip>:8080` in your browser and configure:
 ### 1. Audio capture level (required for track recognition)
 
 The USB capture card volume must be set so that RMS stays between **0.05–0.25**
-during playback. The calibrated value for the Magnat MR 780 + DIGITNOW card is:
+during playback. Check the current level:
 
-```bash
-amixer -c 3 sset 'Mic' 3   # reduces level to ~19% → RMS ≈ 0.19
-alsactl store               # persist across reboots
-```
-
-Run this on the Pi before configuring recognition. Check the level with:
 ```bash
 journalctl -u oceano-source-detector.service -f
 # look for: heartbeat: source=Physical rms=X
+```
+
+If RMS is too high (> 0.40) or too low (< 0.05), adjust the capture volume.
+First find your capture card number:
+```bash
+arecord -l   # note the card number for your USB capture device
+```
+
+Then reduce or increase the mic level (replace `N` with your card number):
+```bash
+amixer -c N sset 'Mic' 50%   # start here; adjust until RMS ≈ 0.15–0.20
+alsactl store                  # persist across reboots
 ```
 
 ### 2. ACRCloud credentials (required for track recognition)
@@ -147,9 +153,8 @@ current_position_ms = seek_ms + (now - seek_updated_at) * 1000
 
 `/tmp/oceano-vu.sock` — Unix stream socket published by `oceano-source-detector`.
 
-The REC-OUT of the Magnat MR 780 is always active regardless of the selected
-input (AirPlay, vinyl, CD, tuner), so this socket provides a consistent stereo
-signal for all sources.
+The REC-OUT of the amplifier is captured by the USB capture card. This socket
+provides the stereo signal for VU metering and ACRCloud recognition.
 
 | Field | Type | Description |
 |---|---|---|
@@ -187,12 +192,12 @@ Frame rate: ~22 fps (2048-sample buffer at 44.1 kHz ≈ 46 ms per frame).
 
 1. **ACRCloud credentials not configured** — the most common cause after a fresh install. Open `http://<pi-ip>:8080` → **Track Recognition** → fill in credentials → **Save & Restart Services**.
 
-2. **RMS too high (> 0.40)** — clipping corrupts the audio fingerprint. Reduce capture volume:
+2. **RMS too high (> 0.40)** — clipping corrupts the audio fingerprint. Find your capture card number with `arecord -l`, then reduce the level:
    ```bash
-   amixer -c 3 sset 'Mic' 3
+   amixer -c N sset 'Mic' 50%   # replace N with your card number
    alsactl store
    ```
-   The working value on the Magnat MR 780 + DIGITNOW card is **level 3 → RMS ≈ 0.19**.
+   Target: **RMS ≈ 0.15–0.20** during normal playback.
 
 3. **Source detector showing `None`** — the capture card may not be detected:
    ```bash
@@ -239,7 +244,7 @@ The underlying config is stored at `/etc/oceano/config.json`.
 
 | Option | Default | Description |
 |---|---|---|
-| `--airplay-name` | `Triangle AirPlay` | AirPlay receiver name |
+| `--airplay-name` | `Oceano` | AirPlay receiver name |
 | `--usb-match` | `M780` | Text to match USB DAC in ALSA device list |
 | `--alsa-device` | *(auto-detected)* | Explicit ALSA device string |
 | `--preplay-wait-seconds` | `8` | Seconds to wait for DAC wake-up before playback |
@@ -264,7 +269,7 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-After reinstall, remember to re-configure ACRCloud credentials in the web UI and re-run `amixer` to set the capture level.
+After reinstall, ACRCloud credentials are preserved if `/etc/oceano/config.json` was not deleted. If it was, re-configure credentials in the web UI and re-run `amixer` to set the capture level.
 
 ---
 
@@ -289,10 +294,25 @@ git config core.hooksPath .githooks
 
 ---
 
+## Display UI
+
+For a real-time display showing track metadata, artwork, and VU meters on an SPI-connected screen, install the companion project **[oceano-now-playing](https://github.com/alemser/oceano-now-playing)** — it reads `/tmp/oceano-state.json` and `/tmp/oceano-vu.sock` produced by this backend.
+
+```bash
+git clone https://github.com/alemser/oceano-now-playing.git
+cd oceano-now-playing
+./install.sh
+```
+
+Install oceano-player first (this project), then oceano-now-playing.
+
+---
+
 ## Next steps
 
 - Bluetooth receiver (BlueZ + PipeWire)
 - UPnP/OpenHome (`upmpdcli` / `gmrender-resurrect`)
-- HTTP + SSE server in state manager (real-time push to UI, replaces file polling)
+- Bluetooth receiver (BlueZ + PipeWire)
+- UPnP/OpenHome (`upmpdcli` / `gmrender-resurrect`)
 - PipeWire migration — replace `arecord` single-reader model with monitor taps
-- Local recognition cache — use Chromaprint (`fpcalc`) fingerprint as cache key for ACRCloud results, persisted to disk; avoids redundant API calls when replaying the same vinyl pressing
+- Local media library — SQLite cache of recognized tracks enriched with MusicBrainz metadata and Cover Art Archive artwork; editable via web UI

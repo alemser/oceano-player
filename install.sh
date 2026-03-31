@@ -14,8 +14,9 @@ REPO_URL="https://github.com/alemser/oceano-player.git"
 
 DEFAULT_BRANCH="main"
 
-DEFAULT_AIRPLAY_NAME="Triangle AirPlay"
+DEFAULT_AIRPLAY_NAME="Oceano"
 DEFAULT_USB_MATCH="M780"
+CONFIG_JSON="/etc/oceano/config.json"
 DEFAULT_PREPLAY_WAIT_SECONDS="8"
 DEFAULT_OUTPUT_STRATEGY="loopback"
 
@@ -440,6 +441,37 @@ sync_repo() {
   fi
 }
 
+# ─── Initialize /etc/oceano/config.json ──────
+
+# write_initial_config creates /etc/oceano/config.json on first install so that
+# all services start with consistent defaults from the very beginning.
+# On update (file already exists) it is a no-op — user settings are preserved.
+write_initial_config() {
+  local airplay_name="$1"
+  local alsa_device="$2"
+
+  if [[ -f "${CONFIG_JSON}" ]]; then
+    log_info "Config already exists at ${CONFIG_JSON} — preserving existing settings."
+    return
+  fi
+
+  mkdir -p "$(dirname "${CONFIG_JSON}")"
+  # Use python3 to write valid JSON — avoids shell quoting issues with device paths.
+  python3 -c "
+import json, sys
+cfg = {
+  'audio_input':  {'device_match': 'USB Microphone', 'device': '', 'silence_threshold': 0.025, 'debounce_windows': 10},
+  'audio_output': {'airplay_name': sys.argv[1], 'device_match': '', 'device': sys.argv[2]},
+  'recognition':  {'acrcloud_host': 'identify-eu-west-1.acrcloud.com', 'acrcloud_access_key': '', 'acrcloud_secret_key': '', 'capture_duration_secs': 10, 'max_interval_secs': 300},
+  'advanced':     {'vu_socket': '/tmp/oceano-vu.sock', 'pcm_socket': '/tmp/oceano-pcm.sock', 'source_file': '/tmp/oceano-source.json', 'state_file': '/tmp/oceano-state.json', 'artwork_dir': '/tmp', 'metadata_pipe': '/tmp/shairport-sync-metadata'},
+  'display':      {'ui_preset': 'high_contrast_rotate', 'cycle_time': 30, 'standby_timeout': 600, 'external_artwork_enabled': True},
+}
+print(json.dumps(cfg, indent=2))
+" "${airplay_name}" "${alsa_device}" > "${CONFIG_JSON}"
+  chmod 0644 "${CONFIG_JSON}"
+  log_ok "Config initialized at ${CONFIG_JSON}"
+}
+
 # ─── Save installed version ───────────────────
 
 save_version() {
@@ -463,6 +495,7 @@ main() {
   require_cmd aplay
   require_cmd awk
   require_cmd sed
+  require_cmd python3
 
   # ── Parse arguments ──
   local airplay_name="${DEFAULT_AIRPLAY_NAME}"
@@ -525,11 +558,18 @@ main() {
   fi
 
   # ── Load existing config (update) ──
+  # Prefer config.json (managed by web UI) over config.env for AirPlay name and ALSA device,
+  # so that changes made in the web UI survive a re-install/update.
+  if [[ -f "${CONFIG_JSON}" ]] && command -v python3 >/dev/null 2>&1; then
+    _cfg() { python3 -c "import json,sys; c=json.load(open('${CONFIG_JSON}')); print(c$1)" 2>/dev/null || true; }
+    _name="$(_cfg "['audio_output']['airplay_name']")"; [[ "${airplay_name_set}" -eq 0 && -n "${_name}" ]] && airplay_name="${_name}"
+    _dev="$(_cfg "['audio_output']['device']")";        [[ "${alsa_device_set}" -eq 0  && -n "${_dev}"  ]] && alsa_device="${_dev}"
+  fi
   if [[ -f "${CONFIG_FILE}" ]]; then
     source "${CONFIG_FILE}"
-    [[ "${airplay_name_set}" -eq 0 && -n "${AIRPLAY_NAME:-}" ]]          && airplay_name="${AIRPLAY_NAME}"
+    [[ "${airplay_name_set}" -eq 0 && -n "${AIRPLAY_NAME:-}" && -z "${_name:-}" ]] && airplay_name="${AIRPLAY_NAME}"
     [[ "${usb_match_set}" -eq 0 && -n "${USB_MATCH:-}" ]]                && usb_match="${USB_MATCH}"
-    [[ "${alsa_device_set}" -eq 0 && -n "${ALSA_DEVICE:-}" ]]            && alsa_device="${ALSA_DEVICE}"
+    [[ "${alsa_device_set}" -eq 0 && -n "${ALSA_DEVICE:-}" && -z "${_dev:-}" ]] && alsa_device="${ALSA_DEVICE}"
     [[ "${preplay_wait_seconds_set}" -eq 0 && -n "${PREPLAY_WAIT_SECONDS:-}" ]] && preplay_wait_seconds="${PREPLAY_WAIT_SECONDS}"
     [[ "${output_strategy_set}" -eq 0 && -n "${OUTPUT_STRATEGY:-}" ]]    && output_strategy="${OUTPUT_STRATEGY}"
   fi
@@ -567,18 +607,16 @@ main() {
     else
       log_error "Could not detect USB device matching '${usb_match}'."
       echo ""
-      echo -e "${YELLOW}  The Magnat MR 780 USB DAC only appears in the ALSA device list when:${RESET}"
-      echo -e "${YELLOW}    1. The amplifier is powered on${RESET}"
-      echo -e "${YELLOW}    2. The input selector is set to USB (press INPUT until 'USB' shows on display)${RESET}"
+      echo -e "${YELLOW}  Make sure your USB DAC / amplifier is:${RESET}"
+      echo -e "${YELLOW}    1. Powered on${RESET}"
+      echo -e "${YELLOW}    2. Connected via USB to the Pi${RESET}"
       echo ""
-      echo -e "  Switch the input and re-run:"
-      echo -e "  ${BOLD}sudo ./install.sh${RESET}"
-      echo ""
-      echo -e "  Or specify the device explicitly if you already know it:"
-      echo -e "  ${BOLD}sudo ./install.sh --alsa-device 'plughw:CARD=M780,DEV=0'${RESET}"
-      echo ""
-      echo -e "  To list all current ALSA playback devices:"
+      echo -e "  List all current ALSA playback devices to find yours:"
       echo -e "  ${BOLD}aplay -l${RESET}"
+      echo ""
+      echo -e "  Then re-run with the correct match string or explicit device:"
+      echo -e "  ${BOLD}sudo ./install.sh --usb-match 'YourDAC'${RESET}"
+      echo -e "  ${BOLD}sudo ./install.sh --alsa-device 'plughw:1,0'${RESET}"
       exit 1
     fi
   else
@@ -623,6 +661,22 @@ EOF
 
   # ── Version ──
   save_version
+
+  # ── Initial config — must exist before sub-scripts so they read consistent defaults ──
+  write_initial_config "${airplay_name}" "${alsa_device}"
+
+  # ── Initial display.env — written once so oceano-now-playing has env vars from the start ──
+  local display_env="/etc/oceano/display.env"
+  if [[ ! -f "${display_env}" ]]; then
+    cat > "${display_env}" <<'DISPLAYENV'
+UI_PRESET=high_contrast_rotate
+CYCLE_TIME=30
+STANDBY_TIMEOUT=600
+EXTERNAL_ARTWORK_ENABLED=true
+DISPLAYENV
+    chmod 0644 "${display_env}"
+    log_ok "Display env initialized at ${display_env}"
+  fi
 
   # ── Go runtime ──
   log_section "Go Runtime"
