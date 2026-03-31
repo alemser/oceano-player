@@ -94,6 +94,9 @@ type Config struct {
 	// IdleDelay is how long to keep showing the last physical track after audio stops
 	// before switching to the idle screen. Defaults to 60 seconds.
 	IdleDelay time.Duration
+	// LibraryDB is the path to the SQLite database used to record physical-media plays.
+	// Set to empty string to disable library recording.
+	LibraryDB string
 }
 
 func defaultConfig() Config {
@@ -107,6 +110,7 @@ func defaultConfig() Config {
 		RecognizerCaptureDuration: 10 * time.Second,
 		RecognizerMaxInterval:     5 * time.Minute,
 		IdleDelay:                 60 * time.Second,
+		LibraryDB:                 "/var/lib/oceano/library.db",
 	}
 }
 
@@ -641,7 +645,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 //   - no match    → wait noMatchBackoff before next attempt
 //   - other error → wait errorBackoff before next attempt
 //   - success     → wait until next trigger (track boundary) or RecognizerMaxInterval
-func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer) {
+func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 	if rec == nil {
 		return
 	}
@@ -730,6 +734,11 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer) {
 
 		if result != nil {
 			log.Printf("recognizer [%s]: score=%d  %s — %s", rec.Name(), result.Score, result.Artist, result.Title)
+			if lib != nil {
+				if err := lib.RecordPlay(result, ""); err != nil {
+					log.Printf("%v", err)
+				}
+			}
 		} else {
 			log.Printf("recognizer [%s]: no match — retrying in %s", rec.Name(), noMatchBackoff)
 			backoffUntil = time.Now().Add(noMatchBackoff)
@@ -820,6 +829,7 @@ func main() {
 	flag.DurationVar(&cfg.RecognizerCaptureDuration, "recognizer-capture-duration", cfg.RecognizerCaptureDuration, "audio capture duration per recognition attempt")
 	flag.DurationVar(&cfg.RecognizerMaxInterval, "recognizer-max-interval", cfg.RecognizerMaxInterval, "fallback re-recognition interval when no track boundary is detected and no result is held")
 	flag.DurationVar(&cfg.IdleDelay, "idle-delay", cfg.IdleDelay, "how long to keep showing the last track after audio stops before switching to idle screen")
+	flag.StringVar(&cfg.LibraryDB, "library-db", cfg.LibraryDB, "path to SQLite library database (empty to disable)")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")
@@ -831,6 +841,18 @@ func main() {
 
 	m := newMgr(cfg)
 	m.markDirty() // write initial stopped state immediately
+
+	var lib *Library
+	if cfg.LibraryDB != "" {
+		var err error
+		lib, err = Open(cfg.LibraryDB)
+		if err != nil {
+			log.Printf("library: failed to open %s: %v — library recording disabled", cfg.LibraryDB, err)
+		} else {
+			defer lib.Close()
+			log.Printf("library: opened at %s", cfg.LibraryDB)
+		}
+	}
 
 	var rec Recognizer
 	if cfg.ACRCloudHost != "" && cfg.ACRCloudAccessKey != "" && cfg.ACRCloudSecretKey != "" {
@@ -846,6 +868,6 @@ func main() {
 	go m.runShairportReader(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
-	go m.runRecognizer(ctx, rec)
+	go m.runRecognizer(ctx, rec, lib)
 	m.runWriter(ctx)
 }

@@ -24,6 +24,7 @@ DEFAULT_VU_SOCKET="/tmp/oceano-vu.sock"
 DEFAULT_RECOGNIZER_CAPTURE_DURATION="10s"
 DEFAULT_RECOGNIZER_MAX_INTERVAL="5m0s"
 DEFAULT_IDLE_DELAY="60s"
+DEFAULT_LIBRARY_DB="/var/lib/oceano/library.db"
 
 # Newline character used when building multi-line ExecStart strings.
 NL=$'\n'
@@ -95,6 +96,7 @@ write_service() {
   local recognizer_capture_duration="${10}"
   local recognizer_max_interval="${11}"
   local idle_delay="${12}"
+  local library_db="${13}"
 
   # Build ExecStart programmatically to avoid heredoc line-continuation pitfalls.
   local exec_start="${BINARY_DEST}"
@@ -107,6 +109,7 @@ write_service() {
   exec_start+=" \\${NL}  --recognizer-capture-duration \"${recognizer_capture_duration}\""
   exec_start+=" \\${NL}  --recognizer-max-interval \"${recognizer_max_interval}\""
   exec_start+=" \\${NL}  --idle-delay \"${idle_delay}\""
+  exec_start+=" \\${NL}  --library-db \"${library_db}\""
   if [[ -n "${acrcloud_host}" ]]; then
     exec_start+=" \\${NL}  --acrcloud-host \"${acrcloud_host}\""
     exec_start+=" \\${NL}  --acrcloud-access-key \"${acrcloud_access_key}\""
@@ -156,6 +159,7 @@ main() {
   local recognizer_capture_duration="${DEFAULT_RECOGNIZER_CAPTURE_DURATION}"
   local recognizer_max_interval="${DEFAULT_RECOGNIZER_MAX_INTERVAL}"
   local idle_delay="${DEFAULT_IDLE_DELAY}"
+  local library_db="${DEFAULT_LIBRARY_DB}"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -172,6 +176,7 @@ main() {
       --recognizer-capture-duration)  recognizer_capture_duration="${2:-}";  shift 2 ;;
       --recognizer-max-interval)      recognizer_max_interval="${2:-}";      shift 2 ;;
       --idle-delay)                   idle_delay="${2:-}";                   shift 2 ;;
+      --library-db)                   library_db="${2:-}";                   shift 2 ;;
       -h|--help)
         echo "Usage: sudo ./install-source-manager.sh [options]"
         echo ""
@@ -189,6 +194,7 @@ main() {
         echo "  --recognizer-capture-duration <dur>    capture duration per attempt (default: ${DEFAULT_RECOGNIZER_CAPTURE_DURATION})"
         echo "  --recognizer-max-interval <dur>        fallback re-recognition interval (default: ${DEFAULT_RECOGNIZER_MAX_INTERVAL})"
         echo "  --idle-delay <dur>                     time to keep showing last track after audio stops (default: ${DEFAULT_IDLE_DELAY})"
+        echo "  --library-db <path>                    SQLite library database path (default: ${DEFAULT_LIBRARY_DB})"
         exit 0
         ;;
       *) log_error "Unknown argument: $1"; exit 1 ;;
@@ -230,11 +236,18 @@ main() {
   log_section "Build"
   build_binary
 
+  log_section "Library Database"
+  local lib_dir
+  lib_dir="$(dirname "${library_db}")"
+  mkdir -p "${lib_dir}"
+  chown "$(stat -c '%u:%g' /etc/oceano 2>/dev/null || echo "root:root")" "${lib_dir}" 2>/dev/null || true
+  log_ok "Library directory ready at ${lib_dir}"
+
   log_section "systemd Service"
   write_service "${metadata_pipe}" "${source_file}" "${output_file}" "${artwork_dir}" \
     "${acrcloud_host}" "${acrcloud_access_key}" "${acrcloud_secret_key}" \
     "${pcm_socket}" "${vu_socket}" "${recognizer_capture_duration}" "${recognizer_max_interval}" \
-    "${idle_delay}"
+    "${idle_delay}" "${library_db}"
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
