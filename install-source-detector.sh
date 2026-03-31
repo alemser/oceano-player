@@ -18,10 +18,13 @@ OUTPUT_FILE="/tmp/oceano-source.json"
 DEFAULT_BRANCH="main"
 DEFAULT_DEVICE_MATCH="USB Microphone"
 DEFAULT_ALSA_DEVICE=""
-DEFAULT_SILENCE_THRESHOLD="0.008"
+DEFAULT_SILENCE_THRESHOLD="0.025"
 DEFAULT_DEBOUNCE="10"
 DEFAULT_VU_SOCKET="/tmp/oceano-vu.sock"
 DEFAULT_PCM_SOCKET="/tmp/oceano-pcm.sock"
+
+# Newline character used when building multi-line ExecStart strings.
+NL=$'\n'
 
 # ─── Output colors ───────────────────────────
 RED='\033[0;31m'
@@ -114,9 +117,6 @@ EOF
   log_ok "Service file written to ${SERVICE_DEST}"
 }
 
-# Newline character used when building multi-line ExecStart strings.
-NL=$'\n'
-
 main() {
   if ! is_root; then
     log_error "Please run as root: sudo ./install-source-detector.sh"
@@ -126,6 +126,7 @@ main() {
   require_cmd systemctl
   require_cmd git
   require_cmd arecord
+  require_cmd python3
 
   local branch="${DEFAULT_BRANCH}"
   local device_match="${DEFAULT_DEVICE_MATCH}"

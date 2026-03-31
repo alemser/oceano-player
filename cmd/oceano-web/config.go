@@ -53,7 +53,6 @@ type AudioInputConfig struct {
 	// SilenceThreshold is the RMS level below which audio is considered
 	// silence. Raise this if the phono stage has residual hum that causes
 	// the source to oscillate between Physical and None.
-	// Calibrated value for Magnat MR 780 at capture volume 3: 0.025.
 	SilenceThreshold float64 `json:"silence_threshold"`
 	// DebounceWindows is the majority-vote window size used to commit
 	// source transitions. Higher = slower but more stable detection.
@@ -107,7 +106,7 @@ func defaultConfig() Config {
 		},
 		AudioOutput: AudioOutputConfig{
 			AirPlayName: "Oceano",
-			DeviceMatch: "MR 780",
+			DeviceMatch: "",
 		},
 		Recognition: RecognitionConfig{
 			ACRCloudHost:        "identify-eu-west-1.acrcloud.com",

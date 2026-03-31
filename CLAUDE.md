@@ -136,8 +136,8 @@ Then pass the suggested `--vinyl-ratio-threshold` to `install-source-detector.sh
 ## Hardware
 
 - **Raspberry Pi 5**
-- **Magnat MR 780** amplifier (USB DAC via `plughw:2,0`)
-- **DIGITNOW USB capture card** on card 2 — captures REC OUT from amplifier
+- USB DAC / amplifier — auto-detected by name in ALSA, or configured explicitly via `plughw:N,0`
+- USB capture card — captures REC OUT from the amplifier for physical source detection and ACRCloud recognition
 
 ## Code conventions
 
@@ -178,12 +178,11 @@ journalctl -u oceano-web.service -f
    # look at: heartbeat: source=Physical rms=X
    ```
 
-2. **RMS too high (> 0.40)** — REC OUT is overdriving the capture card, causing clipping that corrupts the fingerprint. Reduce capture volume:
+2. **RMS too high (> 0.40)** — REC OUT is overdriving the capture card, causing clipping that corrupts the fingerprint. Find your capture card number with `arecord -l`, then reduce the level:
    ```bash
-   amixer -c 3 sset 'Mic' 3      # start here; adjust up/down until RMS ≈ 0.15
+   amixer -c N sset 'Mic' 50%    # replace N with your card number; adjust until RMS ≈ 0.15–0.20
    alsactl store                  # persist across reboots
    ```
-   The working value on the Magnat MR 780 + DIGITNOW card is **level 3 / 53% → RMS ≈ 0.19**.
 
 3. **Network unreachable (IPv6)** — the ACRCloud client forces IPv4 since Pi networks often lack IPv6 routing. If this error appears, confirm IPv4 connectivity:
    ```bash
@@ -201,12 +200,10 @@ journalctl -u oceano-web.service -f
 The silence threshold is too close to the noise floor at the current capture volume. Raise it:
 
 ```bash
-sudo ./install-source-detector.sh \
-  --branch music-recognition \
-  --silence-threshold 0.025
+sudo ./install-source-detector.sh --silence-threshold 0.035
 ```
 
-The default threshold (0.008) is calibrated for higher capture volumes. After reducing capture volume to level 3, use **0.025** as the silence threshold.
+The default threshold is **0.025**. If your capture card has a higher noise floor, raise it further via the web UI under **Audio Input → Silence Threshold**.
 
 ---
 
