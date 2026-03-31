@@ -690,8 +690,12 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 
 		m.mu.Lock()
 		isPhysical := m.physicalSource == "Physical"
+		isAirPlay := m.airplayPlaying
 		m.mu.Unlock()
-		if !isPhysical {
+		if !isPhysical || isAirPlay {
+			if isAirPlay {
+				log.Printf("recognizer [%s]: skipping — AirPlay is active", rec.Name())
+			}
 			continue
 		}
 
