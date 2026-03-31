@@ -19,6 +19,7 @@ var ErrRateLimit = errors.New("recognition: rate limit exceeded")
 
 // RecognitionResult holds the identified track metadata.
 type RecognitionResult struct {
+	ACRID    string // ACRCloud unique track ID
 	Title    string
 	Artist   string
 	Album    string

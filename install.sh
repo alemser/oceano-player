@@ -601,9 +601,22 @@ main() {
 
   # ── Audio device detection ──
   log_section "Audio Device"
-  if [[ -z "${alsa_device}" ]]; then
-    if alsa_device="$(detect_alsa_device "${usb_match}")"; then
+  if [[ "${alsa_device_set}" -eq 1 ]]; then
+    # Explicitly provided via --alsa-device: trust it as-is.
+    log_info "Using manually specified ALSA device: ${alsa_device}"
+  else
+    # Always re-detect by name on every run — card numbers can change when
+    # the DAC is power-cycled or reconnected. Use the stored device only as
+    # a last-resort fallback if the DAC is currently unreachable.
+    local detected=""
+    if detected="$(detect_alsa_device "${usb_match}")"; then
+      if [[ "${detected}" != "${alsa_device}" && -n "${alsa_device}" ]]; then
+        log_warn "Card number changed: ${alsa_device} → ${detected} (DAC was power-cycled?)"
+      fi
+      alsa_device="${detected}"
       log_ok "USB device '${usb_match}' detected: ${alsa_device}"
+    elif [[ -n "${alsa_device}" ]]; then
+      log_warn "Could not detect '${usb_match}' — DAC may be off. Using last known device: ${alsa_device}"
     else
       log_error "Could not detect USB device matching '${usb_match}'."
       echo ""
@@ -619,8 +632,6 @@ main() {
       echo -e "  ${BOLD}sudo ./install.sh --alsa-device 'plughw:1,0'${RESET}"
       exit 1
     fi
-  else
-    log_info "Using manually specified ALSA device: ${alsa_device}"
   fi
 
   # ── Save config — must happen before services start (watchdog uses EnvironmentFile) ──

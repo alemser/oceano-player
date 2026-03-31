@@ -94,6 +94,9 @@ type Config struct {
 	// IdleDelay is how long to keep showing the last physical track after audio stops
 	// before switching to the idle screen. Defaults to 60 seconds.
 	IdleDelay time.Duration
+	// LibraryDB is the path to the SQLite database used to record physical-media plays.
+	// Set to empty string to disable library recording.
+	LibraryDB string
 }
 
 func defaultConfig() Config {
@@ -106,7 +109,8 @@ func defaultConfig() Config {
 		VUSocket:                  "/tmp/oceano-vu.sock",
 		RecognizerCaptureDuration: 10 * time.Second,
 		RecognizerMaxInterval:     5 * time.Minute,
-		IdleDelay:                 60 * time.Second,
+		IdleDelay:                 10 * time.Second,
+		LibraryDB:                 "/var/lib/oceano/library.db",
 	}
 }
 
@@ -128,9 +132,10 @@ type mgr struct {
 	artworkPath    string
 
 	// Physical source (updated by source watcher goroutine)
-	physicalSource    string             // "Physical" or "None"
-	lastPhysicalAt    time.Time          // last time physicalSource was "Physical"
-	recognitionResult *RecognitionResult // last successful recognition; nil until identified
+	physicalSource      string             // "Physical" or "None"
+	lastPhysicalAt      time.Time          // last time physicalSource was "Physical"
+	recognitionResult   *RecognitionResult // last successful recognition; nil until identified
+	physicalArtworkPath string             // artwork path for current physical track (from library or fetch)
 
 	// recognizeTrigger is sent to when a new recognition attempt should start:
 	// on Physical source activation and on track-boundary events from runVUMonitor.
@@ -449,6 +454,7 @@ func (m *mgr) pollSourceFile() {
 	}
 	if newSession {
 		m.recognitionResult = nil
+		m.physicalArtworkPath = ""
 	}
 	needsTrigger := src == "Physical" && m.recognitionResult == nil
 	m.physicalSource = src
@@ -519,9 +525,10 @@ func (m *mgr) buildState() PlayerState {
 	case "Physical":
 		if r := m.recognitionResult; r != nil {
 			track = &TrackInfo{
-				Title:  r.Title,
-				Artist: r.Artist,
-				Album:  r.Album,
+				Title:       r.Title,
+				Artist:      r.Artist,
+				Album:       r.Album,
+				ArtworkPath: m.physicalArtworkPath,
 			}
 		}
 		// track remains nil until recognition identifies the track.
@@ -546,7 +553,7 @@ func (m *mgr) buildState() PlayerState {
 func (m *mgr) runVUMonitor(ctx context.Context) {
 	const (
 		silenceThreshold = float32(0.01)
-		silenceFrames    = 43  // ~2 s of silence
+		silenceFrames    = 22  // ~1 s of silence (vinyl inter-track gaps can be < 2 s)
 		activeFrames     = 11  // ~0.5 s of audio resumption
 		retryDelay       = 5 * time.Second
 	)
@@ -620,6 +627,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 				// while the new track is being identified.
 				m.mu.Lock()
 				m.recognitionResult = nil
+				m.physicalArtworkPath = ""
 				m.mu.Unlock()
 				log.Printf("VU monitor: track boundary detected — triggering recognition")
 				m.markDirty()
@@ -641,7 +649,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 //   - no match    → wait noMatchBackoff before next attempt
 //   - other error → wait errorBackoff before next attempt
 //   - success     → wait until next trigger (track boundary) or RecognizerMaxInterval
-func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer) {
+func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 	if rec == nil {
 		return
 	}
@@ -682,8 +690,12 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer) {
 
 		m.mu.Lock()
 		isPhysical := m.physicalSource == "Physical"
+		isAirPlay := m.airplayPlaying
 		m.mu.Unlock()
-		if !isPhysical {
+		if !isPhysical || isAirPlay {
+			if isAirPlay {
+				log.Printf("recognizer [%s]: skipping — AirPlay is active", rec.Name())
+			}
 			continue
 		}
 
@@ -723,17 +735,66 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer) {
 
 		backoffUntil = time.Time{} // reset backoff on any successful API response
 
-		m.mu.Lock()
-		m.recognitionResult = result
-		m.mu.Unlock()
-		m.markDirty()
-
 		if result != nil {
 			log.Printf("recognizer [%s]: score=%d  %s — %s", rec.Name(), result.Score, result.Artist, result.Title)
+			if lib != nil {
+				artworkPath := ""
+
+				// Check if we already have this track with user-edited metadata.
+				if entry, lookupErr := lib.Lookup(result.ACRID); lookupErr != nil {
+					log.Printf("recognizer: library lookup error: %v", lookupErr)
+				} else if entry != nil {
+					log.Printf("recognizer: known track (plays: %d) — using saved metadata", entry.PlayCount)
+					// Prefer user-corrected metadata over ACRCloud result.
+					result.Title = entry.Title
+					result.Artist = entry.Artist
+					result.Album = entry.Album
+					artworkPath = entry.ArtworkPath
+				}
+
+				// Fetch artwork if not already stored for this track.
+				if artworkPath == "" && result.Album != "" {
+					if ap, artErr := fetchArtwork(result.Artist, result.Album, m.cfg.ArtworkDir); artErr != nil {
+						log.Printf("recognizer: artwork fetch error: %v", artErr)
+					} else if ap != "" {
+						log.Printf("recognizer: artwork saved at %s", ap)
+						artworkPath = ap
+					}
+				}
+
+				if err := lib.RecordPlay(result, artworkPath); err != nil {
+					log.Printf("recognizer: library record error: %v", err)
+				}
+			}
+			// Drain any triggers that arrived while we were capturing/recognizing,
+			// so we don't immediately re-recognize the same track.
+			for {
+				select {
+				case <-m.recognizeTrigger:
+				default:
+					goto drained
+				}
+			}
+		drained:
 		} else {
 			log.Printf("recognizer [%s]: no match — retrying in %s", rec.Name(), noMatchBackoff)
 			backoffUntil = time.Now().Add(noMatchBackoff)
 		}
+
+		m.mu.Lock()
+		m.recognitionResult = result
+		if lib != nil && result != nil {
+			// physicalArtworkPath may have been set above; read it back from DB
+			// so buildState can include it in the state file for the display.
+			if entry, _ := lib.Lookup(result.ACRID); entry != nil {
+				m.physicalArtworkPath = entry.ArtworkPath
+			}
+		}
+		if result == nil {
+			m.physicalArtworkPath = ""
+		}
+		m.mu.Unlock()
+		m.markDirty()
 	}
 }
 
@@ -820,6 +881,7 @@ func main() {
 	flag.DurationVar(&cfg.RecognizerCaptureDuration, "recognizer-capture-duration", cfg.RecognizerCaptureDuration, "audio capture duration per recognition attempt")
 	flag.DurationVar(&cfg.RecognizerMaxInterval, "recognizer-max-interval", cfg.RecognizerMaxInterval, "fallback re-recognition interval when no track boundary is detected and no result is held")
 	flag.DurationVar(&cfg.IdleDelay, "idle-delay", cfg.IdleDelay, "how long to keep showing the last track after audio stops before switching to idle screen")
+	flag.StringVar(&cfg.LibraryDB, "library-db", cfg.LibraryDB, "path to SQLite library database (empty to disable)")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")
@@ -831,6 +893,18 @@ func main() {
 
 	m := newMgr(cfg)
 	m.markDirty() // write initial stopped state immediately
+
+	var lib *Library
+	if cfg.LibraryDB != "" {
+		var err error
+		lib, err = Open(cfg.LibraryDB)
+		if err != nil {
+			log.Printf("library: failed to open %s: %v — library recording disabled", cfg.LibraryDB, err)
+		} else {
+			defer lib.Close()
+			log.Printf("library: opened at %s", cfg.LibraryDB)
+		}
+	}
 
 	var rec Recognizer
 	if cfg.ACRCloudHost != "" && cfg.ACRCloudAccessKey != "" && cfg.ACRCloudSecretKey != "" {
@@ -846,6 +920,6 @@ func main() {
 	go m.runShairportReader(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
-	go m.runRecognizer(ctx, rec)
+	go m.runRecognizer(ctx, rec, lib)
 	m.runWriter(ctx)
 }

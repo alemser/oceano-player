@@ -18,6 +18,7 @@ CONFIG_DIR="/etc/oceano"
 DEFAULT_BRANCH="main"
 DEFAULT_ADDR=":8080"
 DEFAULT_CONFIG="${CONFIG_DIR}/config.json"
+DEFAULT_LIBRARY_DB="/var/lib/oceano/library.db"
 
 # ─── Output colors ───────────────────────────
 RED='\033[0;31m'
@@ -76,6 +77,7 @@ build_binary() {
 write_service() {
   local addr="$1"
   local config="$2"
+  local library_db="$3"
 
   cat > "${SERVICE_DEST}" <<EOF
 [Unit]
@@ -86,7 +88,8 @@ After=network.target oceano-state-manager.service
 Type=simple
 ExecStart=${BINARY_DEST} \\
   --addr "${addr}" \\
-  --config "${config}"
+  --config "${config}" \\
+  --library-db "${library_db}"
 Restart=always
 RestartSec=3
 
@@ -109,19 +112,22 @@ main() {
   local branch="${DEFAULT_BRANCH}"
   local addr="${DEFAULT_ADDR}"
   local config="${DEFAULT_CONFIG}"
+  local library_db="${DEFAULT_LIBRARY_DB}"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --branch)  branch="${2:-}";  shift 2 ;;
-      --addr)    addr="${2:-}";    shift 2 ;;
-      --config)  config="${2:-}";  shift 2 ;;
+      --branch)      branch="${2:-}";      shift 2 ;;
+      --addr)        addr="${2:-}";        shift 2 ;;
+      --config)      config="${2:-}";      shift 2 ;;
+      --library-db)  library_db="${2:-}";  shift 2 ;;
       -h|--help)
         echo "Usage: sudo ./install-oceano-web.sh [options]"
         echo ""
         echo "Options:"
-        echo "  --branch <name>    Git branch to build (default: ${DEFAULT_BRANCH})"
-        echo "  --addr <host:port> Listen address (default: ${DEFAULT_ADDR})"
-        echo "  --config <path>    Path to config file (default: ${DEFAULT_CONFIG})"
+        echo "  --branch <name>       Git branch to build (default: ${DEFAULT_BRANCH})"
+        echo "  --addr <host:port>    Listen address (default: ${DEFAULT_ADDR})"
+        echo "  --config <path>       Path to config file (default: ${DEFAULT_CONFIG})"
+        echo "  --library-db <path>   Path to collection database (default: ${DEFAULT_LIBRARY_DB})"
         exit 0
         ;;
       *) log_error "Unknown argument: $1"; exit 1 ;;
@@ -152,7 +158,7 @@ main() {
   build_binary
 
   log_section "systemd Service"
-  write_service "${addr}" "${config}"
+  write_service "${addr}" "${config}" "${library_db}"
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
