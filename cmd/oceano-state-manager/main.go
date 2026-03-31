@@ -744,6 +744,16 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 					log.Printf("recognizer: library record error: %v", err)
 				}
 			}
+			// Drain any triggers that arrived while we were capturing/recognizing,
+			// so we don't immediately re-recognize the same track.
+			for {
+				select {
+				case <-m.recognizeTrigger:
+				default:
+					goto drained
+				}
+			}
+		drained:
 		} else {
 			log.Printf("recognizer [%s]: no match — retrying in %s", rec.Name(), noMatchBackoff)
 			backoffUntil = time.Now().Add(noMatchBackoff)

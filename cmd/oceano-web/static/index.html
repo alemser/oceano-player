@@ -1072,10 +1072,10 @@ async function saveEntry() {
     track_number: document.getElementById('modal-track-number').value.trim(),
     artwork_path: (_library.find(x => x.id === _editingId)||{}).artwork_path || '',
   };
-  if (!body.title || !body.artist) { showToast('Title and artist are required', true); return; }
+  if (!body.title || !body.artist) { toast('Title and artist are required', true); return; }
   const r = await fetch(`/api/library/${_editingId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  if (!r.ok) { showToast('Save failed', true); return; }
-  showToast('Saved');
+  if (!r.ok) { toast('Save failed', true); return; }
+  toast('Saved');
   closeModal();
   await loadLibrary();
 }
@@ -1084,8 +1084,8 @@ async function deleteEntry() {
   if (!_editingId) return;
   if (!confirm('Remove this track from your collection?')) return;
   const r = await fetch(`/api/library/${_editingId}`, { method:'DELETE' });
-  if (!r.ok) { showToast('Delete failed', true); return; }
-  showToast('Removed');
+  if (!r.ok) { toast('Delete failed', true); return; }
+  toast('Removed');
   closeModal();
   await loadLibrary();
 }
@@ -1099,7 +1099,7 @@ async function uploadArtwork(input) {
   const form = new FormData();
   form.append('artwork', input.files[0]);
   const r = await fetch(`/api/library/${_editingId}/artwork`, { method:'POST', body: form });
-  if (!r.ok) { showToast('Upload failed', true); return; }
+  if (!r.ok) { toast('Upload failed', true); return; }
   const data = await r.json();
   // Update local cache so save() picks up the new path
   const entry = _library.find(x => x.id === _editingId);
@@ -1108,7 +1108,7 @@ async function uploadArtwork(input) {
   img.classList.remove('loaded');
   img.src = `/api/library/${_editingId}/artwork?t=${Date.now()}`;
   img.onload = () => img.classList.add('loaded');
-  showToast('Artwork updated');
+  toast('Artwork updated');
   input.value = '';
 }
 
