@@ -739,7 +739,6 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 
 		result, err := rec.Recognize(ctx, wavPath)
 		os.Remove(wavPath)
-		log.Printf("DEBUG: Recognition result: %+v", result)
 
 		if ctx.Err() != nil {
 			return
