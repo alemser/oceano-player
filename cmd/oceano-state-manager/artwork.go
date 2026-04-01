@@ -70,9 +70,9 @@ func itunesArtworkURL(artist, album string) (string, error) {
 
 	var result struct {
 		Results []struct {
-			ArtistName      string `json:"artistName"`
-			CollectionName  string `json:"collectionName"`
-			ArtworkUrl100   string `json:"artworkUrl100"`
+			ArtistName     string `json:"artistName"`
+			CollectionName string `json:"collectionName"`
+			ArtworkUrl100  string `json:"artworkUrl100"`
 		} `json:"results"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

@@ -171,7 +171,7 @@ type acrResponse struct {
 }
 
 type acrMusic struct {
-	ACRID       string      `json:"acr_id"`
+	ACRID       string      `json:"acrid"`
 	Title       string      `json:"title"`
 	Artists     []acrArtist `json:"artists"`
 	Album       acrAlbum    `json:"album"`

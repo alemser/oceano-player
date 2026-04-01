@@ -26,6 +26,7 @@ type RecognitionResult struct {
 	Label    string
 	Released string
 	Score    int
+	Format   string // "Vinyl" | "CD" | "Unknown" — from library entry
 }
 
 // Recognizer identifies a track from a WAV audio file.
@@ -54,8 +55,8 @@ func captureFromPCMSocket(ctx context.Context, socketPath string, duration time.
 	defer conn.Close()
 
 	const (
-		sampleRate = 44100
-		channels   = 2
+		sampleRate     = 44100
+		channels       = 2
 		bytesPerSample = 2 // S16_LE
 	)
 	totalBytes := int(duration.Seconds()) * sampleRate * channels * bytesPerSample
