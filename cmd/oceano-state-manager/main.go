@@ -514,6 +514,7 @@ func (m *mgr) buildState() PlayerState {
 	log.Printf("Display source: %s", displaySource)
 	if source == "Physical" && m.recognitionResult != nil {
 		format := strings.ToLower(m.recognitionResult.Format)
+		log.Printf("Classified Fformat: %s", format)
 		switch format {
 		case "cd":
 			displaySource = "CD"
