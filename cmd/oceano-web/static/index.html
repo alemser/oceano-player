@@ -1013,6 +1013,20 @@ let _library = [];
 let _libLoadedAt = 0;
 let _editingId = null;
 let _libraryAutoTimer = null;
+let _librarySignature = '';
+
+function librarySignature(items) {
+  return (items || []).map(e => [
+    e.id,
+    e.title,
+    e.artist,
+    e.album || '',
+    e.format || '',
+    e.artwork_path || '',
+    e.play_count,
+    e.last_played,
+  ].join('|')).join('\n');
+}
 
 function startLibraryAutoRefresh() {
   stopLibraryAutoRefresh();
@@ -1033,10 +1047,17 @@ function stopLibraryAutoRefresh() {
 async function loadLibrary() {
   try {
     const r = await fetch('/api/library');
-    _library = await r.json();
+    const items = await r.json();
+    const sig = librarySignature(items);
+    if (sig === _librarySignature) return;
+    _library = items;
+    _librarySignature = sig;
     _libLoadedAt = Date.now();
   } catch(e) {
+    const sig = '';
+    if (_librarySignature === sig) return;
     _library = [];
+    _librarySignature = sig;
   }
   renderLibrary();
 }
