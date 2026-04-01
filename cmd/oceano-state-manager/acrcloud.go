@@ -103,16 +103,8 @@ func (r *ACRCloudRecognizer) Recognize(ctx context.Context, wavPath string) (*Re
 		return nil, ErrRateLimit
 	}
 
-	// var result acrResponse
-	// if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-	// 	return nil, fmt.Errorf("ACRCloud: decode response: %w", err)
-	// }
-
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	log.Printf("DEBUG: ACRCloud raw response: %s", string(bodyBytes))
-
 	var result acrResponse
-	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("ACRCloud: decode response: %w", err)
 	}
 
@@ -182,7 +174,7 @@ type acrResponse struct {
 }
 
 type acrMusic struct {
-	ACRID       string      `json:"acr_id"`
+	ACRID       string      `json:"acrid"`
 	Title       string      `json:"title"`
 	Artists     []acrArtist `json:"artists"`
 	Album       acrAlbum    `json:"album"`
