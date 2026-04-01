@@ -1012,14 +1012,52 @@ function toast(msg, isError = false) {
 let _library = [];
 let _libLoadedAt = 0;
 let _editingId = null;
+let _libraryAutoTimer = null;
+let _librarySignature = '';
+
+function librarySignature(items) {
+  return (items || []).map(e => [
+    e.id,
+    e.title,
+    e.artist,
+    e.album || '',
+    e.format || '',
+    e.artwork_path || '',
+    e.play_count,
+    e.last_played,
+  ].join('|')).join('\n');
+}
+
+function startLibraryAutoRefresh() {
+  stopLibraryAutoRefresh();
+  _libraryAutoTimer = setInterval(() => {
+    // Avoid re-rendering the grid while editing a modal entry.
+    if (_editingId !== null) return;
+    loadLibrary();
+  }, 5000);
+}
+
+function stopLibraryAutoRefresh() {
+  if (_libraryAutoTimer) {
+    clearInterval(_libraryAutoTimer);
+    _libraryAutoTimer = null;
+  }
+}
 
 async function loadLibrary() {
   try {
     const r = await fetch('/api/library');
-    _library = await r.json();
+    const items = await r.json();
+    const sig = librarySignature(items);
+    if (sig === _librarySignature) return;
+    _library = items;
+    _librarySignature = sig;
     _libLoadedAt = Date.now();
   } catch(e) {
+    const sig = '';
+    if (_librarySignature === sig) return;
     _library = [];
+    _librarySignature = sig;
   }
   renderLibrary();
 }
@@ -1255,8 +1293,12 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => {
     if (t.textContent.toLowerCase().includes(name)) t.classList.add('active');
   });
+  if (name !== 'library') stopLibraryAutoRefresh();
   if (name === 'logs') fetchLogs();
-  if (name === 'library') loadLibrary();
+  if (name === 'library') {
+    loadLibrary();
+    startLibraryAutoRefresh();
+  }
 }
 
 // ── Logs ─────────────────────────────────────────────────────────────────────
