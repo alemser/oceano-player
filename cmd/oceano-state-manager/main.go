@@ -826,6 +826,78 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 	}
 }
 
+// runLibrarySync periodically refreshes the in-memory physical track metadata
+// from the library DB. This makes UI edits visible in state.json without
+// waiting for a new recognition cycle.
+func (m *mgr) runLibrarySync(ctx context.Context, lib *Library) {
+	if lib == nil {
+		return
+	}
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.syncFromLibrary(lib)
+		}
+	}
+}
+
+// syncFromLibrary updates recognitionResult from the DB when a row exists for
+// the current ACRID and user-edited fields differ from in-memory values.
+func (m *mgr) syncFromLibrary(lib *Library) {
+	m.mu.Lock()
+	r := m.recognitionResult
+	if r == nil || r.ACRID == "" || m.physicalSource != "Physical" {
+		m.mu.Unlock()
+		return
+	}
+	acrid := r.ACRID
+	m.mu.Unlock()
+
+	entry, err := lib.Lookup(acrid)
+	if err != nil || entry == nil {
+		return
+	}
+
+	m.mu.Lock()
+	changed := false
+	if m.recognitionResult != nil && m.recognitionResult.ACRID == acrid {
+		if m.recognitionResult.Title != entry.Title {
+			m.recognitionResult.Title = entry.Title
+			changed = true
+		}
+		if m.recognitionResult.Artist != entry.Artist {
+			m.recognitionResult.Artist = entry.Artist
+			changed = true
+		}
+		if m.recognitionResult.Album != entry.Album {
+			m.recognitionResult.Album = entry.Album
+			changed = true
+		}
+		if m.recognitionResult.Format != entry.Format {
+			m.recognitionResult.Format = entry.Format
+			changed = true
+		}
+		if m.physicalArtworkPath != entry.ArtworkPath {
+			m.physicalArtworkPath = entry.ArtworkPath
+			changed = true
+		}
+	}
+	m.mu.Unlock()
+
+	if changed {
+		if m.cfg.Verbose {
+			log.Printf("library sync: metadata updated for acrid=%s", acrid)
+		}
+		m.markDirty()
+	}
+}
+
 // runWriter consumes change notifications and atomically writes the state JSON file.
 // It also re-evaluates state on a 5-second tick so that the idle delay expiry is
 // reflected in the output file without waiting for another event.
@@ -949,5 +1021,6 @@ func main() {
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
 	go m.runRecognizer(ctx, rec, lib)
+	go m.runLibrarySync(ctx, lib)
 	m.runWriter(ctx)
 }
