@@ -1012,6 +1012,23 @@ function toast(msg, isError = false) {
 let _library = [];
 let _libLoadedAt = 0;
 let _editingId = null;
+let _libraryAutoTimer = null;
+
+function startLibraryAutoRefresh() {
+  stopLibraryAutoRefresh();
+  _libraryAutoTimer = setInterval(() => {
+    // Avoid re-rendering the grid while editing a modal entry.
+    if (_editingId !== null) return;
+    loadLibrary();
+  }, 5000);
+}
+
+function stopLibraryAutoRefresh() {
+  if (_libraryAutoTimer) {
+    clearInterval(_libraryAutoTimer);
+    _libraryAutoTimer = null;
+  }
+}
 
 async function loadLibrary() {
   try {
@@ -1255,8 +1272,12 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => {
     if (t.textContent.toLowerCase().includes(name)) t.classList.add('active');
   });
+  if (name !== 'library') stopLibraryAutoRefresh();
   if (name === 'logs') fetchLogs();
-  if (name === 'library') loadLibrary();
+  if (name === 'library') {
+    loadLibrary();
+    startLibraryAutoRefresh();
+  }
 }
 
 // ── Logs ─────────────────────────────────────────────────────────────────────
