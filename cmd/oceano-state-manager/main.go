@@ -42,9 +42,9 @@ var itemRE = regexp.MustCompile(
 
 // PlayerState is the unified state written to /tmp/oceano-state.json.
 type PlayerState struct {
-	Source    string     `json:"source"`    // AirPlay | Vinyl | CD | None
-	State     string     `json:"state"`     // playing | stopped
-	Track     *TrackInfo `json:"track"`     // null when not playing or source is physical without metadata
+	Source    string     `json:"source"` // AirPlay | Vinyl | CD | None
+	State     string     `json:"state"`  // playing | stopped
+	Track     *TrackInfo `json:"track"`  // null when not playing or source is physical without metadata
 	UpdatedAt string     `json:"updated_at"`
 }
 
@@ -509,6 +509,18 @@ func (m *mgr) buildState() PlayerState {
 	}
 
 	var track *TrackInfo
+	// Default: Physical
+	displaySource := source
+	if source == "Physical" && m.recognitionResult != nil {
+		// Se reconhecimento trouxe formato, ajusta source e sample rate
+		format := strings.ToLower(m.recognitionResult.Format)
+		if format == "cd" {
+			displaySource = "CD"
+		} else if format == "vinyl" {
+			displaySource = "Vinyl"
+		}
+	}
+
 	switch source {
 	case "AirPlay":
 		track = &TrackInfo{
@@ -524,10 +536,17 @@ func (m *mgr) buildState() PlayerState {
 		}
 	case "Physical":
 		if r := m.recognitionResult; r != nil {
+			var sampleRate, bitDepth string
+			if strings.ToLower(r.Format) == "cd" {
+				sampleRate = airplaySampleRate
+				bitDepth = airplayBitDepth
+			}
 			track = &TrackInfo{
 				Title:       r.Title,
 				Artist:      r.Artist,
 				Album:       r.Album,
+				SampleRate:  sampleRate,
+				BitDepth:    bitDepth,
 				ArtworkPath: m.physicalArtworkPath,
 			}
 		}
@@ -535,7 +554,7 @@ func (m *mgr) buildState() PlayerState {
 	}
 
 	return PlayerState{
-		Source:    source,
+		Source:    displaySource,
 		State:     state,
 		Track:     track,
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
@@ -749,6 +768,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 					result.Title = entry.Title
 					result.Artist = entry.Artist
 					result.Album = entry.Album
+					result.Format = entry.Format
 					artworkPath = entry.ArtworkPath
 				}
 
@@ -765,9 +785,22 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 				if err := lib.RecordPlay(result, artworkPath); err != nil {
 					log.Printf("recognizer: library record error: %v", err)
 				}
+
+				m.mu.Lock()
+				m.recognitionResult = result
+				m.physicalArtworkPath = artworkPath
+				// Re-read from DB so we get the path actually stored (handles dedup).
+				if entry, _ := lib.Lookup(result.ACRID); entry != nil {
+					m.physicalArtworkPath = entry.ArtworkPath
+				}
+				m.mu.Unlock()
+			} else {
+				m.mu.Lock()
+				m.recognitionResult = result
+				m.mu.Unlock()
 			}
-			// Drain any triggers that arrived while we were capturing/recognizing,
-			// so we don't immediately re-recognize the same track.
+
+			// Drain triggers that arrived during capture so we don't immediately re-recognise.
 			for {
 				select {
 				case <-m.recognizeTrigger:
@@ -778,22 +811,12 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 		drained:
 		} else {
 			log.Printf("recognizer [%s]: no match — retrying in %s", rec.Name(), noMatchBackoff)
+			m.mu.Lock()
+			m.recognitionResult = nil
+			m.physicalArtworkPath = ""
+			m.mu.Unlock()
 			backoffUntil = time.Now().Add(noMatchBackoff)
 		}
-
-		m.mu.Lock()
-		m.recognitionResult = result
-		if lib != nil && result != nil {
-			// physicalArtworkPath may have been set above; read it back from DB
-			// so buildState can include it in the state file for the display.
-			if entry, _ := lib.Lookup(result.ACRID); entry != nil {
-				m.physicalArtworkPath = entry.ArtworkPath
-			}
-		}
-		if result == nil {
-			m.physicalArtworkPath = ""
-		}
-		m.mu.Unlock()
 		m.markDirty()
 	}
 }
