@@ -762,7 +762,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 			if lib != nil {
 				artworkPath := ""
 
-				log.Printf("DEBUG: Lookup for ACRID=%s", result.ACRID)
+				log.Printf("Lookup for ACRID=%s", result.ACRID)
 
 				// Check if we already have this track with user-edited metadata.
 				if entry, lookupErr := lib.Lookup(result.ACRID); lookupErr != nil {
