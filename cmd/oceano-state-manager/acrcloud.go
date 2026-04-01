@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -117,8 +116,6 @@ func (r *ACRCloudRecognizer) Recognize(ctx context.Context, wavPath string) (*Re
 	default:
 		return nil, fmt.Errorf("ACRCloud error %d: %s", result.Status.Code, result.Status.Msg)
 	}
-
-	log.Printf("DEBUG: Recognition result = %+v", result)
 
 	if len(result.Metadata.Music) == 0 {
 		return nil, nil
