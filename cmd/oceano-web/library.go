@@ -158,7 +158,7 @@ func (l *LibraryDB) exportCSV(w io.Writer) error {
 // registerLibraryRoutes wires all /api/library/* endpoints into mux.
 // libraryDBPath is read from the running state-manager service file so the web
 // UI always talks to the same database without extra configuration.
-func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string) {
+func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string) {
 	// GET  /api/library        → list all entries
 	// PUT  /api/library/{id}   → update entry metadata
 	// DELETE /api/library/{id} → remove entry
@@ -294,7 +294,7 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string) {
 		case sub == "artwork" && r.Method == http.MethodPost:
 			handleUploadArtwork(w, r, lib, id, libraryDBPath)
 		case sub == "" && r.Method == http.MethodPut:
-			handleUpdateEntry(w, r, lib, id)
+			handleUpdateEntry(w, r, lib, id, stateFilePath)
 		case sub == "" && r.Method == http.MethodDelete:
 			handleDeleteEntry(w, lib, id)
 		default:
@@ -364,7 +364,7 @@ func handleUploadArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB,
 	json.NewEncoder(w).Encode(map[string]string{"artwork_path": destPath})
 }
 
-func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64) {
+func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, stateFilePath string) {
 	var body struct {
 		Title       string `json:"title"`
 		Artist      string `json:"artist"`
@@ -398,8 +398,67 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	patchStateFile(stateFilePath, body.Title, body.Artist, body.Album, body.Format, body.ArtworkPath)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"ok":true}`))
+}
+
+// patchStateFile updates the live state JSON if a physical track is currently
+// playing. Since only one physical source is ever active, any entry being
+// edited must be the one on screen.
+func patchStateFile(path, title, artist, album, format, artworkPath string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var state struct {
+		Source    string          `json:"source"`
+		State     string          `json:"state"`
+		Track     json.RawMessage `json:"track"`
+		UpdatedAt string          `json:"updated_at"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return
+	}
+	// Only patch when a physical source is active with recognised track metadata.
+	switch state.Source {
+	case "Physical", "CD", "Vinyl":
+	default:
+		return
+	}
+	if string(state.Track) == "null" || len(state.Track) == 0 {
+		return
+	}
+
+	var track map[string]interface{}
+	if err := json.Unmarshal(state.Track, &track); err != nil {
+		return
+	}
+	track["title"] = title
+	track["artist"] = artist
+	track["album"] = album
+	if artworkPath != "" {
+		track["artwork_path"] = artworkPath
+	}
+	tb, err := json.Marshal(track)
+	if err != nil {
+		return
+	}
+	state.Track = json.RawMessage(tb)
+	if format == "CD" || format == "Vinyl" {
+		state.Source = format
+	}
+	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+	b, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, path)
 }
 
 func handleDeleteEntry(w http.ResponseWriter, lib *LibraryDB, id int64) {

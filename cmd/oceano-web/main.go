@@ -112,7 +112,10 @@ func main() {
 	})
 
 	// API: physical media collection (library)
-	registerLibraryRoutes(mux, *libraryDB)
+	{
+		cfg, _ := loadConfig(*configPath)
+		registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile)
+	}
 
 	// API: scan ALSA capture and playback devices
 	mux.HandleFunc("/api/devices", func(w http.ResponseWriter, r *http.Request) {
