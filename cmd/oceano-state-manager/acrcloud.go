@@ -103,8 +103,16 @@ func (r *ACRCloudRecognizer) Recognize(ctx context.Context, wavPath string) (*Re
 		return nil, ErrRateLimit
 	}
 
+	// var result acrResponse
+	// if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	// 	return nil, fmt.Errorf("ACRCloud: decode response: %w", err)
+	// }
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	log.Printf("DEBUG: ACRCloud raw response: %s", string(bodyBytes))
+
 	var result acrResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return nil, fmt.Errorf("ACRCloud: decode response: %w", err)
 	}
 
