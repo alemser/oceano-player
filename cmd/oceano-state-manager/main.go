@@ -511,14 +511,16 @@ func (m *mgr) buildState() PlayerState {
 	var track *TrackInfo
 	// Default: Physical
 	displaySource := source
+	log.Printf("Display source: %s", displaySource)
 	if source == "Physical" && m.recognitionResult != nil {
-		// Se reconhecimento trouxe formato, ajusta source e sample rate
 		format := strings.ToLower(m.recognitionResult.Format)
-		if format == "cd" {
+		switch format {
+		case "cd":
 			displaySource = "CD"
-		} else if format == "vinyl" {
+		case "vinyl":
 			displaySource = "Vinyl"
 		}
+		log.Printf("Classified source updated to: %s", displaySource)
 	}
 
 	switch source {
@@ -572,8 +574,8 @@ func (m *mgr) buildState() PlayerState {
 func (m *mgr) runVUMonitor(ctx context.Context) {
 	const (
 		silenceThreshold = float32(0.01)
-		silenceFrames    = 22  // ~1 s of silence (vinyl inter-track gaps can be < 2 s)
-		activeFrames     = 11  // ~0.5 s of audio resumption
+		silenceFrames    = 22 // ~1 s of silence (vinyl inter-track gaps can be < 2 s)
+		activeFrames     = 11 // ~0.5 s of audio resumption
 		retryDelay       = 5 * time.Second
 	)
 
