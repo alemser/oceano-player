@@ -2,10 +2,6 @@
 
 Audio backend for making the **Raspberry Pi** a piece of your HI-FI equipament.
 
-Provides a unified playback state file (`/tmp/oceano-state.json`) and a real-time
-VU meter socket (`/tmp/oceano-vu.sock`) that the UI reads, regardless of the
-active source (AirPlay, physical media, or silence).
-
 ---
 
 ## Installation (on the Pi)
