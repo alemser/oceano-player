@@ -32,8 +32,12 @@ func (f *FpcalcFingerprinter) Fingerprint(wavPath string) (string, error) {
 	if f.binaryPath == "" {
 		return "", fmt.Errorf("fpcalc: binary path is empty")
 	}
-	out, err := exec.Command(f.binaryPath, wavPath).Output()
+	out, err := exec.Command(f.binaryPath, wavPath).CombinedOutput()
 	if err != nil {
+		output := strings.TrimSpace(string(out))
+		if output != "" {
+			return "", fmt.Errorf("fpcalc: %w: %s", err, output)
+		}
 		return "", fmt.Errorf("fpcalc: %w", err)
 	}
 	return parseFpcalcOutput(string(out))
