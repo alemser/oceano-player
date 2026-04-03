@@ -873,7 +873,6 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 			}
 		drained2:
 		} else {
-			log.Printf("recognizer [%s]: no match", rec.Name())
 			// Store an "Unknown" entry in the library so the fingerprint is cached
 			// and ACRCloud is not called again on the next play of this track.
 			if fp != nil && lib != nil && fingerprint != "" {

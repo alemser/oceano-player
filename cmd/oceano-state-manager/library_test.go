@@ -241,7 +241,7 @@ func TestRunRecognizer_FingerprintCacheHitSkipsACRCloud(t *testing.T) {
 	// Override captureFromPCMSocket by injecting the wavPath directly via a
 	// test-only capture function — we test only the fingerprint+library path
 	// by calling the internal helper directly.
-	result, skipped := runFingerprintCheck(ctx, mockFP, lib, wavPath, mockRec)
+	result, skipped := runFingerprintCheck(ctx, mockFP, lib, wavPath)
 	cancel()
 
 	if !skipped {
@@ -269,18 +269,11 @@ func TestRunRecognizer_FingerprintMissFallsBackToACRCloud(t *testing.T) {
 
 	fp := "AQABmiss_fp"
 	mockFP := &mockFingerprinter{fp: fp}
-	acrResult := &RecognitionResult{
-		ACRID:  "acrid-from-acr",
-		Title:  "ACR Track",
-		Artist: "ACR Artist",
-		Score:  75,
-	}
-	mockRec := &mockRecognizer{result: acrResult}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	result, skipped := runFingerprintCheck(ctx, mockFP, lib, wavPath, mockRec)
+	result, skipped := runFingerprintCheck(ctx, mockFP, lib, wavPath)
 
 	if skipped {
 		t.Error("expected fingerprint miss — should NOT skip ACRCloud")
@@ -323,7 +316,7 @@ func TestRunRecognizer_UnknownStoredOnNoACRMatch(t *testing.T) {
 // cache-check logic inside runRecognizer. It returns (entry result, wasHit).
 // On a cache hit it returns the cached RecognitionResult and wasHit=true.
 // On a cache miss it returns (nil, false) so the caller can proceed to ACRCloud.
-func runFingerprintCheck(ctx context.Context, fp Fingerprinter, lib *Library, wavPath string, _ Recognizer) (*RecognitionResult, bool) {
+func runFingerprintCheck(ctx context.Context, fp Fingerprinter, lib *Library, wavPath string) (*RecognitionResult, bool) {
 	if fp == nil || lib == nil {
 		return nil, false
 	}
