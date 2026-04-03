@@ -39,6 +39,12 @@ var migrations = []string{
 	// SQLite treats NULL values as distinct in unique indexes, so multiple rows
 	// may have fingerprint=NULL (for pre-fingerprint entries).
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_collection_fingerprint ON collection(fingerprint)`,
+	// v4: replace the fingerprint index with a partial unique index so missing
+	// fingerprints stored as NULL or '' do not conflict with each other.
+	`DROP INDEX IF EXISTS idx_collection_fingerprint`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_collection_fingerprint
+		ON collection(fingerprint)
+		WHERE fingerprint IS NOT NULL AND fingerprint != ''`,
 }
 
 // Library persists physical-media recognition results to a local SQLite
