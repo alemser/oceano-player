@@ -338,7 +338,9 @@ func runFingerprintCheck(ctx context.Context, fp Fingerprinter, lib *Library, wa
 		Score:    entry.Score,
 		Format:   entry.Format,
 	}
-	_ = lib.RecordPlay(result, entry.ArtworkPath, gfp)
+	if err := lib.RecordPlay(result, entry.ArtworkPath, gfp); err != nil {
+		return nil, false
+	}
 	return result, true
 }
 
