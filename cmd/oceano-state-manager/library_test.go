@@ -76,8 +76,12 @@ func TestLookupByFingerprint_Found(t *testing.T) {
 	if entry.Artist != result.Artist {
 		t.Errorf("artist = %q, want %q", entry.Artist, result.Artist)
 	}
-	if len(entry.Fingerprints) != 1 || entry.Fingerprints[0] != fp {
-		t.Errorf("fingerprints = %v, want [%q]", entry.Fingerprints, fp)
+	fps, err := lib.loadFingerprints(entry.ID)
+	if err != nil {
+		t.Fatalf("loadFingerprints: %v", err)
+	}
+	if len(fps) != 1 || fps[0] != fp {
+		t.Errorf("fingerprints = %v, want [%q]", fps, fp)
 	}
 	if entry.ACRID != result.ACRID {
 		t.Errorf("acrid = %q, want %q", entry.ACRID, result.ACRID)
@@ -107,8 +111,15 @@ func TestRecordPlay_FingerprintStoredWithACRID(t *testing.T) {
 	if err != nil || byACRID == nil {
 		t.Fatalf("Lookup by ACRID: err=%v entry=%v", err, byACRID)
 	}
-	if len(byACRID.Fingerprints) != 1 || byACRID.Fingerprints[0] != fp {
-		t.Errorf("fingerprints via ACRID lookup = %v, want [%q]", byACRID.Fingerprints, fp)
+	if byACRID == nil {
+		t.Fatalf("Lookup by ACRID returned nil")
+	}
+	fpsByACRID, err := lib.loadFingerprints(byACRID.ID)
+	if err != nil {
+		t.Fatalf("loadFingerprints: %v", err)
+	}
+	if len(fpsByACRID) != 1 || fpsByACRID[0] != fp {
+		t.Errorf("fingerprints via ACRID lookup = %v, want [%q]", fpsByACRID, fp)
 	}
 
 	// Should also be retrievable by fingerprint.
@@ -144,8 +155,12 @@ func TestRecordPlay_FingerprintOnlyUnknown(t *testing.T) {
 	if entry.Title != "Unknown" {
 		t.Errorf("title = %q, want Unknown", entry.Title)
 	}
-	if len(entry.Fingerprints) != 1 || entry.Fingerprints[0] != fp {
-		t.Errorf("fingerprints = %v, want [%q]", entry.Fingerprints, fp)
+	fps, err := lib.loadFingerprints(entry.ID)
+	if err != nil {
+		t.Fatalf("loadFingerprints: %v", err)
+	}
+	if len(fps) != 1 || fps[0] != fp {
+		t.Errorf("fingerprints = %v, want [%q]", fps, fp)
 	}
 }
 
@@ -169,8 +184,12 @@ func TestRecordPlay_ExistingRecordGetsFingerprint(t *testing.T) {
 	if err != nil || entry == nil {
 		t.Fatalf("Lookup: err=%v entry=%v", err, entry)
 	}
-	if len(entry.Fingerprints) != 0 {
-		t.Errorf("expected no fingerprints, got %v", entry.Fingerprints)
+	fps, err := lib.loadFingerprints(entry.ID)
+	if err != nil {
+		t.Fatalf("loadFingerprints: %v", err)
+	}
+	if len(fps) != 0 {
+		t.Errorf("expected no fingerprints, got %v", fps)
 	}
 
 	// Re-recognize with a fingerprint (simulates ACRCloud hit on next play).
@@ -184,8 +203,12 @@ func TestRecordPlay_ExistingRecordGetsFingerprint(t *testing.T) {
 	if err != nil || entry == nil {
 		t.Fatalf("Lookup after update: err=%v entry=%v", err, entry)
 	}
-	if len(entry.Fingerprints) != 1 || entry.Fingerprints[0] != fp {
-		t.Errorf("fingerprints = %v, want [%q]", entry.Fingerprints, fp)
+	fps, err = lib.loadFingerprints(entry.ID)
+	if err != nil {
+		t.Fatalf("loadFingerprints: %v", err)
+	}
+	if len(fps) != 1 || fps[0] != fp {
+		t.Errorf("fingerprints = %v, want [%q]", fps, fp)
 	}
 
 	// Should also be retrievable by fingerprint.
@@ -263,24 +286,28 @@ func TestRecordPlay_MultipleFingerprints(t *testing.T) {
 		}
 	}
 
-	// Lookup by ACRID should return all three fingerprints.
+	// Lookup by ACRID should show all three fingerprints in the table.
 	entry, err := lib.Lookup(result.ACRID)
 	if err != nil || entry == nil {
 		t.Fatalf("Lookup: err=%v entry=%v", err, entry)
 	}
-	if len(entry.Fingerprints) != 3 {
-		t.Errorf("fingerprint count = %d, want 3; got %v", len(entry.Fingerprints), entry.Fingerprints)
+	allFPs, err := lib.loadFingerprints(entry.ID)
+	if err != nil {
+		t.Fatalf("loadFingerprints: %v", err)
+	}
+	if len(allFPs) != 3 {
+		t.Errorf("fingerprint count = %d, want 3; got %v", len(allFPs), allFPs)
 	}
 	for _, want := range []string{fp1, fp2, fp3} {
 		found := false
-		for _, got := range entry.Fingerprints {
+		for _, got := range allFPs {
 			if got == want {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("fingerprint %q not found in %v", want, entry.Fingerprints)
+			t.Errorf("fingerprint %q not found in %v", want, allFPs)
 		}
 	}
 }

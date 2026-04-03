@@ -131,10 +131,9 @@ type CollectionEntry struct {
 	Label       string
 	Released    string
 	Score       int
-	Format      string   // "Vinyl" | "CD" | "Unknown"
-	TrackNumber string   // e.g. "1", "2", "1A", "1B", "2B"
+	Format      string // "Vinyl" | "CD" | "Unknown"
+	TrackNumber string // e.g. "1", "2", "1A", "1B", "2B"
 	ArtworkPath string
-	Fingerprints []string // all stored Chromaprint fingerprints for this track
 	PlayCount   int
 	FirstPlayed string
 	LastPlayed  string
@@ -165,11 +164,6 @@ func (l *Library) Lookup(acrid string) (*CollectionEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("library: lookup: %w", err)
 	}
-	fps, err := l.loadFingerprints(e.ID)
-	if err != nil {
-		return nil, err
-	}
-	e.Fingerprints = fps
 	return &e, nil
 }
 
@@ -200,11 +194,6 @@ func (l *Library) LookupByFingerprint(fp string) (*CollectionEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("library: lookup by fingerprint: %w", err)
 	}
-	fps, err := l.loadFingerprints(e.ID)
-	if err != nil {
-		return nil, err
-	}
-	e.Fingerprints = fps
 	return &e, nil
 }
 
