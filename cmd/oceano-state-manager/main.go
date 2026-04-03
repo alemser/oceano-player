@@ -97,6 +97,11 @@ type Config struct {
 	// LibraryDB is the path to the SQLite database used to record physical-media plays.
 	// Set to empty string to disable library recording.
 	LibraryDB string
+	// FpcalcPath is the path to the fpcalc binary (libchromaprint-tools).
+	// When set, a Chromaprint fingerprint is generated for each captured audio segment
+	// and checked against the local library before calling ACRCloud. Set to empty
+	// string to disable local fingerprint matching.
+	FpcalcPath string
 }
 
 func defaultConfig() Config {
@@ -666,12 +671,18 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 // activation and on track boundaries detected by runVUMonitor) and identifies the
 // playing track via the given Recognizer. It is a no-op when rec is nil.
 //
+// When fp and lib are both non-nil, a Chromaprint fingerprint is generated for each
+// captured WAV and checked against the local library first. On a fingerprint hit the
+// library result is used directly and ACRCloud is not called. On a miss, ACRCloud is
+// queried and the fingerprint is stored in the library alongside the result (or with
+// "Unknown" metadata when ACRCloud finds no match).
+//
 // Backoff strategy:
 //   - rate limit  → wait rateLimitBackoff before next attempt
 //   - no match    → wait noMatchBackoff before next attempt
 //   - other error → wait errorBackoff before next attempt
 //   - success     → wait until next trigger (track boundary) or RecognizerMaxInterval
-func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
+func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, fp Fingerprinter) {
 	if rec == nil {
 		return
 	}
@@ -737,6 +748,53 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 			continue
 		}
 
+		// Generate a local fingerprint and check the library cache before
+		// calling ACRCloud. This avoids unnecessary API calls for tracks that
+		// have already been identified.
+		var fingerprint string
+		if fp != nil && lib != nil {
+			if gfp, fpErr := fp.Fingerprint(wavPath); fpErr != nil {
+				log.Printf("recognizer [%s]: fingerprint error: %v", rec.Name(), fpErr)
+			} else {
+				fingerprint = gfp
+				if entry, lookupErr := lib.LookupByFingerprint(fingerprint); lookupErr != nil {
+					log.Printf("recognizer [%s]: fingerprint lookup error: %v", rec.Name(), lookupErr)
+				} else if entry != nil {
+					log.Printf("recognizer [%s]: fingerprint match (plays: %d) — skipping ACRCloud", rec.Name(), entry.PlayCount)
+					os.Remove(wavPath)
+
+					result := &RecognitionResult{
+						ACRID:    entry.ACRID,
+						Title:    entry.Title,
+						Artist:   entry.Artist,
+						Album:    entry.Album,
+						Label:    entry.Label,
+						Released: entry.Released,
+						Score:    entry.Score,
+						Format:   entry.Format,
+					}
+					if err := lib.RecordPlay(result, entry.ArtworkPath, fingerprint); err != nil {
+						log.Printf("recognizer [%s]: library record error: %v", rec.Name(), err)
+					}
+					m.mu.Lock()
+					m.recognitionResult = result
+					m.physicalArtworkPath = entry.ArtworkPath
+					m.mu.Unlock()
+					m.markDirty()
+
+					for {
+						select {
+						case <-m.recognizeTrigger:
+						default:
+							goto drained
+						}
+					}
+				drained:
+					continue
+				}
+			}
+		}
+
 		result, err := rec.Recognize(ctx, wavPath)
 		os.Remove(wavPath)
 
@@ -787,7 +845,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 					}
 				}
 
-				if err := lib.RecordPlay(result, artworkPath); err != nil {
+				if err := lib.RecordPlay(result, artworkPath, fingerprint); err != nil {
 					log.Printf("recognizer: library record error: %v", err)
 				}
 
@@ -810,11 +868,26 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 				select {
 				case <-m.recognizeTrigger:
 				default:
-					goto drained
+					goto drained2
 				}
 			}
-		drained:
+		drained2:
 		} else {
+			log.Printf("recognizer [%s]: no match", rec.Name())
+			// Store an "Unknown" entry in the library so the fingerprint is cached
+			// and ACRCloud is not called again on the next play of this track.
+			if fp != nil && lib != nil && fingerprint != "" {
+				unknown := &RecognitionResult{
+					Title:    "Unknown",
+					Artist:   "Unknown",
+					Album:    "Unknown",
+					Label:    "Unknown",
+					Released: "Unknown",
+				}
+				if err := lib.RecordPlay(unknown, "", fingerprint); err != nil {
+					log.Printf("recognizer: library record unknown error: %v", err)
+				}
+			}
 			log.Printf("recognizer [%s]: no match — retrying in %s", rec.Name(), noMatchBackoff)
 			m.mu.Lock()
 			m.recognitionResult = nil
@@ -982,6 +1055,7 @@ func main() {
 	flag.DurationVar(&cfg.RecognizerMaxInterval, "recognizer-max-interval", cfg.RecognizerMaxInterval, "fallback re-recognition interval when no track boundary is detected and no result is held")
 	flag.DurationVar(&cfg.IdleDelay, "idle-delay", cfg.IdleDelay, "how long to keep showing the last track after audio stops before switching to idle screen")
 	flag.StringVar(&cfg.LibraryDB, "library-db", cfg.LibraryDB, "path to SQLite library database (empty to disable)")
+	flag.StringVar(&cfg.FpcalcPath, "fpcalc", cfg.FpcalcPath, "path to fpcalc binary for local fingerprint matching (empty to disable; searches PATH when set to 'fpcalc')")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")
@@ -1017,10 +1091,16 @@ func main() {
 			cfg.ACRCloudHost, cfg.PCMSocket, cfg.RecognizerMaxInterval)
 	}
 
+	var fingerprinter Fingerprinter
+	if cfg.FpcalcPath != "" {
+		fingerprinter = NewFpcalcFingerprinter(cfg.FpcalcPath)
+		log.Printf("recognizer: local fingerprinting enabled (fpcalc=%s)", cfg.FpcalcPath)
+	}
+
 	go m.runShairportReader(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
-	go m.runRecognizer(ctx, rec, lib)
+	go m.runRecognizer(ctx, rec, lib, fingerprinter)
 	go m.runLibrarySync(ctx, lib)
 	m.runWriter(ctx)
 }
