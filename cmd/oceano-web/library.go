@@ -189,7 +189,7 @@ func (l *LibraryDB) generateBackup(destPath string) error {
 		hdr := &tar.Header{
 			Name:    arcName,
 			Size:    fi.Size(),
-			Mode:    int64(fi.Mode()),
+			Mode:    int64(fi.Mode().Perm()),
 			ModTime: fi.ModTime(),
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
