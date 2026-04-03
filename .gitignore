@@ -22,5 +22,6 @@ run/
 config.local.yaml
 
 /oceano-web
+cmd/oceano-web/oceano-web
 
 intent.md
