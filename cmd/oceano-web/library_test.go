@@ -143,18 +143,27 @@ func TestGenerateBackup_ContainsRequiredFiles(t *testing.T) {
 func TestGenerateBackup_ArtworkContentPreserved(t *testing.T) {
 	dir := t.TempDir()
 	artDir := filepath.Join(dir, "artwork")
-	os.MkdirAll(artDir, 0o755)
+	if err := os.MkdirAll(artDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	artFile := filepath.Join(artDir, "test.jpg")
 	want := []byte("my-artwork-bytes")
-	os.WriteFile(artFile, want, 0o644)
+	if err := os.WriteFile(artFile, want, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	dbPath := createTestDB(t, dir, []string{artFile})
-	lib, _ := openLibraryDB(dbPath)
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	lib.generateBackup(backupPath)
+	if err := lib.generateBackup(backupPath); err != nil {
+		t.Fatalf("generateBackup: %v", err)
+	}
 
 	entries := archiveEntries(t, backupPath)
 	got, ok := entries["artwork/test.jpg"]
@@ -171,7 +180,10 @@ func TestGenerateBackup_MissingArtworkSkipped(t *testing.T) {
 	missingPath := filepath.Join(dir, "artwork", "missing.jpg") // does not exist on disk
 
 	dbPath := createTestDB(t, dir, []string{missingPath})
-	lib, _ := openLibraryDB(dbPath)
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
@@ -191,7 +203,10 @@ func TestGenerateBackup_MissingArtworkSkipped(t *testing.T) {
 func TestGenerateBackup_NoArtwork(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := createTestDB(t, dir, nil)
-	lib, _ := openLibraryDB(dbPath)
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
@@ -219,11 +234,31 @@ func TestRestoreScriptContent_ContainsPaths(t *testing.T) {
 		"/var/lib/oceano/library.db",
 		"/var/lib/oceano/artwork",
 		"restore.sh",
+		// mkdir -p must appear before the cp that copies the database file.
+		`mkdir -p "$(dirname "$DB_DEST")"`,
 	}
 	for _, want := range checks {
 		if !strings.Contains(script, want) {
 			t.Errorf("restore script missing expected string: %q", want)
 		}
+	}
+
+	// Verify mkdir -p is placed before cp so the destination directory exists.
+	mkdirIdx := strings.Index(script, `mkdir -p "$(dirname "$DB_DEST")"`)
+	cpIdx := strings.Index(script, `cp "$SCRIPT_DIR/library.db"`)
+	if mkdirIdx == -1 || cpIdx == -1 || mkdirIdx > cpIdx {
+		t.Errorf("mkdir -p must appear before cp in restore script (mkdirIdx=%d cpIdx=%d)", mkdirIdx, cpIdx)
+	}
+}
+
+func TestRestoreScriptContent_PathsAreShellQuoted(t *testing.T) {
+	// Paths with spaces and special shell characters must be safely quoted.
+	dbPath := "/var/lib/oceano's library/library.db"
+	script := restoreScriptContent(dbPath)
+	// Single-quote escaping: ' → '\''
+	wantDBQuoted := `'/var/lib/oceano'\''s library/library.db'`
+	if !strings.Contains(script, wantDBQuoted) {
+		t.Errorf("restore script DB path not properly shell-quoted; want %q in:\n%s", wantDBQuoted, script)
 	}
 }
 
