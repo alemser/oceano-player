@@ -209,19 +209,47 @@ func (l *LibraryDB) generateBackup(destPath string) error {
 		return fmt.Errorf("backup: add db: %w", err)
 	}
 
-	// Add artwork files (skip missing files and deduplicate by archive name).
+	// Add artwork files from the managed artwork directory only
+	// (skip missing/unresolvable files and deduplicate by archive name).
+	allowedArtworkDir, err := filepath.Abs(filepath.Join(filepath.Dir(l.path), "artwork"))
+	if err != nil {
+		return fmt.Errorf("backup: resolve artwork dir: %w", err)
+	}
+	if resolvedAllowedArtworkDir, err := filepath.EvalSymlinks(allowedArtworkDir); err == nil {
+		allowedArtworkDir = resolvedAllowedArtworkDir
+	}
+
 	seenArtworks := make(map[string]bool)
 	for _, ap := range artworks {
-		if _, err := os.Stat(ap); err != nil {
+		if ap == "" {
 			continue
 		}
-		arcName := filepath.Join("artwork", filepath.Base(ap))
+
+		info, err := os.Lstat(ap)
+		if err != nil {
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			continue
+		}
+
+		resolvedPath, err := filepath.EvalSymlinks(ap)
+		if err != nil {
+			continue
+		}
+
+		relToAllowedDir, err := filepath.Rel(allowedArtworkDir, resolvedPath)
+		if err != nil || relToAllowedDir == ".." || strings.HasPrefix(relToAllowedDir, ".."+string(os.PathSeparator)) {
+			continue
+		}
+
+		arcName := filepath.Join("artwork", filepath.Base(resolvedPath))
 		if seenArtworks[arcName] {
 			continue
 		}
 		seenArtworks[arcName] = true
-		if err := addFile(ap, arcName); err != nil {
-			return fmt.Errorf("backup: add artwork %s: %w", ap, err)
+		if err := addFile(resolvedPath, arcName); err != nil {
+			return fmt.Errorf("backup: add artwork %s: %w", resolvedPath, err)
 		}
 	}
 
