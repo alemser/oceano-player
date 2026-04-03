@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -116,6 +117,28 @@ func main() {
 		cfg, _ := loadConfig(*configPath)
 		registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile)
 	}
+
+	// Scheduled backup: generate a fresh backup every 24 hours.
+	// The backup is written to the same directory as the library database.
+	// There is no history — each run replaces the previous backup.
+	// The first backup runs shortly after startup; subsequent ones every 24 h.
+	go func() {
+		backupPath := filepath.Join(filepath.Dir(*libraryDB), "oceano-backup.tar.gz")
+		for {
+			lib, err := openLibraryDB(*libraryDB)
+			if err != nil || lib == nil {
+				log.Printf("scheduled backup: library not available: %v", err)
+			} else {
+				if err := lib.generateBackup(backupPath); err != nil {
+					log.Printf("scheduled backup failed: %v", err)
+				} else {
+					log.Printf("scheduled backup written to %s", backupPath)
+				}
+				lib.close()
+			}
+			time.Sleep(24 * time.Hour)
+		}
+	}()
 
 	// API: scan ALSA capture and playback devices
 	mux.HandleFunc("/api/devices", func(w http.ResponseWriter, r *http.Request) {
