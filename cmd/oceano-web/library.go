@@ -168,13 +168,23 @@ func (l *LibraryDB) generateBackup(destPath string) error {
 		return fmt.Errorf("backup: artworks: %w", err)
 	}
 
-	// 3. Create the .tar.gz archive.
-	f, err := os.Create(destPath)
+	// 3. Create the .tar.gz archive in a temp file in the destination
+	// directory, then rename it into place only after the write completes.
+	destDir := filepath.Dir(destPath)
+	tempFile, err := os.CreateTemp(destDir, filepath.Base(destPath)+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("backup: create archive: %w", err)
+		return fmt.Errorf("backup: create temp archive: %w", err)
 	}
-	defer f.Close()
+	tempPath := tempFile.Name()
+	f := tempFile
 
+	cleanupTemp := true
+	defer func() {
+		if cleanupTemp {
+			_ = f.Close()
+			_ = os.Remove(tempPath)
+		}
+	}()
 	gw, err := gzip.NewWriterLevel(f, gzip.DefaultCompression)
 	if err != nil {
 		return fmt.Errorf("backup: gzip writer: %w", err)
