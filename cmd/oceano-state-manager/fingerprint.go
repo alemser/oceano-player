@@ -17,20 +17,21 @@ type Fingerprinter interface {
 // FpcalcFingerprinter uses the fpcalc binary (part of libchromaprint-tools)
 // to generate acoustic fingerprints.
 type FpcalcFingerprinter struct {
-	binaryPath string // path to fpcalc binary; defaults to "fpcalc" (PATH lookup)
+	binaryPath string // path to fpcalc binary; use "fpcalc" explicitly for PATH lookup
 }
 
 // NewFpcalcFingerprinter creates a fingerprinter that calls the fpcalc binary at
-// binaryPath. Pass an empty string to search for "fpcalc" in PATH.
+// binaryPath. Callers must pass a non-empty path; use "fpcalc" explicitly to
+// search for the binary in PATH.
 func NewFpcalcFingerprinter(binaryPath string) *FpcalcFingerprinter {
-	if binaryPath == "" {
-		binaryPath = "fpcalc"
-	}
 	return &FpcalcFingerprinter{binaryPath: binaryPath}
 }
 
 // Fingerprint runs fpcalc on wavPath and returns the FINGERPRINT value.
 func (f *FpcalcFingerprinter) Fingerprint(wavPath string) (string, error) {
+	if f.binaryPath == "" {
+		return "", fmt.Errorf("fpcalc: binary path is empty")
+	}
 	out, err := exec.Command(f.binaryPath, wavPath).Output()
 	if err != nil {
 		return "", fmt.Errorf("fpcalc: %w", err)
