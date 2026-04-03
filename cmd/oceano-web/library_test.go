@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"database/sql"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -52,7 +53,7 @@ func createTestDB(t *testing.T, dir string, artworkPaths []string) string {
 		_, err = db.Exec(
 			`INSERT INTO collection (title, artist, artwork_path, play_count, first_played, last_played)
 			 VALUES (?, ?, ?, 1, '2024-01-01', '2024-01-01')`,
-			"Track", "Artist"+string(rune('A'+i)), ap,
+			"Track", fmt.Sprintf("Artist%c", 'A'+i), ap,
 		)
 		if err != nil {
 			db.Close()
@@ -99,7 +100,7 @@ func archiveEntries(t *testing.T, path string) map[string][]byte {
 func TestGenerateBackup_ContainsRequiredFiles(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create artwork files.
+	// Create artwork files inside the managed artwork dir.
 	artDir := filepath.Join(dir, "artwork")
 	if err := os.MkdirAll(artDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -143,18 +144,27 @@ func TestGenerateBackup_ContainsRequiredFiles(t *testing.T) {
 func TestGenerateBackup_ArtworkContentPreserved(t *testing.T) {
 	dir := t.TempDir()
 	artDir := filepath.Join(dir, "artwork")
-	os.MkdirAll(artDir, 0o755)
+	if err := os.MkdirAll(artDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	artFile := filepath.Join(artDir, "test.jpg")
 	want := []byte("my-artwork-bytes")
-	os.WriteFile(artFile, want, 0o644)
+	if err := os.WriteFile(artFile, want, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	dbPath := createTestDB(t, dir, []string{artFile})
-	lib, _ := openLibraryDB(dbPath)
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	lib.generateBackup(backupPath)
+	if err := lib.generateBackup(backupPath); err != nil {
+		t.Fatalf("generateBackup: %v", err)
+	}
 
 	entries := archiveEntries(t, backupPath)
 	got, ok := entries["artwork/test.jpg"]
@@ -171,7 +181,10 @@ func TestGenerateBackup_MissingArtworkSkipped(t *testing.T) {
 	missingPath := filepath.Join(dir, "artwork", "missing.jpg") // does not exist on disk
 
 	dbPath := createTestDB(t, dir, []string{missingPath})
-	lib, _ := openLibraryDB(dbPath)
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
@@ -191,7 +204,10 @@ func TestGenerateBackup_MissingArtworkSkipped(t *testing.T) {
 func TestGenerateBackup_NoArtwork(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := createTestDB(t, dir, nil)
-	lib, _ := openLibraryDB(dbPath)
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
@@ -208,6 +224,33 @@ func TestGenerateBackup_NoArtwork(t *testing.T) {
 	}
 }
 
+func TestGenerateBackup_ArtworkOutsideManagedDirSkipped(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a file outside the managed artwork dir.
+	outsidePath := filepath.Join(dir, "secret.jpg")
+	if err := os.WriteFile(outsidePath, []byte("sensitive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dbPath := createTestDB(t, dir, []string{outsidePath})
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
+	defer lib.close()
+
+	backupPath := filepath.Join(dir, "backup.tar.gz")
+	if err := lib.generateBackup(backupPath); err != nil {
+		t.Fatalf("generateBackup: %v", err)
+	}
+
+	entries := archiveEntries(t, backupPath)
+	if _, ok := entries["artwork/secret.jpg"]; ok {
+		t.Error("archive must not include artwork outside the managed artwork directory")
+	}
+}
+
 // --- restoreScriptContent ---
 
 func TestRestoreScriptContent_ContainsPaths(t *testing.T) {
@@ -218,7 +261,6 @@ func TestRestoreScriptContent_ContainsPaths(t *testing.T) {
 		"#!/usr/bin/env bash",
 		"/var/lib/oceano/library.db",
 		"/var/lib/oceano/artwork",
-		"restore.sh",
 	}
 	for _, want := range checks {
 		if !strings.Contains(script, want) {
@@ -230,22 +272,49 @@ func TestRestoreScriptContent_ContainsPaths(t *testing.T) {
 func TestRestoreScriptContent_IsExecutable(t *testing.T) {
 	script := restoreScriptContent("/tmp/test.db")
 	if !strings.HasPrefix(script, "#!/usr/bin/env bash\n") {
-		t.Errorf("script should start with bash shebang, got: %q", script[:min(len(script), 40)])
+		prefix := script
+		if len(prefix) > 40 {
+			prefix = prefix[:40]
+		}
+		t.Errorf("script should start with bash shebang, got prefix: %q", prefix)
 	}
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+func TestRestoreScriptContent_PathsAreShellQuoted(t *testing.T) {
+	// Paths with spaces would be mishandled without proper quoting.
+	dbPath := "/var/lib/oceano library/library.db"
+	script := restoreScriptContent(dbPath)
+	quoted := shellQuote(dbPath)
+	if !strings.Contains(script, quoted) {
+		t.Errorf("restore script should contain shell-quoted db path %q, script:\n%s", quoted, script)
 	}
-	return b
+}
+
+// --- shellQuote ---
+
+func TestShellQuote(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"/var/lib/oceano/library.db", "'/var/lib/oceano/library.db'"},
+		{"path with spaces", "'path with spaces'"},
+		{"it's here", "'it'\\''s here'"},
+		{"", "''"},
+	}
+	for _, tt := range tests {
+		got := shellQuote(tt.input)
+		if got != tt.want {
+			t.Errorf("shellQuote(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
 }
 
 // --- HTTP backup handler ---
 
 func TestBackupHandler_MethodNotAllowed(t *testing.T) {
 	mux := http.NewServeMux()
-	registerLibraryRoutes(mux, "/nonexistent/library.db", "/nonexistent/state.json")
+	registerBackupRoute(mux, "/nonexistent/library.db")
 
 	r := httptest.NewRequest(http.MethodPost, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()
@@ -258,7 +327,7 @@ func TestBackupHandler_MethodNotAllowed(t *testing.T) {
 
 func TestBackupHandler_LibraryNotInitialised(t *testing.T) {
 	mux := http.NewServeMux()
-	registerLibraryRoutes(mux, "/nonexistent/library.db", "/nonexistent/state.json")
+	registerBackupRoute(mux, "/nonexistent/library.db")
 
 	r := httptest.NewRequest(http.MethodGet, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()
@@ -274,7 +343,7 @@ func TestBackupHandler_ReturnsGzipArchive(t *testing.T) {
 	dbPath := createTestDB(t, dir, nil)
 
 	mux := http.NewServeMux()
-	registerLibraryRoutes(mux, dbPath, "/nonexistent/state.json")
+	registerBackupRoute(mux, dbPath)
 
 	r := httptest.NewRequest(http.MethodGet, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()
@@ -321,3 +390,4 @@ func TestBackupHandler_ReturnsGzipArchive(t *testing.T) {
 		t.Errorf("archive should contain library.db, got: %v", names)
 	}
 }
+
