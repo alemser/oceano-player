@@ -223,6 +223,33 @@ func TestGenerateBackup_NoArtwork(t *testing.T) {
 	}
 }
 
+func TestGenerateBackup_ArtworkOutsideManagedDirSkipped(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a file outside the managed artwork dir.
+	outsidePath := filepath.Join(dir, "secret.jpg")
+	if err := os.WriteFile(outsidePath, []byte("sensitive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dbPath := createTestDB(t, dir, []string{outsidePath})
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
+	defer lib.close()
+
+	backupPath := filepath.Join(dir, "backup.tar.gz")
+	if err := lib.generateBackup(backupPath); err != nil {
+		t.Fatalf("generateBackup: %v", err)
+	}
+
+	entries := archiveEntries(t, backupPath)
+	if _, ok := entries["artwork/secret.jpg"]; ok {
+		t.Error("archive must not include artwork outside the managed artwork directory")
+	}
+}
+
 // --- restoreScriptContent ---
 
 func TestRestoreScriptContent_ContainsPaths(t *testing.T) {
@@ -274,6 +301,26 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// --- shellQuotePath ---
+
+func TestShellQuotePath(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"/var/lib/oceano/library.db", "'/var/lib/oceano/library.db'"},
+		{"path with spaces", "'path with spaces'"},
+		{"it's here", "'it'\\''s here'"},
+		{"", "''"},
+	}
+	for _, tt := range tests {
+		got := shellQuotePath(tt.input)
+		if got != tt.want {
+			t.Errorf("shellQuotePath(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
 }
 
 // --- HTTP backup handler ---
