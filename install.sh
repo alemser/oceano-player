@@ -26,6 +26,8 @@ BRIDGE_SCRIPT="/usr/local/bin/oceano-airplay-bridge.sh"
 BRIDGE_SERVICE="/etc/systemd/system/oceano-airplay-bridge.service"
 BRIDGE_WATCHDOG_SCRIPT="/usr/local/bin/oceano-bridge-watchdog.sh"
 BRIDGE_WATCHDOG_SERVICE="/etc/systemd/system/oceano-bridge-watchdog.service"
+DIRECT_WATCHDOG_SCRIPT="/usr/local/bin/oceano-direct-watchdog.sh"
+DIRECT_WATCHDOG_SERVICE="/etc/systemd/system/oceano-direct-watchdog.service"
 MODULES_LOAD_FILE="/etc/modules-load.d/oceano-player.conf"
 
 # ─── Output colors ───────────────────────────
@@ -369,6 +371,61 @@ WantedBy=multi-user.target
 EOF
 }
 
+# ─── Direct mode watchdog ─────────────────────
+
+write_direct_watchdog_script() {
+  cat > "${DIRECT_WATCHDOG_SCRIPT}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+alsa_device="${1:-${ALSA_DEVICE:-}}"
+poll_interval="${2:-10}"
+
+if [[ -z "${alsa_device}" ]]; then
+  echo "Missing ALSA device" >&2
+  exit 1
+fi
+
+last_available=0
+
+while true; do
+  if aplay -q -D "${alsa_device}" -t raw -f S16_LE -r 44100 -d 1 /dev/zero >/dev/null 2>&1; then
+    current_available=1
+  else
+    current_available=0
+  fi
+
+  if (( current_available == 1 && last_available == 0 )); then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] DAC became available, restarting shairport-sync..." >&2
+    systemctl restart shairport-sync.service || true
+  fi
+
+  last_available="${current_available}"
+  sleep "${poll_interval}"
+done
+EOF
+  chmod 0755 "${DIRECT_WATCHDOG_SCRIPT}"
+}
+
+write_direct_watchdog_service() {
+  cat > "${DIRECT_WATCHDOG_SERVICE}" <<EOF
+[Unit]
+Description=Oceano AirPlay Direct Watchdog
+After=shairport-sync.service
+Wants=shairport-sync.service
+
+[Service]
+Type=simple
+ExecStart=${DIRECT_WATCHDOG_SCRIPT} \${ALSA_DEVICE} 10
+EnvironmentFile=${CONFIG_FILE}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
 # ─── Loopback mode ───────────────────────────
 
 enable_loopback_mode() {
@@ -393,6 +450,23 @@ disable_loopback_mode() {
   systemctl daemon-reload
   systemctl reset-failed oceano-airplay-bridge.service >/dev/null 2>&1 || true
   systemctl reset-failed oceano-bridge-watchdog.service >/dev/null 2>&1 || true
+}
+
+# ─── Direct mode ─────────────────────────────
+
+enable_direct_watchdog() {
+  write_direct_watchdog_script
+  write_direct_watchdog_service
+  systemctl daemon-reload
+  systemctl enable oceano-direct-watchdog.service
+  systemctl restart oceano-direct-watchdog.service
+}
+
+disable_direct_watchdog() {
+  systemctl disable --now oceano-direct-watchdog.service >/dev/null 2>&1 || true
+  rm -f "${DIRECT_WATCHDOG_SERVICE}"
+  systemctl daemon-reload
+  systemctl reset-failed oceano-direct-watchdog.service >/dev/null 2>&1 || true
 }
 
 # ─── Repository ──────────────────────────────
@@ -653,11 +727,14 @@ EOF
 
   if [[ "${output_strategy}" == "loopback" ]]; then
     log_info "Enabling loopback mode..."
+    disable_direct_watchdog
     enable_loopback_mode "${alsa_device}"
     log_ok "Loopback mode active."
   else
     log_info "Disabling loopback mode (direct output)..."
     disable_loopback_mode
+    log_info "Enabling direct DAC watchdog..."
+    enable_direct_watchdog
     log_ok "Direct mode active."
   fi
 
