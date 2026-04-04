@@ -118,7 +118,7 @@ func defaultConfig() Config {
 			PCMSocket:    "/tmp/oceano-pcm.sock",
 			SourceFile:   "/tmp/oceano-source.json",
 			StateFile:    "/tmp/oceano-state.json",
-			ArtworkDir:   "/tmp",
+			ArtworkDir:   "/var/lib/oceano/artwork",
 			MetadataPipe: "/tmp/shairport-sync-metadata",
 		},
 		Display: DisplayConfig{

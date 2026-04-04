@@ -116,7 +116,7 @@ func defaultConfig() Config {
 		MetadataPipe:              "/tmp/shairport-sync-metadata",
 		SourceFile:                "/tmp/oceano-source.json",
 		OutputFile:                "/tmp/oceano-state.json",
-		ArtworkDir:                "/tmp",
+		ArtworkDir:                "/var/lib/oceano/artwork",
 		PCMSocket:                 "/tmp/oceano-pcm.sock",
 		VUSocket:                  "/tmp/oceano-vu.sock",
 		RecognizerCaptureDuration: 10 * time.Second,
