@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math/bits"
 	"os/exec"
 	"strconv"
@@ -114,7 +115,8 @@ func newFingerprinter() Fingerprinter {
 
 // GenerateFingerprints generates up to maxWindows fingerprints from wavPath,
 // sampling the audio at stride-second intervals starting at offset 0. Windows
-// that would start at or beyond captureSec are skipped.
+// that would start at or beyond captureSec are skipped. Individual window
+// failures are logged and skipped; partial results are returned to the caller.
 func GenerateFingerprints(fp Fingerprinter, wavPath string, maxWindows, strideSec, lengthSec, captureSec int) []Fingerprint {
 	if fp == nil || maxWindows <= 0 || strideSec <= 0 || lengthSec <= 0 {
 		return nil
@@ -127,8 +129,8 @@ func GenerateFingerprints(fp Fingerprinter, wavPath string, maxWindows, strideSe
 		}
 		f, err := fp.Generate(wavPath, offset, lengthSec)
 		if err != nil {
-			// Log via caller; don't abort — partial results are still useful.
-			break
+			log.Printf("fingerprint: window offset=%ds: %v", offset, err)
+			continue
 		}
 		results = append(results, f)
 	}

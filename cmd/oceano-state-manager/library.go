@@ -236,7 +236,7 @@ func (l *Library) UpsertStub(fps []Fingerprint, threshold float64, maxShift int)
 	}
 
 	// Try to find an existing entry via fingerprint.
-	entry, err := l.FindByFingerprint(fps[0], threshold, maxShift)
+	entry, err := l.FindByFingerprints(fps, threshold, maxShift)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +264,9 @@ func (l *Library) UpsertStub(fps []Fingerprint, threshold float64, maxShift int)
 	).Scan(&id); err != nil {
 		return nil, fmt.Errorf("library: stub insert: %w", err)
 	}
-	_ = l.SaveFingerprints(id, fps)
+	if err := l.SaveFingerprints(id, fps); err != nil {
+		return nil, fmt.Errorf("library: stub save fingerprints: %w", err)
+	}
 
 	return &CollectionEntry{
 		ID:          id,
@@ -274,8 +276,21 @@ func (l *Library) UpsertStub(fps []Fingerprint, threshold float64, maxShift int)
 	}, nil
 }
 
-// SaveFingerprints stores all fingerprint windows for an entry.
+// SaveFingerprints stores all fingerprint windows for an entry in a single
+// transaction. All inserts succeed or none do.
 func (l *Library) SaveFingerprints(entryID int64, fps []Fingerprint) error {
+	tx, err := l.db.Begin()
+	if err != nil {
+		return fmt.Errorf("library: save fingerprints begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	stmt, err := tx.Prepare(`INSERT INTO fingerprints (entry_id, data) VALUES (?,?)`)
+	if err != nil {
+		return fmt.Errorf("library: save fingerprints prepare: %w", err)
+	}
+	defer stmt.Close()
+
 	for _, fp := range fps {
 		if len(fp) == 0 {
 			continue
@@ -284,21 +299,23 @@ func (l *Library) SaveFingerprints(entryID int64, fps []Fingerprint) error {
 		for i, v := range fp {
 			parts[i] = strconv.FormatUint(uint64(v), 10)
 		}
-		data := strings.Join(parts, ",")
-		if _, err := l.db.Exec(
-			`INSERT INTO fingerprints (entry_id, data) VALUES (?,?)`, entryID, data,
-		); err != nil {
+		if _, err := stmt.Exec(entryID, strings.Join(parts, ",")); err != nil {
 			return fmt.Errorf("library: save fingerprint: %w", err)
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
-// FindByFingerprint scans all stored fingerprints and returns the collection
-// entry whose best fingerprint BER against fp is below threshold.
+// FindByFingerprints scans all stored fingerprints in a single pass and returns
+// the collection entry with the lowest BER across all query fingerprints fps,
+// provided that BER is below threshold.
+// Using multiple query fingerprints (captured at different offsets) reduces
+// false negatives when a single window does not align well with stored windows.
+// The scan is O(stored_fingerprints × len(fps)); for typical library sizes
+// (~1 000 entries × 2 stored windows × 2 query windows) this is well under 10 ms.
 // Returns (nil, nil) when no match is found.
-func (l *Library) FindByFingerprint(fp Fingerprint, threshold float64, maxShift int) (*CollectionEntry, error) {
-	if len(fp) == 0 {
+func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxShift int) (*CollectionEntry, error) {
+	if len(fps) == 0 {
 		return nil, nil
 	}
 
@@ -343,8 +360,11 @@ func (l *Library) FindByFingerprint(fp Fingerprint, threshold float64, maxShift 
 		if parseErr != nil {
 			continue
 		}
-		if b := BER(fp, stored, maxShift); b < best.ber {
-			best = candidate{entry: e, ber: b}
+		// Score this stored fingerprint against every query window; take the best.
+		for _, fp := range fps {
+			if b := BER(fp, stored, maxShift); b < best.ber {
+				best = candidate{entry: e, ber: b}
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {

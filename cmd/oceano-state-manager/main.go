@@ -845,13 +845,15 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 
 		// Check local fingerprint cache before querying ACRCloud.
 		if len(capturedFPs) > 0 && lib != nil {
-			localEntry, fpErr := lib.FindByFingerprint(capturedFPs[0], m.cfg.FingerprintThreshold, 30)
+			localEntry, fpErr := lib.FindByFingerprints(capturedFPs, m.cfg.FingerprintThreshold, 30)
 			if fpErr != nil {
 				log.Printf("recognizer: fingerprint lookup error: %v", fpErr)
 			} else if localEntry != nil && localEntry.UserConfirmed {
 				log.Printf("recognizer: local fingerprint match (id=%d %s — %s) — skipping ACRCloud",
 					localEntry.ID, localEntry.Artist, localEntry.Title)
-				_ = lib.SaveFingerprints(localEntry.ID, capturedFPs)
+				if fpSaveErr := lib.SaveFingerprints(localEntry.ID, capturedFPs); fpSaveErr != nil {
+					log.Printf("recognizer: save fingerprints (cache hit): %v", fpSaveErr)
+				}
 				os.Remove(wavPath)
 				backoffUntil = time.Time{}
 				m.mu.Lock()
@@ -1183,9 +1185,11 @@ func main() {
 	}
 
 	fpr := newFingerprinter()
-	if fpr != nil {
+	if fpr != nil && rec != nil {
 		log.Printf("recognizer: local fingerprint cache enabled (windows=%d stride=%ds length=%ds threshold=%.2f)",
 			cfg.FingerprintWindows, cfg.FingerprintStrideSec, cfg.FingerprintLengthSec, cfg.FingerprintThreshold)
+	} else if fpr != nil {
+		log.Printf("recognizer: fpcalc found but ACRCloud not configured — fingerprint cache inactive")
 	} else {
 		log.Printf("recognizer: fpcalc not found — local fingerprint cache disabled")
 	}

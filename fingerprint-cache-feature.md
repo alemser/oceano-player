@@ -170,9 +170,9 @@ Two new optional parameters (with sensible defaults, no required changes):
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--fingerprint-windows` | `3` | Number of fingerprint windows to generate per capture |
-| `--fingerprint-stride` | `5` | Stride in seconds between windows |
-| `--fingerprint-length` | `15` | Length of each window in seconds |
+| `--fingerprint-windows` | `2` | Number of fingerprint windows to generate per capture |
+| `--fingerprint-stride` | `4` | Stride in seconds between windows |
+| `--fingerprint-length` | `8` | Length of each window in seconds |
 | `--fingerprint-threshold` | `0.35` | BER threshold for a local match |
 
 ## Testing

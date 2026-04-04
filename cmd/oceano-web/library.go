@@ -50,7 +50,11 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		return nil, fmt.Errorf("library: open %s: %w", path, err)
 	}
 	db.SetMaxOpenConns(1)
-	return &LibraryDB{db: db, path: path}, nil
+	l := &LibraryDB{db: db, path: path}
+	// Ensure columns added by state-manager migrations are present.
+	// ALTER TABLE returns an error if the column already exists; that is safe to ignore.
+	_, _ = l.db.Exec(`ALTER TABLE collection ADD COLUMN user_confirmed INTEGER NOT NULL DEFAULT 0`)
+	return l, nil
 }
 
 func (l *LibraryDB) close() {

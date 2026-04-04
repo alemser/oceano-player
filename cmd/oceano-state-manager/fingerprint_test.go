@@ -51,12 +51,11 @@ func TestBER_belowThreshold(t *testing.T) {
 }
 
 func TestBER_shiftedMatch(t *testing.T) {
-	// a and b are the same sequence but b is shifted right by 2.
-	// With maxShift=3, BER should be 0 at shift=2.
+	// a = [0x33, 0x44, 0x55], b = [0x11, 0x22, 0x33]
+	// Overlap at shift=+2 (b shifted right by 2): a[0..] vs b[2..] → both are [0x33] → BER=0.
 	base := Fingerprint{0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555}
-	a := base[2:]                        // [0x33, 0x44, 0x55]
-	b := base[:3]                        // [0x11, 0x22, 0x33]
-	// Overlap at shift=-2: a[0..] vs b[2..] → both are [0x33]
+	a := base[2:] // [0x33, 0x44, 0x55]
+	b := base[:3] // [0x11, 0x22, 0x33]
 	got := BER(a, b, 3)
 	if got != 0.0 {
 		t.Errorf("shifted match: BER = %v, want 0.0", got)
