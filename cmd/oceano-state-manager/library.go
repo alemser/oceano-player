@@ -52,6 +52,24 @@ var migrations = []string{
 		data     TEXT    NOT NULL
 	)`,
 	`CREATE INDEX fingerprints_entry_id ON fingerprints(entry_id)`,
+
+	// v5–v7: placeholders for migrations that existed in older deployments.
+	// These slots must remain to keep version numbers aligned with databases
+	// that were created before this migration sequence was consolidated.
+	`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,
+	`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,
+	`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,
+
+	// v8: ensure the fingerprints table exists on databases that were created
+	// by an older schema where the table was named 'track_fingerprints'.
+	// The RENAME is skipped if 'fingerprints' already exists (fresh installs).
+	`CREATE TABLE IF NOT EXISTS fingerprints (
+		id       INTEGER PRIMARY KEY AUTOINCREMENT,
+		entry_id INTEGER NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
+		data     TEXT    NOT NULL
+	)`,
+	// v9: ensure the index exists (idempotent).
+	`CREATE INDEX IF NOT EXISTS fingerprints_entry_id ON fingerprints(entry_id)`,
 }
 
 // Library persists physical-media recognition results to a local SQLite
