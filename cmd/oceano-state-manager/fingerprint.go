@@ -15,14 +15,15 @@ type Fingerprinter interface {
 }
 
 // FpcalcFingerprinter uses the fpcalc binary (part of libchromaprint-tools)
-// to generate acoustic fingerprints.
+// to generate acoustic fingerprints. fpcalc is a required runtime dependency
+// for physical-media recognition.
 type FpcalcFingerprinter struct {
 	binaryPath string // path to fpcalc binary; use "fpcalc" explicitly for PATH lookup
 }
 
 // NewFpcalcFingerprinter creates a fingerprinter that calls the fpcalc binary at
-// binaryPath. Callers must pass a non-empty path; use "fpcalc" explicitly to
-// search for the binary in PATH.
+// binaryPath. Startup should pass "fpcalc" explicitly so the binary is resolved
+// from PATH on installed systems.
 func NewFpcalcFingerprinter(binaryPath string) *FpcalcFingerprinter {
 	return &FpcalcFingerprinter{binaryPath: binaryPath}
 }

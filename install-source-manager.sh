@@ -4,6 +4,7 @@ set -euo pipefail
 # ─────────────────────────────────────────────
 #  Oceano State Manager — Install / Update Script
 #  Builds cmd/oceano-state-manager from source and installs as a systemd service.
+#  Local fingerprinting via fpcalc is always enabled for physical-media recognition.
 # ─────────────────────────────────────────────
 
 INSTALL_DIR="/opt/oceano-player"
@@ -179,6 +180,7 @@ main() {
       --library-db)                   library_db="${2:-}";                   shift 2 ;;
       -h|--help)
         echo "Usage: sudo ./install-source-manager.sh [options]"
+        echo "Requires fpcalc from libchromaprint-tools for always-on local fingerprinting."
         echo ""
         echo "Options:"
         echo "  --branch <name>                        Git branch to build (default: ${DEFAULT_BRANCH})"

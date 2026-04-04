@@ -59,3 +59,13 @@ func TestParseFpcalcOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestNewStartupFingerprinter_UsesFpcalcFromPath(t *testing.T) {
+	got, ok := newStartupFingerprinter().(*FpcalcFingerprinter)
+	if !ok {
+		t.Fatalf("startup fingerprinter type = %T, want *FpcalcFingerprinter", newStartupFingerprinter())
+	}
+	if got.binaryPath != "fpcalc" {
+		t.Fatalf("startup fingerprinter binaryPath = %q, want %q", got.binaryPath, "fpcalc")
+	}
+}

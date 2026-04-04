@@ -76,7 +76,8 @@ type Config struct {
 	ArtworkDir   string
 	Verbose      bool
 
-	// Recognition — all optional; recognition is disabled when ACRCloudHost is empty.
+	// Physical-media recognition always generates a local fpcalc fingerprint.
+	// When ACRCloud credentials are configured, a remote lookup is used only on a local miss.
 	ACRCloudHost      string
 	ACRCloudAccessKey string
 	ACRCloudSecretKey string
@@ -97,11 +98,6 @@ type Config struct {
 	// LibraryDB is the path to the SQLite database used to record physical-media plays.
 	// Set to empty string to disable library recording.
 	LibraryDB string
-	// FpcalcPath is the path to the fpcalc binary (libchromaprint-tools).
-	// When set, a Chromaprint fingerprint is generated for each captured audio segment
-	// and checked against the local library before calling ACRCloud. Set to empty
-	// string to disable local fingerprint matching.
-	FpcalcPath string
 }
 
 func defaultConfig() Config {
@@ -877,9 +873,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 			// and ACRCloud is not called again on the next play of this track.
 			if fp != nil && lib != nil && fingerprint != "" {
 				unknown := &RecognitionResult{
-					Title:    "Unknown",
-					Artist:   "Unknown",
-					Album:    "Unknown",
+					Title:    "Unknown music",
+					Artist:   "Unknown artist",
+					Album:    "Unknown album",
 					Label:    "Unknown",
 					Released: "Unknown",
 				}
@@ -1054,7 +1050,6 @@ func main() {
 	flag.DurationVar(&cfg.RecognizerMaxInterval, "recognizer-max-interval", cfg.RecognizerMaxInterval, "fallback re-recognition interval when no track boundary is detected and no result is held")
 	flag.DurationVar(&cfg.IdleDelay, "idle-delay", cfg.IdleDelay, "how long to keep showing the last track after audio stops before switching to idle screen")
 	flag.StringVar(&cfg.LibraryDB, "library-db", cfg.LibraryDB, "path to SQLite library database (empty to disable)")
-	flag.StringVar(&cfg.FpcalcPath, "fpcalc", cfg.FpcalcPath, "path to fpcalc binary for local fingerprint matching (empty to disable; searches PATH when set to 'fpcalc')")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")
@@ -1090,11 +1085,7 @@ func main() {
 			cfg.ACRCloudHost, cfg.PCMSocket, cfg.RecognizerMaxInterval)
 	}
 
-	var fingerprinter Fingerprinter
-	if cfg.FpcalcPath != "" {
-		fingerprinter = NewFpcalcFingerprinter(cfg.FpcalcPath)
-		log.Printf("recognizer: local fingerprinting enabled (fpcalc=%s)", cfg.FpcalcPath)
-	}
+	var fingerprinter = newStartupFingerprinter()
 
 	go m.runShairportReader(ctx)
 	go m.runSourceWatcher(ctx)
@@ -1102,4 +1093,8 @@ func main() {
 	go m.runRecognizer(ctx, rec, lib, fingerprinter)
 	go m.runLibrarySync(ctx, lib)
 	m.runWriter(ctx)
+}
+
+func newStartupFingerprinter() Fingerprinter {
+	return NewFpcalcFingerprinter("fpcalc")
 }

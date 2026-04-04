@@ -137,9 +137,9 @@ func TestRecordPlay_FingerprintOnlyUnknown(t *testing.T) {
 
 	fp := "AQABz0mUaEkSunknown"
 	unknown := &RecognitionResult{
-		Title:    "Unknown",
-		Artist:   "Unknown",
-		Album:    "Unknown",
+		Title:    "Unknown music",
+		Artist:   "Unknown artist",
+		Album:    "Unknown album",
 		Label:    "Unknown",
 		Released: "Unknown",
 	}
@@ -152,8 +152,14 @@ func TestRecordPlay_FingerprintOnlyUnknown(t *testing.T) {
 	if err != nil || entry == nil {
 		t.Fatalf("LookupByFingerprint: err=%v entry=%v", err, entry)
 	}
-	if entry.Title != "Unknown" {
-		t.Errorf("title = %q, want Unknown", entry.Title)
+	if entry.Title != "Unknown music" {
+		t.Errorf("title = %q, want Unknown music", entry.Title)
+	}
+	if entry.Artist != "Unknown artist" {
+		t.Errorf("artist = %q, want Unknown artist", entry.Artist)
+	}
+	if entry.Album != "Unknown album" {
+		t.Errorf("album = %q, want Unknown album", entry.Album)
 	}
 	fps, err := lib.loadFingerprints(entry.ID)
 	if err != nil {
@@ -430,9 +436,9 @@ func TestRunRecognizer_UnknownStoredOnNoACRMatch(t *testing.T) {
 	// Simulate: fingerprint not in DB, ACRCloud returns nil (no match).
 	// After the call, the fingerprint should be stored with Unknown metadata.
 	unknown := &RecognitionResult{
-		Title:    "Unknown",
-		Artist:   "Unknown",
-		Album:    "Unknown",
+		Title:    "Unknown music",
+		Artist:   "Unknown artist",
+		Album:    "Unknown album",
 		Label:    "Unknown",
 		Released: "Unknown",
 	}
@@ -444,8 +450,14 @@ func TestRunRecognizer_UnknownStoredOnNoACRMatch(t *testing.T) {
 	if err != nil || entry == nil {
 		t.Fatalf("LookupByFingerprint: err=%v entry=%v", err, entry)
 	}
-	if entry.Title != "Unknown" {
-		t.Errorf("title = %q, want Unknown", entry.Title)
+	if entry.Title != "Unknown music" {
+		t.Errorf("title = %q, want Unknown music", entry.Title)
+	}
+	if entry.Artist != "Unknown artist" {
+		t.Errorf("artist = %q, want Unknown artist", entry.Artist)
+	}
+	if entry.Album != "Unknown album" {
+		t.Errorf("album = %q, want Unknown album", entry.Album)
 	}
 }
 

@@ -29,7 +29,8 @@ The backend must expose a single stream (WebSocket or SSE) that the UI consumes:
 }
 ```
 
-Track metadata for physical media (Vinyl/CD) is identified via ACRCloud audio fingerprinting.
+Track metadata for physical media (Vinyl/CD) is identified by a local fpcalc
+fingerprint cache first and ACRCloud on cache miss.
 
 ## Architecture
 
@@ -57,7 +58,8 @@ detection takes priority over any concurrently active AirPlay stream.
 **Recognition flow**:
 1. `pollSourceFile` detects `Physical` → fires trigger immediately
 2. `runVUMonitor` watches VU frames for silence gaps between tracks → fires trigger on audio resumption
-3. `runRecognizer` waits for triggers, reads PCM from the socket, calls ACRCloud, updates state
+3. `runRecognizer` waits for triggers, reads PCM from the socket, generates an fpcalc fingerprint,
+   checks the local library, then calls ACRCloud on cache miss and updates state
 4. On rate limit: backs off 5 min. On no match: retries after 90 s. Fallback: re-runs every `RecognizerMaxInterval` (default 5 min) even without a track boundary event.
 
 **PipeWire migration**: once PipeWire replaces `arecord`, the PCM and VU sockets become PipeWire

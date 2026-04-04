@@ -19,7 +19,7 @@ sudo ./install.sh
 ```
 
 This single command installs all services and dependencies (including Go,
-`shairport-sync`, and `alsa-utils`):
+`shairport-sync`, `alsa-utils`, and `fpcalc` via `libchromaprint-tools`):
 
 | Service | Role |
 |---|---|
@@ -60,9 +60,10 @@ alsactl store                  # persist across reboots
 
 ### 2. ACRCloud credentials (required for track recognition)
 
-Track identification (artist, title, album) for physical media (vinyl, CD) is
-powered by [ACRCloud](https://www.acrcloud.com). Without credentials, `track`
-will always be `null` for physical sources.
+Track identification for physical media (vinyl, CD) always generates a local
+`fpcalc` fingerprint first and checks the library cache before falling back to
+[ACRCloud](https://www.acrcloud.com). Without credentials, unmatched physical
+tracks remain unidentified and `track` will be `null`.
 
 In the web UI at `http://<pi-ip>:8080`, go to **Track Recognition** and fill in:
 - **ACRCloud Host** — e.g. `identify-eu-west-1.acrcloud.com`
