@@ -131,7 +131,7 @@ func (l *LibraryDB) deleteEntry(id int64) error {
 // registerLibraryRoutes wires all /api/library/* endpoints into mux.
 // libraryDBPath is read from the running state-manager service file so the web
 // UI always talks to the same database without extra configuration.
-func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string) {
+func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string, artworkDir string) {
 	// GET  /api/library        → list all entries
 	// PUT  /api/library/{id}   → update entry metadata
 	// DELETE /api/library/{id} → remove entry
@@ -226,7 +226,7 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		case sub == "artwork" && r.Method == http.MethodGet:
 			handleGetArtwork(w, r, lib, id)
 		case sub == "artwork" && r.Method == http.MethodPost:
-			handleUploadArtwork(w, r, lib, id, libraryDBPath)
+			handleUploadArtwork(w, r, lib, id, managedArtworkDir(libraryDBPath, artworkDir))
 		case sub == "" && r.Method == http.MethodPut:
 			handleUpdateEntry(w, r, lib, id, stateFilePath)
 		case sub == "" && r.Method == http.MethodDelete:
@@ -251,7 +251,7 @@ func handleGetArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id
 	http.ServeFile(w, r, artworkPath)
 }
 
-func handleUploadArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, dbPath string) {
+func handleUploadArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, artworkDir string) {
 	r.Body = http.MaxBytesReader(w, r.Body, 5<<20) // 5 MB limit
 
 	if err := r.ParseMultipartForm(5 << 20); err != nil {
@@ -271,7 +271,6 @@ func handleUploadArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB,
 		return
 	}
 
-	artworkDir := filepath.Join(filepath.Dir(dbPath), "artwork")
 	if err := os.MkdirAll(artworkDir, 0o755); err != nil {
 		http.Error(w, "cannot create artwork dir", http.StatusInternalServerError)
 		return

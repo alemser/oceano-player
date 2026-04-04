@@ -122,7 +122,7 @@ func TestGenerateBackup_ContainsRequiredFiles(t *testing.T) {
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	if err := lib.generateBackup(backupPath); err != nil {
+	if err := lib.generateBackup(backupPath, artDir); err != nil {
 		t.Fatalf("generateBackup: %v", err)
 	}
 
@@ -162,7 +162,7 @@ func TestGenerateBackup_ArtworkContentPreserved(t *testing.T) {
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	if err := lib.generateBackup(backupPath); err != nil {
+	if err := lib.generateBackup(backupPath, artDir); err != nil {
 		t.Fatalf("generateBackup: %v", err)
 	}
 
@@ -188,7 +188,7 @@ func TestGenerateBackup_MissingArtworkSkipped(t *testing.T) {
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	if err := lib.generateBackup(backupPath); err != nil {
+	if err := lib.generateBackup(backupPath, filepath.Join(dir, "artwork")); err != nil {
 		t.Fatalf("generateBackup with missing artwork should not fail: %v", err)
 	}
 
@@ -211,7 +211,7 @@ func TestGenerateBackup_NoArtwork(t *testing.T) {
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	if err := lib.generateBackup(backupPath); err != nil {
+	if err := lib.generateBackup(backupPath, filepath.Join(dir, "artwork")); err != nil {
 		t.Fatalf("generateBackup with no artwork: %v", err)
 	}
 
@@ -241,7 +241,7 @@ func TestGenerateBackup_ArtworkOutsideManagedDirSkipped(t *testing.T) {
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	if err := lib.generateBackup(backupPath); err != nil {
+	if err := lib.generateBackup(backupPath, filepath.Join(dir, "artwork")); err != nil {
 		t.Fatalf("generateBackup: %v", err)
 	}
 
@@ -253,14 +253,51 @@ func TestGenerateBackup_ArtworkOutsideManagedDirSkipped(t *testing.T) {
 
 // --- restoreScriptContent ---
 
+func TestGenerateBackup_ConfiguredArtworkDirIncluded(t *testing.T) {
+	dir := t.TempDir()
+	artDir := filepath.Join(dir, "art-cache")
+	if err := os.MkdirAll(artDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	art1 := filepath.Join(artDir, "one.jpg")
+	art2 := filepath.Join(artDir, "two.jpg")
+	if err := os.WriteFile(art1, []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(art2, []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dbPath := createTestDB(t, dir, []string{art1, art2})
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
+	defer lib.close()
+
+	backupPath := filepath.Join(dir, "backup.tar.gz")
+	if err := lib.generateBackup(backupPath, artDir); err != nil {
+		t.Fatalf("generateBackup with configured artwork dir: %v", err)
+	}
+
+	entries := archiveEntries(t, backupPath)
+	for _, name := range []string{"artwork/one.jpg", "artwork/two.jpg"} {
+		if _, ok := entries[name]; !ok {
+			t.Errorf("archive missing configured artwork entry: %s", name)
+		}
+	}
+}
+
 func TestRestoreScriptContent_ContainsPaths(t *testing.T) {
 	dbPath := "/var/lib/oceano/library.db"
-	script := restoreScriptContent(dbPath)
+	artworkDir := "/tmp"
+	script := restoreScriptContent(dbPath, artworkDir)
 
 	checks := []string{
 		"#!/usr/bin/env bash",
 		"/var/lib/oceano/library.db",
-		"/var/lib/oceano/artwork",
+		artworkDir,
 	}
 	for _, want := range checks {
 		if !strings.Contains(script, want) {
@@ -270,7 +307,7 @@ func TestRestoreScriptContent_ContainsPaths(t *testing.T) {
 }
 
 func TestRestoreScriptContent_IsExecutable(t *testing.T) {
-	script := restoreScriptContent("/tmp/test.db")
+	script := restoreScriptContent("/tmp/test.db", "/tmp")
 	if !strings.HasPrefix(script, "#!/usr/bin/env bash\n") {
 		prefix := script
 		if len(prefix) > 40 {
@@ -283,10 +320,15 @@ func TestRestoreScriptContent_IsExecutable(t *testing.T) {
 func TestRestoreScriptContent_PathsAreShellQuoted(t *testing.T) {
 	// Paths with spaces would be mishandled without proper quoting.
 	dbPath := "/var/lib/oceano library/library.db"
-	script := restoreScriptContent(dbPath)
+	artworkDir := "/var/lib/oceano library/artwork cache"
+	script := restoreScriptContent(dbPath, artworkDir)
 	quoted := shellQuote(dbPath)
 	if !strings.Contains(script, quoted) {
 		t.Errorf("restore script should contain shell-quoted db path %q, script:\n%s", quoted, script)
+	}
+	quotedArtwork := shellQuote(artworkDir)
+	if !strings.Contains(script, quotedArtwork) {
+		t.Errorf("restore script should contain shell-quoted artwork dir %q, script:\n%s", quotedArtwork, script)
 	}
 }
 
@@ -314,7 +356,7 @@ func TestShellQuote(t *testing.T) {
 
 func TestBackupHandler_MethodNotAllowed(t *testing.T) {
 	mux := http.NewServeMux()
-	registerBackupRoute(mux, "/nonexistent/library.db")
+	registerBackupRoute(mux, "/nonexistent/library.db", "/tmp")
 
 	r := httptest.NewRequest(http.MethodPost, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()
@@ -327,7 +369,7 @@ func TestBackupHandler_MethodNotAllowed(t *testing.T) {
 
 func TestBackupHandler_LibraryNotInitialised(t *testing.T) {
 	mux := http.NewServeMux()
-	registerBackupRoute(mux, "/nonexistent/library.db")
+	registerBackupRoute(mux, "/nonexistent/library.db", "/tmp")
 
 	r := httptest.NewRequest(http.MethodGet, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()
@@ -343,7 +385,7 @@ func TestBackupHandler_ReturnsGzipArchive(t *testing.T) {
 	dbPath := createTestDB(t, dir, nil)
 
 	mux := http.NewServeMux()
-	registerBackupRoute(mux, dbPath)
+	registerBackupRoute(mux, dbPath, filepath.Join(dir, "artwork"))
 
 	r := httptest.NewRequest(http.MethodGet, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()
@@ -390,4 +432,3 @@ func TestBackupHandler_ReturnsGzipArchive(t *testing.T) {
 		t.Errorf("archive should contain library.db, got: %v", names)
 	}
 }
-
