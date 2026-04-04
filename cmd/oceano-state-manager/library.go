@@ -328,16 +328,39 @@ func (l *Library) loadFingerprints(collectionID int64) ([]string, error) {
 }
 
 // addFingerprint stores a fingerprint for a collection entry.
-// If the fingerprint already exists (for this or any other entry), it is silently skipped.
+// If it already exists for the same entry, this is a no-op.
+// If it exists for a different entry, an error is returned so the conflict is visible.
 func (l *Library) addFingerprint(collectionID int64, fingerprint string) error {
 	if fingerprint == "" {
 		return nil
 	}
-	_, err := l.db.Exec(
-		`INSERT OR IGNORE INTO track_fingerprints (collection_id, fingerprint) VALUES (?, ?)`,
+
+	var existingCollectionID int64
+	err := l.db.QueryRow(
+		`SELECT collection_id FROM track_fingerprints WHERE fingerprint = ?`,
+		fingerprint,
+	).Scan(&existingCollectionID)
+	switch {
+	case err == nil:
+		if existingCollectionID == collectionID {
+			return nil
+		}
+		return fmt.Errorf(
+			"library: fingerprint conflict for %q: existing collection_id=%d, new collection_id=%d",
+			fingerprint, existingCollectionID, collectionID,
+		)
+	case err != sql.ErrNoRows:
+		return fmt.Errorf("library: lookup fingerprint %q: %w", fingerprint, err)
+	}
+
+	_, err = l.db.Exec(
+		`INSERT INTO track_fingerprints (collection_id, fingerprint) VALUES (?, ?)`,
 		collectionID, fingerprint,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("library: insert fingerprint %q for collection_id=%d: %w", fingerprint, collectionID, err)
+	}
+	return nil
 }
 
 // Close closes the underlying database connection.

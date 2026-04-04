@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -343,7 +344,7 @@ func (m *mockRecognizer) Recognize(_ context.Context, _ string) (*RecognitionRes
 	return m.result, m.err
 }
 
-func TestRunRecognizer_FingerprintCacheHitSkipsACRCloud(t *testing.T) {
+func TestRunFingerprintCheck_CacheHitReturnsCachedResult(t *testing.T) {
 	lib := openTestLibrary(t)
 	fp := "AQABcache_hit_fp"
 
@@ -367,18 +368,7 @@ func TestRunRecognizer_FingerprintCacheHitSkipsACRCloud(t *testing.T) {
 	}
 
 	mockFP := &mockFingerprinter{fp: fp}
-	mockRec := &mockRecognizer{result: &RecognitionResult{
-		ACRID: "should-not-be-used",
-		Title: "Should Not Be Used",
-	}}
 
-	cfg := defaultConfig()
-	cfg.OutputFile = filepath.Join(t.TempDir(), "state.json")
-	cfg.ArtworkDir = t.TempDir()
-	m := newMgr(cfg)
-	m.physicalSource = "Physical"
-
-	// Send one trigger then cancel context so runRecognizer exits.
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Override captureFromPCMSocket by injecting the wavPath directly via a
@@ -395,9 +385,6 @@ func TestRunRecognizer_FingerprintCacheHitSkipsACRCloud(t *testing.T) {
 	}
 	if result.Title != known.Title {
 		t.Errorf("title = %q, want %q", result.Title, known.Title)
-	}
-	if mockRec.called != 0 {
-		t.Errorf("ACRCloud called %d times, want 0", mockRec.called)
 	}
 }
 
@@ -428,7 +415,7 @@ func TestRunRecognizer_FingerprintMissFallsBackToACRCloud(t *testing.T) {
 	// runFingerprintCheck only returns cached results; ACRCloud call is the caller's job.
 }
 
-func TestRunRecognizer_UnknownStoredOnNoACRMatch(t *testing.T) {
+func TestRecordPlay_UnknownStoredForFingerprint(t *testing.T) {
 	lib := openTestLibrary(t)
 
 	fp := "AQABno_match_fp"
@@ -458,6 +445,76 @@ func TestRunRecognizer_UnknownStoredOnNoACRMatch(t *testing.T) {
 	}
 	if entry.Album != "Unknown album" {
 		t.Errorf("album = %q, want Unknown album", entry.Album)
+	}
+}
+
+func TestAddFingerprint_SameEntryIsNoOp(t *testing.T) {
+	lib := openTestLibrary(t)
+
+	res, err := lib.db.Exec(`
+		INSERT INTO collection (title, artist, play_count, first_played, last_played)
+		VALUES ('Track A', 'Artist A', 1, '2024-01-01', '2024-01-01')`)
+	if err != nil {
+		t.Fatalf("insert collection row: %v", err)
+	}
+	collectionID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("last insert id: %v", err)
+	}
+
+	fp := "AQAD-same-entry"
+	if err := lib.addFingerprint(collectionID, fp); err != nil {
+		t.Fatalf("first addFingerprint: %v", err)
+	}
+	if err := lib.addFingerprint(collectionID, fp); err != nil {
+		t.Fatalf("second addFingerprint should be no-op: %v", err)
+	}
+
+	var count int
+	if err := lib.db.QueryRow(`SELECT COUNT(*) FROM track_fingerprints WHERE fingerprint = ?`, fp).Scan(&count); err != nil {
+		t.Fatalf("count fingerprints: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("fingerprint row count = %d, want 1", count)
+	}
+}
+
+func TestAddFingerprint_DifferentEntryReturnsConflict(t *testing.T) {
+	lib := openTestLibrary(t)
+
+	res1, err := lib.db.Exec(`
+		INSERT INTO collection (title, artist, play_count, first_played, last_played)
+		VALUES ('Track A', 'Artist A', 1, '2024-01-01', '2024-01-01')`)
+	if err != nil {
+		t.Fatalf("insert first collection row: %v", err)
+	}
+	id1, err := res1.LastInsertId()
+	if err != nil {
+		t.Fatalf("first last insert id: %v", err)
+	}
+
+	res2, err := lib.db.Exec(`
+		INSERT INTO collection (title, artist, play_count, first_played, last_played)
+		VALUES ('Track B', 'Artist B', 1, '2024-01-01', '2024-01-01')`)
+	if err != nil {
+		t.Fatalf("insert second collection row: %v", err)
+	}
+	id2, err := res2.LastInsertId()
+	if err != nil {
+		t.Fatalf("second last insert id: %v", err)
+	}
+
+	fp := "AQAD-conflict"
+	if err := lib.addFingerprint(id1, fp); err != nil {
+		t.Fatalf("seed addFingerprint: %v", err)
+	}
+
+	err = lib.addFingerprint(id2, fp)
+	if err == nil {
+		t.Fatal("expected fingerprint conflict error, got nil")
+	}
+	if !strings.Contains(err.Error(), "fingerprint conflict") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

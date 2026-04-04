@@ -512,17 +512,23 @@ func (m *mgr) buildState() PlayerState {
 	var track *TrackInfo
 	// Default: Physical
 	displaySource := source
-	log.Printf("Display source: %s", displaySource)
+	if m.cfg.Verbose {
+		log.Printf("display source: %s", displaySource)
+	}
 	if source == "Physical" && m.recognitionResult != nil {
 		format := strings.ToLower(m.recognitionResult.Format)
-		log.Printf("Classified Fformat: %s", format)
+		if m.cfg.Verbose {
+			log.Printf("classified format: %s", format)
+		}
 		switch format {
 		case "cd":
 			displaySource = "CD"
 		case "vinyl":
 			displaySource = "Vinyl"
 		}
-		log.Printf("Classified source updated to: %s", displaySource)
+		if m.cfg.Verbose {
+			log.Printf("classified source updated to: %s", displaySource)
+		}
 	}
 
 	switch source {
@@ -665,7 +671,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 
 // runRecognizer waits for triggers from m.recognizeTrigger (sent on Physical source
 // activation and on track boundaries detected by runVUMonitor) and identifies the
-// playing track via the given Recognizer. It is a no-op when rec is nil.
+// playing track via local fingerprint cache and, when available, the given Recognizer.
 //
 // When fp and lib are both non-nil, a Chromaprint fingerprint is generated for each
 // captured WAV and checked against the local library first. On a fingerprint hit the
@@ -679,8 +685,13 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 //   - other error → wait errorBackoff before next attempt
 //   - success     → wait until next trigger (track boundary) or RecognizerMaxInterval
 func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, fp Fingerprinter) {
-	if rec == nil {
+	if rec == nil && (lib == nil || fp == nil) {
 		return
+	}
+
+	providerName := "local-cache"
+	if rec != nil {
+		providerName = rec.Name()
 	}
 
 	const (
@@ -723,13 +734,13 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 		m.mu.Unlock()
 		if !isPhysical || isAirPlay {
 			if isAirPlay {
-				log.Printf("recognizer [%s]: skipping — AirPlay is active", rec.Name())
+				log.Printf("recognizer [%s]: skipping — AirPlay is active", providerName)
 			}
 			continue
 		}
 
 		log.Printf("recognizer [%s]: capturing %s from %s",
-			rec.Name(), m.cfg.RecognizerCaptureDuration, m.cfg.PCMSocket)
+			providerName, m.cfg.RecognizerCaptureDuration, m.cfg.PCMSocket)
 
 		captureCtx, cancel := context.WithTimeout(ctx, m.cfg.RecognizerCaptureDuration+10*time.Second)
 		wavPath, err := captureFromPCMSocket(captureCtx, m.cfg.PCMSocket, m.cfg.RecognizerCaptureDuration, os.TempDir())
@@ -739,7 +750,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("recognizer [%s]: capture error: %v", rec.Name(), err)
+			log.Printf("recognizer [%s]: capture error: %v", providerName, err)
 			backoffUntil = time.Now().Add(errorBackoff)
 			continue
 		}
@@ -750,13 +761,13 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 		var fingerprint string
 		if fp != nil && lib != nil {
 			if gfp, fpErr := fp.Fingerprint(wavPath); fpErr != nil {
-				log.Printf("recognizer [%s]: fingerprint error: %v", rec.Name(), fpErr)
+				log.Printf("recognizer [%s]: fingerprint error: %v", providerName, fpErr)
 			} else {
 				fingerprint = gfp
 				if entry, lookupErr := lib.LookupByFingerprint(fingerprint); lookupErr != nil {
-					log.Printf("recognizer [%s]: fingerprint lookup error: %v", rec.Name(), lookupErr)
+					log.Printf("recognizer [%s]: fingerprint lookup error: %v", providerName, lookupErr)
 				} else if entry != nil {
-					log.Printf("recognizer [%s]: fingerprint match (plays: %d) — skipping ACRCloud", rec.Name(), entry.PlayCount)
+					log.Printf("recognizer [%s]: fingerprint match (plays: %d) — skipping ACRCloud", providerName, entry.PlayCount)
 					os.Remove(wavPath)
 
 					result := &RecognitionResult{
@@ -770,7 +781,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 						Format:   entry.Format,
 					}
 					if err := lib.RecordPlay(result, entry.ArtworkPath, fingerprint); err != nil {
-						log.Printf("recognizer [%s]: library record error: %v", rec.Name(), err)
+						log.Printf("recognizer [%s]: library record error: %v", providerName, err)
 					}
 					m.mu.Lock()
 					m.recognitionResult = result
@@ -791,6 +802,32 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 			}
 		}
 
+		if rec == nil {
+			os.Remove(wavPath)
+			// No remote recognizer configured: still cache this segment as Unknown so
+			// future plays are resolved locally by fingerprint.
+			if lib != nil && fingerprint != "" {
+				unknown := &RecognitionResult{
+					Title:    "Unknown music",
+					Artist:   "Unknown artist",
+					Album:    "Unknown album",
+					Label:    "Unknown",
+					Released: "Unknown",
+				}
+				if err := lib.RecordPlay(unknown, "", fingerprint); err != nil {
+					log.Printf("recognizer [%s]: library record unknown error: %v", providerName, err)
+				}
+			}
+			log.Printf("recognizer [%s]: ACRCloud disabled — retrying in %s", providerName, noMatchBackoff)
+			m.mu.Lock()
+			m.recognitionResult = nil
+			m.physicalArtworkPath = ""
+			m.mu.Unlock()
+			backoffUntil = time.Now().Add(noMatchBackoff)
+			m.markDirty()
+			continue
+		}
+
 		result, err := rec.Recognize(ctx, wavPath)
 		os.Remove(wavPath)
 
@@ -800,10 +837,10 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 
 		if err != nil {
 			if errors.Is(err, ErrRateLimit) {
-				log.Printf("recognizer [%s]: rate limited — backing off %s", rec.Name(), rateLimitBackoff)
+				log.Printf("recognizer [%s]: rate limited — backing off %s", providerName, rateLimitBackoff)
 				backoffUntil = time.Now().Add(rateLimitBackoff)
 			} else {
-				log.Printf("recognizer [%s]: error: %v", rec.Name(), err)
+				log.Printf("recognizer [%s]: error: %v", providerName, err)
 				backoffUntil = time.Now().Add(errorBackoff)
 			}
 			continue
@@ -812,7 +849,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 		backoffUntil = time.Time{} // reset backoff on any successful API response
 
 		if result != nil {
-			log.Printf("recognizer [%s]: score=%d  %s — %s", rec.Name(), result.Score, result.Artist, result.Title)
+			log.Printf("recognizer [%s]: score=%d  %s — %s", providerName, result.Score, result.Artist, result.Title)
 			if lib != nil {
 				artworkPath := ""
 
@@ -883,7 +920,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 					log.Printf("recognizer: library record unknown error: %v", err)
 				}
 			}
-			log.Printf("recognizer [%s]: no match — retrying in %s", rec.Name(), noMatchBackoff)
+			log.Printf("recognizer [%s]: no match — retrying in %s", providerName, noMatchBackoff)
 			m.mu.Lock()
 			m.recognitionResult = nil
 			m.physicalArtworkPath = ""
