@@ -767,7 +767,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 				if entry, lookupErr := lib.LookupByFingerprint(fingerprint); lookupErr != nil {
 					log.Printf("recognizer [%s]: fingerprint lookup error: %v", providerName, lookupErr)
 				} else if entry != nil {
-					log.Printf("recognizer [%s]: fingerprint match (plays: %d) — skipping ACRCloud", providerName, entry.PlayCount)
+					log.Printf("recognizer [%s]: fingerprint match (current plays: %d) — skipping ACRCloud", providerName, entry.PlayCount)
 					os.Remove(wavPath)
 
 					result := &RecognitionResult{

@@ -59,7 +59,7 @@ detection takes priority over any concurrently active AirPlay stream.
 1. `pollSourceFile` detects `Physical` → fires trigger immediately
 2. `runVUMonitor` watches VU frames for silence gaps between tracks → fires trigger on audio resumption
 3. `runRecognizer` waits for triggers, reads PCM from the socket, generates an fpcalc fingerprint,
-   checks the local library, then calls ACRCloud on cache miss and updates state
+   checks the local library, and calls ACRCloud on cache miss when credentials are configured
 4. On rate limit: backs off 5 min. On no match: retries after 90 s. Fallback: re-runs every `RecognizerMaxInterval` (default 5 min) even without a track boundary event.
 
 **PipeWire migration**: once PipeWire replaces `arecord`, the PCM and VU sockets become PipeWire

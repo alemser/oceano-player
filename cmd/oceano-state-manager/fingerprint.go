@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Fingerprinter generates an acoustic fingerprint from a WAV file.
@@ -33,8 +35,15 @@ func (f *FpcalcFingerprinter) Fingerprint(wavPath string) (string, error) {
 	if f.binaryPath == "" {
 		return "", fmt.Errorf("fpcalc: binary path is empty")
 	}
-	out, err := exec.Command(f.binaryPath, wavPath).CombinedOutput()
+	const fpcalcTimeout = 15 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), fpcalcTimeout)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, f.binaryPath, wavPath).CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("fpcalc: timed out after %s", fpcalcTimeout)
+		}
 		output := strings.TrimSpace(string(out))
 		if output != "" {
 			return "", fmt.Errorf("fpcalc: %w: %s", err, output)

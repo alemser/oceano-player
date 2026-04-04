@@ -4,7 +4,8 @@ set -euo pipefail
 # ─────────────────────────────────────────────
 #  Oceano State Manager — Install / Update Script
 #  Builds cmd/oceano-state-manager from source and installs as a systemd service.
-#  Local fingerprinting via fpcalc is always enabled for physical-media recognition.
+#  Supports local fingerprinting via fpcalc for physical-media recognition.
+#  Cache behavior depends on runtime library/recognizer configuration.
 # ─────────────────────────────────────────────
 
 INSTALL_DIR="/opt/oceano-player"

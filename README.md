@@ -60,10 +60,11 @@ alsactl store                  # persist across reboots
 
 ### 2. ACRCloud credentials (required for track recognition)
 
-Track identification for physical media (vinyl, CD) always generates a local
-`fpcalc` fingerprint first and checks the library cache before falling back to
-[ACRCloud](https://www.acrcloud.com). Without credentials, unmatched physical
-tracks remain unidentified and `track` will be `null`.
+Track identification for physical media (vinyl, CD) uses a local `fpcalc`
+fingerprint and library cache when library recording is enabled. If ACRCloud
+credentials are configured, the service falls back to
+[ACRCloud](https://www.acrcloud.com) on cache miss; without credentials, it only
+uses local cache and stores unknown fingerprints locally.
 
 In the web UI at `http://<pi-ip>:8080`, go to **Track Recognition** and fill in:
 - **ACRCloud Host** — e.g. `identify-eu-west-1.acrcloud.com`
