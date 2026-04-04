@@ -113,7 +113,8 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 func (l *LibraryDB) update(id int64, title, artist, album, label, released, format, trackNumber, artworkPath string) error {
 	_, err := l.db.Exec(`
 		UPDATE collection
-		SET title=?, artist=?, album=?, label=?, released=?, format=?, track_number=?, artwork_path=?
+		SET title=?, artist=?, album=?, label=?, released=?, format=?, track_number=?, artwork_path=?,
+		    user_confirmed=1
 		WHERE id=?`,
 		title, artist, album, label, released, format, trackNumber, artworkPath, id,
 	)

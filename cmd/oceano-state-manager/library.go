@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -33,6 +35,23 @@ var migrations = []string{
 		first_played TEXT    NOT NULL,
 		last_played  TEXT    NOT NULL
 	)`,
+
+	// v2: user_confirmed — 1 when the entry has reliable metadata (either
+	// identified by ACRCloud or manually confirmed by the user in the library
+	// editor). Only user_confirmed=1 entries cause ACRCloud to be skipped on
+	// a local fingerprint hit. Existing rows default to 0 — no behaviour change.
+	`ALTER TABLE collection ADD COLUMN user_confirmed INTEGER NOT NULL DEFAULT 0`,
+
+	// v3: fingerprints — one row per Chromaprint fingerprint window captured
+	// during a recognition attempt. Multiple rows per collection entry allow
+	// the sliding-window BER matcher to compensate for timing jitter between
+	// plays. Cascade delete keeps the table clean when an entry is removed.
+	`CREATE TABLE fingerprints (
+		id       INTEGER PRIMARY KEY AUTOINCREMENT,
+		entry_id INTEGER NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
+		data     TEXT    NOT NULL
+	)`,
+	`CREATE INDEX fingerprints_entry_id ON fingerprints(entry_id)`,
 }
 
 // Library persists physical-media recognition results to a local SQLite
@@ -97,20 +116,21 @@ func (l *Library) migrate() error {
 
 // CollectionEntry is a row from the collection table.
 type CollectionEntry struct {
-	ID          int64
-	ACRID       string
-	Title       string
-	Artist      string
-	Album       string
-	Label       string
-	Released    string
-	Score       int
-	Format      string // "Vinyl" | "CD" | "Unknown"
-	TrackNumber string // e.g. "1", "2", "1A", "1B", "2B"
-	ArtworkPath string
-	PlayCount   int
-	FirstPlayed string
-	LastPlayed  string
+	ID            int64
+	ACRID         string
+	Title         string
+	Artist        string
+	Album         string
+	Label         string
+	Released      string
+	Score         int
+	Format        string // "Vinyl" | "CD" | "Unknown"
+	TrackNumber   string // e.g. "1", "2", "1A", "1B", "2B"
+	ArtworkPath   string
+	PlayCount     int
+	FirstPlayed   string
+	LastPlayed    string
+	UserConfirmed bool // true = skip ACRCloud on fingerprint hit
 }
 
 // Lookup searches the collection by ACRCloud acrid.
@@ -124,14 +144,16 @@ func (l *Library) Lookup(acrid string) (*CollectionEntry, error) {
 		       COALESCE(album,''), COALESCE(label,''), COALESCE(released,''),
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
-		       play_count, first_played, last_played
+		       play_count, first_played, last_played, user_confirmed
 		FROM collection WHERE acrid = ?`, acrid)
 
 	var e CollectionEntry
+	var confirmed int
 	err := row.Scan(&e.ID, &e.ACRID, &e.Title, &e.Artist,
 		&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 		&e.TrackNumber, &e.ArtworkPath,
-		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed)
+		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed)
+	e.UserConfirmed = confirmed == 1
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -145,28 +167,33 @@ func (l *Library) Lookup(acrid string) (*CollectionEntry, error) {
 // play count. When acrid is empty, falls back to matching by (title, artist).
 // User-edited fields (track_number, artwork_path, format) are never overwritten
 // by ACRCloud data — only updated when the new score is higher.
-func (l *Library) RecordPlay(result *RecognitionResult, artworkPath string) error {
+// Sets user_confirmed=1 so future fingerprint hits skip ACRCloud.
+// Returns the entry ID so the caller can associate fingerprints with this play.
+func (l *Library) RecordPlay(result *RecognitionResult, artworkPath string) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	if result.ACRID != "" {
-		_, err := l.db.Exec(`
+		var id int64
+		err := l.db.QueryRow(`
 			INSERT INTO collection
 				(acrid, title, artist, album, label, released, score,
-				 artwork_path, play_count, first_played, last_played)
-			VALUES (?,?,?,?,?,?,?,?,1,?,?)
+				 artwork_path, play_count, first_played, last_played, user_confirmed)
+			VALUES (?,?,?,?,?,?,?,?,1,?,?,1)
 			ON CONFLICT(acrid) DO UPDATE SET
-				play_count   = play_count + 1,
-				last_played  = excluded.last_played,
+				play_count     = play_count + 1,
+				last_played    = excluded.last_played,
+				user_confirmed = 1,
 				title        = CASE WHEN excluded.score > score THEN excluded.title   ELSE title   END,
 				artist       = CASE WHEN excluded.score > score THEN excluded.artist  ELSE artist  END,
 				album        = CASE WHEN excluded.score > score THEN excluded.album   ELSE album   END,
 				score        = CASE WHEN excluded.score > score THEN excluded.score   ELSE score   END,
 				artwork_path = CASE WHEN (artwork_path IS NULL OR artwork_path = '') AND excluded.artwork_path != ''
-				               THEN excluded.artwork_path ELSE artwork_path END`,
+				               THEN excluded.artwork_path ELSE artwork_path END
+			RETURNING id`,
 			result.ACRID, result.Title, result.Artist, result.Album,
 			result.Label, result.Released, result.Score, artworkPath, now, now,
-		)
-		return err
+		).Scan(&id)
+		return id, err
 	}
 
 	// Fallback: no acrid — match by title+artist.
@@ -177,24 +204,156 @@ func (l *Library) RecordPlay(result *RecognitionResult, artworkPath string) erro
 	).Scan(&id)
 
 	if err == sql.ErrNoRows {
-		_, err = l.db.Exec(`
+		err = l.db.QueryRow(`
 			INSERT INTO collection
 				(title, artist, album, label, released, score,
-				 artwork_path, play_count, first_played, last_played)
-			VALUES (?,?,?,?,?,?,?,1,?,?)`,
+				 artwork_path, play_count, first_played, last_played, user_confirmed)
+			VALUES (?,?,?,?,?,?,?,1,?,?,1)
+			RETURNING id`,
 			result.Title, result.Artist, result.Album,
 			result.Label, result.Released, result.Score, artworkPath, now, now,
-		)
-		return err
+		).Scan(&id)
+		return id, err
 	}
 	if err != nil {
-		return fmt.Errorf("library: fallback lookup: %w", err)
+		return 0, fmt.Errorf("library: fallback lookup: %w", err)
 	}
 	_, err = l.db.Exec(
-		`UPDATE collection SET play_count = play_count + 1, last_played = ? WHERE id = ?`,
+		`UPDATE collection SET play_count = play_count + 1, last_played = ?, user_confirmed = 1 WHERE id = ?`,
 		now, id,
 	)
-	return err
+	return id, err
+}
+
+// UpsertStub finds an existing entry matching any of the given fingerprints or
+// creates a new stub entry with empty metadata. In both cases it stores the
+// new fingerprints and increments the play count.
+// Stubs have user_confirmed=0 so ACRCloud is still attempted on future plays
+// until the user fills in metadata via the library editor.
+func (l *Library) UpsertStub(fps []Fingerprint, threshold float64, maxShift int) (*CollectionEntry, error) {
+	if len(fps) == 0 {
+		return nil, fmt.Errorf("library: UpsertStub: no fingerprints provided")
+	}
+
+	// Try to find an existing entry via fingerprint.
+	entry, err := l.FindByFingerprint(fps[0], threshold, maxShift)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	if entry != nil {
+		// Known stub or confirmed entry — just bump the play count.
+		if _, err := l.db.Exec(
+			`UPDATE collection SET play_count = play_count + 1, last_played = ? WHERE id = ?`,
+			now, entry.ID,
+		); err != nil {
+			return nil, fmt.Errorf("library: stub update: %w", err)
+		}
+		_ = l.SaveFingerprints(entry.ID, fps)
+		return entry, nil
+	}
+
+	// New unrecognised track — create a stub with empty metadata.
+	var id int64
+	if err := l.db.QueryRow(`
+		INSERT INTO collection (title, artist, play_count, first_played, last_played, user_confirmed)
+		VALUES ('','',1,?,?,0)
+		RETURNING id`, now, now,
+	).Scan(&id); err != nil {
+		return nil, fmt.Errorf("library: stub insert: %w", err)
+	}
+	_ = l.SaveFingerprints(id, fps)
+
+	return &CollectionEntry{
+		ID:          id,
+		FirstPlayed: now,
+		LastPlayed:  now,
+		PlayCount:   1,
+	}, nil
+}
+
+// SaveFingerprints stores all fingerprint windows for an entry.
+func (l *Library) SaveFingerprints(entryID int64, fps []Fingerprint) error {
+	for _, fp := range fps {
+		if len(fp) == 0 {
+			continue
+		}
+		parts := make([]string, len(fp))
+		for i, v := range fp {
+			parts[i] = strconv.FormatUint(uint64(v), 10)
+		}
+		data := strings.Join(parts, ",")
+		if _, err := l.db.Exec(
+			`INSERT INTO fingerprints (entry_id, data) VALUES (?,?)`, entryID, data,
+		); err != nil {
+			return fmt.Errorf("library: save fingerprint: %w", err)
+		}
+	}
+	return nil
+}
+
+// FindByFingerprint scans all stored fingerprints and returns the collection
+// entry whose best fingerprint BER against fp is below threshold.
+// Returns (nil, nil) when no match is found.
+func (l *Library) FindByFingerprint(fp Fingerprint, threshold float64, maxShift int) (*CollectionEntry, error) {
+	if len(fp) == 0 {
+		return nil, nil
+	}
+
+	rows, err := l.db.Query(`
+		SELECT f.entry_id, f.data,
+		       COALESCE(c.acrid,''), c.title, c.artist,
+		       COALESCE(c.album,''), COALESCE(c.label,''), COALESCE(c.released,''),
+		       COALESCE(c.score,0), COALESCE(c.format,'Unknown'),
+		       COALESCE(c.track_number,''), COALESCE(c.artwork_path,''),
+		       c.play_count, c.first_played, c.last_played, c.user_confirmed
+		FROM fingerprints f
+		JOIN collection c ON c.id = f.entry_id`)
+	if err != nil {
+		return nil, fmt.Errorf("library: fingerprint scan: %w", err)
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		entry CollectionEntry
+		ber   float64
+	}
+	best := candidate{ber: threshold}
+
+	for rows.Next() {
+		var entryID int64
+		var data string
+		var e CollectionEntry
+		var confirmed int
+		if err := rows.Scan(
+			&entryID, &data,
+			&e.ACRID, &e.Title, &e.Artist,
+			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
+			&e.TrackNumber, &e.ArtworkPath,
+			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
+		); err != nil {
+			return nil, fmt.Errorf("library: fingerprint row scan: %w", err)
+		}
+		e.ID = entryID
+		e.UserConfirmed = confirmed == 1
+
+		stored, parseErr := ParseFingerprint(data)
+		if parseErr != nil {
+			continue
+		}
+		if b := BER(fp, stored, maxShift); b < best.ber {
+			best = candidate{entry: e, ber: b}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("library: fingerprint scan rows: %w", err)
+	}
+	if best.ber >= threshold {
+		return nil, nil
+	}
+	return &best.entry, nil
 }
 
 // Close closes the underlying database connection.

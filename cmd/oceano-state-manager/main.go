@@ -98,6 +98,17 @@ type Config struct {
 	// LibraryDB is the path to the SQLite database used to record physical-media plays.
 	// Set to empty string to disable library recording.
 	LibraryDB string
+
+	// Fingerprint cache — requires fpcalc(1) from chromaprint-tools.
+	// FingerprintWindows is the number of overlapping windows generated per capture.
+	FingerprintWindows int
+	// FingerprintStrideSec is the offset in seconds between consecutive windows.
+	FingerprintStrideSec int
+	// FingerprintLengthSec is the duration in seconds of each fingerprint window.
+	FingerprintLengthSec int
+	// FingerprintThreshold is the maximum BER for a fingerprint to be considered a match.
+	// 0.35 is the threshold used by AcoustID; lower values are stricter.
+	FingerprintThreshold float64
 }
 
 func defaultConfig() Config {
@@ -112,6 +123,10 @@ func defaultConfig() Config {
 		RecognizerMaxInterval:     5 * time.Minute,
 		IdleDelay:                 10 * time.Second,
 		LibraryDB:                 "/var/lib/oceano/library.db",
+		FingerprintWindows:        2,
+		FingerprintStrideSec:      4,
+		FingerprintLengthSec:      8,
+		FingerprintThreshold:      0.35,
 	}
 }
 
@@ -743,7 +758,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 //
 // isBoundaryTrigger distinguishes explicit boundary events (silence/energy-change)
 // from periodic timer fires. On a periodic no-match, the existing result is kept.
-func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
+func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprinter, lib *Library) {
 	if rec == nil {
 		return
 	}
@@ -822,6 +837,49 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 			continue
 		}
 
+		// Generate fingerprints from the captured WAV for local cache lookup.
+		captureSec := int(m.cfg.RecognizerCaptureDuration.Seconds())
+		capturedFPs := GenerateFingerprints(fpr, wavPath,
+			m.cfg.FingerprintWindows, m.cfg.FingerprintStrideSec,
+			m.cfg.FingerprintLengthSec, captureSec)
+
+		// Check local fingerprint cache before querying ACRCloud.
+		if len(capturedFPs) > 0 && lib != nil {
+			localEntry, fpErr := lib.FindByFingerprint(capturedFPs[0], m.cfg.FingerprintThreshold, 30)
+			if fpErr != nil {
+				log.Printf("recognizer: fingerprint lookup error: %v", fpErr)
+			} else if localEntry != nil && localEntry.UserConfirmed {
+				log.Printf("recognizer: local fingerprint match (id=%d %s — %s) — skipping ACRCloud",
+					localEntry.ID, localEntry.Artist, localEntry.Title)
+				_ = lib.SaveFingerprints(localEntry.ID, capturedFPs)
+				os.Remove(wavPath)
+				backoffUntil = time.Time{}
+				m.mu.Lock()
+				m.recognitionResult = &RecognitionResult{
+					ACRID:    localEntry.ACRID,
+					Title:    localEntry.Title,
+					Artist:   localEntry.Artist,
+					Album:    localEntry.Album,
+					Label:    localEntry.Label,
+					Released: localEntry.Released,
+					Score:    localEntry.Score,
+					Format:   localEntry.Format,
+				}
+				m.physicalArtworkPath = localEntry.ArtworkPath
+				m.mu.Unlock()
+				m.markDirty()
+				for {
+					select {
+					case <-m.recognizeTrigger:
+					default:
+						goto fpDrained
+					}
+				}
+			fpDrained:
+				continue
+			}
+		}
+
 		result, err := rec.Recognize(ctx, wavPath)
 		os.Remove(wavPath)
 
@@ -872,8 +930,13 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 					}
 				}
 
-				if err := lib.RecordPlay(result, artworkPath); err != nil {
-					log.Printf("recognizer: library record error: %v", err)
+				entryID, recErr := lib.RecordPlay(result, artworkPath)
+				if recErr != nil {
+					log.Printf("recognizer: library record error: %v", recErr)
+				} else if entryID > 0 && len(capturedFPs) > 0 {
+					if fpErr := lib.SaveFingerprints(entryID, capturedFPs); fpErr != nil {
+						log.Printf("recognizer: save fingerprints error: %v", fpErr)
+					}
 				}
 
 				m.mu.Lock()
@@ -901,6 +964,15 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 		drained:
 		} else {
 			log.Printf("recognizer [%s]: no match — retrying in %s", rec.Name(), noMatchBackoff)
+			// Store a fingerprint stub so the user can annotate unrecognised tracks
+			// in the library editor; future plays will find the stub via fingerprint.
+			if len(capturedFPs) > 0 && lib != nil {
+				if stub, stubErr := lib.UpsertStub(capturedFPs, m.cfg.FingerprintThreshold, 30); stubErr != nil {
+					log.Printf("recognizer: stub upsert error: %v", stubErr)
+				} else {
+					log.Printf("recognizer: fingerprint stub stored (id=%d)", stub.ID)
+				}
+			}
 			if isBoundaryTrigger {
 				// Clear the previous track only on an explicit boundary (silence/energy-change).
 				// On periodic timer fires keep the current result so the display is not blanked mid-track.
@@ -1071,6 +1143,10 @@ func main() {
 	flag.DurationVar(&cfg.RecognizerMaxInterval, "recognizer-max-interval", cfg.RecognizerMaxInterval, "fallback re-recognition interval when no track boundary is detected and no result is held")
 	flag.DurationVar(&cfg.IdleDelay, "idle-delay", cfg.IdleDelay, "how long to keep showing the last track after audio stops before switching to idle screen")
 	flag.StringVar(&cfg.LibraryDB, "library-db", cfg.LibraryDB, "path to SQLite library database (empty to disable)")
+	flag.IntVar(&cfg.FingerprintWindows, "fingerprint-windows", cfg.FingerprintWindows, "number of fingerprint windows to generate per recognition capture")
+	flag.IntVar(&cfg.FingerprintStrideSec, "fingerprint-stride", cfg.FingerprintStrideSec, "stride in seconds between fingerprint windows")
+	flag.IntVar(&cfg.FingerprintLengthSec, "fingerprint-length", cfg.FingerprintLengthSec, "length in seconds of each fingerprint window")
+	flag.Float64Var(&cfg.FingerprintThreshold, "fingerprint-threshold", cfg.FingerprintThreshold, "maximum BER for a local fingerprint match (0.35 = AcoustID default)")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")
@@ -1106,10 +1182,18 @@ func main() {
 			cfg.ACRCloudHost, cfg.PCMSocket, cfg.RecognizerMaxInterval)
 	}
 
+	fpr := newFingerprinter()
+	if fpr != nil {
+		log.Printf("recognizer: local fingerprint cache enabled (windows=%d stride=%ds length=%ds threshold=%.2f)",
+			cfg.FingerprintWindows, cfg.FingerprintStrideSec, cfg.FingerprintLengthSec, cfg.FingerprintThreshold)
+	} else {
+		log.Printf("recognizer: fpcalc not found — local fingerprint cache disabled")
+	}
+
 	go m.runShairportReader(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
-	go m.runRecognizer(ctx, rec, lib)
+	go m.runRecognizer(ctx, rec, fpr, lib)
 	go m.runLibrarySync(ctx, lib)
 	m.runWriter(ctx)
 }
