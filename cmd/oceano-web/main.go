@@ -112,10 +112,11 @@ func main() {
 		w.Write(out)
 	})
 
-	// API: physical media collection (library)
+	// API: physical media collection (library) and backup download.
 	{
 		cfg, _ := loadConfig(*configPath)
 		registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile)
+		registerBackupRoute(mux, *libraryDB)
 	}
 
 	// Scheduled backup: generate a fresh backup every 24 hours.
