@@ -756,6 +756,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 
 	var backoffUntil time.Time
 
+	fallbackTimer := time.NewTimer(m.cfg.RecognizerMaxInterval)
+	defer fallbackTimer.Stop()
+
 	for {
 		// Wait for an explicit boundary trigger or the periodic fallback timer.
 		// isBoundaryTrigger distinguishes the two: on a periodic no-match the
@@ -766,7 +769,16 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 			return
 		case <-m.recognizeTrigger:
 			isBoundaryTrigger = true
-		case <-time.After(m.cfg.RecognizerMaxInterval):
+			// Stop and drain so the timer doesn't fire spuriously on the next iteration.
+			if !fallbackTimer.Stop() {
+				select {
+				case <-fallbackTimer.C:
+				default:
+				}
+			}
+			fallbackTimer.Reset(m.cfg.RecognizerMaxInterval)
+		case <-fallbackTimer.C:
+			fallbackTimer.Reset(m.cfg.RecognizerMaxInterval)
 			m.mu.Lock()
 			isPhysical := m.physicalSource == "Physical"
 			m.mu.Unlock()
