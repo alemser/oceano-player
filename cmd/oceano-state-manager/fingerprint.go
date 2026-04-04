@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"math/bits"
 	"os/exec"
@@ -83,15 +85,49 @@ type Fingerprinter interface {
 type fpcalcFingerprinter struct{}
 
 func (fpcalcFingerprinter) Generate(wavPath string, offsetSec, lengthSec int) (Fingerprint, error) {
-	args := []string{"-raw", "-length", strconv.Itoa(lengthSec)}
-	if offsetSec > 0 {
-		args = append(args, "-offset", strconv.Itoa(offsetSec))
+	if offsetSec == 0 {
+		out, err := exec.Command("fpcalc", "-raw", "-length", strconv.Itoa(lengthSec), wavPath).Output()
+		if err != nil {
+			return nil, fmt.Errorf("fpcalc: %w", err)
+		}
+		return parseFpcalcOutput(out)
 	}
-	args = append(args, wavPath)
-	out, err := exec.Command("fpcalc", args...).Output()
-	if err != nil {
-		return nil, fmt.Errorf("fpcalc: %w", err)
+
+	// fpcalc does not support -offset; pipe ffmpeg-trimmed audio into fpcalc via stdin.
+	ffmpegCmd := exec.Command("ffmpeg", "-ss", strconv.Itoa(offsetSec),
+		"-i", wavPath, "-t", strconv.Itoa(lengthSec), "-f", "wav", "-")
+	fpcalcCmd := exec.Command("fpcalc", "-raw", "-length", strconv.Itoa(lengthSec), "-")
+
+	pr, pw := io.Pipe()
+	ffmpegCmd.Stdout = pw
+	fpcalcCmd.Stdin = pr
+
+	var out bytes.Buffer
+	fpcalcCmd.Stdout = &out
+
+	if err := ffmpegCmd.Start(); err != nil {
+		return nil, fmt.Errorf("ffmpeg: start: %w", err)
 	}
+	if err := fpcalcCmd.Start(); err != nil {
+		_ = ffmpegCmd.Process.Kill()
+		return nil, fmt.Errorf("fpcalc: start: %w", err)
+	}
+
+	ffmpegErr := ffmpegCmd.Wait()
+	pw.Close()
+	fpcalcErr := fpcalcCmd.Wait()
+
+	if ffmpegErr != nil {
+		return nil, fmt.Errorf("ffmpeg: %w", ffmpegErr)
+	}
+	if fpcalcErr != nil {
+		return nil, fmt.Errorf("fpcalc: %w", fpcalcErr)
+	}
+	return parseFpcalcOutput(out.Bytes())
+}
+
+// parseFpcalcOutput extracts the fingerprint from fpcalc -raw output.
+func parseFpcalcOutput(out []byte) (Fingerprint, error) {
 	// Output format:
 	//   DURATION=23
 	//   FINGERPRINT=1234567,9876543,...
