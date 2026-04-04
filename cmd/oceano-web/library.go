@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -127,38 +126,12 @@ func (l *LibraryDB) deleteEntry(id int64) error {
 	return err
 }
 
-// exportCSV writes all collection entries as CSV to w.
-func (l *LibraryDB) exportCSV(w io.Writer) error {
-	rows, err := l.db.Query(`
-		SELECT COALESCE(acrid,''), title, artist, COALESCE(album,''), COALESCE(label,''),
-		       COALESCE(released,''), COALESCE(format,'Unknown'), COALESCE(track_number,''),
-		       play_count, first_played, last_played
-		FROM collection ORDER BY artist, album, track_number`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	cw := csv.NewWriter(w)
-	cw.Write([]string{"acrid", "title", "artist", "album", "label", "released", "format", "track_number", "play_count", "first_played", "last_played"})
-	for rows.Next() {
-		var acrid, title, artist, album, label, released, format, trackNumber, firstPlayed, lastPlayed string
-		var playCount int
-		if err := rows.Scan(&acrid, &title, &artist, &album, &label, &released, &format, &trackNumber, &playCount, &firstPlayed, &lastPlayed); err != nil {
-			return err
-		}
-		cw.Write([]string{acrid, title, artist, album, label, released, format, trackNumber, strconv.Itoa(playCount), firstPlayed, lastPlayed})
-	}
-	cw.Flush()
-	return cw.Error()
-}
-
 // ── HTTP handlers ──────────────────────────────────────────────────────────
 
 // registerLibraryRoutes wires all /api/library/* endpoints into mux.
 // libraryDBPath is read from the running state-manager service file so the web
 // UI always talks to the same database without extra configuration.
-func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string) {
+func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string, artworkDir string) {
 	// GET  /api/library        → list all entries
 	// PUT  /api/library/{id}   → update entry metadata
 	// DELETE /api/library/{id} → remove entry
@@ -192,45 +165,6 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(entries)
-	})
-
-	// GET /api/library/export/csv — download full collection as CSV.
-	mux.HandleFunc("/api/library/export/csv", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		lib, err := openLibraryDB(libraryDBPath)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if lib == nil {
-			http.Error(w, "library not initialised", http.StatusServiceUnavailable)
-			return
-		}
-		defer lib.close()
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="oceano-library.csv"`)
-		if err := lib.exportCSV(w); err != nil {
-			// Headers already sent — can't change status code, just log.
-			return
-		}
-	})
-
-	// GET /api/library/export/db — download the raw SQLite database file.
-	mux.HandleFunc("/api/library/export/db", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if _, err := os.Stat(libraryDBPath); os.IsNotExist(err) {
-			http.Error(w, "library not initialised", http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", `attachment; filename="oceano-library.db"`)
-		http.ServeFile(w, r, libraryDBPath)
 	})
 
 	// GET /api/library/artworks — recent tracks with artwork, for the picker.
@@ -292,7 +226,7 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		case sub == "artwork" && r.Method == http.MethodGet:
 			handleGetArtwork(w, r, lib, id)
 		case sub == "artwork" && r.Method == http.MethodPost:
-			handleUploadArtwork(w, r, lib, id, libraryDBPath)
+			handleUploadArtwork(w, r, lib, id, artworkDir)
 		case sub == "" && r.Method == http.MethodPut:
 			handleUpdateEntry(w, r, lib, id, stateFilePath)
 		case sub == "" && r.Method == http.MethodDelete:
@@ -317,7 +251,7 @@ func handleGetArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id
 	http.ServeFile(w, r, artworkPath)
 }
 
-func handleUploadArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, dbPath string) {
+func handleUploadArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, artworkDir string) {
 	r.Body = http.MaxBytesReader(w, r.Body, 5<<20) // 5 MB limit
 
 	if err := r.ParseMultipartForm(5 << 20); err != nil {
@@ -337,7 +271,6 @@ func handleUploadArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB,
 		return
 	}
 
-	artworkDir := filepath.Join(filepath.Dir(dbPath), "artwork")
 	if err := os.MkdirAll(artworkDir, 0o755); err != nil {
 		http.Error(w, "cannot create artwork dir", http.StatusInternalServerError)
 		return
