@@ -251,6 +251,46 @@ func TestGenerateBackup_ArtworkOutsideManagedDirSkipped(t *testing.T) {
 	}
 }
 
+func TestGenerateBackup_PreservesRelativeArtworkPaths(t *testing.T) {
+	dir := t.TempDir()
+	artDir := filepath.Join(dir, "artwork")
+	if err := os.MkdirAll(filepath.Join(artDir, "set-a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(artDir, "set-b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	artA := filepath.Join(artDir, "set-a", "cover.jpg")
+	artB := filepath.Join(artDir, "set-b", "cover.jpg")
+	if err := os.WriteFile(artA, []byte("art-a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(artB, []byte("art-b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dbPath := createTestDB(t, dir, []string{artA, artB})
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
+	defer lib.close()
+
+	backupPath := filepath.Join(dir, "backup.tar.gz")
+	if err := lib.generateBackup(backupPath, artDir); err != nil {
+		t.Fatalf("generateBackup: %v", err)
+	}
+
+	entries := archiveEntries(t, backupPath)
+	if got := string(entries["artwork/set-a/cover.jpg"]); got != "art-a" {
+		t.Errorf("artwork/set-a/cover.jpg content = %q, want %q", got, "art-a")
+	}
+	if got := string(entries["artwork/set-b/cover.jpg"]); got != "art-b" {
+		t.Errorf("artwork/set-b/cover.jpg content = %q, want %q", got, "art-b")
+	}
+}
+
 // --- restoreScriptContent ---
 
 func TestRestoreScriptContent_ContainsPaths(t *testing.T) {

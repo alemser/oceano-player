@@ -56,6 +56,11 @@ moved=0
 skipped=0
 missing=0
 
+sql_escape() {
+    # SQLite string literal escaping: single quote -> doubled quote.
+    printf "%s" "$1" | sed "s/'/''/g"
+}
+
 for old_path in "${old_paths[@]}"; do
     filename="$(basename "$old_path")"
     new_path="${NEW_ART_DIR}/${filename}"
@@ -76,8 +81,10 @@ for old_path in "${old_paths[@]}"; do
     cp "$old_path" "$new_path"
 
     # Update every row in the DB that points to this old path.
+    escaped_old="$(sql_escape "$old_path")"
+    escaped_new="$(sql_escape "$new_path")"
     sqlite3 "$DB_PATH" \
-        "UPDATE collection SET artwork_path='${new_path//\'/\'\'}' WHERE artwork_path='${old_path//\'/\'\'}';"
+        "UPDATE collection SET artwork_path='${escaped_new}' WHERE artwork_path='${escaped_old}';"
 
     rm "$old_path"
     (( moved++ )) || true

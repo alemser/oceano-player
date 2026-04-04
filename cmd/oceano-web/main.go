@@ -129,23 +129,10 @@ func main() {
 			if err != nil || lib == nil {
 				log.Printf("scheduled backup: library not available: %v", err)
 			} else {
-				tmpFile, err := os.CreateTemp(backupDir, "oceano-backup-*.tar.gz")
-				if err != nil {
-					log.Printf("scheduled backup failed: create temp file: %v", err)
+				if err := lib.generateBackup(backupPath, cfg.Advanced.ArtworkDir); err != nil {
+					log.Printf("scheduled backup failed: %v", err)
 				} else {
-					tempPath := tmpFile.Name()
-					if closeErr := tmpFile.Close(); closeErr != nil {
-						os.Remove(tempPath)
-						log.Printf("scheduled backup failed: close temp file: %v", closeErr)
-					} else if err := lib.generateBackup(tempPath, cfg.Advanced.ArtworkDir); err != nil {
-						os.Remove(tempPath)
-						log.Printf("scheduled backup failed: %v", err)
-					} else if err := os.Rename(tempPath, backupPath); err != nil {
-						os.Remove(tempPath)
-						log.Printf("scheduled backup failed: rename temp backup: %v", err)
-					} else {
-						log.Printf("scheduled backup written to %s", backupPath)
-					}
+					log.Printf("scheduled backup written to %s", backupPath)
 				}
 				lib.close()
 			}

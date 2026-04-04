@@ -145,8 +145,9 @@ func (l *LibraryDB) generateBackup(destPath, artworkDir string) error {
 			continue
 		}
 
-		// Use forward slash explicitly — tar paths must be POSIX-style.
-		arcName := "artwork/" + filepath.Base(resolvedPath)
+		// Preserve the path relative to the managed artwork directory.
+		// Use forward slashes explicitly — tar paths must be POSIX-style.
+		arcName := "artwork/" + filepath.ToSlash(rel)
 		if seenArtworks[arcName] {
 			continue
 		}
