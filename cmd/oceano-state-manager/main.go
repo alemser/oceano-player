@@ -84,8 +84,9 @@ type Config struct {
 	// The recognizer reads from this socket so it never opens the ALSA device directly.
 	PCMSocket                 string
 	RecognizerCaptureDuration time.Duration
-	// RecognizerMaxInterval is the fallback re-recognition interval when no track
-	// boundary is detected and no result is held yet.
+	// RecognizerMaxInterval is the periodic fallback re-recognition interval.
+	// On timer-based fires the previous result is kept on a no-match, so the
+	// display is not blanked mid-track; only boundary-triggered attempts clear it.
 	RecognizerMaxInterval time.Duration
 	// VUSocket is the Unix socket path for VU frames from oceano-source-detector.
 	// The state manager subscribes to detect silence→audio transitions (track boundaries)
@@ -614,10 +615,46 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 }
 
 func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold float32, silenceFrames, activeFrames int) {
+	const (
+		// Energy-change detection for track boundaries without silence gaps
+		// (e.g. vinyl with residual hum, CD crossfades).
+		//
+		// Two EMAs track the signal energy: a slow baseline (~9 s time constant)
+		// and a fast current level (~0.3 s). When the fast EMA dips well below the
+		// baseline and then recovers, it indicates a track transition.
+		energySlowAlpha      = float32(0.005) // ~200-frame / ~9 s time constant
+		energyFastAlpha      = float32(0.15)  // ~7-frame  / ~0.3 s time constant
+		energyDipRatio       = float32(0.45)  // fast < slow*0.45 → dip in progress
+		energyRecoverRatio   = float32(0.75)  // fast > slow*0.75 after dip → boundary
+		energyDipMinFrames   = 7              // dip must sustain ~0.3 s before committing
+		energyWarmupFrames   = 200            // frames before detection is active (~9 s)
+		energyChangeCooldown = 3 * time.Minute
+	)
+
 	buf := make([]byte, 8)
 	silenceCount := 0
 	activeCount := 0
 	inSilence := false
+
+	// Energy-change detection state.
+	var slowEMA, fastEMA float32
+	energyFrameCount := 0 // counts only non-silent frames; resets after any boundary
+	dipCount := 0
+	hadDip := false
+	lastEnergyTrigger := time.Time{}
+
+	fireBoundaryTrigger := func(reason string) {
+		m.mu.Lock()
+		m.recognitionResult = nil
+		m.physicalArtworkPath = ""
+		m.mu.Unlock()
+		log.Printf("VU monitor: track boundary detected (%s) — triggering recognition", reason)
+		m.markDirty()
+		select {
+		case m.recognizeTrigger <- struct{}{}:
+		default:
+		}
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -632,30 +669,62 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 		right := math.Float32frombits(binary.LittleEndian.Uint32(buf[4:8]))
 		avg := (left + right) / 2
 
+		// --- Silence-based boundary detection ---
 		if avg < silenceThreshold {
 			silenceCount++
 			activeCount = 0
 			if silenceCount >= silenceFrames && !inSilence {
 				inSilence = true
 				log.Printf("VU monitor: silence detected")
+				// Freeze energy model during silence; it will restart fresh on resumption.
+				energyFrameCount = 0
+				dipCount = 0
+				hadDip = false
 			}
 		} else {
 			activeCount++
 			silenceCount = 0
 			if inSilence && activeCount >= activeFrames {
 				inSilence = false
-				// Audio resumed after silence — new track starting.
-				// Clear previous result so the display shows an empty state
-				// while the new track is being identified.
-				m.mu.Lock()
-				m.recognitionResult = nil
-				m.physicalArtworkPath = ""
-				m.mu.Unlock()
-				log.Printf("VU monitor: track boundary detected — triggering recognition")
-				m.markDirty()
-				select {
-				case m.recognizeTrigger <- struct{}{}:
-				default:
+				fireBoundaryTrigger("silence→audio")
+				lastEnergyTrigger = time.Now()
+			}
+		}
+
+		// --- Energy-change detection (seamless transitions without silence) ---
+		// Don't run during silence or while still in the active-count phase after silence.
+		if avg < silenceThreshold || inSilence {
+			continue
+		}
+
+		energyFrameCount++
+		if energyFrameCount == 1 {
+			slowEMA = avg
+			fastEMA = avg
+		} else {
+			slowEMA = energySlowAlpha*avg + (1-energySlowAlpha)*slowEMA
+			fastEMA = energyFastAlpha*avg + (1-energyFastAlpha)*fastEMA
+		}
+
+		if energyFrameCount < energyWarmupFrames {
+			continue // EMA not yet converged; avoid false positives on startup
+		}
+
+		if fastEMA < slowEMA*energyDipRatio {
+			dipCount++
+			if dipCount >= energyDipMinFrames {
+				hadDip = true
+			}
+		} else {
+			dipCount = 0
+			if hadDip && fastEMA > slowEMA*energyRecoverRatio {
+				hadDip = false
+				if time.Since(lastEnergyTrigger) >= energyChangeCooldown {
+					lastEnergyTrigger = time.Now()
+					energyFrameCount = 0 // restart model for the new track
+					fireBoundaryTrigger("energy-change")
+				} else {
+					log.Printf("VU monitor: energy-change boundary suppressed (cooldown active)")
 				}
 			}
 		}
@@ -671,6 +740,9 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 //   - no match    → wait noMatchBackoff before next attempt
 //   - other error → wait errorBackoff before next attempt
 //   - success     → wait until next trigger (track boundary) or RecognizerMaxInterval
+//
+// isBoundaryTrigger distinguishes explicit boundary events (silence/energy-change)
+// from periodic timer fires. On a periodic no-match, the existing result is kept.
 func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 	if rec == nil {
 		return
@@ -684,20 +756,33 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 
 	var backoffUntil time.Time
 
+	fallbackTimer := time.NewTimer(m.cfg.RecognizerMaxInterval)
+	defer fallbackTimer.Stop()
+
 	for {
-		// Wait for a trigger (track boundary or new physical session).
-		// The max interval fallback only fires when we have no result yet —
-		// once a track is identified, recognition waits for the next boundary.
+		// Wait for an explicit boundary trigger or the periodic fallback timer.
+		// isBoundaryTrigger distinguishes the two: on a periodic no-match the
+		// existing result is kept so the display is not blanked mid-track.
+		isBoundaryTrigger := false
 		select {
 		case <-ctx.Done():
 			return
 		case <-m.recognizeTrigger:
-		case <-time.After(m.cfg.RecognizerMaxInterval):
+			isBoundaryTrigger = true
+			// Stop and drain so the timer doesn't fire spuriously on the next iteration.
+			if !fallbackTimer.Stop() {
+				select {
+				case <-fallbackTimer.C:
+				default:
+				}
+			}
+			fallbackTimer.Reset(m.cfg.RecognizerMaxInterval)
+		case <-fallbackTimer.C:
+			fallbackTimer.Reset(m.cfg.RecognizerMaxInterval)
 			m.mu.Lock()
 			isPhysical := m.physicalSource == "Physical"
-			hasResult := m.recognitionResult != nil
 			m.mu.Unlock()
-			if !isPhysical || hasResult {
+			if !isPhysical {
 				continue
 			}
 		}
@@ -816,10 +901,14 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library) {
 		drained:
 		} else {
 			log.Printf("recognizer [%s]: no match — retrying in %s", rec.Name(), noMatchBackoff)
-			m.mu.Lock()
-			m.recognitionResult = nil
-			m.physicalArtworkPath = ""
-			m.mu.Unlock()
+			if isBoundaryTrigger {
+				// Clear the previous track only on an explicit boundary (silence/energy-change).
+				// On periodic timer fires keep the current result so the display is not blanked mid-track.
+				m.mu.Lock()
+				m.recognitionResult = nil
+				m.physicalArtworkPath = ""
+				m.mu.Unlock()
+			}
 			backoffUntil = time.Now().Add(noMatchBackoff)
 		}
 		m.markDirty()

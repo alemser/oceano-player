@@ -408,7 +408,6 @@
     .lib-format-badge.vinyl  { background: #1a1000; color: #c8922a; border: 1px solid #3a2800; }
     .lib-format-badge.cd     { background: #001428; color: #4a9eff; border: 1px solid #0a2a50; }
     .lib-format-badge.unknown { background: #111; color: var(--muted); border: 1px solid var(--border); }
-    .lib-card-plays { font-size: 0.68rem; color: var(--muted); }
     .lib-empty { text-align: center; color: var(--text-dim); padding: 60px 0; font-size: 0.9rem; }
 
     /* ── Modal ── */
@@ -1088,7 +1087,6 @@ function renderLibrary() {
 
   grid.innerHTML = filtered.map(e => {
     const fmtClass = (e.format||'unknown').toLowerCase();
-    const plays    = e.play_count === 1 ? '1 play' : e.play_count + ' plays';
     const artUrl   = e.artwork_path ? `/api/library/${e.id}/artwork?t=${_libLoadedAt}` : '';
     return `<div class="lib-card" onclick="openModal(${e.id})">
       <div class="lib-card-art">
@@ -1103,7 +1101,6 @@ function renderLibrary() {
         <div class="lib-card-artist">${esc(e.artist)}</div>
         <div class="lib-card-meta">
           <span class="lib-format-badge ${fmtClass}">${e.format||'?'}</span>
-          <span class="lib-card-plays">${plays}</span>
         </div>
       </div>
     </div>`;
@@ -1117,8 +1114,7 @@ function openModal(id) {
 
   document.getElementById('modal-heading').textContent = e.title;
   document.getElementById('modal-plays').textContent   =
-    e.play_count + (e.play_count === 1 ? ' play' : ' plays') +
-    ' · last ' + new Date(e.last_played).toLocaleDateString();
+    'Last played: ' + new Date(e.last_played).toLocaleDateString();
   document.getElementById('modal-title').value    = e.title;
   document.getElementById('modal-artist').value   = e.artist;
   document.getElementById('modal-album').value    = e.album || '';
