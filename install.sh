@@ -386,10 +386,26 @@ if [[ -z "${alsa_device}" ]]; then
   exit 1
 fi
 
+# Check hardware presence via /proc/asound — no exclusive open needed,
+# so this works even while shairport-sync holds the device during playback.
+dac_present() {
+  local dev="$1"
+  if [[ "${dev}" =~ ^(plug)?hw:CARD=([^,]+) ]]; then
+    grep -qi "${BASH_REMATCH[2]}" /proc/asound/cards 2>/dev/null
+  elif [[ "${dev}" =~ ^(plug)?hw:([0-9]+) ]]; then
+    [[ -d "/proc/asound/card${BASH_REMATCH[2]}" ]]
+  else
+    # Unknown format — fall back to aplay probe; treat "busy" as present.
+    local err
+    err=$(aplay -q -D "${dev}" -t raw -f S16_LE -r 44100 -d 1 /dev/zero 2>&1 || true)
+    [[ -z "${err}" || "${err}" == *"Device or resource busy"* ]]
+  fi
+}
+
 last_available=0
 
 while true; do
-  if aplay -q -D "${alsa_device}" -t raw -f S16_LE -r 44100 -d 1 /dev/zero >/dev/null 2>&1; then
+  if dac_present "${alsa_device}"; then
     current_available=1
   else
     current_available=0
