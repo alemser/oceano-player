@@ -56,6 +56,50 @@
       margin-top: 3px;
       letter-spacing: 0.05em;
     }
+    .btn-power {
+      margin-left: auto;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--muted);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .btn-power:hover { color: #e06060; border-color: #5a2020; }
+
+    /* ── Power confirmation dialog ── */
+    .power-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7); z-index: 300;
+      align-items: center; justify-content: center;
+    }
+    .power-overlay.open { display: flex; }
+    .power-dialog {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 28px 28px 20px; width: 300px;
+      text-align: center;
+    }
+    .power-dialog h3 { font-size: 1rem; font-weight: 500; margin-bottom: 8px; }
+    .power-dialog p  { font-size: 0.82rem; color: var(--text-dim); margin-bottom: 24px; }
+    .power-dialog-actions { display: flex; flex-direction: column; gap: 10px; }
+    .btn-power-shutdown {
+      background: #5a1a1a; border: none; border-radius: 6px;
+      color: #e08080; padding: 9px 0; font-size: 0.88rem; cursor: pointer;
+    }
+    .btn-power-shutdown:hover { background: #7a2020; }
+    .btn-power-restart {
+      background: none; border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); padding: 9px 0; font-size: 0.88rem; cursor: pointer;
+    }
+    .btn-power-restart:hover { border-color: var(--text-dim); }
+    .btn-power-cancel {
+      background: none; border: none;
+      color: var(--muted); padding: 6px 0; font-size: 0.82rem; cursor: pointer;
+    }
+    .btn-power-cancel:hover { color: var(--text-dim); }
 
     /* ── Status bar ── */
     #status-bar {
@@ -522,6 +566,12 @@
     <h1>Oceano</h1>
     <p>Audio player configuration</p>
   </div>
+  <button class="btn-power" onclick="openPowerDialog()" title="Power">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
 </header>
 
 <div id="status-bar">
@@ -1331,6 +1381,35 @@ document.getElementById('log-auto')?.addEventListener('change', function() {
 // ── Init ─────────────────────────────────────────────────────────────────────
 loadConfig();
 loadStatus();
+
+// ── Power dialog ──────────────────────────────────────────────────────────────
+function openPowerDialog() {
+  document.getElementById('power-dialog').classList.add('open');
+}
+function closePowerDialog() {
+  document.getElementById('power-dialog').classList.remove('open');
+}
+async function sendPowerAction(action) {
+  closePowerDialog();
+  await fetch('/api/power', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+  });
+}
 </script>
+
+<!-- Power confirmation dialog -->
+<div class="power-overlay" id="power-dialog" onclick="if(event.target===this)closePowerDialog()">
+  <div class="power-dialog">
+    <h3>System power</h3>
+    <p>Choose an action for the Raspberry Pi.</p>
+    <div class="power-dialog-actions">
+      <button class="btn-power-shutdown" onclick="sendPowerAction('shutdown')">Shut down</button>
+      <button class="btn-power-restart"  onclick="sendPowerAction('restart')">Restart</button>
+      <button class="btn-power-cancel"   onclick="closePowerDialog()">Cancel</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

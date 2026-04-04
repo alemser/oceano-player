@@ -140,6 +140,33 @@ func main() {
 		}
 	}()
 
+	// API: system power control (shutdown / restart)
+	mux.HandleFunc("/api/power", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Action string `json:"action"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		var args []string
+		switch req.Action {
+		case "shutdown":
+			args = []string{"poweroff"}
+		case "restart":
+			args = []string{"reboot"}
+		default:
+			http.Error(w, "action must be shutdown or restart", http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		go exec.Command("systemctl", args...).Run()
+	})
+
 	// API: scan ALSA capture and playback devices
 	mux.HandleFunc("/api/devices", func(w http.ResponseWriter, r *http.Request) {
 		devices := scanALSADevices()
