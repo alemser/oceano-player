@@ -1292,7 +1292,6 @@ function fillFromPrevious() {
   document.getElementById('modal-label').value       = prev.label       || '';
   document.getElementById('modal-released').value    = prev.released    || '';
   document.getElementById('modal-format').value      = prev.format      || 'Unknown';
-  document.getElementById('modal-track-number').value = '';
 
   // Update artwork preview and local cache so Save picks it up
   const entry = _library.find(x => x.id === _editingId);
