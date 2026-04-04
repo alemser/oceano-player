@@ -171,6 +171,7 @@ func (l *Library) Lookup(acrid string) (*CollectionEntry, error) {
 // Returns (nil, nil) when no matching track is found.
 func (l *Library) LookupByFingerprint(fp string) (*CollectionEntry, error) {
 	if fp == "" {
+		log.Printf("Fingerprint is empty")
 		return nil, nil
 	}
 	row := l.db.QueryRow(`
@@ -194,6 +195,7 @@ func (l *Library) LookupByFingerprint(fp string) (*CollectionEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("library: lookup by fingerprint: %w", err)
 	}
+	log.Printf("Fingerprint lookup result [%s]: %+v", e.Title, e)
 	return &e, nil
 }
 

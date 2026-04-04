@@ -798,6 +798,8 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, lib *Library, f
 					}
 				drained:
 					continue
+				} else {
+					log.Printf("recognizer [%s]: fingerprint miss — querying ACRCloud", providerName)
 				}
 			}
 		}
