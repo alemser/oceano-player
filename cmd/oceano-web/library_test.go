@@ -122,7 +122,7 @@ func TestGenerateBackup_ContainsRequiredFiles(t *testing.T) {
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	if err := lib.generateBackup(backupPath); err != nil {
+	if err := lib.generateBackup(backupPath, artDir); err != nil {
 		t.Fatalf("generateBackup: %v", err)
 	}
 
@@ -162,7 +162,7 @@ func TestGenerateBackup_ArtworkContentPreserved(t *testing.T) {
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	if err := lib.generateBackup(backupPath); err != nil {
+	if err := lib.generateBackup(backupPath, artDir); err != nil {
 		t.Fatalf("generateBackup: %v", err)
 	}
 
@@ -188,7 +188,7 @@ func TestGenerateBackup_MissingArtworkSkipped(t *testing.T) {
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	if err := lib.generateBackup(backupPath); err != nil {
+	if err := lib.generateBackup(backupPath, filepath.Join(dir, "artwork")); err != nil {
 		t.Fatalf("generateBackup with missing artwork should not fail: %v", err)
 	}
 
@@ -211,7 +211,7 @@ func TestGenerateBackup_NoArtwork(t *testing.T) {
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	if err := lib.generateBackup(backupPath); err != nil {
+	if err := lib.generateBackup(backupPath, filepath.Join(dir, "artwork")); err != nil {
 		t.Fatalf("generateBackup with no artwork: %v", err)
 	}
 
@@ -241,7 +241,7 @@ func TestGenerateBackup_ArtworkOutsideManagedDirSkipped(t *testing.T) {
 	defer lib.close()
 
 	backupPath := filepath.Join(dir, "backup.tar.gz")
-	if err := lib.generateBackup(backupPath); err != nil {
+	if err := lib.generateBackup(backupPath, filepath.Join(dir, "artwork")); err != nil {
 		t.Fatalf("generateBackup: %v", err)
 	}
 
@@ -255,12 +255,12 @@ func TestGenerateBackup_ArtworkOutsideManagedDirSkipped(t *testing.T) {
 
 func TestRestoreScriptContent_ContainsPaths(t *testing.T) {
 	dbPath := "/var/lib/oceano/library.db"
-	script := restoreScriptContent(dbPath)
+	script := restoreScriptContent(dbPath, "/tmp")
 
 	checks := []string{
 		"#!/usr/bin/env bash",
 		"/var/lib/oceano/library.db",
-		"/var/lib/oceano/artwork",
+		"/tmp",
 	}
 	for _, want := range checks {
 		if !strings.Contains(script, want) {
@@ -270,7 +270,7 @@ func TestRestoreScriptContent_ContainsPaths(t *testing.T) {
 }
 
 func TestRestoreScriptContent_IsExecutable(t *testing.T) {
-	script := restoreScriptContent("/tmp/test.db")
+	script := restoreScriptContent("/tmp/test.db", "/tmp")
 	if !strings.HasPrefix(script, "#!/usr/bin/env bash\n") {
 		prefix := script
 		if len(prefix) > 40 {
@@ -283,7 +283,7 @@ func TestRestoreScriptContent_IsExecutable(t *testing.T) {
 func TestRestoreScriptContent_PathsAreShellQuoted(t *testing.T) {
 	// Paths with spaces would be mishandled without proper quoting.
 	dbPath := "/var/lib/oceano library/library.db"
-	script := restoreScriptContent(dbPath)
+	script := restoreScriptContent(dbPath, "/tmp")
 	quoted := shellQuote(dbPath)
 	if !strings.Contains(script, quoted) {
 		t.Errorf("restore script should contain shell-quoted db path %q, script:\n%s", quoted, script)
@@ -314,7 +314,7 @@ func TestShellQuote(t *testing.T) {
 
 func TestBackupHandler_MethodNotAllowed(t *testing.T) {
 	mux := http.NewServeMux()
-	registerBackupRoute(mux, "/nonexistent/library.db")
+	registerBackupRoute(mux, "/nonexistent/library.db", "/tmp")
 
 	r := httptest.NewRequest(http.MethodPost, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()
@@ -327,7 +327,7 @@ func TestBackupHandler_MethodNotAllowed(t *testing.T) {
 
 func TestBackupHandler_LibraryNotInitialised(t *testing.T) {
 	mux := http.NewServeMux()
-	registerBackupRoute(mux, "/nonexistent/library.db")
+	registerBackupRoute(mux, "/nonexistent/library.db", "/tmp")
 
 	r := httptest.NewRequest(http.MethodGet, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()
@@ -343,7 +343,7 @@ func TestBackupHandler_ReturnsGzipArchive(t *testing.T) {
 	dbPath := createTestDB(t, dir, nil)
 
 	mux := http.NewServeMux()
-	registerBackupRoute(mux, dbPath)
+	registerBackupRoute(mux, dbPath, filepath.Join(dir, "artwork"))
 
 	r := httptest.NewRequest(http.MethodGet, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()
@@ -390,4 +390,3 @@ func TestBackupHandler_ReturnsGzipArchive(t *testing.T) {
 		t.Errorf("archive should contain library.db, got: %v", names)
 	}
 }
-

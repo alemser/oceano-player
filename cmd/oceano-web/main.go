@@ -20,14 +20,14 @@ import (
 var staticFiles embed.FS
 
 const (
-	detectorBinary  = "/usr/local/bin/oceano-source-detector"
-	managerBinary   = "/usr/local/bin/oceano-state-manager"
-	detectorUnit    = "oceano-source-detector.service"
-	managerUnit     = "oceano-state-manager.service"
-	displayUnit     = "oceano-now-playing.service"
-	detectorSvc     = "/etc/systemd/system/" + detectorUnit
-	managerSvc      = "/etc/systemd/system/" + managerUnit
-	displayEnvPath  = "/etc/oceano/display.env"
+	detectorBinary = "/usr/local/bin/oceano-source-detector"
+	managerBinary  = "/usr/local/bin/oceano-state-manager"
+	detectorUnit   = "oceano-source-detector.service"
+	managerUnit    = "oceano-state-manager.service"
+	displayUnit    = "oceano-now-playing.service"
+	detectorSvc    = "/etc/systemd/system/" + detectorUnit
+	managerSvc     = "/etc/systemd/system/" + managerUnit
+	displayEnvPath = "/etc/oceano/display.env"
 )
 
 // ALSADevice is a detected ALSA sound card.
@@ -113,11 +113,9 @@ func main() {
 	})
 
 	// API: physical media collection (library) and backup download.
-	{
-		cfg, _ := loadConfig(*configPath)
-		registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile)
-		registerBackupRoute(mux, *libraryDB)
-	}
+	cfg, _ := loadConfig(*configPath)
+	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir)
+	registerBackupRoute(mux, *libraryDB, cfg.Advanced.ArtworkDir)
 
 	// Scheduled backup: generate a fresh backup every 24 hours.
 	// The backup is written to the same directory as the library database.
@@ -139,7 +137,7 @@ func main() {
 					if closeErr := tmpFile.Close(); closeErr != nil {
 						os.Remove(tempPath)
 						log.Printf("scheduled backup failed: close temp file: %v", closeErr)
-					} else if err := lib.generateBackup(tempPath); err != nil {
+					} else if err := lib.generateBackup(tempPath, cfg.Advanced.ArtworkDir); err != nil {
 						os.Remove(tempPath)
 						log.Printf("scheduled backup failed: %v", err)
 					} else if err := os.Rename(tempPath, backupPath); err != nil {

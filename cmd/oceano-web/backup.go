@@ -21,7 +21,7 @@ import (
 //
 // The archive is written to a temporary file first and renamed into place
 // only on success, so destPath is never left in a partial state.
-func (l *LibraryDB) generateBackup(destPath string) error {
+func (l *LibraryDB) generateBackup(destPath, artworkDir string) error {
 	// 1. Create a clean database copy using VACUUM INTO so the archive
 	//    always contains a self-consistent snapshot.
 	tmpDB, err := os.CreateTemp("", "oceano-db-backup-*.db")
@@ -112,7 +112,7 @@ func (l *LibraryDB) generateBackup(destPath string) error {
 	// Add artwork files from the managed artwork directory only.
 	// Reject symlinks and any path that resolves outside the expected artwork dir
 	// to prevent exfiltration of arbitrary files via crafted artwork_path values.
-	allowedArtworkDir, err := filepath.Abs(filepath.Join(filepath.Dir(l.path), "artwork"))
+	allowedArtworkDir, err := filepath.Abs(artworkDir)
 	if err != nil {
 		return fmt.Errorf("backup: resolve artwork dir: %w", err)
 	}
@@ -157,7 +157,7 @@ func (l *LibraryDB) generateBackup(destPath string) error {
 	}
 
 	// Add restore script.
-	script := restoreScriptContent(l.path)
+	script := restoreScriptContent(l.path, artworkDir)
 	hdr := &tar.Header{
 		Name:    "restore.sh",
 		Size:    int64(len(script)),
@@ -190,7 +190,7 @@ func (l *LibraryDB) generateBackup(destPath string) error {
 }
 
 // shellQuote returns s wrapped in single quotes, safe for use in bash scripts.
-// Any single quotes inside s are escaped as '\''.
+// Any single quotes inside s are escaped as '\”.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
@@ -198,8 +198,7 @@ func shellQuote(s string) string {
 // restoreScriptContent returns a bash script that restores the database and
 // artwork files from the extracted archive back to their original locations.
 // Paths are single-quoted to prevent shell injection.
-func restoreScriptContent(dbPath string) string {
-	artworkDir := filepath.Join(filepath.Dir(dbPath), "artwork")
+func restoreScriptContent(dbPath, artworkDir string) string {
 	return fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
 # Oceano collection restore script.
@@ -224,7 +223,7 @@ echo "Restore complete."
 
 // registerBackupRoute wires the /api/library/export/backup endpoint into mux.
 // Each GET request generates a fresh archive and streams it as a download.
-func registerBackupRoute(mux *http.ServeMux, libraryDBPath string) {
+func registerBackupRoute(mux *http.ServeMux, libraryDBPath, artworkDir string) {
 	mux.HandleFunc("/api/library/export/backup", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -250,7 +249,7 @@ func registerBackupRoute(mux *http.ServeMux, libraryDBPath string) {
 		tmp.Close()
 		defer os.Remove(tmpPath)
 
-		if err := lib.generateBackup(tmpPath); err != nil {
+		if err := lib.generateBackup(tmpPath, artworkDir); err != nil {
 			http.Error(w, "backup failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
