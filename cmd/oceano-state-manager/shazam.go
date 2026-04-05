@@ -9,37 +9,33 @@ import (
 	"os/exec"
 )
 
-const shazamPythonScript = `
-import sys, asyncio, json
-from shazamio import Shazam
-
-async def identify():
-    shazam = Shazam()
-    try:
-        result = await shazam.recognize(sys.argv[1])
-    except Exception as e:
-        print(json.dumps({"error": str(e)}))
-        return
-    if 'track' not in result:
-        print(json.dumps({}))
-        return
-    track = result['track']
-	shazam_id = str(track.get('key', '') or '')
-    album = ''
-    for section in track.get('sections', []):
-        if section.get('type') == 'SONG':
-            for meta in section.get('metadata', []):
-                if meta.get('title') == 'Album':
-                    album = meta.get('text', '')
-    print(json.dumps({
-		'shazam_id': shazam_id,
-        'title':  track.get('title', ''),
-        'artist': track.get('subtitle', ''),
-        'album':  album,
-    }))
-
-asyncio.run(identify())
-`
+const shazamPythonScript = "import sys, asyncio, json\n" +
+	"from shazamio import Shazam\n\n" +
+	"async def identify():\n" +
+	"    shazam = Shazam()\n" +
+	"    try:\n" +
+	"        result = await shazam.recognize(sys.argv[1])\n" +
+	"    except Exception as e:\n" +
+	"        print(json.dumps({'error': str(e)}))\n" +
+	"        return\n" +
+	"    if 'track' not in result:\n" +
+	"        print(json.dumps({}))\n" +
+	"        return\n" +
+	"    track = result['track']\n" +
+	"    shazam_id = str(track.get('key', '') or '')\n" +
+	"    album = ''\n" +
+	"    for section in track.get('sections', []):\n" +
+	"        if section.get('type') == 'SONG':\n" +
+	"            for meta in section.get('metadata', []):\n" +
+	"                if meta.get('title') == 'Album':\n" +
+	"                    album = meta.get('text', '')\n" +
+	"    print(json.dumps({\n" +
+	"        'shazam_id': shazam_id,\n" +
+	"        'title': track.get('title', ''),\n" +
+	"        'artist': track.get('subtitle', ''),\n" +
+	"        'album': album,\n" +
+	"    }))\n\n" +
+	"asyncio.run(identify())\n"
 
 // ShazamRecognizer implements Recognizer by shelling out to shazamio
 // (a Python library that calls the Shazam API). It requires a Python

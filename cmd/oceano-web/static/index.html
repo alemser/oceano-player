@@ -889,6 +889,7 @@
 // Advanced values are not shown in the UI but are kept here and sent back on
 // save so they are never accidentally reset to defaults.
 let _advancedConfig = {};
+let _recognitionConfig = {};
 
 async function loadConfig() {
   const r = await fetch('/api/config');
@@ -908,9 +909,10 @@ async function loadConfig() {
   set('rec-secret-key',    cfg.recognition?.acrcloud_secret_key ?? '');
   set('rec-duration',      cfg.recognition?.capture_duration_secs ?? 7);
   set('rec-interval',      cfg.recognition?.max_interval_secs ?? 300);
-  set('rec-confirm-delay', cfg.recognition?.confirmation_delay_secs ?? 2);
+  set('rec-confirm-delay', cfg.recognition?.confirmation_delay_secs ?? 0);
   set('rec-confirm-duration', cfg.recognition?.confirmation_capture_duration_secs ?? 4);
   set('rec-confirm-bypass', cfg.recognition?.confirmation_bypass_score ?? 95);
+  _recognitionConfig = cfg.recognition ?? {};
 
   set('disp-preset',          cfg.display?.ui_preset ?? 'high_contrast_rotate');
   set('disp-cycle-time',      cfg.display?.cycle_time ?? 30);
@@ -1041,12 +1043,13 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       device_match:  val('out-device-match'),
     },
     recognition: {
+      ..._recognitionConfig,
       acrcloud_host:        val('rec-host'),
       acrcloud_access_key:  val('rec-access-key'),
       acrcloud_secret_key:  val('rec-secret-key'),
       capture_duration_secs: intOr('rec-duration', 7),
       max_interval_secs:     intOr('rec-interval', 300),
-      confirmation_delay_secs: intOr('rec-confirm-delay', 2),
+      confirmation_delay_secs: intOr('rec-confirm-delay', 0),
       confirmation_capture_duration_secs: intOr('rec-confirm-duration', 4),
       confirmation_bypass_score: intOr('rec-confirm-bypass', 95),
     },

@@ -38,6 +38,11 @@ var itemRE = regexp.MustCompile(
 	`(?s)<item>\s*<type>([0-9a-fA-F]{8})</type>\s*<code>([0-9a-fA-F]{8})</code>\s*<length>\d+</length>\s*(?:<data encoding="base64">(.*?)</data>)?\s*</item>`,
 )
 
+var (
+	parenSuffixRE = regexp.MustCompile(`\s*[\(\[].*?[\)\]]\s*`)
+	nonWordRE     = regexp.MustCompile(`[^a-z0-9]+`)
+)
+
 // --- Output schema ---
 
 // PlayerState is the unified state written to /tmp/oceano-state.json.
@@ -84,6 +89,12 @@ type Config struct {
 	// ShazamPythonBin is the path to the Python binary in the shazam-env virtualenv.
 	// When set and shazamio is importable, Shazam is used as a fallback after ACRCloud.
 	ShazamPythonBin string
+	// ShazamContinuityInterval controls how often Shazam re-checks if the
+	// current track is still playing (for soft/gapless transitions).
+	ShazamContinuityInterval time.Duration
+	// ShazamContinuityCaptureDuration is the capture duration used by periodic
+	// Shazam continuity checks.
+	ShazamContinuityCaptureDuration time.Duration
 	// PCMSocket is the Unix socket path exposed by oceano-source-detector for raw PCM relay.
 	// The recognizer reads from this socket so it never opens the ALSA device directly.
 	PCMSocket                 string
@@ -136,25 +147,27 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{
-		MetadataPipe:                "/tmp/shairport-sync-metadata",
-		SourceFile:                  "/tmp/oceano-source.json",
-		OutputFile:                  "/tmp/oceano-state.json",
-		ArtworkDir:                  "/var/lib/oceano/artwork",
-		PCMSocket:                   "/tmp/oceano-pcm.sock",
-		VUSocket:                    "/tmp/oceano-vu.sock",
-		RecognizerCaptureDuration:   7 * time.Second,
-		RecognizerMaxInterval:       5 * time.Minute,
-		RecognizerRefreshInterval:   2 * time.Minute,
-		IdleDelay:                   10 * time.Second,
-		LibraryDB:                   "/var/lib/oceano/library.db",
-		FingerprintWindows:          2,
-		FingerprintStrideSec:        4,
-		FingerprintLengthSec:        8,
-		FingerprintThreshold:        0.25,
-		ConfirmationDelay:           2 * time.Second,
-		ConfirmationCaptureDuration: 4 * time.Second,
-		ConfirmationBypassScore:     95,
-		ShazamPythonBin:             "/opt/shazam-env/bin/python",
+		MetadataPipe:                    "/tmp/shairport-sync-metadata",
+		SourceFile:                      "/tmp/oceano-source.json",
+		OutputFile:                      "/tmp/oceano-state.json",
+		ArtworkDir:                      "/var/lib/oceano/artwork",
+		PCMSocket:                       "/tmp/oceano-pcm.sock",
+		VUSocket:                        "/tmp/oceano-vu.sock",
+		RecognizerCaptureDuration:       7 * time.Second,
+		RecognizerMaxInterval:           5 * time.Minute,
+		RecognizerRefreshInterval:       2 * time.Minute,
+		IdleDelay:                       10 * time.Second,
+		LibraryDB:                       "/var/lib/oceano/library.db",
+		FingerprintWindows:              2,
+		FingerprintStrideSec:            4,
+		FingerprintLengthSec:            8,
+		FingerprintThreshold:            0.25,
+		ConfirmationDelay:               0,
+		ConfirmationCaptureDuration:     4 * time.Second,
+		ConfirmationBypassScore:         95,
+		ShazamPythonBin:                 "/opt/shazam-env/bin/python",
+		ShazamContinuityInterval:        8 * time.Second,
+		ShazamContinuityCaptureDuration: 6 * time.Second,
 	}
 }
 
@@ -203,6 +216,9 @@ type mgr struct {
 	// Used by the fallback timer to allow periodic re-checks when no VU boundary
 	// trigger fires (e.g. gapless albums with no audible silence between tracks).
 	lastRecognizedAt time.Time
+	// shazamContinuityReady becomes true when the current track is a Shazam
+	// fallback match, or when Shazam has confirmed the current ACR track.
+	shazamContinuityReady bool
 }
 
 func newMgr(cfg Config) *mgr {
@@ -519,6 +535,7 @@ func (m *mgr) pollSourceFile() {
 		m.recognitionResult = nil
 		m.physicalArtworkPath = ""
 		m.physicalFormat = ""
+		m.shazamContinuityReady = false
 	}
 	needsTrigger := src == "Physical" && m.recognitionResult == nil
 	m.physicalSource = src
@@ -696,7 +713,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 		energyRecoverRatio   = float32(0.75)  // fast > slow*0.75 after dip → boundary
 		energyDipMinFrames   = 7              // dip must sustain ~0.3 s before committing
 		energyWarmupFrames   = 200            // frames before detection is active (~9 s)
-		energyChangeCooldown = 3 * time.Minute
+		energyChangeCooldown = 12 * time.Second
 	)
 
 	buf := make([]byte, 8)
@@ -814,7 +831,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 // display. When confirmRec differs from rec (e.g. Shazam confirming an ACRCloud
 // result), agreement from two independent services is required. When confirmRec
 // is nil, rec itself is used for the second call (same-provider confirmation).
-func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, fpr Fingerprinter, lib *Library) {
+func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, fpr Fingerprinter, lib *Library) {
 	if rec == nil {
 		return
 	}
@@ -826,6 +843,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 	)
 
 	var backoffUntil time.Time
+	backoffRateLimited := false
 
 	fallbackTimer := time.NewTimer(m.cfg.RecognizerMaxInterval)
 	defer fallbackTimer.Stop()
@@ -878,10 +896,14 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 		}
 
 		if wait := time.Until(backoffUntil); wait > 0 {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(wait):
+			if isBoundaryTrigger && !backoffRateLimited {
+				log.Printf("recognizer [%s]: boundary trigger bypasses no-match/error backoff (%s remaining)", rec.Name(), wait)
+			} else {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(wait):
+				}
 			}
 		}
 
@@ -896,9 +918,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 			continue
 		}
 
-		// After a track-boundary trigger, skip the first 2 s of PCM to flush
-		// buffered audio from the previous track and avoid fingerprint false-positives.
-		const boundarySkip = 2 * time.Second
+		// Keep boundary capture immediate so recognition starts as soon as possible
+		// after silence/audio transitions.
+		const boundarySkip = 0 * time.Second
 		var skip time.Duration
 		if isBoundaryTrigger {
 			skip = boundarySkip
@@ -920,6 +942,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 			}
 			log.Printf("recognizer [%s]: capture error: %v", rec.Name(), err)
 			backoffUntil = time.Now().Add(errorBackoff)
+			backoffRateLimited = false
 			continue
 		}
 
@@ -959,6 +982,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 						Format:   localEntry.Format,
 					}
 					m.lastRecognizedAt = time.Now()
+					m.shazamContinuityReady = localEntry.ShazamID != ""
 					if f := strings.ToLower(strings.TrimSpace(localEntry.Format)); f == "cd" || f == "vinyl" {
 						m.physicalFormat = localEntry.Format
 					}
@@ -971,16 +995,21 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 			if errors.Is(err, ErrRateLimit) {
 				log.Printf("recognizer [%s]: rate limited — backing off %s", rec.Name(), rateLimitBackoff)
 				backoffUntil = time.Now().Add(rateLimitBackoff)
+				backoffRateLimited = true
 			} else {
 				backoffUntil = time.Now().Add(errorBackoff)
+				backoffRateLimited = false
 			}
 			continue
 		}
 
 		backoffUntil = time.Time{} // reset backoff on any successful API response
+		backoffRateLimited = false
 
 		if result != nil {
 			log.Printf("recognizer [%s]: score=%d  %s — %s", rec.Name(), result.Score, result.Artist, result.Title)
+			isShazamFallback := result.ShazamID != "" && result.ACRID == ""
+			shazamMatchedACR := false
 
 			// Confirmation: if the result differs from the current track and a
 			// confirmation delay is configured, make a second capture to verify.
@@ -1020,6 +1049,8 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 				if isNewTrack {
 					if m.cfg.ConfirmationBypassScore > 0 && result.Score >= m.cfg.ConfirmationBypassScore {
 						log.Printf("recognizer [%s]: high-confidence match (score=%d) — skipping confirmation", rec.Name(), result.Score)
+					} else if isBoundaryTrigger {
+						log.Printf("recognizer [%s]: boundary-triggered recognition — skipping confirmation delay", rec.Name())
 					} else {
 						log.Printf("recognizer [%s]: new track candidate — confirming in %s", rec.Name(), m.cfg.ConfirmationDelay)
 						select {
@@ -1105,13 +1136,17 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 								sameTrack := confirmer == rec &&
 									conf.ACRID != "" && conf.ACRID == result.ACRID
 								if !sameTrack {
-									// Normalise: lowercase title+artist match is sufficient.
-									sameTrack = strings.EqualFold(conf.Title, result.Title) &&
-										strings.EqualFold(conf.Artist, result.Artist)
+									sameTrack = tracksEquivalent(conf.Title, conf.Artist, result.Title, result.Artist)
 								}
 								if sameTrack {
 									log.Printf("recognizer [%s]: confirmed by %s — %s — %s",
 										rec.Name(), confirmer.Name(), result.Artist, result.Title)
+									if shazamRec != nil && confirmer.Name() == shazamRec.Name() {
+										shazamMatchedACR = true
+										if result.ShazamID == "" {
+											result.ShazamID = conf.ShazamID
+										}
+									}
 								} else {
 									log.Printf("recognizer [%s]: confirmation (%s) disagrees (got %s — %s) — keeping original candidate %s — %s",
 										rec.Name(), confirmer.Name(), conf.Artist, conf.Title, result.Artist, result.Title)
@@ -1135,6 +1170,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 					result.Artist = entry.Artist
 					result.Album = entry.Album
 					result.Format = entry.Format
+					if result.ShazamID == "" {
+						result.ShazamID = entry.ShazamID
+					}
 					artworkPath = entry.ArtworkPath
 				}
 
@@ -1176,6 +1214,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 				m.mu.Lock()
 				m.recognitionResult = result
 				m.lastRecognizedAt = time.Now()
+				m.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
 				if f := strings.ToLower(strings.TrimSpace(result.Format)); f == "cd" || f == "vinyl" {
 					m.physicalFormat = result.Format
 				}
@@ -1191,10 +1230,15 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 				m.mu.Lock()
 				m.recognitionResult = result
 				m.lastRecognizedAt = time.Now()
+				m.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
 				if f := strings.ToLower(strings.TrimSpace(result.Format)); f == "cd" || f == "vinyl" {
 					m.physicalFormat = result.Format
 				}
 				m.mu.Unlock()
+			}
+
+			if shazamRec != nil && result.ACRID != "" && !shazamMatchedACR {
+				go m.tryEnableShazamContinuity(ctx, shazamRec, result)
 			}
 
 			// Drain triggers that arrived during capture so we don't immediately re-recognise.
@@ -1228,6 +1272,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 						Format:   localEntry.Format,
 					}
 					m.lastRecognizedAt = time.Now()
+					m.shazamContinuityReady = localEntry.ShazamID != ""
 					if f := strings.ToLower(strings.TrimSpace(localEntry.Format)); f == "cd" || f == "vinyl" {
 						m.physicalFormat = localEntry.Format
 					}
@@ -1274,11 +1319,125 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 				m.mu.Lock()
 				m.recognitionResult = nil
 				m.physicalArtworkPath = ""
+				m.shazamContinuityReady = false
 				m.mu.Unlock()
 			}
 			backoffUntil = time.Now().Add(noMatchBackoff)
+			backoffRateLimited = false
 		}
 		m.markDirty()
+	}
+}
+
+func (m *mgr) tryEnableShazamContinuity(ctx context.Context, shazamRec Recognizer, current *RecognitionResult) {
+	if shazamRec == nil || current == nil || current.ACRID == "" {
+		return
+	}
+	dur := m.cfg.ShazamContinuityCaptureDuration
+	if dur <= 0 {
+		dur = 6 * time.Second
+	}
+	capCtx, cancel := context.WithTimeout(ctx, dur+8*time.Second)
+	wavPath, err := captureFromPCMSocket(capCtx, m.cfg.PCMSocket, dur, 0, os.TempDir())
+	cancel()
+	if err != nil {
+		return
+	}
+	defer os.Remove(wavPath)
+
+	shRes, err := shazamRec.Recognize(ctx, wavPath)
+	if err != nil || shRes == nil {
+		return
+	}
+	if !tracksEquivalent(current.Title, current.Artist, shRes.Title, shRes.Artist) {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recognitionResult == nil {
+		return
+	}
+	if m.recognitionResult.ACRID != current.ACRID {
+		return
+	}
+	m.shazamContinuityReady = true
+	if m.recognitionResult.ShazamID == "" && shRes.ShazamID != "" {
+		m.recognitionResult.ShazamID = shRes.ShazamID
+	}
+	log.Printf("shazam continuity: alignment confirmed for current ACR track (%s — %s)", current.Artist, current.Title)
+}
+
+func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recognizer) {
+	if shazamRec == nil {
+		return
+	}
+	interval := m.cfg.ShazamContinuityInterval
+	if interval <= 0 {
+		interval = 8 * time.Second
+	}
+	captureDur := m.cfg.ShazamContinuityCaptureDuration
+	if captureDur <= 0 {
+		captureDur = 6 * time.Second
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		m.mu.Lock()
+		if m.physicalSource != "Physical" || m.recognitionResult == nil {
+			m.mu.Unlock()
+			continue
+		}
+		current := *m.recognitionResult
+		ready := m.shazamContinuityReady
+		m.mu.Unlock()
+
+		if !ready {
+			continue
+		}
+
+		capCtx, cancel := context.WithTimeout(ctx, captureDur+8*time.Second)
+		wavPath, err := captureFromPCMSocket(capCtx, m.cfg.PCMSocket, captureDur, 0, os.TempDir())
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			continue
+		}
+
+		shRes, recErr := shazamRec.Recognize(ctx, wavPath)
+		os.Remove(wavPath)
+		if recErr != nil || shRes == nil {
+			continue
+		}
+
+		if tracksEquivalent(current.Title, current.Artist, shRes.Title, shRes.Artist) {
+			m.mu.Lock()
+			if m.recognitionResult != nil && sameTrackByProviderIDs(m.recognitionResult, &current) {
+				m.lastRecognizedAt = time.Now()
+				if m.recognitionResult.ShazamID == "" && shRes.ShazamID != "" {
+					m.recognitionResult.ShazamID = shRes.ShazamID
+				}
+			}
+			m.mu.Unlock()
+			continue
+		}
+
+		log.Printf("shazam continuity: mismatch detected (%s — %s vs %s — %s) — triggering immediate re-recognition",
+			current.Artist, current.Title, shRes.Artist, shRes.Title)
+		select {
+		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true}:
+		default:
+		}
 	}
 }
 
@@ -1423,6 +1582,37 @@ func decodeTag(hexStr string) string {
 	return string(b)
 }
 
+func normalizeTrackPart(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = parenSuffixRE.ReplaceAllString(s, " ")
+	s = nonWordRE.ReplaceAllString(s, "")
+	return s
+}
+
+func tracksEquivalent(aTitle, aArtist, bTitle, bArtist string) bool {
+	aT := normalizeTrackPart(aTitle)
+	aA := normalizeTrackPart(aArtist)
+	bT := normalizeTrackPart(bTitle)
+	bA := normalizeTrackPart(bArtist)
+	if aT == "" || aA == "" || bT == "" || bA == "" {
+		return false
+	}
+	return aT == bT && aA == bA
+}
+
+func sameTrackByProviderIDs(a, b *RecognitionResult) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a.ACRID != "" && b.ACRID != "" {
+		return a.ACRID == b.ACRID
+	}
+	if a.ShazamID != "" && b.ShazamID != "" {
+		return a.ShazamID == b.ShazamID
+	}
+	return tracksEquivalent(a.Title, a.Artist, b.Title, b.Artist)
+}
+
 // --- Main ---
 
 func main() {
@@ -1450,6 +1640,8 @@ func main() {
 	flag.DurationVar(&cfg.ConfirmationCaptureDuration, "confirmation-capture-duration", cfg.ConfirmationCaptureDuration, "audio capture duration for confirmation call")
 	flag.IntVar(&cfg.ConfirmationBypassScore, "confirmation-bypass-score", cfg.ConfirmationBypassScore, "skip confirmation when initial provider score is >= this value (0 = always confirm)")
 	flag.StringVar(&cfg.ShazamPythonBin, "shazam-python", cfg.ShazamPythonBin, "path to Python binary with shazamio installed (empty to disable Shazam fallback)")
+	flag.DurationVar(&cfg.ShazamContinuityInterval, "shazam-continuity-interval", cfg.ShazamContinuityInterval, "how often to run Shazam continuity checks for the current track")
+	flag.DurationVar(&cfg.ShazamContinuityCaptureDuration, "shazam-continuity-capture-duration", cfg.ShazamContinuityCaptureDuration, "audio capture duration per periodic Shazam continuity check")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")
@@ -1508,8 +1700,8 @@ func main() {
 	// confirmRec=nil → runRecognizer falls back to using rec for confirmation.
 
 	if rec != nil {
-		log.Printf("recognizer: chain=%s pcm-socket=%s max-interval=%s confirm-delay=%s confirm-capture=%s bypass-score>=%d",
-			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval, cfg.ConfirmationDelay, cfg.ConfirmationCaptureDuration, cfg.ConfirmationBypassScore)
+		log.Printf("recognizer: chain=%s pcm-socket=%s max-interval=%s refresh-interval=%s confirm-delay=%s shazam-continuity=%s",
+			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval, cfg.RecognizerRefreshInterval, cfg.ConfirmationDelay, cfg.ShazamContinuityInterval)
 	}
 
 	fpr := newFingerprinter()
@@ -1525,7 +1717,8 @@ func main() {
 	go m.runShairportReader(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
-	go m.runRecognizer(ctx, rec, confirmRec, fpr, lib)
+	go m.runRecognizer(ctx, rec, confirmRec, shazamRec, fpr, lib)
+	go m.runShazamContinuityMonitor(ctx, shazamRec)
 	go m.runLibrarySync(ctx, lib)
 	m.runWriter(ctx)
 }

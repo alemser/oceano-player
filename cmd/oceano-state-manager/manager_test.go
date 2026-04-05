@@ -371,6 +371,7 @@ func TestConfirmation_DisabledWhenDelayZero(t *testing.T) {
 
 func TestConfirmation_NotNeededForSameTrack(t *testing.T) {
 	cfg := defaultConfig()
+	cfg.ConfirmationDelay = 2 * time.Second
 	// Result ACRID matches current — no confirmation needed.
 	if confirmationNeeded(cfg, "acr-001", "acr-001") {
 		t.Error("confirmation should not be needed when result matches current track")
@@ -379,6 +380,7 @@ func TestConfirmation_NotNeededForSameTrack(t *testing.T) {
 
 func TestConfirmation_NeededForNewTrack(t *testing.T) {
 	cfg := defaultConfig()
+	cfg.ConfirmationDelay = 2 * time.Second
 	if !confirmationNeeded(cfg, "acr-001", "acr-002") {
 		t.Error("confirmation should be needed when result differs from current track")
 	}
@@ -386,6 +388,7 @@ func TestConfirmation_NeededForNewTrack(t *testing.T) {
 
 func TestConfirmation_NeededWhenNoCurrentTrack(t *testing.T) {
 	cfg := defaultConfig()
+	cfg.ConfirmationDelay = 2 * time.Second
 	// No track playing yet (currentACRID=""), result is new.
 	if !confirmationNeeded(cfg, "", "acr-001") {
 		t.Error("confirmation should be needed when there is no current track")
