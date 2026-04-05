@@ -702,8 +702,8 @@
       <div class="field">
         <label><span>Capture duration (seconds)</span></label>
         <input type="number" id="rec-duration" name="rec-duration"
-               step="1" min="5" max="30" placeholder="10">
-        <div class="hint">Audio sent per attempt. ACRCloud works well with 10s; minimum ~5s.</div>
+               step="1" min="5" max="30" placeholder="7">
+        <div class="hint">Audio sent per attempt. Recommended 6-8s for lower latency.</div>
       </div>
 
       <div class="field">
@@ -711,6 +711,27 @@
         <input type="number" id="rec-interval" name="rec-interval"
                step="30" min="60" placeholder="300">
         <div class="hint">Fallback interval when no track boundary (silence gap) is detected.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Confirmation delay (seconds)</span></label>
+        <input type="number" id="rec-confirm-delay" name="rec-confirm-delay"
+               step="1" min="0" max="30" placeholder="2">
+        <div class="hint">Wait before confirmation capture. 0 disables confirmation.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Confirmation capture duration (seconds)</span></label>
+        <input type="number" id="rec-confirm-duration" name="rec-confirm-duration"
+               step="1" min="2" max="20" placeholder="4">
+        <div class="hint">Shorter second capture to speed up confirmation.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Confirmation bypass score</span></label>
+        <input type="number" id="rec-confirm-bypass" name="rec-confirm-bypass"
+               step="1" min="0" max="100" placeholder="95">
+        <div class="hint">Skip confirmation when initial score >= value. 0 = always confirm.</div>
       </div>
     </div>
 
@@ -885,8 +906,11 @@ async function loadConfig() {
   set('rec-host',          cfg.recognition?.acrcloud_host ?? '');
   set('rec-access-key',    cfg.recognition?.acrcloud_access_key ?? '');
   set('rec-secret-key',    cfg.recognition?.acrcloud_secret_key ?? '');
-  set('rec-duration',      cfg.recognition?.capture_duration_secs ?? 10);
+  set('rec-duration',      cfg.recognition?.capture_duration_secs ?? 7);
   set('rec-interval',      cfg.recognition?.max_interval_secs ?? 300);
+  set('rec-confirm-delay', cfg.recognition?.confirmation_delay_secs ?? 2);
+  set('rec-confirm-duration', cfg.recognition?.confirmation_capture_duration_secs ?? 4);
+  set('rec-confirm-bypass', cfg.recognition?.confirmation_bypass_score ?? 95);
 
   set('disp-preset',          cfg.display?.ui_preset ?? 'high_contrast_rotate');
   set('disp-cycle-time',      cfg.display?.cycle_time ?? 30);
@@ -1020,8 +1044,11 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       acrcloud_host:        val('rec-host'),
       acrcloud_access_key:  val('rec-access-key'),
       acrcloud_secret_key:  val('rec-secret-key'),
-      capture_duration_secs: parseInt(val('rec-duration'))  || 10,
-      max_interval_secs:     parseInt(val('rec-interval'))  || 300,
+      capture_duration_secs: intOr('rec-duration', 7),
+      max_interval_secs:     intOr('rec-interval', 300),
+      confirmation_delay_secs: intOr('rec-confirm-delay', 2),
+      confirmation_capture_duration_secs: intOr('rec-confirm-duration', 4),
+      confirmation_bypass_score: intOr('rec-confirm-bypass', 95),
     },
     advanced: _advancedConfig,
     display: {
@@ -1049,6 +1076,10 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
 });
 
 function val(id) { return (document.getElementById(id)?.value || '').trim(); }
+function intOr(id, fallback) {
+  const n = parseInt(val(id), 10);
+  return Number.isNaN(n) ? fallback : n;
+}
 
 function toast(msg, isError = false) {
   const el = document.getElementById('toast');

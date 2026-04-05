@@ -119,27 +119,40 @@ type Config struct {
 	// track, the system waits this duration and captures again; only if both results
 	// agree is the display updated. Set to 0 to disable confirmation (update immediately).
 	ConfirmationDelay time.Duration
+	// ConfirmationCaptureDuration is the capture length for the second (confirmation)
+	// recognition call. Keep this shorter than RecognizerCaptureDuration to reduce
+	// end-to-end latency on track changes.
+	ConfirmationCaptureDuration time.Duration
+	// ConfirmationBypassScore skips the second confirmation call when the initial
+	// provider score is already very high. Set to 0 to always require confirmation.
+	ConfirmationBypassScore int
 }
 
 func defaultConfig() Config {
 	return Config{
-		MetadataPipe:              "/tmp/shairport-sync-metadata",
-		SourceFile:                "/tmp/oceano-source.json",
-		OutputFile:                "/tmp/oceano-state.json",
-		ArtworkDir:                "/var/lib/oceano/artwork",
-		PCMSocket:                 "/tmp/oceano-pcm.sock",
-		VUSocket:                  "/tmp/oceano-vu.sock",
-		RecognizerCaptureDuration: 10 * time.Second,
-		RecognizerMaxInterval:     5 * time.Minute,
-		IdleDelay:                 10 * time.Second,
-		LibraryDB:                 "/var/lib/oceano/library.db",
-		FingerprintWindows:        2,
-		FingerprintStrideSec:      4,
-		FingerprintLengthSec:      8,
-		FingerprintThreshold:      0.25,
-		ConfirmationDelay:         10 * time.Second,
-		ShazamPythonBin:           "/opt/shazam-env/bin/python",
+		MetadataPipe:                "/tmp/shairport-sync-metadata",
+		SourceFile:                  "/tmp/oceano-source.json",
+		OutputFile:                  "/tmp/oceano-state.json",
+		ArtworkDir:                  "/var/lib/oceano/artwork",
+		PCMSocket:                   "/tmp/oceano-pcm.sock",
+		VUSocket:                    "/tmp/oceano-vu.sock",
+		RecognizerCaptureDuration:   7 * time.Second,
+		RecognizerMaxInterval:       5 * time.Minute,
+		IdleDelay:                   10 * time.Second,
+		LibraryDB:                   "/var/lib/oceano/library.db",
+		FingerprintWindows:          2,
+		FingerprintStrideSec:        4,
+		FingerprintLengthSec:        8,
+		FingerprintThreshold:        0.25,
+		ConfirmationDelay:           2 * time.Second,
+		ConfirmationCaptureDuration: 4 * time.Second,
+		ConfirmationBypassScore:     95,
+		ShazamPythonBin:             "/opt/shazam-env/bin/python",
 	}
+}
+
+type recognizeTrigger struct {
+	isBoundary bool
 }
 
 // --- Manager ---
@@ -168,7 +181,7 @@ type mgr struct {
 
 	// recognizeTrigger is sent to when a new recognition attempt should start:
 	// on Physical source activation and on track-boundary events from runVUMonitor.
-	recognizeTrigger chan struct{}
+	recognizeTrigger chan recognizeTrigger
 
 	// lastBoundaryAt is the time of the most recent boundary trigger. Used to
 	// prune stubs that were created before ACRCloud had a chance to match the
@@ -187,7 +200,7 @@ func newMgr(cfg Config) *mgr {
 		notify:           make(chan struct{}, 1),
 		physicalSource:   "None",
 		seekUpdatedAt:    time.Now(),
-		recognizeTrigger: make(chan struct{}, 1),
+		recognizeTrigger: make(chan recognizeTrigger, 1),
 	}
 }
 
@@ -511,7 +524,7 @@ func (m *mgr) pollSourceFile() {
 
 	if needsTrigger {
 		select {
-		case m.recognizeTrigger <- struct{}{}:
+		case m.recognizeTrigger <- recognizeTrigger{isBoundary: false}:
 		default:
 		}
 	}
@@ -693,7 +706,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 		// State is cleared later only when a boundary-triggered recognition confirms no match.
 		log.Printf("VU monitor: track boundary detected (%s) — triggering recognition", reason)
 		select {
-		case m.recognizeTrigger <- struct{}{}:
+		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true}:
 		default:
 		}
 	}
@@ -814,8 +827,8 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 		select {
 		case <-ctx.Done():
 			return
-		case <-m.recognizeTrigger:
-			isBoundaryTrigger = true
+		case trig := <-m.recognizeTrigger:
+			isBoundaryTrigger = trig.isBoundary
 			// Stop and drain so the timer doesn't fire spuriously on the next iteration.
 			if !fallbackTimer.Stop() {
 				select {
@@ -974,62 +987,104 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 
 				isNewTrack := result.ACRID == "" || result.ACRID != currentACRID
 				if isNewTrack {
-					log.Printf("recognizer [%s]: new track candidate — confirming in %s", rec.Name(), m.cfg.ConfirmationDelay)
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(m.cfg.ConfirmationDelay):
-					}
-
-					// Use a dedicated confirmer when available (e.g. Shazam cross-checking
-					// an ACRCloud result). Fall back to re-querying rec itself.
-					confirmer := confirmRec
-					if confirmer == nil {
-						confirmer = rec
-					}
-
-					confCtx, confCancel := context.WithTimeout(ctx, m.cfg.RecognizerCaptureDuration+10*time.Second)
-					confWav, confErr := captureFromPCMSocket(confCtx, m.cfg.PCMSocket, m.cfg.RecognizerCaptureDuration, 0, os.TempDir())
-					confCancel()
-
-					if confErr != nil {
-						if ctx.Err() != nil {
-							return
-						}
-						log.Printf("recognizer [%s]: confirmation capture error — accepting original result: %v", rec.Name(), confErr)
+					if m.cfg.ConfirmationBypassScore > 0 && result.Score >= m.cfg.ConfirmationBypassScore {
+						log.Printf("recognizer [%s]: high-confidence match (score=%d) — skipping confirmation", rec.Name(), result.Score)
 					} else {
-						conf, confRecErr := confirmer.Recognize(ctx, confWav)
-						os.Remove(confWav)
-						if ctx.Err() != nil {
+						log.Printf("recognizer [%s]: new track candidate — confirming in %s", rec.Name(), m.cfg.ConfirmationDelay)
+						select {
+						case <-ctx.Done():
 							return
+						case <-time.After(m.cfg.ConfirmationDelay):
 						}
-						if confRecErr != nil {
-							log.Printf("recognizer [%s]: confirmation (%s) error — accepting original result: %v", rec.Name(), confirmer.Name(), confRecErr)
-						} else if conf == nil {
-							log.Printf("recognizer [%s]: confirmation (%s) returned no match — discarding candidate %s — %s",
-								rec.Name(), confirmer.Name(), result.Artist, result.Title)
-							backoffUntil = time.Now().Add(noMatchBackoff)
-							continue
-						} else {
-							// Cross-service confirmation: compare by title+artist (normalised)
-							// since ACRCloud and Shazam use different ID spaces.
-							sameTrack := confirmer == rec &&
-								conf.ACRID != "" && conf.ACRID == result.ACRID
-							if !sameTrack {
-								// Normalise: lowercase title+artist match is sufficient.
-								sameTrack = strings.EqualFold(conf.Title, result.Title) &&
-									strings.EqualFold(conf.Artist, result.Artist)
+
+						// Use a dedicated confirmer when available (e.g. Shazam cross-checking
+						// an ACRCloud result). Fall back to re-querying rec itself.
+						confirmer := confirmRec
+						if confirmer == nil {
+							confirmer = rec
+						}
+
+						confDur := m.cfg.ConfirmationCaptureDuration
+						if confDur <= 0 {
+							confDur = m.cfg.RecognizerCaptureDuration
+						}
+						confCtx, confCancel := context.WithTimeout(ctx, confDur+10*time.Second)
+						confWav, confErr := captureFromPCMSocket(confCtx, m.cfg.PCMSocket, confDur, 0, os.TempDir())
+						confCancel()
+
+						if confErr != nil {
+							if ctx.Err() != nil {
+								return
 							}
-							if sameTrack {
-								log.Printf("recognizer [%s]: confirmed by %s — %s — %s",
+							log.Printf("recognizer [%s]: confirmation capture error — accepting original result: %v", rec.Name(), confErr)
+						} else {
+							confCtx2, confCancel2 := context.WithTimeout(ctx, confDur+10*time.Second)
+							var conf *RecognitionResult
+							var confRecErr error
+							if confirmRec != nil && confirmRec != rec {
+								// Run both recognizers on the same confirmation capture to reduce
+								// latency when both providers are configured.
+								type recOut struct {
+									res *RecognitionResult
+									err error
+								}
+								primaryRec := rec
+								if chain, ok := rec.(*ChainRecognizer); ok && len(chain.chain) > 0 {
+									primaryRec = chain.chain[0]
+								}
+								pCh := make(chan recOut, 1)
+								sCh := make(chan recOut, 1)
+								go func() {
+									r, e := primaryRec.Recognize(confCtx2, confWav)
+									pCh <- recOut{res: r, err: e}
+								}()
+								go func() {
+									r, e := confirmRec.Recognize(confCtx2, confWav)
+									sCh <- recOut{res: r, err: e}
+								}()
+								pOut := <-pCh
+								sOut := <-sCh
+								if sOut.err == nil && sOut.res != nil {
+									conf = sOut.res
+									confRecErr = nil
+								} else {
+									conf = pOut.res
+									if sOut.err != nil {
+										confRecErr = sOut.err
+									} else {
+										confRecErr = pOut.err
+									}
+								}
+							} else {
+								conf, confRecErr = confirmer.Recognize(confCtx2, confWav)
+							}
+							confCancel2()
+							os.Remove(confWav)
+							if ctx.Err() != nil {
+								return
+							}
+							if confRecErr != nil {
+								log.Printf("recognizer [%s]: confirmation (%s) error — accepting original result: %v", rec.Name(), confirmer.Name(), confRecErr)
+							} else if conf == nil {
+								log.Printf("recognizer [%s]: confirmation (%s) returned no match — keeping original candidate %s — %s",
 									rec.Name(), confirmer.Name(), result.Artist, result.Title)
 							} else {
-								log.Printf("recognizer [%s]: confirmation (%s) disagrees (got %s — %s) — discarding candidate %s — %s",
-									rec.Name(), confirmer.Name(), conf.Artist, conf.Title, result.Artist, result.Title)
-								// Two recognizers must agree before updating the display. If they
-								// disagree, reject the candidate and keep the current track.
-								backoffUntil = time.Now().Add(noMatchBackoff)
-								continue
+								// Cross-service confirmation: compare by title+artist (normalised)
+								// since ACRCloud and Shazam use different ID spaces.
+								sameTrack := confirmer == rec &&
+									conf.ACRID != "" && conf.ACRID == result.ACRID
+								if !sameTrack {
+									// Normalise: lowercase title+artist match is sufficient.
+									sameTrack = strings.EqualFold(conf.Title, result.Title) &&
+										strings.EqualFold(conf.Artist, result.Artist)
+								}
+								if sameTrack {
+									log.Printf("recognizer [%s]: confirmed by %s — %s — %s",
+										rec.Name(), confirmer.Name(), result.Artist, result.Title)
+								} else {
+									log.Printf("recognizer [%s]: confirmation (%s) disagrees (got %s — %s) — keeping original candidate %s — %s",
+										rec.Name(), confirmer.Name(), conf.Artist, conf.Title, result.Artist, result.Title)
+								}
 							}
 						}
 					}
@@ -1327,6 +1382,8 @@ func main() {
 	flag.IntVar(&cfg.FingerprintLengthSec, "fingerprint-length", cfg.FingerprintLengthSec, "length in seconds of each fingerprint window")
 	flag.Float64Var(&cfg.FingerprintThreshold, "fingerprint-threshold", cfg.FingerprintThreshold, "maximum BER for a local fingerprint match (0.35 = AcoustID default)")
 	flag.DurationVar(&cfg.ConfirmationDelay, "confirmation-delay", cfg.ConfirmationDelay, "wait before second recognition call to confirm a track change (0 = disabled)")
+	flag.DurationVar(&cfg.ConfirmationCaptureDuration, "confirmation-capture-duration", cfg.ConfirmationCaptureDuration, "audio capture duration for confirmation call")
+	flag.IntVar(&cfg.ConfirmationBypassScore, "confirmation-bypass-score", cfg.ConfirmationBypassScore, "skip confirmation when initial provider score is >= this value (0 = always confirm)")
 	flag.StringVar(&cfg.ShazamPythonBin, "shazam-python", cfg.ShazamPythonBin, "path to Python binary with shazamio installed (empty to disable Shazam fallback)")
 	flag.Parse()
 
@@ -1386,8 +1443,8 @@ func main() {
 	// confirmRec=nil → runRecognizer falls back to using rec for confirmation.
 
 	if rec != nil {
-		log.Printf("recognizer: chain=%s pcm-socket=%s max-interval=%s",
-			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval)
+		log.Printf("recognizer: chain=%s pcm-socket=%s max-interval=%s confirm-delay=%s confirm-capture=%s bypass-score>=%d",
+			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval, cfg.ConfirmationDelay, cfg.ConfirmationCaptureDuration, cfg.ConfirmationBypassScore)
 	}
 
 	fpr := newFingerprinter()

@@ -84,6 +84,13 @@ type RecognitionConfig struct {
 	// MaxIntervalSecs is the fallback re-recognition interval when no
 	// silence gap (track boundary) is detected.
 	MaxIntervalSecs int `json:"max_interval_secs"`
+	// ConfirmationDelaySecs is the delay before the second (confirmation) call.
+	ConfirmationDelaySecs int `json:"confirmation_delay_secs"`
+	// ConfirmationCaptureDurationSecs is the capture length for the confirmation call.
+	ConfirmationCaptureDurationSecs int `json:"confirmation_capture_duration_secs"`
+	// ConfirmationBypassScore skips confirmation when initial score >= value.
+	// Set 0 to always require confirmation.
+	ConfirmationBypassScore int `json:"confirmation_bypass_score"`
 }
 
 // AdvancedConfig holds paths and internal settings that rarely need
@@ -109,9 +116,12 @@ func defaultConfig() Config {
 			DeviceMatch: "",
 		},
 		Recognition: RecognitionConfig{
-			ACRCloudHost:        "identify-eu-west-1.acrcloud.com",
-			CaptureDurationSecs: 10,
-			MaxIntervalSecs:     300,
+			ACRCloudHost:                    "identify-eu-west-1.acrcloud.com",
+			CaptureDurationSecs:             7,
+			MaxIntervalSecs:                 300,
+			ConfirmationDelaySecs:           2,
+			ConfirmationCaptureDurationSecs: 4,
+			ConfirmationBypassScore:         95,
 		},
 		Advanced: AdvancedConfig{
 			VUSocket:     "/tmp/oceano-vu.sock",
@@ -193,6 +203,9 @@ func managerArgs(cfg Config) []string {
 		"--pcm-socket", adv.PCMSocket,
 		"--recognizer-capture-duration", fmt.Sprintf("%ds", rec.CaptureDurationSecs),
 		"--recognizer-max-interval", fmt.Sprintf("%ds", rec.MaxIntervalSecs),
+		"--confirmation-delay", fmt.Sprintf("%ds", rec.ConfirmationDelaySecs),
+		"--confirmation-capture-duration", fmt.Sprintf("%ds", rec.ConfirmationCaptureDurationSecs),
+		"--confirmation-bypass-score", fmt.Sprintf("%d", rec.ConfirmationBypassScore),
 	}
 	if rec.ACRCloudHost != "" {
 		args = append(args,
