@@ -141,7 +141,7 @@ func (c *ChainRecognizer) Name() string {
 
 func (c *ChainRecognizer) Recognize(ctx context.Context, wavPath string) (*RecognitionResult, error) {
 	var lastErr error
-	for _, r := range c.chain {
+	for i, r := range c.chain {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -152,6 +152,11 @@ func (c *ChainRecognizer) Recognize(ctx context.Context, wavPath string) (*Recog
 			continue
 		}
 		if result != nil {
+			if i == 0 {
+				log.Printf("recognizer chain: %s: match %s — %s", r.Name(), result.Artist, result.Title)
+			} else {
+				log.Printf("recognizer chain: %s: fallback match %s — %s", r.Name(), result.Artist, result.Title)
+			}
 			return result, nil
 		}
 		log.Printf("recognizer chain: %s: no match — trying next", r.Name())

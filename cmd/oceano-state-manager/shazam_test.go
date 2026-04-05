@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"testing"
 )
@@ -92,6 +94,33 @@ func TestChainRecognizer_FallsThrough_OnNoMatch(t *testing.T) {
 	}
 	if b.calls != 1 {
 		t.Errorf("second provider should be called once, got %d", b.calls)
+	}
+}
+
+func TestChainRecognizer_LogsShazamFallbackMatch(t *testing.T) {
+	var buf bytes.Buffer
+	prevWriter := log.Writer()
+	prevFlags := log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0)
+	defer log.SetOutput(prevWriter)
+	defer log.SetFlags(prevFlags)
+
+	a := &stubRecognizer{name: "ACRCloud", result: nil}
+	b := &stubRecognizer{name: "Shazam", result: &RecognitionResult{Title: "Exodus", Artist: "Bob Marley"}}
+	chain := NewChainRecognizer(a, b)
+
+	result, err := chain.Recognize(context.Background(), "test.wav")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected Shazam fallback result")
+	}
+
+	got := buf.String()
+	if !strings.Contains(got, "recognizer chain: Shazam: fallback match Bob Marley — Exodus") {
+		t.Fatalf("expected Shazam fallback match log, got %q", got)
 	}
 }
 
