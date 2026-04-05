@@ -109,6 +109,12 @@ type Config struct {
 	// FingerprintThreshold is the maximum BER for a fingerprint to be considered a match.
 	// 0.35 is the threshold used by AcoustID; lower values are stricter.
 	FingerprintThreshold float64
+
+	// ConfirmationDelay is how long to wait before making a second ACRCloud call
+	// to confirm a track change. When a recognition result differs from the current
+	// track, the system waits this duration and captures again; only if both results
+	// agree is the display updated. Set to 0 to disable confirmation (update immediately).
+	ConfirmationDelay time.Duration
 }
 
 func defaultConfig() Config {
@@ -127,6 +133,7 @@ func defaultConfig() Config {
 		FingerprintStrideSec:      4,
 		FingerprintLengthSec:      8,
 		FingerprintThreshold:      0.25,
+		ConfirmationDelay:         10 * time.Second,
 	}
 }
 
@@ -931,6 +938,62 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 
 		if result != nil {
 			log.Printf("recognizer [%s]: score=%d  %s — %s", rec.Name(), result.Score, result.Artist, result.Title)
+
+			// Confirmation: if the result differs from the current track and a
+			// confirmation delay is configured, make a second capture to verify.
+			// This prevents a false-positive on a single recognition call from
+			// switching the display mid-track (e.g. Dire Straits / Exodus albums
+			// where continuous audio bleeds between tracks at a boundary trigger).
+			if m.cfg.ConfirmationDelay > 0 {
+				m.mu.Lock()
+				currentACRID := ""
+				if m.recognitionResult != nil {
+					currentACRID = m.recognitionResult.ACRID
+				}
+				m.mu.Unlock()
+
+				isNewTrack := result.ACRID == "" || result.ACRID != currentACRID
+				if isNewTrack {
+					log.Printf("recognizer [%s]: new track candidate — confirming in %s", rec.Name(), m.cfg.ConfirmationDelay)
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(m.cfg.ConfirmationDelay):
+					}
+
+					confCtx, confCancel := context.WithTimeout(ctx, m.cfg.RecognizerCaptureDuration+10*time.Second)
+					confWav, confErr := captureFromPCMSocket(confCtx, m.cfg.PCMSocket, m.cfg.RecognizerCaptureDuration, 0, os.TempDir())
+					confCancel()
+
+					if confErr != nil {
+						if ctx.Err() != nil {
+							return
+						}
+						log.Printf("recognizer [%s]: confirmation capture error — accepting original result: %v", rec.Name(), confErr)
+					} else {
+						conf, confRecErr := rec.Recognize(ctx, confWav)
+						os.Remove(confWav)
+						if ctx.Err() != nil {
+							return
+						}
+						if confRecErr != nil {
+							log.Printf("recognizer [%s]: confirmation recognize error — accepting original result: %v", rec.Name(), confRecErr)
+						} else if conf == nil {
+							log.Printf("recognizer [%s]: confirmation returned no match — discarding candidate %s — %s", rec.Name(), result.Artist, result.Title)
+							backoffUntil = time.Now().Add(noMatchBackoff)
+							continue
+						} else if conf.ACRID != result.ACRID {
+							log.Printf("recognizer [%s]: confirmation mismatch (got %s — %s) — discarding candidate %s — %s",
+								rec.Name(), conf.Artist, conf.Title, result.Artist, result.Title)
+							// Use the confirmation result instead — it's more recent.
+							result = conf
+						} else {
+							log.Printf("recognizer [%s]: confirmed %s — %s", rec.Name(), result.Artist, result.Title)
+						}
+					}
+				}
+			}
+
 			if lib != nil {
 				artworkPath := ""
 
@@ -1211,6 +1274,7 @@ func main() {
 	flag.IntVar(&cfg.FingerprintStrideSec, "fingerprint-stride", cfg.FingerprintStrideSec, "stride in seconds between fingerprint windows")
 	flag.IntVar(&cfg.FingerprintLengthSec, "fingerprint-length", cfg.FingerprintLengthSec, "length in seconds of each fingerprint window")
 	flag.Float64Var(&cfg.FingerprintThreshold, "fingerprint-threshold", cfg.FingerprintThreshold, "maximum BER for a local fingerprint match (0.35 = AcoustID default)")
+	flag.DurationVar(&cfg.ConfirmationDelay, "confirmation-delay", cfg.ConfirmationDelay, "wait before second ACRCloud call to confirm a track change (0 = disabled)")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")
