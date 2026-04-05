@@ -1,11 +1,11 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
 # Cleanup script: Remove artwork_path from collection records when the
 # referenced file doesn't exist. Useful after migrations or crashes.
 
-DB="${1:=/var/lib/oceano/library.db}"
-DRY_RUN="${2:--}"
+DB="${1:-/var/lib/oceano/library.db}"
+DRY_RUN="${2:-}"
 
 if [[ ! -f "$DB" ]]; then
   echo "Error: Database not found at $DB"
@@ -18,7 +18,7 @@ import os
 import sqlite3
 import sys
 
-db_path, dry_run_flag = sys.argv[1], sys.argv[2]
+db_path, dry_run_flag = sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else ""
 is_dry_run = (dry_run_flag == "--dry-run")
 
 conn = sqlite3.connect(db_path)
