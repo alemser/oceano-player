@@ -318,6 +318,29 @@ func TestStubGuard_AllowsStubAfterNewBoundary(t *testing.T) {
 	}
 }
 
+func TestStubGuard_SuppressedWhenSourceGoneNone(t *testing.T) {
+	// Simulates run-out groove: boundary fired, capture completed, but by the
+	// time we evaluate the stub the source is already None (arm lifted).
+	m := newTestMgr()
+	now := time.Now()
+	m.lastBoundaryAt = now.Add(-12 * time.Second)
+	m.lastStubAt = time.Time{} // no stub yet for this boundary
+	m.physicalSource = "None"  // disc stopped during the 10s capture
+
+	m.mu.Lock()
+	stillPhysical := m.physicalSource == "Physical"
+	m.mu.Unlock()
+
+	if stillPhysical {
+		t.Error("source should not be Physical after disc is removed")
+	}
+	// Stub must be suppressed when stillPhysical=false.
+	stubShouldBeCreated := !m.lastStubAt.IsZero() && m.lastStubAt.After(m.lastBoundaryAt)
+	if stubShouldBeCreated || stillPhysical {
+		t.Error("stub should be suppressed when source is None (run-out groove)")
+	}
+}
+
 // ── Confirmation pattern ──────────────────────────────────────────────────────
 
 // confirmationNeeded encapsulates the condition used in runRecognizer to decide

@@ -1085,9 +1085,10 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 				m.mu.Lock()
 				lastStub := m.lastStubAt
 				lastBoundary := m.lastBoundaryAt
+				stillPhysical := m.physicalSource == "Physical"
 				m.mu.Unlock()
 				stubAlreadyCreated := !lastStub.IsZero() && lastStub.After(lastBoundary)
-				if !stubAlreadyCreated {
+				if !stubAlreadyCreated && stillPhysical {
 					if stub, stubErr := lib.UpsertStub(capturedFPs, m.cfg.FingerprintThreshold, 30); stubErr != nil {
 						log.Printf("recognizer: stub upsert error: %v", stubErr)
 					} else {
@@ -1096,6 +1097,8 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 						m.lastStubAt = time.Now()
 						m.mu.Unlock()
 					}
+				} else if !stillPhysical {
+					log.Printf("recognizer: stub skipped — source is no longer Physical (run-out groove or disc removed)")
 				} else {
 					log.Printf("recognizer: stub skipped — already created for this boundary (lastStub=%s)", lastStub.Format(time.RFC3339))
 				}
