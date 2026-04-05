@@ -126,7 +126,7 @@ func defaultConfig() Config {
 		FingerprintWindows:        2,
 		FingerprintStrideSec:      4,
 		FingerprintLengthSec:      8,
-		FingerprintThreshold:      0.35,
+		FingerprintThreshold:      0.25,
 	}
 }
 

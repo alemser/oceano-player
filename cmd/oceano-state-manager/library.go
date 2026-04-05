@@ -434,6 +434,12 @@ func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxSh
 				worstBest = b
 			}
 		}
+		label := state.entry.Artist + " — " + state.entry.Title
+		if label == " — " {
+			label = fmt.Sprintf("stub id=%d", state.entry.ID)
+		}
+		log.Printf("library: fingerprint candidate id=%d %q per-window best=%v worst-best=%.3f threshold=%.2f",
+			state.entry.ID, label, state.bestBER, worstBest, threshold)
 		if worstBest < bestScore {
 			bestScore = worstBest
 			e := state.entry
