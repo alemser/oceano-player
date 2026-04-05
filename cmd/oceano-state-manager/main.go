@@ -80,6 +80,9 @@ type Config struct {
 	ACRCloudHost      string
 	ACRCloudAccessKey string
 	ACRCloudSecretKey string
+	// ShazamPythonBin is the path to the Python binary in the shazam-env virtualenv.
+	// When set and shazamio is importable, Shazam is used as a fallback after ACRCloud.
+	ShazamPythonBin string
 	// PCMSocket is the Unix socket path exposed by oceano-source-detector for raw PCM relay.
 	// The recognizer reads from this socket so it never opens the ALSA device directly.
 	PCMSocket                 string
@@ -134,6 +137,7 @@ func defaultConfig() Config {
 		FingerprintLengthSec:      8,
 		FingerprintThreshold:      0.25,
 		ConfirmationDelay:         10 * time.Second,
+		ShazamPythonBin:           "/opt/shazam-env/bin/python",
 	}
 }
 
@@ -1277,7 +1281,8 @@ func main() {
 	flag.IntVar(&cfg.FingerprintStrideSec, "fingerprint-stride", cfg.FingerprintStrideSec, "stride in seconds between fingerprint windows")
 	flag.IntVar(&cfg.FingerprintLengthSec, "fingerprint-length", cfg.FingerprintLengthSec, "length in seconds of each fingerprint window")
 	flag.Float64Var(&cfg.FingerprintThreshold, "fingerprint-threshold", cfg.FingerprintThreshold, "maximum BER for a local fingerprint match (0.35 = AcoustID default)")
-	flag.DurationVar(&cfg.ConfirmationDelay, "confirmation-delay", cfg.ConfirmationDelay, "wait before second ACRCloud call to confirm a track change (0 = disabled)")
+	flag.DurationVar(&cfg.ConfirmationDelay, "confirmation-delay", cfg.ConfirmationDelay, "wait before second recognition call to confirm a track change (0 = disabled)")
+	flag.StringVar(&cfg.ShazamPythonBin, "shazam-python", cfg.ShazamPythonBin, "path to Python binary with shazamio installed (empty to disable Shazam fallback)")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")
@@ -1302,15 +1307,30 @@ func main() {
 		}
 	}
 
-	var rec Recognizer
+	var acrRec Recognizer
 	if cfg.ACRCloudHost != "" && cfg.ACRCloudAccessKey != "" && cfg.ACRCloudSecretKey != "" {
-		rec = NewACRCloudRecognizer(ACRCloudConfig{
+		acrRec = NewACRCloudRecognizer(ACRCloudConfig{
 			Host:      cfg.ACRCloudHost,
 			AccessKey: cfg.ACRCloudAccessKey,
 			SecretKey: cfg.ACRCloudSecretKey,
 		})
-		log.Printf("recognizer: ACRCloud enabled (host=%s, pcm-socket=%s, max-interval=%s)",
-			cfg.ACRCloudHost, cfg.PCMSocket, cfg.RecognizerMaxInterval)
+		log.Printf("recognizer: ACRCloud enabled (host=%s)", cfg.ACRCloudHost)
+	}
+
+	var shazamRec Recognizer
+	if cfg.ShazamPythonBin != "" {
+		if s := NewShazamRecognizer(cfg.ShazamPythonBin); s != nil {
+			shazamRec = s
+			log.Printf("recognizer: Shazam enabled (python=%s)", cfg.ShazamPythonBin)
+		} else {
+			log.Printf("recognizer: Shazam unavailable — %s not found or shazamio not installed", cfg.ShazamPythonBin)
+		}
+	}
+
+	rec := NewChainRecognizer(acrRec, shazamRec)
+	if rec != nil {
+		log.Printf("recognizer: chain=%s pcm-socket=%s max-interval=%s",
+			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval)
 	}
 
 	fpr := newFingerprinter()
