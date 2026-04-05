@@ -55,13 +55,26 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 	// This is essential since both the web UI and state-manager write to the database.
 	if err := l.db.Ping(); err != nil {
 		l.close()
+		_ = l.db.Close()
 		return nil, fmt.Errorf("library: ping after open: %w", err)
 	}
-	_, _ = l.db.Exec(`PRAGMA journal_mode=WAL`)
-	_, _ = l.db.Exec(`PRAGMA synchronous=NORMAL`)
+	if _, err := l.db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		_ = l.db.Close()
+		return nil, fmt.Errorf("library: set PRAGMA journal_mode=WAL: %w", err)
+	}
+	if _, err := l.db.Exec(`PRAGMA synchronous=NORMAL`); err != nil {
+		_ = l.db.Close()
+		return nil, fmt.Errorf("library: set PRAGMA synchronous=NORMAL: %w", err)
+	}
 	// Ensure columns added by state-manager migrations are present.
 	// ALTER TABLE returns an error if the column already exists; that is safe to ignore.
-	_, _ = l.db.Exec(`ALTER TABLE collection ADD COLUMN user_confirmed INTEGER NOT NULL DEFAULT 0`)
+	if _, err := l.db.Exec(`ALTER TABLE collection ADD COLUMN user_confirmed INTEGER NOT NULL DEFAULT 0`); err != nil {
+		errText := strings.ToLower(err.Error())
+		if !strings.Contains(errText, "duplicate column name") && !strings.Contains(errText, "already exists") {
+			_ = l.db.Close()
+			return nil, fmt.Errorf("library: ensure collection.user_confirmed column exists: %w", err)
+		}
+	}
 	return l, nil
 }
 
