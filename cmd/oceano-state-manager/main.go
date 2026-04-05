@@ -950,15 +950,10 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 						if fpErr := lib.SaveFingerprints(entryID, capturedFPs); fpErr != nil {
 							log.Printf("recognizer: save fingerprints error: %v", fpErr)
 						}
-					}
-					// If a fingerprint-matched stub was found earlier, delete it now
-					// that we have a confirmed ACRCloud entry for this track.
-					if localEntry != nil && !localEntry.UserConfirmed && localEntry.ID != entryID {
-						if pruneErr := lib.PruneStub(localEntry.ID); pruneErr != nil {
-							log.Printf("recognizer: stub prune error: %v", pruneErr)
-						} else {
-							log.Printf("recognizer: stub %d pruned (merged into entry %d)", localEntry.ID, entryID)
-						}
+						// Delete any orphaned stubs whose fingerprints match this track.
+						// Covers stubs created during earlier no-match cycles, even when
+						// localEntry was nil (different capture offset, still same song).
+						lib.PruneMatchingStubs(capturedFPs, m.cfg.FingerprintThreshold, 30, entryID)
 					}
 				}
 

@@ -421,6 +421,51 @@ func (l *Library) PruneStub(id int64) error {
 	return err
 }
 
+// PruneMatchingStubs scans all unconfirmed stubs (title='', artist='') and
+// deletes any whose stored fingerprints match fps below threshold.
+// excludeID is the just-identified entry so it is never accidentally deleted.
+// Called after a successful ACRCloud recognition to clean up stubs that were
+// created during earlier no-match cycles for the same track.
+func (l *Library) PruneMatchingStubs(fps []Fingerprint, threshold float64, maxShift int, excludeID int64) {
+	rows, err := l.db.Query(`
+		SELECT f.entry_id, f.data FROM fingerprints f
+		JOIN collection c ON c.id = f.entry_id
+		WHERE c.user_confirmed = 0 AND c.title = '' AND c.artist = ''
+		  AND f.entry_id != ?`, excludeID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	matched := make(map[int64]bool)
+	for rows.Next() {
+		var entryID int64
+		var data string
+		if err := rows.Scan(&entryID, &data); err != nil {
+			continue
+		}
+		stored, err := ParseFingerprint(data)
+		if err != nil {
+			continue
+		}
+		for _, fp := range fps {
+			if BER(fp, stored, maxShift) < threshold {
+				matched[entryID] = true
+				break
+			}
+		}
+	}
+	rows.Close()
+
+	for id := range matched {
+		if _, err := l.db.Exec(
+			`DELETE FROM collection WHERE id=? AND title='' AND artist='' AND user_confirmed=0`, id,
+		); err == nil {
+			log.Printf("library: pruned orphaned stub %d", id)
+		}
+	}
+}
+
 // Close closes the underlying database connection.
 func (l *Library) Close() error {
 	return l.db.Close()
