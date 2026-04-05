@@ -530,7 +530,7 @@ func (m *mgr) buildState() PlayerState {
 	log.Printf("Display source: %s", displaySource)
 	if source == "Physical" && m.recognitionResult != nil {
 		format := strings.ToLower(m.recognitionResult.Format)
-		log.Printf("Classified Fformat: %s", format)
+		log.Printf("Classified format: %s", format)
 		switch format {
 		case "cd":
 			displaySource = "CD"
@@ -907,8 +907,6 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 			if lib != nil {
 				artworkPath := ""
 
-				log.Printf("Lookup for ACRID=%s", result.ACRID)
-
 				// Check if we already have this track with user-edited metadata.
 				if entry, lookupErr := lib.Lookup(result.ACRID); lookupErr != nil {
 					log.Printf("recognizer: library lookup error: %v", lookupErr)
@@ -943,10 +941,12 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 
 				m.mu.Lock()
 				m.recognitionResult = result
-				m.physicalArtworkPath = artworkPath
-				// Re-read from DB so we get the path actually stored (handles dedup).
-				if entry, _ := lib.Lookup(result.ACRID); entry != nil {
+				// Re-read from DB so we get the path actually stored (handles dedup and
+				// cases where RecordPlay preserved an existing artwork_path we didn't have).
+				if entry, _ := lib.Lookup(result.ACRID); entry != nil && entry.ArtworkPath != "" {
 					m.physicalArtworkPath = entry.ArtworkPath
+				} else {
+					m.physicalArtworkPath = artworkPath
 				}
 				m.mu.Unlock()
 			} else {
