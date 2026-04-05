@@ -42,9 +42,10 @@ var itemRE = regexp.MustCompile(
 
 // PlayerState is the unified state written to /tmp/oceano-state.json.
 type PlayerState struct {
-	Source    string     `json:"source"` // AirPlay | Vinyl | CD | None
-	State     string     `json:"state"`  // playing | stopped
-	Track     *TrackInfo `json:"track"`  // null when not playing or source is physical without metadata
+	Source    string     `json:"source"`           // AirPlay | Vinyl | CD | Physical | None
+	Format    string     `json:"format,omitempty"` // CD | Vinyl — only present when source is Physical with identified format
+	State     string     `json:"state"`            // playing | stopped
+	Track     *TrackInfo `json:"track"`            // null when not playing or source is physical without metadata
 	UpdatedAt string     `json:"updated_at"`
 }
 
@@ -163,6 +164,7 @@ type mgr struct {
 	lastPhysicalAt      time.Time          // last time physicalSource was "Physical"
 	recognitionResult   *RecognitionResult // last successful recognition; nil until identified
 	physicalArtworkPath string             // artwork path for current physical track (from library or fetch)
+	physicalFormat      string             // "CD" | "Vinyl" — set on recognition success; cleared only on new session
 
 	// recognizeTrigger is sent to when a new recognition attempt should start:
 	// on Physical source activation and on track-boundary events from runVUMonitor.
@@ -492,6 +494,7 @@ func (m *mgr) pollSourceFile() {
 	if newSession {
 		m.recognitionResult = nil
 		m.physicalArtworkPath = ""
+		m.physicalFormat = ""
 	}
 	needsTrigger := src == "Physical" && m.recognitionResult == nil
 	m.physicalSource = src
@@ -546,19 +549,23 @@ func (m *mgr) buildState() PlayerState {
 	}
 
 	var track *TrackInfo
-	// Default: Physical
 	displaySource := source
-	log.Printf("Display source: %s", displaySource)
-	if source == "Physical" && m.recognitionResult != nil {
-		format := strings.ToLower(strings.TrimSpace(m.recognitionResult.Format))
-		log.Printf("Classified format: %s", format)
-		switch format {
+	physFmt := "" // populated when Physical source format is known
+	if source == "Physical" {
+		// physicalFormat persists across track boundaries so source stays
+		// "CD"/"Vinyl" even when recognitionResult is nil between tracks.
+		fmtStr := m.physicalFormat
+		if m.recognitionResult != nil && m.recognitionResult.Format != "" {
+			fmtStr = m.recognitionResult.Format
+		}
+		switch strings.ToLower(strings.TrimSpace(fmtStr)) {
 		case "cd":
 			displaySource = "CD"
+			physFmt = "CD"
 		case "vinyl":
 			displaySource = "Vinyl"
+			physFmt = "Vinyl"
 		}
-		log.Printf("Classified source updated to: %s", displaySource)
 	}
 
 	switch source {
@@ -595,6 +602,7 @@ func (m *mgr) buildState() PlayerState {
 
 	return PlayerState{
 		Source:    displaySource,
+		Format:    physFmt,
 		State:     state,
 		Track:     track,
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
@@ -910,6 +918,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 					Score:    localEntry.Score,
 					Format:   localEntry.Format,
 				}
+				if f := strings.ToLower(strings.TrimSpace(localEntry.Format)); f == "cd" || f == "vinyl" {
+					m.physicalFormat = localEntry.Format
+				}
 				m.physicalArtworkPath = localEntry.ArtworkPath
 				m.mu.Unlock()
 				m.markDirty()
@@ -1076,6 +1087,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 
 				m.mu.Lock()
 				m.recognitionResult = result
+				if f := strings.ToLower(strings.TrimSpace(result.Format)); f == "cd" || f == "vinyl" {
+					m.physicalFormat = result.Format
+				}
 				// Re-read from DB so we get the path actually stored (handles dedup and
 				// cases where RecordPlay preserved an existing artwork_path we didn't have).
 				if entry, _ := lib.Lookup(result.ACRID); entry != nil && entry.ArtworkPath != "" {
@@ -1087,6 +1101,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 			} else {
 				m.mu.Lock()
 				m.recognitionResult = result
+				if f := strings.ToLower(strings.TrimSpace(result.Format)); f == "cd" || f == "vinyl" {
+					m.physicalFormat = result.Format
+				}
 				m.mu.Unlock()
 			}
 
@@ -1199,6 +1216,9 @@ func (m *mgr) syncFromLibrary(lib *Library) {
 		}
 		if m.recognitionResult.Format != entry.Format {
 			m.recognitionResult.Format = entry.Format
+			if f := strings.ToLower(strings.TrimSpace(entry.Format)); f == "cd" || f == "vinyl" {
+				m.physicalFormat = entry.Format
+			}
 			changed = true
 		}
 		if m.physicalArtworkPath != entry.ArtworkPath {
