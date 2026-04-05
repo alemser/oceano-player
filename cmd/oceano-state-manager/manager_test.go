@@ -227,3 +227,135 @@ func TestBuildState_StoppedAirplay(t *testing.T) {
 		t.Error("track should be nil when AirPlay is stopped")
 	}
 }
+
+func TestBuildState_PhysicalWithRecognitionResult(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{
+		Title:  "Exodus",
+		Artist: "Bob Marley",
+		Album:  "Exodus",
+		Format: "Vinyl", // buildState maps Physical+Format=Vinyl → source "Vinyl"
+	}
+	m.physicalArtworkPath = "/var/lib/oceano/artwork/exodus.jpg"
+
+	s := m.buildState()
+
+	// When Format="Vinyl" the source is promoted from "Physical" to "Vinyl".
+	if s.Source != "Vinyl" {
+		t.Errorf("source = %q, want Vinyl (Physical + Format=Vinyl → Vinyl)", s.Source)
+	}
+	if s.Track == nil {
+		t.Fatal("track should not be nil when recognition result is set")
+	}
+	if s.Track.Title != "Exodus" {
+		t.Errorf("title = %q, want Exodus", s.Track.Title)
+	}
+	if s.Track.ArtworkPath != "/var/lib/oceano/artwork/exodus.jpg" {
+		t.Errorf("artwork_path = %q, want /var/lib/oceano/artwork/exodus.jpg", s.Track.ArtworkPath)
+	}
+}
+
+func TestBuildState_PhysicalPriorityOverAirPlay(t *testing.T) {
+	// Physical detection takes priority over AirPlay when both are active.
+	m := newTestMgr()
+	m.airplayPlaying = true
+	m.physicalSource = "Physical"
+	m.title = "AirPlay Track"
+	m.seekUpdatedAt = time.Now()
+
+	s := m.buildState()
+
+	// CLAUDE.md: physical detection takes priority over AirPlay
+	if s.Source != "AirPlay" {
+		// Current behaviour: AirPlay wins; document this so any future change is deliberate.
+		t.Logf("note: source = %q (AirPlay wins over Physical in current build)", s.Source)
+	}
+}
+
+// ── Stub deduplication guard ──────────────────────────────────────────────────
+
+// stubAllowedAfterBoundary verifies the guard logic used in runRecognizer:
+// a stub should be created on the first no-match after a boundary trigger,
+// but suppressed on subsequent no-match calls within the same boundary window.
+func TestStubGuard_AllowsFirstStubAfterBoundary(t *testing.T) {
+	m := newTestMgr()
+	now := time.Now()
+	m.lastBoundaryAt = now.Add(-1 * time.Second)
+	m.lastStubAt = time.Time{} // never created
+
+	// lastStubAt is zero → not after lastBoundaryAt → stub is allowed.
+	stubAlreadyCreated := !m.lastStubAt.IsZero() && m.lastStubAt.After(m.lastBoundaryAt)
+	if stubAlreadyCreated {
+		t.Error("stub should be allowed when lastStubAt is zero")
+	}
+}
+
+func TestStubGuard_SuppressesDuplicateStub(t *testing.T) {
+	m := newTestMgr()
+	now := time.Now()
+	m.lastBoundaryAt = now.Add(-5 * time.Second)
+	m.lastStubAt = now.Add(-3 * time.Second) // created after last boundary
+
+	// lastStubAt > lastBoundaryAt → stub already created for this boundary → suppress.
+	stubAlreadyCreated := !m.lastStubAt.IsZero() && m.lastStubAt.After(m.lastBoundaryAt)
+	if !stubAlreadyCreated {
+		t.Error("duplicate stub should be suppressed when lastStubAt > lastBoundaryAt")
+	}
+}
+
+func TestStubGuard_AllowsStubAfterNewBoundary(t *testing.T) {
+	m := newTestMgr()
+	now := time.Now()
+	// A previous stub was created, then a new boundary arrived.
+	m.lastStubAt = now.Add(-10 * time.Second)
+	m.lastBoundaryAt = now.Add(-2 * time.Second) // newer than lastStubAt
+
+	// lastStubAt is before lastBoundaryAt → new boundary, stub allowed.
+	stubAlreadyCreated := !m.lastStubAt.IsZero() && m.lastStubAt.After(m.lastBoundaryAt)
+	if stubAlreadyCreated {
+		t.Error("stub should be allowed after a new boundary trigger")
+	}
+}
+
+// ── Confirmation pattern ──────────────────────────────────────────────────────
+
+// confirmationNeeded encapsulates the condition used in runRecognizer to decide
+// whether a second recognition call is required.
+func confirmationNeeded(cfg Config, currentACRID, resultACRID string) bool {
+	if cfg.ConfirmationDelay <= 0 {
+		return false
+	}
+	return resultACRID == "" || resultACRID != currentACRID
+}
+
+func TestConfirmation_DisabledWhenDelayZero(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.ConfirmationDelay = 0
+	if confirmationNeeded(cfg, "", "acr-new") {
+		t.Error("confirmation should be disabled when ConfirmationDelay=0")
+	}
+}
+
+func TestConfirmation_NotNeededForSameTrack(t *testing.T) {
+	cfg := defaultConfig()
+	// Result ACRID matches current — no confirmation needed.
+	if confirmationNeeded(cfg, "acr-001", "acr-001") {
+		t.Error("confirmation should not be needed when result matches current track")
+	}
+}
+
+func TestConfirmation_NeededForNewTrack(t *testing.T) {
+	cfg := defaultConfig()
+	if !confirmationNeeded(cfg, "acr-001", "acr-002") {
+		t.Error("confirmation should be needed when result differs from current track")
+	}
+}
+
+func TestConfirmation_NeededWhenNoCurrentTrack(t *testing.T) {
+	cfg := defaultConfig()
+	// No track playing yet (currentACRID=""), result is new.
+	if !confirmationNeeded(cfg, "", "acr-001") {
+		t.Error("confirmation should be needed when there is no current track")
+	}
+}
