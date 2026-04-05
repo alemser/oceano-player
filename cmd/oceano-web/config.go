@@ -133,7 +133,7 @@ func defaultConfig() Config {
 			ConfirmationCaptureDurationSecs:     4,
 			ConfirmationBypassScore:             95,
 			ShazamContinuityIntervalSecs:        8,
-			ShazamContinuityCaptureDurationSecs: 6,
+			ShazamContinuityCaptureDurationSecs: 4,
 		},
 		Advanced: AdvancedConfig{
 			VUSocket:     "/tmp/oceano-vu.sock",

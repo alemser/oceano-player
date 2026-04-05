@@ -167,7 +167,7 @@ func defaultConfig() Config {
 		ConfirmationBypassScore:         95,
 		ShazamPythonBin:                 "/opt/shazam-env/bin/python",
 		ShazamContinuityInterval:        8 * time.Second,
-		ShazamContinuityCaptureDuration: 6 * time.Second,
+		ShazamContinuityCaptureDuration: 4 * time.Second,
 	}
 }
 
@@ -1083,6 +1083,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 							confCtx2, confCancel2 := context.WithTimeout(ctx, confDur+10*time.Second)
 							var conf *RecognitionResult
 							var confRecErr error
+							confProviderName := confirmer.Name()
 							if confirmRec != nil && confirmRec != rec {
 								// Run both recognizers on the same confirmation capture to reduce
 								// latency when both providers are configured.
@@ -1106,21 +1107,10 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 								}()
 								pOut := <-pCh
 								sOut := <-sCh
-								// Prefer the primary recognizer (ACRCloud); use Shazam only
-								// as fallback so the provider hierarchy is respected.
-								if pOut.err == nil && pOut.res != nil {
-									conf = pOut.res
-									confRecErr = nil
-								} else if sOut.err == nil && sOut.res != nil {
-									conf = sOut.res
-									confRecErr = nil
-								} else {
-									if pOut.err != nil {
-										confRecErr = pOut.err
-									} else {
-										confRecErr = sOut.err
-									}
-								}
+								conf, confRecErr, confProviderName = chooseConfirmationResult(
+									primaryRec.Name(), pOut.res, pOut.err,
+									confirmRec.Name(), sOut.res, sOut.err,
+								)
 							} else {
 								conf, confRecErr = confirmer.Recognize(confCtx2, confWav)
 							}
@@ -1130,22 +1120,22 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 								return
 							}
 							if confRecErr != nil {
-								log.Printf("recognizer [%s]: confirmation (%s) error — accepting original result: %v", rec.Name(), confirmer.Name(), confRecErr)
+								log.Printf("recognizer [%s]: confirmation (%s) error — accepting original result: %v", rec.Name(), confProviderName, confRecErr)
 							} else if conf == nil {
 								log.Printf("recognizer [%s]: confirmation (%s) returned no match — keeping original candidate %s — %s",
-									rec.Name(), confirmer.Name(), result.Artist, result.Title)
+									rec.Name(), confProviderName, result.Artist, result.Title)
 							} else {
 								// Cross-service confirmation: compare by title+artist (normalised)
 								// since ACRCloud and Shazam use different ID spaces.
-								sameTrack := confirmer == rec &&
+								sameTrack := confProviderName == rec.Name() &&
 									conf.ACRID != "" && conf.ACRID == result.ACRID
 								if !sameTrack {
 									sameTrack = tracksEquivalent(conf.Title, conf.Artist, result.Title, result.Artist)
 								}
 								if sameTrack {
 									log.Printf("recognizer [%s]: confirmed by %s — %s — %s",
-										rec.Name(), confirmer.Name(), result.Artist, result.Title)
-									if shazamRec != nil && confirmer.Name() == shazamRec.Name() {
+										rec.Name(), confProviderName, result.Artist, result.Title)
+									if shazamRec != nil && confProviderName == shazamRec.Name() {
 										shazamMatchedACR = true
 										if result.ShazamID == "" {
 											result.ShazamID = conf.ShazamID
@@ -1153,7 +1143,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 									}
 								} else {
 									log.Printf("recognizer [%s]: confirmation (%s) disagrees (got %s — %s) — keeping original candidate %s — %s",
-										rec.Name(), confirmer.Name(), conf.Artist, conf.Title, result.Artist, result.Title)
+										rec.Name(), confProviderName, conf.Artist, conf.Title, result.Artist, result.Title)
 								}
 							}
 						}
@@ -1390,16 +1380,16 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 	}
 	captureDur := m.cfg.ShazamContinuityCaptureDuration
 	if captureDur <= 0 {
-		captureDur = 6 * time.Second
+		captureDur = 4 * time.Second
 	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
 	for {
-		// Wait interval *after* each check completes so a slow Shazam API response
-		// never causes overlapping captures that compete with the main recognizer.
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(interval):
+		case <-ticker.C:
 		}
 
 		m.mu.Lock()
@@ -1634,6 +1624,29 @@ func sameTrackByProviderIDs(a, b *RecognitionResult) bool {
 		return a.ShazamID == b.ShazamID
 	}
 	return tracksEquivalent(a.Title, a.Artist, b.Title, b.Artist)
+}
+
+func chooseConfirmationResult(
+	primaryName string,
+	primaryRes *RecognitionResult,
+	primaryErr error,
+	confirmName string,
+	confirmRes *RecognitionResult,
+	confirmErr error,
+) (*RecognitionResult, error, string) {
+	if confirmErr == nil && confirmRes != nil {
+		return confirmRes, nil, confirmName
+	}
+	if primaryErr == nil && primaryRes != nil {
+		return primaryRes, nil, primaryName
+	}
+	if confirmErr != nil {
+		return nil, confirmErr, confirmName
+	}
+	if primaryErr != nil {
+		return nil, primaryErr, primaryName
+	}
+	return nil, nil, ""
 }
 
 // --- Main ---

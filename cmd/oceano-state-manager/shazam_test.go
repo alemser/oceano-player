@@ -286,6 +286,64 @@ func TestCrossServiceMatch_DifferentACRID_SameProvider_NoTitleMatch(t *testing.T
 	}
 }
 
+// ── Confirmation result selection ───────────────────────────────────────────
+
+func TestChooseConfirmationResult_PrefersConfirmerMatch(t *testing.T) {
+	primary := &RecognitionResult{ACRID: "acr-001", Title: "Track A", Artist: "Artist"}
+	confirm := &RecognitionResult{ShazamID: "shz-001", Title: "Track A", Artist: "Artist"}
+
+	res, err, provider := chooseConfirmationResult(
+		"ACRCloud", primary, nil,
+		"Shazam", confirm, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res != confirm {
+		t.Fatalf("expected confirmer result, got %#v", res)
+	}
+	if provider != "Shazam" {
+		t.Fatalf("expected provider Shazam, got %q", provider)
+	}
+}
+
+func TestChooseConfirmationResult_FallsBackToPrimaryWithoutClaimingShazam(t *testing.T) {
+	primary := &RecognitionResult{ACRID: "acr-001", Title: "Track A", Artist: "Artist"}
+
+	res, err, provider := chooseConfirmationResult(
+		"ACRCloud", primary, nil,
+		"Shazam", nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res != primary {
+		t.Fatalf("expected primary result, got %#v", res)
+	}
+	if provider != "ACRCloud" {
+		t.Fatalf("expected provider ACRCloud, got %q", provider)
+	}
+}
+
+func TestChooseConfirmationResult_ReturnsConfirmerErrorBeforePrimaryError(t *testing.T) {
+	confirmErr := errors.New("shazam timeout")
+	primaryErr := errors.New("acr timeout")
+
+	res, err, provider := chooseConfirmationResult(
+		"ACRCloud", nil, primaryErr,
+		"Shazam", nil, confirmErr,
+	)
+	if res != nil {
+		t.Fatalf("expected nil result, got %#v", res)
+	}
+	if !errors.Is(err, confirmErr) {
+		t.Fatalf("expected confirmer error, got %v", err)
+	}
+	if provider != "Shazam" {
+		t.Fatalf("expected provider Shazam, got %q", provider)
+	}
+}
+
 // ── NewShazamRecognizer ───────────────────────────────────────────────────────
 
 func TestNewShazamRecognizer_ReturnsNilWhenBinaryMissing(t *testing.T) {
