@@ -62,14 +62,28 @@ var migrations = []string{
 
 	// v8: ensure the fingerprints table exists on databases that were created
 	// by an older schema where the table was named 'track_fingerprints'.
-	// The RENAME is skipped if 'fingerprints' already exists (fresh installs).
+	// The CREATE is a no-op if 'fingerprints' already exists (fresh installs).
 	`CREATE TABLE IF NOT EXISTS fingerprints (
 		id       INTEGER PRIMARY KEY AUTOINCREMENT,
 		entry_id INTEGER NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
 		data     TEXT    NOT NULL
 	)`,
-	// v9: ensure the index exists (idempotent).
-	`CREATE INDEX IF NOT EXISTS fingerprints_entry_id ON fingerprints(entry_id)`,
+
+	// v9: placeholder — the original v9 attempted CREATE INDEX but could fail on
+	// databases where the renamed 'fingerprints' table had different column names.
+	// Replaced by v10–v12 which rebuild the table with the correct schema.
+	`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,
+
+	// v10–v12: rebuild fingerprints with the correct schema. Older deployments may
+	// have had the table renamed from 'track_fingerprints' with incompatible columns.
+	// Dropping and recreating is safe — fingerprints are re-captured on next play.
+	`DROP TABLE IF EXISTS fingerprints`,
+	`CREATE TABLE fingerprints (
+		id       INTEGER PRIMARY KEY AUTOINCREMENT,
+		entry_id INTEGER NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
+		data     TEXT    NOT NULL
+	)`,
+	`CREATE INDEX fingerprints_entry_id ON fingerprints(entry_id)`,
 }
 
 // Library persists physical-media recognition results to a local SQLite
