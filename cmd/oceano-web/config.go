@@ -82,8 +82,11 @@ type RecognitionConfig struct {
 	// recognition attempt. ACRCloud works well with 10s; minimum ~5s.
 	CaptureDurationSecs int `json:"capture_duration_secs"`
 	// MaxIntervalSecs is the fallback re-recognition interval when no
-	// silence gap (track boundary) is detected.
+	// silence gap (track boundary) is detected and no track is identified.
 	MaxIntervalSecs int `json:"max_interval_secs"`
+	// RefreshIntervalSecs is how soon to re-check after a successful recognition
+	// to catch gapless track changes (no silence gap). 0 = disabled.
+	RefreshIntervalSecs int `json:"refresh_interval_secs"`
 	// ConfirmationDelaySecs is the delay before the second (confirmation) call.
 	ConfirmationDelaySecs int `json:"confirmation_delay_secs"`
 	// ConfirmationCaptureDurationSecs is the capture length for the confirmation call.
@@ -119,6 +122,7 @@ func defaultConfig() Config {
 			ACRCloudHost:                    "identify-eu-west-1.acrcloud.com",
 			CaptureDurationSecs:             7,
 			MaxIntervalSecs:                 300,
+			RefreshIntervalSecs:             120,
 			ConfirmationDelaySecs:           2,
 			ConfirmationCaptureDurationSecs: 4,
 			ConfirmationBypassScore:         95,
@@ -203,6 +207,7 @@ func managerArgs(cfg Config) []string {
 		"--pcm-socket", adv.PCMSocket,
 		"--recognizer-capture-duration", fmt.Sprintf("%ds", rec.CaptureDurationSecs),
 		"--recognizer-max-interval", fmt.Sprintf("%ds", rec.MaxIntervalSecs),
+		"--recognizer-refresh-interval", fmt.Sprintf("%ds", rec.RefreshIntervalSecs),
 		"--confirmation-delay", fmt.Sprintf("%ds", rec.ConfirmationDelaySecs),
 		"--confirmation-capture-duration", fmt.Sprintf("%ds", rec.ConfirmationCaptureDurationSecs),
 		"--confirmation-bypass-score", fmt.Sprintf("%d", rec.ConfirmationBypassScore),

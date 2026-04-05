@@ -88,10 +88,16 @@ type Config struct {
 	// The recognizer reads from this socket so it never opens the ALSA device directly.
 	PCMSocket                 string
 	RecognizerCaptureDuration time.Duration
-	// RecognizerMaxInterval is the periodic fallback re-recognition interval.
-	// On timer-based fires the previous result is kept on a no-match, so the
-	// display is not blanked mid-track; only boundary-triggered attempts clear it.
+	// RecognizerMaxInterval is the periodic fallback re-recognition interval used
+	// when no track has been identified yet. On timer-based fires the previous
+	// result is kept on a no-match so the display is not blanked mid-track.
 	RecognizerMaxInterval time.Duration
+	// RecognizerRefreshInterval is how soon to re-check after a successful
+	// recognition. Shorter than RecognizerMaxInterval so gapless track changes
+	// (no silence gap) are caught within a reasonable time. The timer only
+	// triggers if the full interval has elapsed since the last recognition.
+	// Set to 0 to disable refresh (only boundary triggers will re-recognise).
+	RecognizerRefreshInterval time.Duration
 	// VUSocket is the Unix socket path for VU frames from oceano-source-detector.
 	// The state manager subscribes to detect silence→audio transitions (track boundaries)
 	// and uses them to trigger recognition at the right moment.
@@ -138,6 +144,7 @@ func defaultConfig() Config {
 		VUSocket:                    "/tmp/oceano-vu.sock",
 		RecognizerCaptureDuration:   7 * time.Second,
 		RecognizerMaxInterval:       5 * time.Minute,
+		RecognizerRefreshInterval:   2 * time.Minute,
 		IdleDelay:                   10 * time.Second,
 		LibraryDB:                   "/var/lib/oceano/library.db",
 		FingerprintWindows:          2,
@@ -192,6 +199,10 @@ type mgr struct {
 	// multiple boundary triggers within the same track (brief musical pauses,
 	// run-out groove noise at end of side, etc.).
 	lastStubAt time.Time
+	// lastRecognizedAt is the time of the most recent successful recognition.
+	// Used by the fallback timer to allow periodic re-checks when no VU boundary
+	// trigger fires (e.g. gapless albums with no audible silence between tracks).
+	lastRecognizedAt time.Time
 }
 
 func newMgr(cfg Config) *mgr {
@@ -838,18 +849,31 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 			}
 			fallbackTimer.Reset(m.cfg.RecognizerMaxInterval)
 		case <-fallbackTimer.C:
-			fallbackTimer.Reset(m.cfg.RecognizerMaxInterval)
 			m.mu.Lock()
 			isPhysical := m.physicalSource == "Physical"
 			hasRecognition := m.recognitionResult != nil
+			lastRecogAt := m.lastRecognizedAt
 			m.mu.Unlock()
 			if !isPhysical {
+				fallbackTimer.Reset(m.cfg.RecognizerMaxInterval)
 				continue
 			}
-			// When a track is already identified, wait for an explicit boundary trigger
-			// instead of re-recognizing the same song on every fallback interval.
 			if hasRecognition {
-				continue
+				// A track is already identified. Use the shorter refresh interval
+				// to catch gapless transitions; fall back to max interval when
+				// refresh is disabled (zero).
+				refresh := m.cfg.RecognizerRefreshInterval
+				if refresh <= 0 {
+					refresh = m.cfg.RecognizerMaxInterval
+				}
+				if time.Since(lastRecogAt) < refresh {
+					fallbackTimer.Reset(refresh - time.Since(lastRecogAt))
+					continue
+				}
+				// Refresh interval elapsed — proceed but arm next fire at refresh cadence.
+				fallbackTimer.Reset(refresh)
+			} else {
+				fallbackTimer.Reset(m.cfg.RecognizerMaxInterval)
 			}
 		}
 
@@ -934,6 +958,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 						Score:    localEntry.Score,
 						Format:   localEntry.Format,
 					}
+					m.lastRecognizedAt = time.Now()
 					if f := strings.ToLower(strings.TrimSpace(localEntry.Format)); f == "cd" || f == "vinyl" {
 						m.physicalFormat = localEntry.Format
 					}
@@ -981,6 +1006,16 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 					isNewTrack = result.ShazamID != currentShazamID
 				} else {
 					isNewTrack = currentACRID == "" && currentShazamID == ""
+				}
+				// Timer-fired re-recognition confirmed the same track is still
+				// playing — reset the refresh window but skip library recording
+				// and display updates to avoid duplicate play counts.
+				if !isNewTrack && !isBoundaryTrigger {
+					log.Printf("recognizer [%s]: same track confirmed — no change (%s — %s)", rec.Name(), result.Artist, result.Title)
+					m.mu.Lock()
+					m.lastRecognizedAt = time.Now()
+					m.mu.Unlock()
+					continue
 				}
 				if isNewTrack {
 					if m.cfg.ConfirmationBypassScore > 0 && result.Score >= m.cfg.ConfirmationBypassScore {
@@ -1140,6 +1175,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 
 				m.mu.Lock()
 				m.recognitionResult = result
+				m.lastRecognizedAt = time.Now()
 				if f := strings.ToLower(strings.TrimSpace(result.Format)); f == "cd" || f == "vinyl" {
 					m.physicalFormat = result.Format
 				}
@@ -1154,6 +1190,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 			} else {
 				m.mu.Lock()
 				m.recognitionResult = result
+				m.lastRecognizedAt = time.Now()
 				if f := strings.ToLower(strings.TrimSpace(result.Format)); f == "cd" || f == "vinyl" {
 					m.physicalFormat = result.Format
 				}
@@ -1190,6 +1227,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 						Score:    localEntry.Score,
 						Format:   localEntry.Format,
 					}
+					m.lastRecognizedAt = time.Now()
 					if f := strings.ToLower(strings.TrimSpace(localEntry.Format)); f == "cd" || f == "vinyl" {
 						m.physicalFormat = localEntry.Format
 					}
@@ -1401,6 +1439,7 @@ func main() {
 	flag.StringVar(&cfg.VUSocket, "vu-socket", cfg.VUSocket, "Unix socket for VU frames from oceano-source-detector")
 	flag.DurationVar(&cfg.RecognizerCaptureDuration, "recognizer-capture-duration", cfg.RecognizerCaptureDuration, "audio capture duration per recognition attempt")
 	flag.DurationVar(&cfg.RecognizerMaxInterval, "recognizer-max-interval", cfg.RecognizerMaxInterval, "fallback re-recognition interval when no track boundary is detected and no result is held")
+	flag.DurationVar(&cfg.RecognizerRefreshInterval, "recognizer-refresh-interval", cfg.RecognizerRefreshInterval, "how soon to re-check after a successful recognition to catch gapless track changes (0 = disabled)")
 	flag.DurationVar(&cfg.IdleDelay, "idle-delay", cfg.IdleDelay, "how long to keep showing the last track after audio stops before switching to idle screen")
 	flag.StringVar(&cfg.LibraryDB, "library-db", cfg.LibraryDB, "path to SQLite library database (empty to disable)")
 	flag.IntVar(&cfg.FingerprintWindows, "fingerprint-windows", cfg.FingerprintWindows, "number of fingerprint windows to generate per recognition capture")
