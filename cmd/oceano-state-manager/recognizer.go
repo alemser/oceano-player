@@ -20,6 +20,7 @@ var ErrRateLimit = errors.New("recognition: rate limit exceeded")
 // RecognitionResult holds the identified track metadata.
 type RecognitionResult struct {
 	ACRID    string // ACRCloud unique track ID
+	ShazamID string // Shazam track key/ID
 	Title    string
 	Artist   string
 	Album    string
@@ -102,8 +103,8 @@ func writePCMAsWAV(pcm []byte, sampleRate, channels int, path string) error {
 	hdr.WriteString("RIFF")
 	binary.Write(&hdr, binary.LittleEndian, uint32(36+len(pcm)))
 	hdr.WriteString("WAVEfmt ")
-	binary.Write(&hdr, binary.LittleEndian, uint32(16))              // PCM chunk size
-	binary.Write(&hdr, binary.LittleEndian, uint16(1))               // PCM format
+	binary.Write(&hdr, binary.LittleEndian, uint32(16)) // PCM chunk size
+	binary.Write(&hdr, binary.LittleEndian, uint16(1))  // PCM format
 	binary.Write(&hdr, binary.LittleEndian, uint16(channels))
 	binary.Write(&hdr, binary.LittleEndian, uint32(sampleRate))
 	binary.Write(&hdr, binary.LittleEndian, uint32(byteRate))

@@ -841,8 +841,14 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 			fallbackTimer.Reset(m.cfg.RecognizerMaxInterval)
 			m.mu.Lock()
 			isPhysical := m.physicalSource == "Physical"
+			hasRecognition := m.recognitionResult != nil
 			m.mu.Unlock()
 			if !isPhysical {
+				continue
+			}
+			// When a track is already identified, wait for an explicit boundary trigger
+			// instead of re-recognizing the same song on every fallback interval.
+			if hasRecognition {
 				continue
 			}
 		}
@@ -899,56 +905,6 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 			m.cfg.FingerprintWindows, m.cfg.FingerprintStrideSec,
 			m.cfg.FingerprintLengthSec, captureSec)
 
-		// Check local fingerprint cache before querying ACRCloud.
-		// localEntry is declared here so it is visible in the ACRCloud block below
-		// for stub pruning after a successful recognition.
-		var localEntry *CollectionEntry
-		if len(capturedFPs) > 0 && lib != nil {
-			var fpErr error
-			localEntry, fpErr = lib.FindByFingerprints(capturedFPs, m.cfg.FingerprintThreshold, 30)
-			if fpErr != nil {
-				log.Printf("recognizer: fingerprint lookup error: %v", fpErr)
-			} else if localEntry != nil && localEntry.UserConfirmed {
-				log.Printf("recognizer: local fingerprint match (id=%d %s — %s) — skipping ACRCloud",
-					localEntry.ID, localEntry.Artist, localEntry.Title)
-				// Only store fingerprints on first encounter — accumulating more
-				// vectors per entry increases false-positive probability on lookup.
-				if isBoundaryTrigger && !lib.HasFingerprints(localEntry.ID) {
-					if fpSaveErr := lib.SaveFingerprints(localEntry.ID, capturedFPs); fpSaveErr != nil {
-						log.Printf("recognizer: save fingerprints (cache hit): %v", fpSaveErr)
-					}
-				}
-				os.Remove(wavPath)
-				backoffUntil = time.Time{}
-				m.mu.Lock()
-				m.recognitionResult = &RecognitionResult{
-					ACRID:    localEntry.ACRID,
-					Title:    localEntry.Title,
-					Artist:   localEntry.Artist,
-					Album:    localEntry.Album,
-					Label:    localEntry.Label,
-					Released: localEntry.Released,
-					Score:    localEntry.Score,
-					Format:   localEntry.Format,
-				}
-				if f := strings.ToLower(strings.TrimSpace(localEntry.Format)); f == "cd" || f == "vinyl" {
-					m.physicalFormat = localEntry.Format
-				}
-				m.physicalArtworkPath = localEntry.ArtworkPath
-				m.mu.Unlock()
-				m.markDirty()
-				for {
-					select {
-					case <-m.recognizeTrigger:
-					default:
-						goto fpDrained
-					}
-				}
-			fpDrained:
-				continue
-			}
-		}
-
 		result, err := rec.Recognize(ctx, wavPath)
 		os.Remove(wavPath)
 
@@ -957,11 +913,40 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 		}
 
 		if err != nil {
+			log.Printf("recognizer [%s]: error: %v", rec.Name(), err)
+			// Providers failed — try local fingerprint cache as last fallback.
+			if len(capturedFPs) > 0 && lib != nil {
+				if localEntry, fpErr := lib.FindByFingerprints(capturedFPs, m.cfg.FingerprintThreshold, 30); fpErr != nil {
+					log.Printf("recognizer: fingerprint lookup error: %v", fpErr)
+				} else if localEntry != nil && localEntry.UserConfirmed {
+					log.Printf("recognizer: local fingerprint fallback match (id=%d %s — %s)",
+						localEntry.ID, localEntry.Artist, localEntry.Title)
+					backoffUntil = time.Time{}
+					m.mu.Lock()
+					m.recognitionResult = &RecognitionResult{
+						ACRID:    localEntry.ACRID,
+						ShazamID: localEntry.ShazamID,
+						Title:    localEntry.Title,
+						Artist:   localEntry.Artist,
+						Album:    localEntry.Album,
+						Label:    localEntry.Label,
+						Released: localEntry.Released,
+						Score:    localEntry.Score,
+						Format:   localEntry.Format,
+					}
+					if f := strings.ToLower(strings.TrimSpace(localEntry.Format)); f == "cd" || f == "vinyl" {
+						m.physicalFormat = localEntry.Format
+					}
+					m.physicalArtworkPath = localEntry.ArtworkPath
+					m.mu.Unlock()
+					m.markDirty()
+					continue
+				}
+			}
 			if errors.Is(err, ErrRateLimit) {
 				log.Printf("recognizer [%s]: rate limited — backing off %s", rec.Name(), rateLimitBackoff)
 				backoffUntil = time.Now().Add(rateLimitBackoff)
 			} else {
-				log.Printf("recognizer [%s]: error: %v", rec.Name(), err)
 				backoffUntil = time.Now().Add(errorBackoff)
 			}
 			continue
@@ -985,7 +970,18 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 				}
 				m.mu.Unlock()
 
-				isNewTrack := result.ACRID == "" || result.ACRID != currentACRID
+				currentShazamID := ""
+				if m.recognitionResult != nil {
+					currentShazamID = m.recognitionResult.ShazamID
+				}
+				isNewTrack := false
+				if result.ACRID != "" {
+					isNewTrack = result.ACRID != currentACRID
+				} else if result.ShazamID != "" {
+					isNewTrack = result.ShazamID != currentShazamID
+				} else {
+					isNewTrack = currentACRID == "" && currentShazamID == ""
+				}
 				if isNewTrack {
 					if m.cfg.ConfirmationBypassScore > 0 && result.Score >= m.cfg.ConfirmationBypassScore {
 						log.Printf("recognizer [%s]: high-confidence match (score=%d) — skipping confirmation", rec.Name(), result.Score)
@@ -1095,7 +1091,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 				artworkPath := ""
 
 				// Check if we already have this track with user-edited metadata.
-				if entry, lookupErr := lib.Lookup(result.ACRID); lookupErr != nil {
+				if entry, lookupErr := lib.LookupByIDs(result.ACRID, result.ShazamID); lookupErr != nil {
 					log.Printf("recognizer: library lookup error: %v", lookupErr)
 				} else if entry != nil {
 					log.Printf("recognizer: known track (plays: %d) — using saved metadata", entry.PlayCount)
@@ -1149,7 +1145,7 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 				}
 				// Re-read from DB so we get the path actually stored (handles dedup and
 				// cases where RecordPlay preserved an existing artwork_path we didn't have).
-				if entry, _ := lib.Lookup(result.ACRID); entry != nil && entry.ArtworkPath != "" {
+				if entry, _ := lib.LookupByIDs(result.ACRID, result.ShazamID); entry != nil && entry.ArtworkPath != "" {
 					m.physicalArtworkPath = entry.ArtworkPath
 				} else {
 					m.physicalArtworkPath = artworkPath
@@ -1174,6 +1170,36 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 			}
 		drained:
 		} else {
+			// No provider match — try local fingerprint cache as last fallback.
+			if len(capturedFPs) > 0 && lib != nil {
+				if localEntry, fpErr := lib.FindByFingerprints(capturedFPs, m.cfg.FingerprintThreshold, 30); fpErr != nil {
+					log.Printf("recognizer: fingerprint lookup error: %v", fpErr)
+				} else if localEntry != nil && localEntry.UserConfirmed {
+					log.Printf("recognizer: local fingerprint fallback match (id=%d %s — %s)",
+						localEntry.ID, localEntry.Artist, localEntry.Title)
+					backoffUntil = time.Time{}
+					m.mu.Lock()
+					m.recognitionResult = &RecognitionResult{
+						ACRID:    localEntry.ACRID,
+						ShazamID: localEntry.ShazamID,
+						Title:    localEntry.Title,
+						Artist:   localEntry.Artist,
+						Album:    localEntry.Album,
+						Label:    localEntry.Label,
+						Released: localEntry.Released,
+						Score:    localEntry.Score,
+						Format:   localEntry.Format,
+					}
+					if f := strings.ToLower(strings.TrimSpace(localEntry.Format)); f == "cd" || f == "vinyl" {
+						m.physicalFormat = localEntry.Format
+					}
+					m.physicalArtworkPath = localEntry.ArtworkPath
+					m.mu.Unlock()
+					m.markDirty()
+					continue
+				}
+			}
+
 			log.Printf("recognizer [%s]: no match — retrying in %s", rec.Name(), noMatchBackoff)
 			// Store a fingerprint stub only on boundary-triggered captures (start of
 			// track). Mid-song retries would store fingerprints at arbitrary positions

@@ -138,17 +138,52 @@ func TestChainRecognizer_FallsThrough_OnError(t *testing.T) {
 	}
 }
 
-func TestChainRecognizer_AllNoMatch_ReturnsNil(t *testing.T) {
-	a := &stubRecognizer{name: "A", result: nil}
-	b := &stubRecognizer{name: "B", result: nil}
+func TestChainRecognizer_FallsThrough_OnRateLimit(t *testing.T) {
+	a := &stubRecognizer{name: "ACRCloud", err: ErrRateLimit}
+	b := &stubRecognizer{name: "Shazam", result: &RecognitionResult{Title: "Track B", Artist: "Artist B"}}
 	chain := NewChainRecognizer(a, b)
 
 	result, err := chain.Recognize(context.Background(), "test.wav")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if result == nil || result.Title != "Track B" {
+		t.Fatalf("expected Shazam fallback match after ACRCloud rate limit, got %v", result)
+	}
+	if a.calls != 1 || b.calls != 1 {
+		t.Fatalf("expected one call per provider (a=%d b=%d)", a.calls, b.calls)
+	}
+}
+
+func TestChainRecognizer_ErrorThenNoMatch_ReturnsError(t *testing.T) {
+	// This outcome drives runRecognizer's error path, where local fingerprint
+	// fallback is attempted as a last resort.
+	a := &stubRecognizer{name: "ACRCloud", err: errors.New("network error")}
+	b := &stubRecognizer{name: "Shazam", result: nil}
+	chain := NewChainRecognizer(a, b)
+
+	result, err := chain.Recognize(context.Background(), "test.wav")
 	if result != nil {
-		t.Errorf("expected nil when all providers return no match, got %v", result)
+		t.Fatalf("expected nil result, got %v", result)
+	}
+	if err == nil {
+		t.Fatal("expected non-nil error when first provider errors and second returns no match")
+	}
+}
+
+func TestChainRecognizer_NoMatchThenNoMatch_ReturnsNilNil(t *testing.T) {
+	// This outcome drives runRecognizer's no-match path, where local fingerprint
+	// fallback is attempted as a last resort.
+	a := &stubRecognizer{name: "ACRCloud", result: nil}
+	b := &stubRecognizer{name: "Shazam", result: nil}
+	chain := NewChainRecognizer(a, b)
+
+	result, err := chain.Recognize(context.Background(), "test.wav")
+	if err != nil {
+		t.Fatalf("expected nil error when all providers no-match, got %v", err)
+	}
+	if result != nil {
+		t.Fatalf("expected nil result when all providers no-match, got %v", result)
 	}
 }
 

@@ -282,23 +282,6 @@ func TestBuildState_PhysicalWithRecognitionResult_FormatTrimmedAndCaseInsensitiv
 	}
 }
 
-func TestBuildState_PhysicalPriorityOverAirPlay(t *testing.T) {
-	// Physical detection takes priority over AirPlay when both are active.
-	m := newTestMgr()
-	m.airplayPlaying = true
-	m.physicalSource = "Physical"
-	m.title = "AirPlay Track"
-	m.seekUpdatedAt = time.Now()
-
-	s := m.buildState()
-
-	// CLAUDE.md: physical detection takes priority over AirPlay
-	if s.Source != "AirPlay" {
-		// Current behaviour: AirPlay wins; document this so any future change is deliberate.
-		t.Logf("note: source = %q (AirPlay wins over Physical in current build)", s.Source)
-	}
-}
-
 // ── Stub deduplication guard ──────────────────────────────────────────────────
 
 // stubAllowedAfterBoundary verifies the guard logic used in runRecognizer:

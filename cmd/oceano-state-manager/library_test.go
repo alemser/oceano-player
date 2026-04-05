@@ -160,6 +160,67 @@ func TestLookup_EmptyACRID(t *testing.T) {
 	}
 }
 
+func TestLookupByIDs_FallsBackToShazamID(t *testing.T) {
+	lib := openTestLibrary(t)
+	result := &RecognitionResult{
+		ShazamID: "shz-001",
+		Title:    "Exodus",
+		Artist:   "Bob Marley",
+		Album:    "Exodus",
+		Score:    90,
+	}
+	if _, err := lib.RecordPlay(result, ""); err != nil {
+		t.Fatalf("RecordPlay(shazam): %v", err)
+	}
+
+	entry, err := lib.LookupByIDs("", "shz-001")
+	if err != nil {
+		t.Fatalf("LookupByIDs: %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected entry by shazam ID fallback")
+	}
+	if entry.ShazamID != "shz-001" {
+		t.Fatalf("shazam_id = %q, want %q", entry.ShazamID, "shz-001")
+	}
+}
+
+func TestRecordPlay_ACRIDUpsertPersistsShazamID(t *testing.T) {
+	lib := openTestLibrary(t)
+
+	first := &RecognitionResult{
+		ACRID:  "acr-merge-001",
+		Title:  "Track",
+		Artist: "Artist",
+		Score:  80,
+	}
+	if _, err := lib.RecordPlay(first, ""); err != nil {
+		t.Fatalf("RecordPlay(first): %v", err)
+	}
+
+	second := &RecognitionResult{
+		ACRID:    "acr-merge-001",
+		ShazamID: "shz-merge-001",
+		Title:    "Track",
+		Artist:   "Artist",
+		Score:    90,
+	}
+	if _, err := lib.RecordPlay(second, ""); err != nil {
+		t.Fatalf("RecordPlay(second): %v", err)
+	}
+
+	entry, err := lib.LookupByIDs("", "shz-merge-001")
+	if err != nil {
+		t.Fatalf("LookupByIDs(shazam): %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected lookup by shazam ID after ACRID upsert")
+	}
+	if entry.ACRID != "acr-merge-001" {
+		t.Fatalf("acrid = %q, want %q", entry.ACRID, "acr-merge-001")
+	}
+}
+
 // ── HasFingerprints ───────────────────────────────────────────────────────────
 
 func TestHasFingerprints_FalseWhenNone(t *testing.T) {

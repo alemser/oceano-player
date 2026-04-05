@@ -84,6 +84,11 @@ var migrations = []string{
 		data     TEXT    NOT NULL
 	)`,
 	`CREATE INDEX fingerprints_entry_id ON fingerprints(entry_id)`,
+
+	// v13-v14: Shazam ID support. Stores Shazam track key so Shazam-only matches
+	// can reuse existing library metadata by provider ID (same behavior as ACRID).
+	`ALTER TABLE collection ADD COLUMN shazam_id TEXT`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS collection_shazam_id_uq ON collection(shazam_id) WHERE shazam_id IS NOT NULL AND shazam_id != ''`,
 }
 
 // Library persists physical-media recognition results to a local SQLite
@@ -150,6 +155,7 @@ func (l *Library) migrate() error {
 type CollectionEntry struct {
 	ID            int64
 	ACRID         string
+	ShazamID      string
 	Title         string
 	Artist        string
 	Album         string
@@ -165,23 +171,21 @@ type CollectionEntry struct {
 	UserConfirmed bool // true = skip ACRCloud on fingerprint hit
 }
 
-// Lookup searches the collection by ACRCloud acrid.
-// Returns (nil, nil) when the track is not yet in the collection.
-func (l *Library) Lookup(acrid string) (*CollectionEntry, error) {
-	if acrid == "" {
+func (l *Library) lookupByColumn(col, value string) (*CollectionEntry, error) {
+	if value == "" {
 		return nil, nil
 	}
 	row := l.db.QueryRow(`
-		SELECT id, COALESCE(acrid,''), title, artist,
+		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist,
 		       COALESCE(album,''), COALESCE(label,''), COALESCE(released,''),
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed
-		FROM collection WHERE acrid = ?`, acrid)
+		FROM collection WHERE `+col+` = ?`, value)
 
 	var e CollectionEntry
 	var confirmed int
-	err := row.Scan(&e.ID, &e.ACRID, &e.Title, &e.Artist,
+	err := row.Scan(&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist,
 		&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 		&e.TrackNumber, &e.ArtworkPath,
 		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed)
@@ -190,9 +194,28 @@ func (l *Library) Lookup(acrid string) (*CollectionEntry, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("library: lookup: %w", err)
+		return nil, fmt.Errorf("library: lookup by %s: %w", col, err)
 	}
 	return &e, nil
+}
+
+// Lookup searches the collection by ACRCloud acrid.
+// Returns (nil, nil) when the track is not yet in the collection.
+func (l *Library) Lookup(acrid string) (*CollectionEntry, error) {
+	return l.lookupByColumn("acrid", acrid)
+}
+
+// LookupByShazamID searches the collection by Shazam track ID/key.
+func (l *Library) LookupByShazamID(shazamID string) (*CollectionEntry, error) {
+	return l.lookupByColumn("shazam_id", shazamID)
+}
+
+// LookupByIDs tries ACRID first, then ShazamID.
+func (l *Library) LookupByIDs(acrid, shazamID string) (*CollectionEntry, error) {
+	if e, err := l.Lookup(acrid); err != nil || e != nil {
+		return e, err
+	}
+	return l.LookupByShazamID(shazamID)
 }
 
 // RecordPlay upserts a track into the collection by acrid and increments its
@@ -208,10 +231,35 @@ func (l *Library) RecordPlay(result *RecognitionResult, artworkPath string) (int
 		var id int64
 		err := l.db.QueryRow(`
 			INSERT INTO collection
-				(acrid, title, artist, album, label, released, score,
+				(acrid, shazam_id, title, artist, album, label, released, score,
 				 artwork_path, play_count, first_played, last_played, user_confirmed)
-			VALUES (?,?,?,?,?,?,?,?,1,?,?,1)
+			VALUES (?,?,?,?,?,?,?,?,?,1,?,?,1)
 			ON CONFLICT(acrid) DO UPDATE SET
+				play_count     = play_count + 1,
+				last_played    = excluded.last_played,
+				user_confirmed = 1,
+				shazam_id    = CASE WHEN (COALESCE(shazam_id,'') = '') AND excluded.shazam_id != '' THEN excluded.shazam_id ELSE shazam_id END,
+				title        = CASE WHEN excluded.score > score THEN excluded.title   ELSE title   END,
+				artist       = CASE WHEN excluded.score > score THEN excluded.artist  ELSE artist  END,
+				album        = CASE WHEN excluded.score > score THEN excluded.album   ELSE album   END,
+				score        = CASE WHEN excluded.score > score THEN excluded.score   ELSE score   END,
+				artwork_path = CASE WHEN (artwork_path IS NULL OR artwork_path = '') AND excluded.artwork_path != ''
+				               THEN excluded.artwork_path ELSE artwork_path END
+			RETURNING id`,
+			result.ACRID, result.ShazamID, result.Title, result.Artist, result.Album,
+			result.Label, result.Released, result.Score, artworkPath, now, now,
+		).Scan(&id)
+		return id, err
+	}
+
+	if result.ShazamID != "" {
+		var id int64
+		err := l.db.QueryRow(`
+			INSERT INTO collection
+				(shazam_id, title, artist, album, label, released, score,
+				 artwork_path, play_count, first_played, last_played, user_confirmed)
+			VALUES (?,?,?,?,?,?,?, ?,1,?,?,1)
+			ON CONFLICT(shazam_id) WHERE shazam_id IS NOT NULL AND shazam_id != '' DO UPDATE SET
 				play_count     = play_count + 1,
 				last_played    = excluded.last_played,
 				user_confirmed = 1,
@@ -222,7 +270,7 @@ func (l *Library) RecordPlay(result *RecognitionResult, artworkPath string) (int
 				artwork_path = CASE WHEN (artwork_path IS NULL OR artwork_path = '') AND excluded.artwork_path != ''
 				               THEN excluded.artwork_path ELSE artwork_path END
 			RETURNING id`,
-			result.ACRID, result.Title, result.Artist, result.Album,
+			result.ShazamID, result.Title, result.Artist, result.Album,
 			result.Label, result.Released, result.Score, artworkPath, now, now,
 		).Scan(&id)
 		return id, err
@@ -368,7 +416,7 @@ func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxSh
 
 	rows, err := l.db.Query(`
 		SELECT f.entry_id, f.data,
-		       COALESCE(c.acrid,''), c.title, c.artist,
+		       COALESCE(c.acrid,''), COALESCE(c.shazam_id,''), c.title, c.artist,
 		       COALESCE(c.album,''), COALESCE(c.label,''), COALESCE(c.released,''),
 		       COALESCE(c.score,0), COALESCE(c.format,'Unknown'),
 		       COALESCE(c.track_number,''), COALESCE(c.artwork_path,''),
@@ -396,7 +444,7 @@ func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxSh
 		var confirmed int
 		if err := rows.Scan(
 			&entryID, &data,
-			&e.ACRID, &e.Title, &e.Artist,
+			&e.ACRID, &e.ShazamID, &e.Title, &e.Artist,
 			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 			&e.TrackNumber, &e.ArtworkPath,
 			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,

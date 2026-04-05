@@ -24,6 +24,7 @@ async def identify():
         print(json.dumps({}))
         return
     track = result['track']
+	shazam_id = str(track.get('key', '') or '')
     album = ''
     for section in track.get('sections', []):
         if section.get('type') == 'SONG':
@@ -31,6 +32,7 @@ async def identify():
                 if meta.get('title') == 'Album':
                     album = meta.get('text', '')
     print(json.dumps({
+		'shazam_id': shazam_id,
         'title':  track.get('title', ''),
         'artist': track.get('subtitle', ''),
         'album':  album,
@@ -80,10 +82,11 @@ func (s *ShazamRecognizer) Recognize(ctx context.Context, wavPath string) (*Reco
 	}
 
 	var payload struct {
-		Title  string `json:"title"`
-		Artist string `json:"artist"`
-		Album  string `json:"album"`
-		Error  string `json:"error"`
+		ShazamID string `json:"shazam_id"`
+		Title    string `json:"title"`
+		Artist   string `json:"artist"`
+		Album    string `json:"album"`
+		Error    string `json:"error"`
 	}
 	if err := json.Unmarshal(out, &payload); err != nil {
 		return nil, fmt.Errorf("shazam: parse output: %w", err)
@@ -95,9 +98,10 @@ func (s *ShazamRecognizer) Recognize(ctx context.Context, wavPath string) (*Reco
 		return nil, nil // no match
 	}
 	return &RecognitionResult{
-		Title:  payload.Title,
-		Artist: payload.Artist,
-		Album:  payload.Album,
+		ShazamID: payload.ShazamID,
+		Title:    payload.Title,
+		Artist:   payload.Artist,
+		Album:    payload.Album,
 	}, nil
 }
 
