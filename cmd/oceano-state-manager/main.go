@@ -779,7 +779,12 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 //
 // isBoundaryTrigger distinguishes explicit boundary events (silence/energy-change)
 // from periodic timer fires. On a periodic no-match, the existing result is kept.
-func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprinter, lib *Library) {
+//
+// confirmRec is used to cross-validate a new-track candidate before updating the
+// display. When confirmRec differs from rec (e.g. Shazam confirming an ACRCloud
+// result), agreement from two independent services is required. When confirmRec
+// is nil, rec itself is used for the second call (same-provider confirmation).
+func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, fpr Fingerprinter, lib *Library) {
 	if rec == nil {
 		return
 	}
@@ -965,6 +970,13 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 					case <-time.After(m.cfg.ConfirmationDelay):
 					}
 
+					// Use a dedicated confirmer when available (e.g. Shazam cross-checking
+					// an ACRCloud result). Fall back to re-querying rec itself.
+					confirmer := confirmRec
+					if confirmer == nil {
+						confirmer = rec
+					}
+
 					confCtx, confCancel := context.WithTimeout(ctx, m.cfg.RecognizerCaptureDuration+10*time.Second)
 					confWav, confErr := captureFromPCMSocket(confCtx, m.cfg.PCMSocket, m.cfg.RecognizerCaptureDuration, 0, os.TempDir())
 					confCancel()
@@ -975,24 +987,37 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 						}
 						log.Printf("recognizer [%s]: confirmation capture error — accepting original result: %v", rec.Name(), confErr)
 					} else {
-						conf, confRecErr := rec.Recognize(ctx, confWav)
+						conf, confRecErr := confirmer.Recognize(ctx, confWav)
 						os.Remove(confWav)
 						if ctx.Err() != nil {
 							return
 						}
 						if confRecErr != nil {
-							log.Printf("recognizer [%s]: confirmation recognize error — accepting original result: %v", rec.Name(), confRecErr)
+							log.Printf("recognizer [%s]: confirmation (%s) error — accepting original result: %v", rec.Name(), confirmer.Name(), confRecErr)
 						} else if conf == nil {
-							log.Printf("recognizer [%s]: confirmation returned no match — discarding candidate %s — %s", rec.Name(), result.Artist, result.Title)
+							log.Printf("recognizer [%s]: confirmation (%s) returned no match — discarding candidate %s — %s",
+								rec.Name(), confirmer.Name(), result.Artist, result.Title)
 							backoffUntil = time.Now().Add(noMatchBackoff)
 							continue
-						} else if conf.ACRID != result.ACRID {
-							log.Printf("recognizer [%s]: confirmation mismatch (got %s — %s) — discarding candidate %s — %s",
-								rec.Name(), conf.Artist, conf.Title, result.Artist, result.Title)
-							// Use the confirmation result instead — it's more recent.
-							result = conf
 						} else {
-							log.Printf("recognizer [%s]: confirmed %s — %s", rec.Name(), result.Artist, result.Title)
+							// Cross-service confirmation: compare by title+artist (normalised)
+							// since ACRCloud and Shazam use different ID spaces.
+							sameTrack := confirmer == rec &&
+								conf.ACRID != "" && conf.ACRID == result.ACRID
+							if !sameTrack {
+								// Normalise: lowercase title+artist match is sufficient.
+								sameTrack = strings.EqualFold(conf.Title, result.Title) &&
+									strings.EqualFold(conf.Artist, result.Artist)
+							}
+							if sameTrack {
+								log.Printf("recognizer [%s]: confirmed by %s — %s — %s",
+									rec.Name(), confirmer.Name(), result.Artist, result.Title)
+							} else {
+								log.Printf("recognizer [%s]: confirmation (%s) disagrees (got %s — %s) — discarding candidate %s — %s",
+									rec.Name(), confirmer.Name(), conf.Artist, conf.Title, result.Artist, result.Title)
+								// Use the confirmation result — it's the more recent capture.
+								result = conf
+							}
 						}
 					}
 				}
@@ -1328,6 +1353,18 @@ func main() {
 	}
 
 	rec := NewChainRecognizer(acrRec, shazamRec)
+
+	// confirmRec is the recognizer used to cross-validate a new-track candidate.
+	// When both ACRCloud and Shazam are available, Shazam confirms ACRCloud results
+	// (and vice-versa) — two independent services must agree before updating the display.
+	// When only one service is available, it confirms itself (same-provider second call).
+	var confirmRec Recognizer
+	if acrRec != nil && shazamRec != nil {
+		// ACRCloud is primary; Shazam is the cross-validator.
+		confirmRec = shazamRec
+	}
+	// confirmRec=nil → runRecognizer falls back to using rec for confirmation.
+
 	if rec != nil {
 		log.Printf("recognizer: chain=%s pcm-socket=%s max-interval=%s",
 			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval)
@@ -1346,7 +1383,7 @@ func main() {
 	go m.runShairportReader(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
-	go m.runRecognizer(ctx, rec, fpr, lib)
+	go m.runRecognizer(ctx, rec, confirmRec, fpr, lib)
 	go m.runLibrarySync(ctx, lib)
 	m.runWriter(ctx)
 }
