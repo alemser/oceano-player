@@ -353,6 +353,7 @@ func patchStateFile(path, title, artist, album, format, artworkPath string) {
 	}
 	var state struct {
 		Source    string          `json:"source"`
+		Format    string          `json:"format,omitempty"`
 		State     string          `json:"state"`
 		Track     json.RawMessage `json:"track"`
 		UpdatedAt string          `json:"updated_at"`
@@ -388,6 +389,7 @@ func patchStateFile(path, title, artist, album, format, artworkPath string) {
 	normFormat := strings.TrimSpace(format)
 	if normFormat == "CD" || normFormat == "Vinyl" {
 		state.Source = normFormat
+		state.Format = normFormat
 	}
 	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
