@@ -54,6 +54,7 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 	// Enable WAL mode for concurrent access (readers + writer don't block each other)
 	// This is essential since both the web UI and state-manager write to the database.
 	if err := l.db.Ping(); err != nil {
+		l.close()
 		return nil, fmt.Errorf("library: ping after open: %w", err)
 	}
 	_, _ = l.db.Exec(`PRAGMA journal_mode=WAL`)
