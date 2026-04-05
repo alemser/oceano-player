@@ -678,7 +678,7 @@ main() {
   log_section "System Dependencies"
   log_info "Installing system packages..."
   apt-get update -qq
-  apt-get install -y --no-install-recommends shairport-sync alsa-utils libchromaprint-tools
+  apt-get install -y --no-install-recommends shairport-sync alsa-utils libchromaprint-tools ffmpeg
   log_ok "System packages ready."
 
   # ── Repository ──
