@@ -308,6 +308,13 @@ func (l *Library) UpsertStub(fps []Fingerprint, threshold float64, maxShift int)
 	}, nil
 }
 
+// HasFingerprints returns true when the entry already has stored fingerprints.
+func (l *Library) HasFingerprints(entryID int64) bool {
+	var count int
+	l.db.QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id=?`, entryID).Scan(&count)
+	return count > 0
+}
+
 // SaveFingerprints stores all fingerprint windows for an entry in a single
 // transaction. All inserts succeed or none do.
 func (l *Library) SaveFingerprints(entryID int64, fps []Fingerprint) error {

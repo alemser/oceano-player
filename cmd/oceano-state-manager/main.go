@@ -892,7 +892,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 			} else if localEntry != nil && localEntry.UserConfirmed {
 				log.Printf("recognizer: local fingerprint match (id=%d %s — %s) — skipping ACRCloud",
 					localEntry.ID, localEntry.Artist, localEntry.Title)
-				if isBoundaryTrigger {
+				// Only store fingerprints on first encounter — accumulating more
+				// vectors per entry increases false-positive probability on lookup.
+				if isBoundaryTrigger && !lib.HasFingerprints(localEntry.ID) {
 					if fpSaveErr := lib.SaveFingerprints(localEntry.ID, capturedFPs); fpSaveErr != nil {
 						log.Printf("recognizer: save fingerprints (cache hit): %v", fpSaveErr)
 					}
@@ -1054,11 +1056,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 					log.Printf("recognizer: library record error: %v", recErr)
 				} else if entryID > 0 {
 					// Only store fingerprints from boundary-triggered captures (start of
-					// track). Timer-fired retries capture mid-song audio at arbitrary
-					// positions; storing those fingerprints would cause high BER on future
-					// plays (which always start from the beginning), leading to cache misses
-					// or false positives against other mid-song captures.
-					if len(capturedFPs) > 0 && isBoundaryTrigger {
+					// track), and only on the first recognition — accumulating more vectors
+					// per entry on repeated plays increases false-positive probability.
+					if len(capturedFPs) > 0 && isBoundaryTrigger && !lib.HasFingerprints(entryID) {
 						if fpErr := lib.SaveFingerprints(entryID, capturedFPs); fpErr != nil {
 							log.Printf("recognizer: save fingerprints error: %v", fpErr)
 						}

@@ -160,6 +160,53 @@ func TestLookup_EmptyACRID(t *testing.T) {
 	}
 }
 
+// ── HasFingerprints ───────────────────────────────────────────────────────────
+
+func TestHasFingerprints_FalseWhenNone(t *testing.T) {
+	lib := openTestLibrary(t)
+	result := &RecognitionResult{ACRID: "acr-hfp-01", Title: "Track", Artist: "Artist"}
+	id, _ := lib.RecordPlay(result, "")
+	if lib.HasFingerprints(id) {
+		t.Error("HasFingerprints should be false for a new entry with no fingerprints")
+	}
+}
+
+func TestHasFingerprints_TrueAfterSave(t *testing.T) {
+	lib := openTestLibrary(t)
+	result := &RecognitionResult{ACRID: "acr-hfp-02", Title: "Track", Artist: "Artist"}
+	id, _ := lib.RecordPlay(result, "")
+	lib.SaveFingerprints(id, []Fingerprint{makeFingerprint(0x11223344, 50)}) //nolint:errcheck
+	if !lib.HasFingerprints(id) {
+		t.Error("HasFingerprints should be true after SaveFingerprints")
+	}
+}
+
+func TestHasFingerprints_FirstPlayOnlySemantics(t *testing.T) {
+	lib := openTestLibrary(t)
+	result := &RecognitionResult{ACRID: "acr-hfp-03", Title: "Track", Artist: "Artist"}
+	id, _ := lib.RecordPlay(result, "")
+	fp := []Fingerprint{makeFingerprint(0xAABBCCDD, 50)}
+
+	// First play: no fingerprints yet → should save.
+	if lib.HasFingerprints(id) {
+		t.Fatal("should have no fingerprints before first save")
+	}
+	lib.SaveFingerprints(id, fp) //nolint:errcheck
+
+	// Second play: fingerprints exist → caller should skip SaveFingerprints.
+	if !lib.HasFingerprints(id) {
+		t.Error("should have fingerprints after first save")
+	}
+
+	// Verify count stays at len(fp) — caller is responsible for gating,
+	// but confirm the DB state is correct.
+	var count int
+	lib.db.QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id=?`, id).Scan(&count)
+	if count != len(fp) {
+		t.Errorf("fingerprint count = %d, want %d", count, len(fp))
+	}
+}
+
 // ── SaveFingerprints / FindByFingerprints ─────────────────────────────────────
 
 func TestFindByFingerprints_NoMatch(t *testing.T) {
