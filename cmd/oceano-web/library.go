@@ -51,6 +51,13 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 	}
 	db.SetMaxOpenConns(1)
 	l := &LibraryDB{db: db, path: path}
+	// Enable WAL mode for concurrent access (readers + writer don't block each other)
+	// This is essential since both the web UI and state-manager write to the database.
+	if err := l.db.Ping(); err != nil {
+		return nil, fmt.Errorf("library: ping after open: %w", err)
+	}
+	_, _ = l.db.Exec(`PRAGMA journal_mode=WAL`)
+	_, _ = l.db.Exec(`PRAGMA synchronous=NORMAL`)
 	// Ensure columns added by state-manager migrations are present.
 	// ALTER TABLE returns an error if the column already exists; that is safe to ignore.
 	_, _ = l.db.Exec(`ALTER TABLE collection ADD COLUMN user_confirmed INTEGER NOT NULL DEFAULT 0`)
