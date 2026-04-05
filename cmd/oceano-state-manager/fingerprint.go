@@ -139,11 +139,16 @@ func parseFpcalcOutput(out []byte) (Fingerprint, error) {
 	return nil, fmt.Errorf("fpcalc: FINGERPRINT line not found in output")
 }
 
-// newFingerprinter returns a fpcalcFingerprinter if fpcalc is found in PATH,
-// or nil otherwise. A nil Fingerprinter disables local fingerprint caching
-// without preventing the rest of the recognizer from functioning.
+// newFingerprinter returns a fpcalcFingerprinter if both fpcalc and ffmpeg
+// are found in PATH, or nil otherwise. A nil Fingerprinter disables local
+// fingerprint caching without preventing the rest of the recognizer from
+// functioning. Both tools are required because multi-window fingerprinting
+// uses ffmpeg to trim audio segments when offsetSec > 0.
 func newFingerprinter() Fingerprinter {
 	if _, err := exec.LookPath("fpcalc"); err != nil {
+		return nil
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		return nil
 	}
 	return fpcalcFingerprinter{}
