@@ -41,6 +41,7 @@ var itemRE = regexp.MustCompile(
 var (
 	parenSuffixRE = regexp.MustCompile(`\s*[\(\[].*?[\)\]]\s*`)
 	nonWordRE     = regexp.MustCompile(`[^a-z0-9]+`)
+	wordTokenRE   = regexp.MustCompile(`[a-z0-9]+`)
 )
 
 // --- Output schema ---
@@ -1011,6 +1012,25 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 			isShazamFallback := result.ShazamID != "" && result.ACRID == ""
 			shazamMatchedACR := false
 
+			m.mu.Lock()
+			currentResult := m.recognitionResult
+			m.mu.Unlock()
+			if currentResult != nil && sameTrackByProviderIDs(currentResult, result) {
+				log.Printf("recognizer [%s]: same track confirmed — no change (%s — %s)", rec.Name(), result.Artist, result.Title)
+				m.mu.Lock()
+				m.lastRecognizedAt = time.Now()
+				if m.recognitionResult != nil {
+					if m.recognitionResult.ACRID == "" && result.ACRID != "" {
+						m.recognitionResult.ACRID = result.ACRID
+					}
+					if m.recognitionResult.ShazamID == "" && result.ShazamID != "" {
+						m.recognitionResult.ShazamID = result.ShazamID
+					}
+				}
+				m.mu.Unlock()
+				continue
+			}
+
 			// Confirmation: if the result differs from the current track and a
 			// confirmation delay is configured, make a second capture to verify.
 			// This prevents a false-positive on a single recognition call from
@@ -1035,16 +1055,6 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 					isNewTrack = result.ShazamID != currentShazamID
 				} else {
 					isNewTrack = currentACRID == "" && currentShazamID == ""
-				}
-				// Timer-fired re-recognition confirmed the same track is still
-				// playing — reset the refresh window but skip library recording
-				// and display updates to avoid duplicate play counts.
-				if !isNewTrack && !isBoundaryTrigger {
-					log.Printf("recognizer [%s]: same track confirmed — no change (%s — %s)", rec.Name(), result.Artist, result.Title)
-					m.mu.Lock()
-					m.lastRecognizedAt = time.Now()
-					m.mu.Unlock()
-					continue
 				}
 				if isNewTrack {
 					if m.cfg.ConfirmationBypassScore > 0 && result.Score >= m.cfg.ConfirmationBypassScore {
@@ -1602,15 +1612,69 @@ func normalizeTrackPart(s string) string {
 	return s
 }
 
-func tracksEquivalent(aTitle, aArtist, bTitle, bArtist string) bool {
-	aT := normalizeTrackPart(aTitle)
-	aA := normalizeTrackPart(aArtist)
-	bT := normalizeTrackPart(bTitle)
-	bA := normalizeTrackPart(bArtist)
-	if aT == "" || aA == "" || bT == "" || bA == "" {
+func artistTokenSet(s string) map[string]struct{} {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = parenSuffixRE.ReplaceAllString(s, " ")
+	tokens := wordTokenRE.FindAllString(s, -1)
+	ignore := map[string]struct{}{
+		"the": {}, "and": {}, "feat": {}, "featuring": {},
+		"group": {}, "band": {}, "orchestra": {}, "ensemble": {},
+		"quartet": {}, "trio": {}, "choir": {},
+	}
+	set := make(map[string]struct{}, len(tokens))
+	for _, token := range tokens {
+		if _, skip := ignore[token]; skip {
+			continue
+		}
+		set[token] = struct{}{}
+	}
+	return set
+}
+
+func tokenSetSubset(a, b map[string]struct{}) bool {
+	if len(a) == 0 || len(a) > len(b) {
 		return false
 	}
-	return aT == bT && aA == bA
+	for token := range a {
+		if _, ok := b[token]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func artistsEquivalent(a, b string) bool {
+	aNorm := normalizeTrackPart(a)
+	bNorm := normalizeTrackPart(b)
+	if aNorm == "" || bNorm == "" {
+		return false
+	}
+	if aNorm == bNorm {
+		return true
+	}
+	aTokens := artistTokenSet(a)
+	bTokens := artistTokenSet(b)
+	if len(aTokens) == 0 || len(bTokens) == 0 {
+		return false
+	}
+	if len(aTokens) == len(bTokens) && tokenSetSubset(aTokens, bTokens) {
+		return true
+	}
+	shorter := aTokens
+	longer := bTokens
+	if len(shorter) > len(longer) {
+		shorter, longer = longer, shorter
+	}
+	return len(shorter) >= 2 && tokenSetSubset(shorter, longer)
+}
+
+func tracksEquivalent(aTitle, aArtist, bTitle, bArtist string) bool {
+	aT := normalizeTrackPart(aTitle)
+	bT := normalizeTrackPart(bTitle)
+	if aT == "" || bT == "" {
+		return false
+	}
+	return aT == bT && artistsEquivalent(aArtist, bArtist)
 }
 
 func sameTrackByProviderIDs(a, b *RecognitionResult) bool {

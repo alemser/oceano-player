@@ -251,6 +251,24 @@ func TestCrossServiceMatch_TitleArtist_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestTracksEquivalent_RemasterSuffix_Ignored(t *testing.T) {
+	if !tracksEquivalent("Lovesong", "The Cure", "Lovesong (Remaster 2010)", "The Cure") {
+		t.Fatal("remaster suffix should be ignored when matching tracks")
+	}
+}
+
+func TestTracksEquivalent_ArtistSubsetVariant_Matches(t *testing.T) {
+	if !tracksEquivalent("Strange Transmissions", "The Peter Malick Group", "Strange Transmissions", "Peter Malick") {
+		t.Fatal("artist subset variant should still match the same track")
+	}
+}
+
+func TestTracksEquivalent_BobMarleyVariant_Matches(t *testing.T) {
+	if !tracksEquivalent("Forever Loving Jah", "Bob Marley & The Wailers", "Forever Loving Jah", "Bob Marley") {
+		t.Fatal("artist token subset should match common band-name variants")
+	}
+}
+
 func TestCrossServiceMatch_DifferentTitle(t *testing.T) {
 	r := &RecognitionResult{Title: "Exodus", Artist: "Bob Marley"}
 	c := &RecognitionResult{Title: "Jamming", Artist: "Bob Marley"}
