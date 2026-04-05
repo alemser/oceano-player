@@ -821,11 +821,19 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 			continue
 		}
 
-		log.Printf("recognizer [%s]: capturing %s from %s",
-			rec.Name(), m.cfg.RecognizerCaptureDuration, m.cfg.PCMSocket)
+		// After a track-boundary trigger, skip the first 2 s of PCM to flush
+		// buffered audio from the previous track and avoid fingerprint false-positives.
+		const boundarySkip = 2 * time.Second
+		var skip time.Duration
+		if isBoundaryTrigger {
+			skip = boundarySkip
+		}
 
-		captureCtx, cancel := context.WithTimeout(ctx, m.cfg.RecognizerCaptureDuration+10*time.Second)
-		wavPath, err := captureFromPCMSocket(captureCtx, m.cfg.PCMSocket, m.cfg.RecognizerCaptureDuration, os.TempDir())
+		log.Printf("recognizer [%s]: capturing %s from %s (skip=%s)",
+			rec.Name(), m.cfg.RecognizerCaptureDuration, m.cfg.PCMSocket, skip)
+
+		captureCtx, cancel := context.WithTimeout(ctx, skip+m.cfg.RecognizerCaptureDuration+10*time.Second)
+		wavPath, err := captureFromPCMSocket(captureCtx, m.cfg.PCMSocket, m.cfg.RecognizerCaptureDuration, skip, os.TempDir())
 		cancel()
 
 		if err != nil {
