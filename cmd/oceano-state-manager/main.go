@@ -1106,15 +1106,19 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 								}()
 								pOut := <-pCh
 								sOut := <-sCh
-								if sOut.err == nil && sOut.res != nil {
+								// Prefer the primary recognizer (ACRCloud); use Shazam only
+								// as fallback so the provider hierarchy is respected.
+								if pOut.err == nil && pOut.res != nil {
+									conf = pOut.res
+									confRecErr = nil
+								} else if sOut.err == nil && sOut.res != nil {
 									conf = sOut.res
 									confRecErr = nil
 								} else {
-									conf = pOut.res
-									if sOut.err != nil {
-										confRecErr = sOut.err
-									} else {
+									if pOut.err != nil {
 										confRecErr = pOut.err
+									} else {
+										confRecErr = sOut.err
 									}
 								}
 							} else {
@@ -1333,6 +1337,14 @@ func (m *mgr) tryEnableShazamContinuity(ctx context.Context, shazamRec Recognize
 	if shazamRec == nil || current == nil || current.ACRID == "" {
 		return
 	}
+	// Skip if already aligned for this track — avoids duplicate goroutines when
+	// the same ACRCloud result is recorded twice (retry after confirmation, etc.).
+	m.mu.Lock()
+	alreadyReady := m.shazamContinuityReady && m.recognitionResult != nil && m.recognitionResult.ACRID == current.ACRID
+	m.mu.Unlock()
+	if alreadyReady {
+		return
+	}
 	dur := m.cfg.ShazamContinuityCaptureDuration
 	if dur <= 0 {
 		dur = 6 * time.Second
@@ -1381,14 +1393,13 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 		captureDur = 6 * time.Second
 	}
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
 	for {
+		// Wait interval *after* each check completes so a slow Shazam API response
+		// never causes overlapping captures that compete with the main recognizer.
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-time.After(interval):
 		}
 
 		m.mu.Lock()
@@ -1463,25 +1474,37 @@ func (m *mgr) runLibrarySync(ctx context.Context, lib *Library) {
 }
 
 // syncFromLibrary updates recognitionResult from the DB when a row exists for
-// the current ACRID and user-edited fields differ from in-memory values.
+// the current track (matched by ACRID or ShazamID) and user-edited fields differ
+// from in-memory values. This makes UI edits visible in state.json without waiting
+// for a new recognition cycle — including Shazam-only tracks (no ACRID).
 func (m *mgr) syncFromLibrary(lib *Library) {
 	m.mu.Lock()
 	r := m.recognitionResult
-	if r == nil || r.ACRID == "" || m.physicalSource != "Physical" {
+	if r == nil || (r.ACRID == "" && r.ShazamID == "") || m.physicalSource != "Physical" {
 		m.mu.Unlock()
 		return
 	}
 	acrid := r.ACRID
+	shazamID := r.ShazamID
 	m.mu.Unlock()
 
-	entry, err := lib.Lookup(acrid)
+	entry, err := lib.LookupByIDs(acrid, shazamID)
 	if err != nil || entry == nil {
 		return
 	}
 
 	m.mu.Lock()
 	changed := false
-	if m.recognitionResult != nil && m.recognitionResult.ACRID == acrid {
+	currentACRID := ""
+	currentShazamID := ""
+	if m.recognitionResult != nil {
+		currentACRID = m.recognitionResult.ACRID
+		currentShazamID = m.recognitionResult.ShazamID
+	}
+	// Match by whichever ID is available — same logic as LookupByIDs.
+	entryMatchesCurrent := (acrid != "" && currentACRID == acrid) ||
+		(shazamID != "" && currentShazamID == shazamID)
+	if m.recognitionResult != nil && entryMatchesCurrent {
 		if m.recognitionResult.Title != entry.Title {
 			m.recognitionResult.Title = entry.Title
 			changed = true
@@ -1510,7 +1533,7 @@ func (m *mgr) syncFromLibrary(lib *Library) {
 
 	if changed {
 		if m.cfg.Verbose {
-			log.Printf("library sync: metadata updated for acrid=%s", acrid)
+			log.Printf("library sync: metadata updated for acrid=%s shazam_id=%s", acrid, shazamID)
 		}
 		m.markDirty()
 	}
