@@ -321,6 +321,8 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 		http.Error(w, "title and artist are required", http.StatusBadRequest)
 		return
 	}
+	body.Format = strings.TrimSpace(body.Format)
+	body.TrackNumber = strings.TrimSpace(body.TrackNumber)
 	// Validate format
 	switch body.Format {
 	case "Vinyl", "CD", "Unknown", "":
@@ -383,8 +385,9 @@ func patchStateFile(path, title, artist, album, format, artworkPath string) {
 		return
 	}
 	state.Track = json.RawMessage(tb)
-	if format == "CD" || format == "Vinyl" {
-		state.Source = format
+	normFormat := strings.TrimSpace(format)
+	if normFormat == "CD" || normFormat == "Vinyl" {
+		state.Source = normFormat
 	}
 	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 

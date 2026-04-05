@@ -550,7 +550,7 @@ func (m *mgr) buildState() PlayerState {
 	displaySource := source
 	log.Printf("Display source: %s", displaySource)
 	if source == "Physical" && m.recognitionResult != nil {
-		format := strings.ToLower(m.recognitionResult.Format)
+		format := strings.ToLower(strings.TrimSpace(m.recognitionResult.Format))
 		log.Printf("Classified format: %s", format)
 		switch format {
 		case "cd":
@@ -577,7 +577,7 @@ func (m *mgr) buildState() PlayerState {
 	case "Physical":
 		if r := m.recognitionResult; r != nil {
 			var sampleRate, bitDepth string
-			if strings.ToLower(r.Format) == "cd" {
+			if strings.EqualFold(strings.TrimSpace(r.Format), "cd") {
 				sampleRate = airplaySampleRate
 				bitDepth = airplayBitDepth
 			}
@@ -680,12 +680,10 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 	lastEnergyTrigger := time.Time{}
 
 	fireBoundaryTrigger := func(reason string) {
-		m.mu.Lock()
-		m.recognitionResult = nil
-		m.physicalArtworkPath = ""
-		m.mu.Unlock()
+		// Do not clear current metadata/artwork here: boundary detection can fire
+		// on false positives, and clearing preemptively causes UI flicker/regressions.
+		// State is cleared later only when a boundary-triggered recognition confirms no match.
 		log.Printf("VU monitor: track boundary detected (%s) — triggering recognition", reason)
-		m.markDirty()
 		select {
 		case m.recognizeTrigger <- struct{}{}:
 		default:

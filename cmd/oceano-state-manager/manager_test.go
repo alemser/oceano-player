@@ -18,7 +18,7 @@ func TestDecodeTag(t *testing.T) {
 		{"73736e63", "ssnc"},
 		{"6d696e6d", "minm"},
 		{"50494354", "PICT"},
-		{"zzzzzzzz", ""},  // invalid hex → empty string, no panic
+		{"zzzzzzzz", ""}, // invalid hex → empty string, no panic
 	}
 	for _, tt := range tests {
 		t.Run(tt.hex, func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestApplyItem_ProgressWraparound(t *testing.T) {
 
 	// Simulate RTP wraparound: start near max, current past zero
 	start := int64(0xFFFF0000)
-	ticks := int64(44100) // 1 second
+	ticks := int64(44100)                             // 1 second
 	endMod := (start + int64(44100*300)) & 0xFFFFFFFF // shairport sends modular uint32
 
 	prog := fmt.Sprintf("%d/%d/%d", start, (start+ticks)&0xFFFFFFFF, endMod)
@@ -253,6 +253,32 @@ func TestBuildState_PhysicalWithRecognitionResult(t *testing.T) {
 	}
 	if s.Track.ArtworkPath != "/var/lib/oceano/artwork/exodus.jpg" {
 		t.Errorf("artwork_path = %q, want /var/lib/oceano/artwork/exodus.jpg", s.Track.ArtworkPath)
+	}
+}
+
+func TestBuildState_PhysicalWithRecognitionResult_FormatTrimmedAndCaseInsensitive(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{
+		Title:  "Time",
+		Artist: "Pink Floyd",
+		Album:  "The Dark Side of the Moon",
+		Format: "  cD  ",
+	}
+
+	s := m.buildState()
+
+	if s.Source != "CD" {
+		t.Errorf("source = %q, want CD for whitespace/case-variant format", s.Source)
+	}
+	if s.Track == nil {
+		t.Fatal("track should not be nil when recognition result is set")
+	}
+	if s.Track.SampleRate != airplaySampleRate {
+		t.Errorf("samplerate = %q, want %q", s.Track.SampleRate, airplaySampleRate)
+	}
+	if s.Track.BitDepth != airplayBitDepth {
+		t.Errorf("bitdepth = %q, want %q", s.Track.BitDepth, airplayBitDepth)
 	}
 }
 

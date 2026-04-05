@@ -1192,6 +1192,17 @@ function openModal(id) {
 
 function closeModal() {
   document.getElementById('lib-modal').classList.remove('open');
+  document.getElementById('modal-heading').textContent = '';
+  document.getElementById('modal-title').value = '';
+  document.getElementById('modal-artist').value = '';
+  document.getElementById('modal-album').value = '';
+  document.getElementById('modal-format').value = 'Unknown';
+  document.getElementById('modal-label').value = '';
+  document.getElementById('modal-released').value = '';
+  document.getElementById('modal-track-number').value = '';
+  const img = document.getElementById('modal-art-img');
+  img.classList.remove('loaded');
+  img.src = '';
   _editingId = null;
 }
 
