@@ -519,6 +519,40 @@ func (l *Library) PruneMatchingStubs(fps []Fingerprint, threshold float64, maxSh
 	}
 }
 
+// PruneRecentStubs deletes unconfirmed stub entries (title='', artist='',
+// user_confirmed=0) whose first_played timestamp is at or after since.
+// excludeID is the just-identified entry and is never deleted.
+// This cleans up stubs that were created during earlier no-match attempts
+// for the same track before ACRCloud had a chance to identify it — the
+// typical pattern is: boundary trigger → no-match → stub created → 90 s
+// retry → ACRCloud matches → call PruneRecentStubs(lastBoundaryAt, entryID).
+func (l *Library) PruneRecentStubs(since time.Time, excludeID int64) {
+	sinceStr := since.UTC().Format(time.RFC3339)
+	rows, err := l.db.Query(`
+		SELECT id FROM collection
+		WHERE title = '' AND artist = '' AND user_confirmed = 0
+		  AND id != ?
+		  AND first_played >= ?`, excludeID, sinceStr)
+	if err != nil {
+		return
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, err := l.db.Exec(
+			`DELETE FROM collection WHERE id=? AND title='' AND artist='' AND user_confirmed=0`, id,
+		); err == nil {
+			log.Printf("library: pruned recent stub %d (created after boundary at %s)", id, sinceStr)
+		}
+	}
+}
+
 // Close closes the underlying database connection.
 func (l *Library) Close() error {
 	return l.db.Close()

@@ -156,6 +156,16 @@ type mgr struct {
 	// recognizeTrigger is sent to when a new recognition attempt should start:
 	// on Physical source activation and on track-boundary events from runVUMonitor.
 	recognizeTrigger chan struct{}
+
+	// lastBoundaryAt is the time of the most recent boundary trigger. Used to
+	// prune stubs that were created before ACRCloud had a chance to match the
+	// same track on a subsequent retry.
+	lastBoundaryAt time.Time
+	// lastStubAt is the time the most recent unrecognised-track stub was stored.
+	// A cooldown prevents creating duplicate stubs when the VU monitor fires
+	// multiple boundary triggers within the same track (brief musical pauses,
+	// run-out groove noise at end of side, etc.).
+	lastStubAt time.Time
 }
 
 func newMgr(cfg Config) *mgr {
@@ -827,6 +837,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 		var skip time.Duration
 		if isBoundaryTrigger {
 			skip = boundarySkip
+			m.mu.Lock()
+			m.lastBoundaryAt = time.Now()
+			m.mu.Unlock()
 		}
 
 		log.Printf("recognizer [%s]: capturing %s from %s (skip=%s)",
@@ -957,8 +970,17 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 						if fpErr := lib.SaveFingerprints(entryID, capturedFPs); fpErr != nil {
 							log.Printf("recognizer: save fingerprints error: %v", fpErr)
 						}
-						// Delete any orphaned stubs whose fingerprints match this track.
-						lib.PruneMatchingStubs(capturedFPs, m.cfg.FingerprintThreshold, 30, entryID)
+					}
+					// Prune stubs created since the last boundary trigger — they were
+					// created when ACRCloud returned no-match on the first attempt for
+					// this same track. Use time-based pruning (not BER) because the
+					// successful recognition may have come from a timer retry whose
+					// mid-song fingerprints won't BER-match the boundary-captured stubs.
+					m.mu.Lock()
+					lastBoundary := m.lastBoundaryAt
+					m.mu.Unlock()
+					if !lastBoundary.IsZero() {
+						lib.PruneRecentStubs(lastBoundary, entryID)
 					}
 				}
 
@@ -992,11 +1014,27 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 			// Store a fingerprint stub only on boundary-triggered captures (start of
 			// track). Mid-song retries would store fingerprints at arbitrary positions
 			// that won't match future boundary captures, creating noisy stubs.
+			// Additionally, only create one stub per track: if a stub was already
+			// created since the last boundary trigger, skip — this prevents duplicate
+			// stubs from multiple boundary events within the same track (brief musical
+			// pauses, run-out groove noise at end of side, etc.).
 			if len(capturedFPs) > 0 && lib != nil && isBoundaryTrigger {
-				if stub, stubErr := lib.UpsertStub(capturedFPs, m.cfg.FingerprintThreshold, 30); stubErr != nil {
-					log.Printf("recognizer: stub upsert error: %v", stubErr)
+				m.mu.Lock()
+				lastStub := m.lastStubAt
+				lastBoundary := m.lastBoundaryAt
+				m.mu.Unlock()
+				stubAlreadyCreated := !lastStub.IsZero() && lastStub.After(lastBoundary)
+				if !stubAlreadyCreated {
+					if stub, stubErr := lib.UpsertStub(capturedFPs, m.cfg.FingerprintThreshold, 30); stubErr != nil {
+						log.Printf("recognizer: stub upsert error: %v", stubErr)
+					} else {
+						log.Printf("recognizer: fingerprint stub stored (id=%d)", stub.ID)
+						m.mu.Lock()
+						m.lastStubAt = time.Now()
+						m.mu.Unlock()
+					}
 				} else {
-					log.Printf("recognizer: fingerprint stub stored (id=%d)", stub.ID)
+					log.Printf("recognizer: stub skipped — already created for this boundary (lastStub=%s)", lastStub.Format(time.RFC3339))
 				}
 			}
 			if isBoundaryTrigger {
