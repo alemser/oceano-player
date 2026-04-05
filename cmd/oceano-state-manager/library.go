@@ -346,12 +346,13 @@ func (l *Library) SaveFingerprints(entryID int64, fps []Fingerprint) error {
 }
 
 // FindByFingerprints scans all stored fingerprints in a single pass and returns
-// the collection entry with the lowest BER across all query fingerprints fps,
-// provided that BER is below threshold.
+// the collection entry whose stored fingerprints best match all query windows
+// fps, provided that score is below threshold.
 //
-// Scoring: for each (query window, stored fingerprint) pair compute BER; take
-// the global minimum. This is intentionally permissive on the query side —
-// only one query window needs to align well with one stored fingerprint.
+// Scoring: for each entry, compute the best BER for each query window across
+// all stored fingerprints, then take the worst of those best BERs. This
+// "worst-best" score requires every query window to align with the same entry,
+// which avoids false positives where one lucky window matches but the rest do not.
 // Reliability depends on the stored fingerprints being boundary-captured
 // (start-of-track), so that future plays at the same position match easily.
 // Timer-fired retries (mid-song captures) must NOT store fingerprints, as they
@@ -379,11 +380,12 @@ func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxSh
 	}
 	defer rows.Close()
 
-	// perEntry tracks, for each entry, the best (minimum) BER found so far
-	// across all (query window, stored fingerprint) pairs.
+	// perEntry tracks, for each entry, the best BER found for each query window
+	// across all stored fingerprints, plus the resulting worst-best score.
 	type entryState struct {
-		entry  CollectionEntry
-		minBER float64
+		entry     CollectionEntry
+		bestBERs  []float64
+		worstBest float64
 	}
 	entries := make(map[int64]*entryState)
 
@@ -411,12 +413,15 @@ func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxSh
 
 		state, ok := entries[entryID]
 		if !ok {
-			state = &entryState{entry: e, minBER: 1.0}
+			state = &entryState{entry: e, bestBERs: make([]float64, len(fps)), worstBest: 1.0}
+			for i := range state.bestBERs {
+				state.bestBERs[i] = 1.0
+			}
 			entries[entryID] = state
 		}
-		for _, fp := range fps {
-			if b := BER(fp, stored, maxShift); b < state.minBER {
-				state.minBER = b
+		for i, fp := range fps {
+			if b := BER(fp, stored, maxShift); b < state.bestBERs[i] {
+				state.bestBERs[i] = b
 			}
 		}
 	}
@@ -428,14 +433,20 @@ func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxSh
 	var bestEntry *CollectionEntry
 	bestScore := threshold
 	for _, state := range entries {
+		state.worstBest = 0.0
+		for _, b := range state.bestBERs {
+			if b > state.worstBest {
+				state.worstBest = b
+			}
+		}
 		label := state.entry.Artist + " — " + state.entry.Title
 		if label == " — " {
 			label = fmt.Sprintf("stub id=%d", state.entry.ID)
 		}
-		log.Printf("library: fingerprint candidate id=%d %q min-ber=%.3f threshold=%.2f",
-			state.entry.ID, label, state.minBER, threshold)
-		if state.minBER < bestScore {
-			bestScore = state.minBER
+		log.Printf("library: fingerprint candidate id=%d %q worst-best-ber=%.3f threshold=%.2f",
+			state.entry.ID, label, state.worstBest, threshold)
+		if state.worstBest < bestScore {
+			bestScore = state.worstBest
 			e := state.entry
 			bestEntry = &e
 		}
@@ -443,7 +454,7 @@ func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxSh
 	return bestEntry, nil
 }
 
-// PruneStub removes a stub entry (title='', artist='', user_confirmed=0) by ID.
+// PruneStub removes a stub entry (title=”, artist=”, user_confirmed=0) by ID.
 // Called after ACRCloud identifies a track that was previously stubbed, so the
 // orphaned stub does not remain in the library. The CASCADE on the fingerprints
 // table removes associated fingerprint rows automatically.
@@ -456,7 +467,7 @@ func (l *Library) PruneStub(id int64) error {
 	return err
 }
 
-// PruneMatchingStubs scans all unconfirmed stubs (title='', artist='') and
+// PruneMatchingStubs scans all unconfirmed stubs (title=”, artist=”) and
 // deletes any whose stored fingerprints match fps below threshold.
 // Uses the same "worst-best" scoring as FindByFingerprints: all query windows
 // must match so that a single coincidental window cannot trigger a deletion.
@@ -526,7 +537,7 @@ func (l *Library) PruneMatchingStubs(fps []Fingerprint, threshold float64, maxSh
 	}
 }
 
-// PruneRecentStubs deletes unconfirmed stub entries (title='', artist='',
+// PruneRecentStubs deletes unconfirmed stub entries (title=”, artist=”,
 // user_confirmed=0) whose first_played timestamp is at or after since.
 // excludeID is the just-identified entry and is never deleted.
 // This cleans up stubs that were created during earlier no-match attempts

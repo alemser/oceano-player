@@ -299,6 +299,58 @@ func TestFindByFingerprints_EmptyQuery(t *testing.T) {
 	}
 }
 
+func TestFindByFingerprints_RequiresAllQueryWindowsToMatchSameEntry(t *testing.T) {
+	lib := openTestLibrary(t)
+	result := &RecognitionResult{ACRID: "acr-fp-03", Title: "Track C", Artist: "Artist"}
+	id, _ := lib.RecordPlay(result, "")
+
+	matching := makeFingerprint(0x12345678, 50)
+	lib.SaveFingerprints(id, []Fingerprint{matching}) //nolint:errcheck
+
+	// First query window matches perfectly, second is completely different.
+	// Old logic used the global minimum BER and would incorrectly accept this.
+	query := []Fingerprint{
+		matching,
+		makeFingerprint(0xFFFFFFFF, 50),
+	}
+
+	entry, err := lib.FindByFingerprints(query, 0.35, 30)
+	if err != nil {
+		t.Fatalf("FindByFingerprints: %v", err)
+	}
+	if entry != nil {
+		t.Fatalf("expected no match when only one query window aligns, got id=%d", entry.ID)
+	}
+}
+
+func TestFindByFingerprints_PrefersEntryMatchingAllWindows(t *testing.T) {
+	lib := openTestLibrary(t)
+
+	// Entry A matches both windows.
+	rA := &RecognitionResult{ACRID: "acr-fp-all", Title: "All", Artist: "A"}
+	idA, _ := lib.RecordPlay(rA, "")
+	fpA1 := makeFingerprint(0x11111111, 50)
+	fpA2 := makeFingerprint(0x22222222, 50)
+	lib.SaveFingerprints(idA, []Fingerprint{fpA1, fpA2}) //nolint:errcheck
+
+	// Entry B matches only the first window.
+	rB := &RecognitionResult{ACRID: "acr-fp-partial", Title: "Partial", Artist: "B"}
+	idB, _ := lib.RecordPlay(rB, "")
+	lib.SaveFingerprints(idB, []Fingerprint{fpA1}) //nolint:errcheck
+
+	query := []Fingerprint{fpA1, fpA2}
+	entry, err := lib.FindByFingerprints(query, 0.35, 30)
+	if err != nil {
+		t.Fatalf("FindByFingerprints: %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected a match")
+	}
+	if entry.ACRID != "acr-fp-all" {
+		t.Fatalf("matched %q, want %q", entry.ACRID, "acr-fp-all")
+	}
+}
+
 // ── UpsertStub ────────────────────────────────────────────────────────────────
 
 func TestUpsertStub_CreatesStub(t *testing.T) {
