@@ -232,6 +232,16 @@ func TestCrossServiceMatch_DifferentArtist(t *testing.T) {
 	}
 }
 
+func TestCrossServiceMatch_DisagreementMeansRejectCandidate(t *testing.T) {
+	// Policy used by runRecognizer: if ACRCloud and Shazam disagree, do not
+	// switch to either track. A two-provider confirmation must agree.
+	r := &RecognitionResult{Title: "Pictures of You", Artist: "The Cure"}
+	c := &RecognitionResult{Title: "Bend Down Low", Artist: "Bob Marley & The Wailers"}
+	if crossServiceMatch(r, c, false) {
+		t.Fatal("disagreement between ACRCloud and Shazam must reject the candidate")
+	}
+}
+
 func TestCrossServiceMatch_DifferentACRID_SameProvider_NoTitleMatch(t *testing.T) {
 	// Same provider but different ACRID and different title → no match.
 	r := &RecognitionResult{ACRID: "acr-001", Title: "Track A", Artist: "Artist"}

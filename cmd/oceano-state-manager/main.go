@@ -1026,8 +1026,10 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 							} else {
 								log.Printf("recognizer [%s]: confirmation (%s) disagrees (got %s — %s) — discarding candidate %s — %s",
 									rec.Name(), confirmer.Name(), conf.Artist, conf.Title, result.Artist, result.Title)
-								// Use the confirmation result — it's the more recent capture.
-								result = conf
+								// Two recognizers must agree before updating the display. If they
+								// disagree, reject the candidate and keep the current track.
+								backoffUntil = time.Now().Add(noMatchBackoff)
+								continue
 							}
 						}
 					}
