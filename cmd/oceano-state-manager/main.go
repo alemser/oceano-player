@@ -863,8 +863,10 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 			} else if localEntry != nil && localEntry.UserConfirmed {
 				log.Printf("recognizer: local fingerprint match (id=%d %s — %s) — skipping ACRCloud",
 					localEntry.ID, localEntry.Artist, localEntry.Title)
-				if fpSaveErr := lib.SaveFingerprints(localEntry.ID, capturedFPs); fpSaveErr != nil {
-					log.Printf("recognizer: save fingerprints (cache hit): %v", fpSaveErr)
+				if isBoundaryTrigger {
+					if fpSaveErr := lib.SaveFingerprints(localEntry.ID, capturedFPs); fpSaveErr != nil {
+						log.Printf("recognizer: save fingerprints (cache hit): %v", fpSaveErr)
+					}
 				}
 				os.Remove(wavPath)
 				backoffUntil = time.Time{}
@@ -946,13 +948,16 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 				if recErr != nil {
 					log.Printf("recognizer: library record error: %v", recErr)
 				} else if entryID > 0 {
-					if len(capturedFPs) > 0 {
+					// Only store fingerprints from boundary-triggered captures (start of
+					// track). Timer-fired retries capture mid-song audio at arbitrary
+					// positions; storing those fingerprints would cause high BER on future
+					// plays (which always start from the beginning), leading to cache misses
+					// or false positives against other mid-song captures.
+					if len(capturedFPs) > 0 && isBoundaryTrigger {
 						if fpErr := lib.SaveFingerprints(entryID, capturedFPs); fpErr != nil {
 							log.Printf("recognizer: save fingerprints error: %v", fpErr)
 						}
 						// Delete any orphaned stubs whose fingerprints match this track.
-						// Covers stubs created during earlier no-match cycles, even when
-						// localEntry was nil (different capture offset, still same song).
 						lib.PruneMatchingStubs(capturedFPs, m.cfg.FingerprintThreshold, 30, entryID)
 					}
 				}
@@ -984,9 +989,10 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 		drained:
 		} else {
 			log.Printf("recognizer [%s]: no match — retrying in %s", rec.Name(), noMatchBackoff)
-			// Store a fingerprint stub so the user can annotate unrecognised tracks
-			// in the library editor; future plays will find the stub via fingerprint.
-			if len(capturedFPs) > 0 && lib != nil {
+			// Store a fingerprint stub only on boundary-triggered captures (start of
+			// track). Mid-song retries would store fingerprints at arbitrary positions
+			// that won't match future boundary captures, creating noisy stubs.
+			if len(capturedFPs) > 0 && lib != nil && isBoundaryTrigger {
 				if stub, stubErr := lib.UpsertStub(capturedFPs, m.cfg.FingerprintThreshold, 30); stubErr != nil {
 					log.Printf("recognizer: stub upsert error: %v", stubErr)
 				} else {

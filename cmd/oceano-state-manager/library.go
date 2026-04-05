@@ -338,20 +338,17 @@ func (l *Library) SaveFingerprints(entryID int64, fps []Fingerprint) error {
 	return tx.Commit()
 }
 
-// FindByFingerprints scans all stored fingerprints and returns the collection
-// entry whose stored fingerprints best match fps, provided the match is
-// confident enough.
+// FindByFingerprints scans all stored fingerprints in a single pass and returns
+// the collection entry with the lowest BER across all query fingerprints fps,
+// provided that BER is below threshold.
 //
-// Scoring strategy — "worst-best" per query window:
-//
-//  1. For each entry, for each query window fps[i], find the minimum BER
-//     against all stored fingerprints for that entry (best match for window i).
-//  2. The entry's overall score is the MAXIMUM of those per-window minimums —
-//     the hardest window to match drives the decision.
-//  3. An entry is accepted only if that worst-case BER is below threshold.
-//
-// This prevents a single lucky window pair from producing a false positive: all
-// query windows must find a good match in the stored fingerprints.
+// Scoring: for each (query window, stored fingerprint) pair compute BER; take
+// the global minimum. This is intentionally permissive on the query side —
+// only one query window needs to align well with one stored fingerprint.
+// Reliability depends on the stored fingerprints being boundary-captured
+// (start-of-track), so that future plays at the same position match easily.
+// Timer-fired retries (mid-song captures) must NOT store fingerprints, as they
+// produce high BER against boundary-captured windows of the same song.
 //
 // The scan is O(stored_fingerprints × len(fps)); for typical library sizes
 // (~1 000 entries × 2 stored windows × 2 query windows) this is well under 10 ms.
@@ -375,11 +372,11 @@ func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxSh
 	}
 	defer rows.Close()
 
-	// perEntry tracks, for each entry, the best (minimum) BER found so far for
-	// each query window.
+	// perEntry tracks, for each entry, the best (minimum) BER found so far
+	// across all (query window, stored fingerprint) pairs.
 	type entryState struct {
-		entry   CollectionEntry
-		bestBER []float64 // index matches fps slice; initialised to 1.0
+		entry  CollectionEntry
+		minBER float64
 	}
 	entries := make(map[int64]*entryState)
 
@@ -407,15 +404,12 @@ func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxSh
 
 		state, ok := entries[entryID]
 		if !ok {
-			state = &entryState{entry: e, bestBER: make([]float64, len(fps))}
-			for i := range state.bestBER {
-				state.bestBER[i] = 1.0
-			}
+			state = &entryState{entry: e, minBER: 1.0}
 			entries[entryID] = state
 		}
-		for i, fp := range fps {
-			if b := BER(fp, stored, maxShift); b < state.bestBER[i] {
-				state.bestBER[i] = b
+		for _, fp := range fps {
+			if b := BER(fp, stored, maxShift); b < state.minBER {
+				state.minBER = b
 			}
 		}
 	}
@@ -423,25 +417,18 @@ func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxSh
 		return nil, fmt.Errorf("library: fingerprint scan rows: %w", err)
 	}
 
-	// Find the entry with the lowest worst-case BER across all query windows.
+	// Find the entry with the globally lowest BER, logging all candidates.
 	var bestEntry *CollectionEntry
 	bestScore := threshold
 	for _, state := range entries {
-		// Worst-case: the hardest query window must also match.
-		worstBest := 0.0
-		for _, b := range state.bestBER {
-			if b > worstBest {
-				worstBest = b
-			}
-		}
 		label := state.entry.Artist + " — " + state.entry.Title
 		if label == " — " {
 			label = fmt.Sprintf("stub id=%d", state.entry.ID)
 		}
-		log.Printf("library: fingerprint candidate id=%d %q per-window best=%v worst-best=%.3f threshold=%.2f",
-			state.entry.ID, label, state.bestBER, worstBest, threshold)
-		if worstBest < bestScore {
-			bestScore = worstBest
+		log.Printf("library: fingerprint candidate id=%d %q min-ber=%.3f threshold=%.2f",
+			state.entry.ID, label, state.minBER, threshold)
+		if state.minBER < bestScore {
+			bestScore = state.minBER
 			e := state.entry
 			bestEntry = &e
 		}
