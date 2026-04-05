@@ -844,8 +844,12 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 			m.cfg.FingerprintLengthSec, captureSec)
 
 		// Check local fingerprint cache before querying ACRCloud.
+		// localEntry is declared here so it is visible in the ACRCloud block below
+		// for stub pruning after a successful recognition.
+		var localEntry *CollectionEntry
 		if len(capturedFPs) > 0 && lib != nil {
-			localEntry, fpErr := lib.FindByFingerprints(capturedFPs, m.cfg.FingerprintThreshold, 30)
+			var fpErr error
+			localEntry, fpErr = lib.FindByFingerprints(capturedFPs, m.cfg.FingerprintThreshold, 30)
 			if fpErr != nil {
 				log.Printf("recognizer: fingerprint lookup error: %v", fpErr)
 			} else if localEntry != nil && localEntry.UserConfirmed {
@@ -933,9 +937,20 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, fpr Fingerprint
 				entryID, recErr := lib.RecordPlay(result, artworkPath)
 				if recErr != nil {
 					log.Printf("recognizer: library record error: %v", recErr)
-				} else if entryID > 0 && len(capturedFPs) > 0 {
-					if fpErr := lib.SaveFingerprints(entryID, capturedFPs); fpErr != nil {
-						log.Printf("recognizer: save fingerprints error: %v", fpErr)
+				} else if entryID > 0 {
+					if len(capturedFPs) > 0 {
+						if fpErr := lib.SaveFingerprints(entryID, capturedFPs); fpErr != nil {
+							log.Printf("recognizer: save fingerprints error: %v", fpErr)
+						}
+					}
+					// If a fingerprint-matched stub was found earlier, delete it now
+					// that we have a confirmed ACRCloud entry for this track.
+					if localEntry != nil && !localEntry.UserConfirmed && localEntry.ID != entryID {
+						if pruneErr := lib.PruneStub(localEntry.ID); pruneErr != nil {
+							log.Printf("recognizer: stub prune error: %v", pruneErr)
+						} else {
+							log.Printf("recognizer: stub %d pruned (merged into entry %d)", localEntry.ID, entryID)
+						}
 					}
 				}
 

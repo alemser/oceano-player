@@ -408,6 +408,19 @@ func (l *Library) FindByFingerprints(fps []Fingerprint, threshold float64, maxSh
 	return &best.entry, nil
 }
 
+// PruneStub removes a stub entry (title='', artist='', user_confirmed=0) by ID.
+// Called after ACRCloud identifies a track that was previously stubbed, so the
+// orphaned stub does not remain in the library. The CASCADE on the fingerprints
+// table removes associated fingerprint rows automatically.
+// Safe to call on non-stub entries — the WHERE guard prevents accidental deletion.
+func (l *Library) PruneStub(id int64) error {
+	_, err := l.db.Exec(
+		`DELETE FROM collection WHERE id=? AND title='' AND artist='' AND user_confirmed=0`,
+		id,
+	)
+	return err
+}
+
 // Close closes the underlying database connection.
 func (l *Library) Close() error {
 	return l.db.Close()
