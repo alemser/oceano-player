@@ -593,12 +593,12 @@
 </div>
 
 <div class="tabs">
-  <button type="button" class="tab active" onclick="switchTab('config')">Configuration</button>
-  <button type="button" class="tab" onclick="switchTab('library')">Library</button>
+  <button type="button" class="tab" onclick="switchTab('config')">Configuration</button>
+  <button type="button" class="tab active" onclick="switchTab('library')">Library</button>
   <button type="button" class="tab" onclick="switchTab('logs')">Logs</button>
 </div>
 
-<div id="tab-config" class="tab-panel active">
+<div id="tab-config" class="tab-panel">
 <form id="cfg-form">
   <div class="sections">
 
@@ -761,7 +761,7 @@
 </form>
 </div><!-- #tab-config -->
 
-<div id="tab-library" class="tab-panel">
+<div id="tab-library" class="tab-panel active">
   <div class="lib-toolbar">
     <input type="text" class="lib-filter" id="lib-search" placeholder="Search title or artist…" oninput="renderLibrary()">
     <select class="lib-format-filter" id="lib-format-filter" onchange="renderLibrary()">
@@ -1337,6 +1337,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => {
     if (t.textContent.toLowerCase().includes(name)) t.classList.add('active');
   });
+  try { localStorage.setItem('oceano-last-tab', name); } catch (_) {}
   if (name !== 'library') stopLibraryAutoRefresh();
   if (name === 'logs') fetchLogs();
   if (name === 'library') {
@@ -1380,6 +1381,7 @@ document.getElementById('log-auto')?.addEventListener('change', function() {
 // ── Init ─────────────────────────────────────────────────────────────────────
 loadConfig();
 loadStatus();
+switchTab((function(){ try { return localStorage.getItem('oceano-last-tab'); } catch(_){ return null; } })() || 'library');
 
 // ── Power dialog ──────────────────────────────────────────────────────────────
 function openPowerDialog() {
