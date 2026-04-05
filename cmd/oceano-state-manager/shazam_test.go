@@ -362,6 +362,25 @@ func TestChooseConfirmationResult_ReturnsConfirmerErrorBeforePrimaryError(t *tes
 	}
 }
 
+func TestCanonicalTrackKey_PrefersProviderIDs(t *testing.T) {
+	r := &RecognitionResult{ACRID: "acr-123", ShazamID: "shz-999", Title: "x", Artist: "y"}
+	if got := canonicalTrackKey(r); got != "acrid:acr-123" {
+		t.Fatalf("expected ACRID key, got %q", got)
+	}
+
+	r = &RecognitionResult{ShazamID: "shz-999", Title: "x", Artist: "y"}
+	if got := canonicalTrackKey(r); got != "shazam:shz-999" {
+		t.Fatalf("expected Shazam key, got %q", got)
+	}
+}
+
+func TestCanonicalTrackKey_FallsBackToMetadata(t *testing.T) {
+	r := &RecognitionResult{Title: "Lovesong (Remaster 2010)", Artist: "The Cure"}
+	if got := canonicalTrackKey(r); got != "meta:lovesong|thecure" {
+		t.Fatalf("unexpected metadata key: %q", got)
+	}
+}
+
 // ── NewShazamRecognizer ───────────────────────────────────────────────────────
 
 func TestNewShazamRecognizer_ReturnsNilWhenBinaryMissing(t *testing.T) {

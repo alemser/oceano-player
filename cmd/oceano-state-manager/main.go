@@ -220,6 +220,14 @@ type mgr struct {
 	// shazamContinuityReady becomes true when the current track is a Shazam
 	// fallback match, or when Shazam has confirmed the current ACR track.
 	shazamContinuityReady bool
+	// recognizerBusyUntil suppresses continuity checks while the main recognizer
+	// is already capturing/identifying, avoiding stale duplicate triggers.
+	recognizerBusyUntil time.Time
+	// Last continuity mismatch signature, used to dedupe repeated triggers for
+	// the same from->to mismatch within a short cooldown window.
+	lastContinuityMismatchAt   time.Time
+	lastContinuityMismatchFrom string
+	lastContinuityMismatchTo   string
 }
 
 func newMgr(cfg Config) *mgr {
@@ -537,6 +545,9 @@ func (m *mgr) pollSourceFile() {
 		m.physicalArtworkPath = ""
 		m.physicalFormat = ""
 		m.shazamContinuityReady = false
+		m.lastContinuityMismatchAt = time.Time{}
+		m.lastContinuityMismatchFrom = ""
+		m.lastContinuityMismatchTo = ""
 	}
 	needsTrigger := src == "Physical" && m.recognitionResult == nil
 	m.physicalSource = src
@@ -932,6 +943,9 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 
 		log.Printf("recognizer [%s]: capturing %s from %s (skip=%s)",
 			rec.Name(), m.cfg.RecognizerCaptureDuration, m.cfg.PCMSocket, skip)
+		m.mu.Lock()
+		m.recognizerBusyUntil = time.Now().Add(skip + m.cfg.RecognizerCaptureDuration + 12*time.Second)
+		m.mu.Unlock()
 
 		captureCtx, cancel := context.WithTimeout(ctx, skip+m.cfg.RecognizerCaptureDuration+10*time.Second)
 		wavPath, err := captureFromPCMSocket(captureCtx, m.cfg.PCMSocket, m.cfg.RecognizerCaptureDuration, skip, os.TempDir())
@@ -1392,6 +1406,7 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 	if captureDur <= 0 {
 		captureDur = 4 * time.Second
 	}
+	const continuityMismatchCooldown = 20 * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -1404,6 +1419,10 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 
 		m.mu.Lock()
 		if m.physicalSource != "Physical" || m.recognitionResult == nil {
+			m.mu.Unlock()
+			continue
+		}
+		if time.Now().Before(m.recognizerBusyUntil) {
 			m.mu.Unlock()
 			continue
 		}
@@ -1442,6 +1461,27 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 			m.mu.Unlock()
 			continue
 		}
+
+		fromKey := canonicalTrackKey(&current)
+		toKey := canonicalTrackKey(shRes)
+		now := time.Now()
+		m.mu.Lock()
+		if m.recognitionResult == nil || !sameTrackByProviderIDs(m.recognitionResult, &current) {
+			// Current track changed while the continuity check was running.
+			m.mu.Unlock()
+			continue
+		}
+		duplicateMismatch := m.lastContinuityMismatchFrom == fromKey &&
+			m.lastContinuityMismatchTo == toKey &&
+			now.Sub(m.lastContinuityMismatchAt) < continuityMismatchCooldown
+		if duplicateMismatch {
+			m.mu.Unlock()
+			continue
+		}
+		m.lastContinuityMismatchAt = now
+		m.lastContinuityMismatchFrom = fromKey
+		m.lastContinuityMismatchTo = toKey
+		m.mu.Unlock()
 
 		log.Printf("shazam continuity: mismatch detected (%s — %s vs %s — %s) — triggering immediate re-recognition",
 			current.Artist, current.Title, shRes.Artist, shRes.Title)
@@ -1688,6 +1728,19 @@ func sameTrackByProviderIDs(a, b *RecognitionResult) bool {
 		return a.ShazamID == b.ShazamID
 	}
 	return tracksEquivalent(a.Title, a.Artist, b.Title, b.Artist)
+}
+
+func canonicalTrackKey(r *RecognitionResult) string {
+	if r == nil {
+		return ""
+	}
+	if r.ACRID != "" {
+		return "acrid:" + r.ACRID
+	}
+	if r.ShazamID != "" {
+		return "shazam:" + r.ShazamID
+	}
+	return "meta:" + normalizeTrackPart(r.Title) + "|" + normalizeTrackPart(r.Artist)
 }
 
 func chooseConfirmationResult(
