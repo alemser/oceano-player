@@ -18,7 +18,7 @@ DEFAULT_BRANCH="main"
 DEFAULT_METADATA_PIPE="/tmp/shairport-sync-metadata"
 DEFAULT_SOURCE_FILE="/tmp/oceano-source.json"
 DEFAULT_OUTPUT_FILE="/tmp/oceano-state.json"
-DEFAULT_ARTWORK_DIR="/tmp"
+DEFAULT_ARTWORK_DIR="/var/lib/oceano/artwork"
 DEFAULT_PCM_SOCKET="/tmp/oceano-pcm.sock"
 DEFAULT_VU_SOCKET="/tmp/oceano-vu.sock"
 DEFAULT_RECOGNIZER_CAPTURE_DURATION="10s"
@@ -242,6 +242,11 @@ main() {
   mkdir -p "${lib_dir}"
   chown "$(stat -c '%u:%g' /etc/oceano 2>/dev/null || echo "root:root")" "${lib_dir}" 2>/dev/null || true
   log_ok "Library directory ready at ${lib_dir}"
+
+  log_section "Artwork Directory"
+  mkdir -p "${artwork_dir}"
+  chown "$(stat -c '%u:%g' /etc/oceano 2>/dev/null || echo "root:root")" "${artwork_dir}" 2>/dev/null || true
+  log_ok "Artwork directory ready at ${artwork_dir}"
 
 
   log_section "systemd Service"

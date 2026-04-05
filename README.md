@@ -207,6 +207,8 @@ Frame rate: ~22 fps (2048-sample buffer at 44.1 kHz ≈ 46 ms per frame).
    curl -4 https://identify-eu-west-1.acrcloud.com
    ```
 
+5. **Library reuse by provider ID** — once a physical track is recognized, oceano-state-manager reuses saved metadata/artwork from the local library by either **ACRCloud ACRID** or **Shazam track ID**. This keeps user-edited metadata and artwork stable even when one provider misses and the other one matches.
+
 ---
 
 ### Source oscillating rapidly between Physical and None

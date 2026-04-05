@@ -82,8 +82,24 @@ type RecognitionConfig struct {
 	// recognition attempt. ACRCloud works well with 10s; minimum ~5s.
 	CaptureDurationSecs int `json:"capture_duration_secs"`
 	// MaxIntervalSecs is the fallback re-recognition interval when no
-	// silence gap (track boundary) is detected.
+	// silence gap (track boundary) is detected and no track is identified.
 	MaxIntervalSecs int `json:"max_interval_secs"`
+	// RefreshIntervalSecs is how soon to re-check after a successful recognition
+	// to catch gapless track changes (no silence gap). 0 = disabled.
+	RefreshIntervalSecs int `json:"refresh_interval_secs"`
+	// ConfirmationDelaySecs is the delay before the second (confirmation) call.
+	ConfirmationDelaySecs int `json:"confirmation_delay_secs"`
+	// ConfirmationCaptureDurationSecs is the capture length for the confirmation call.
+	ConfirmationCaptureDurationSecs int `json:"confirmation_capture_duration_secs"`
+	// ConfirmationBypassScore skips confirmation when initial score >= value.
+	// Set 0 to always require confirmation.
+	ConfirmationBypassScore int `json:"confirmation_bypass_score"`
+	// ShazamContinuityIntervalSecs controls how often Shazam checks whether the
+	// currently playing physical track is still the same.
+	ShazamContinuityIntervalSecs int `json:"shazam_continuity_interval_secs"`
+	// ShazamContinuityCaptureDurationSecs controls the capture duration for each
+	// periodic Shazam continuity check.
+	ShazamContinuityCaptureDurationSecs int `json:"shazam_continuity_capture_duration_secs"`
 }
 
 // AdvancedConfig holds paths and internal settings that rarely need
@@ -109,16 +125,22 @@ func defaultConfig() Config {
 			DeviceMatch: "",
 		},
 		Recognition: RecognitionConfig{
-			ACRCloudHost:        "identify-eu-west-1.acrcloud.com",
-			CaptureDurationSecs: 10,
-			MaxIntervalSecs:     300,
+			ACRCloudHost:                        "identify-eu-west-1.acrcloud.com",
+			CaptureDurationSecs:                 7,
+			MaxIntervalSecs:                     300,
+			RefreshIntervalSecs:                 120,
+			ConfirmationDelaySecs:               0,
+			ConfirmationCaptureDurationSecs:     4,
+			ConfirmationBypassScore:             95,
+			ShazamContinuityIntervalSecs:        8,
+			ShazamContinuityCaptureDurationSecs: 4,
 		},
 		Advanced: AdvancedConfig{
 			VUSocket:     "/tmp/oceano-vu.sock",
 			PCMSocket:    "/tmp/oceano-pcm.sock",
 			SourceFile:   "/tmp/oceano-source.json",
 			StateFile:    "/tmp/oceano-state.json",
-			ArtworkDir:   "/tmp",
+			ArtworkDir:   "/var/lib/oceano/artwork",
 			MetadataPipe: "/tmp/shairport-sync-metadata",
 		},
 		Display: DisplayConfig{
@@ -193,6 +215,12 @@ func managerArgs(cfg Config) []string {
 		"--pcm-socket", adv.PCMSocket,
 		"--recognizer-capture-duration", fmt.Sprintf("%ds", rec.CaptureDurationSecs),
 		"--recognizer-max-interval", fmt.Sprintf("%ds", rec.MaxIntervalSecs),
+		"--recognizer-refresh-interval", fmt.Sprintf("%ds", rec.RefreshIntervalSecs),
+		"--confirmation-delay", fmt.Sprintf("%ds", rec.ConfirmationDelaySecs),
+		"--confirmation-capture-duration", fmt.Sprintf("%ds", rec.ConfirmationCaptureDurationSecs),
+		"--confirmation-bypass-score", fmt.Sprintf("%d", rec.ConfirmationBypassScore),
+		"--shazam-continuity-interval", fmt.Sprintf("%ds", rec.ShazamContinuityIntervalSecs),
+		"--shazam-continuity-capture-duration", fmt.Sprintf("%ds", rec.ShazamContinuityCaptureDurationSecs),
 	}
 	if rec.ACRCloudHost != "" {
 		args = append(args,

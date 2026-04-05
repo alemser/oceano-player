@@ -50,7 +50,32 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		return nil, fmt.Errorf("library: open %s: %w", path, err)
 	}
 	db.SetMaxOpenConns(1)
-	return &LibraryDB{db: db, path: path}, nil
+	l := &LibraryDB{db: db, path: path}
+	// Enable WAL mode for concurrent access (readers + writer don't block each other)
+	// This is essential since both the web UI and state-manager write to the database.
+	if err := l.db.Ping(); err != nil {
+		l.close()
+		_ = l.db.Close()
+		return nil, fmt.Errorf("library: ping after open: %w", err)
+	}
+	if _, err := l.db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		_ = l.db.Close()
+		return nil, fmt.Errorf("library: set PRAGMA journal_mode=WAL: %w", err)
+	}
+	if _, err := l.db.Exec(`PRAGMA synchronous=NORMAL`); err != nil {
+		_ = l.db.Close()
+		return nil, fmt.Errorf("library: set PRAGMA synchronous=NORMAL: %w", err)
+	}
+	// Ensure columns added by state-manager migrations are present.
+	// ALTER TABLE returns an error if the column already exists; that is safe to ignore.
+	if _, err := l.db.Exec(`ALTER TABLE collection ADD COLUMN user_confirmed INTEGER NOT NULL DEFAULT 0`); err != nil {
+		errText := strings.ToLower(err.Error())
+		if !strings.Contains(errText, "duplicate column name") && !strings.Contains(errText, "already exists") {
+			_ = l.db.Close()
+			return nil, fmt.Errorf("library: ensure collection.user_confirmed column exists: %w", err)
+		}
+	}
+	return l, nil
 }
 
 func (l *LibraryDB) close() {
@@ -113,7 +138,8 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 func (l *LibraryDB) update(id int64, title, artist, album, label, released, format, trackNumber, artworkPath string) error {
 	_, err := l.db.Exec(`
 		UPDATE collection
-		SET title=?, artist=?, album=?, label=?, released=?, format=?, track_number=?, artwork_path=?
+		SET title=?, artist=?, album=?, label=?, released=?, format=?, track_number=?, artwork_path=?,
+		    user_confirmed=1
 		WHERE id=?`,
 		title, artist, album, label, released, format, trackNumber, artworkPath, id,
 	)
@@ -316,6 +342,8 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 		http.Error(w, "title and artist are required", http.StatusBadRequest)
 		return
 	}
+	body.Format = strings.TrimSpace(body.Format)
+	body.TrackNumber = strings.TrimSpace(body.TrackNumber)
 	// Validate format
 	switch body.Format {
 	case "Vinyl", "CD", "Unknown", "":
@@ -346,6 +374,7 @@ func patchStateFile(path, title, artist, album, format, artworkPath string) {
 	}
 	var state struct {
 		Source    string          `json:"source"`
+		Format    string          `json:"format,omitempty"`
 		State     string          `json:"state"`
 		Track     json.RawMessage `json:"track"`
 		UpdatedAt string          `json:"updated_at"`
@@ -378,8 +407,10 @@ func patchStateFile(path, title, artist, album, format, artworkPath string) {
 		return
 	}
 	state.Track = json.RawMessage(tb)
-	if format == "CD" || format == "Vinyl" {
-		state.Source = format
+	normFormat := strings.TrimSpace(format)
+	if normFormat == "CD" || normFormat == "Vinyl" {
+		state.Source = normFormat
+		state.Format = normFormat
 	}
 	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 

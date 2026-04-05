@@ -20,6 +20,7 @@ var ErrRateLimit = errors.New("recognition: rate limit exceeded")
 // RecognitionResult holds the identified track metadata.
 type RecognitionResult struct {
 	ACRID    string // ACRCloud unique track ID
+	ShazamID string // Shazam track key/ID
 	Title    string
 	Artist   string
 	Album    string
@@ -47,7 +48,11 @@ type Recognizer interface {
 // The caller must delete the file. This is the preferred capture method: it
 // reads from audio already captured by oceano-source-detector without opening
 // the ALSA device a second time.
-func captureFromPCMSocket(ctx context.Context, socketPath string, duration time.Duration, dir string) (string, error) {
+//
+// skipDuration discards that many seconds of PCM before capturing. Use this
+// after a track-boundary trigger to flush buffered audio from the previous
+// track — preventing fingerprint false-positives caused by buffer latency.
+func captureFromPCMSocket(ctx context.Context, socketPath string, duration, skipDuration time.Duration, dir string) (string, error) {
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
 		return "", fmt.Errorf("pcm socket: %w", err)
@@ -59,14 +64,23 @@ func captureFromPCMSocket(ctx context.Context, socketPath string, duration time.
 		channels       = 2
 		bytesPerSample = 2 // S16_LE
 	)
-	totalBytes := int(duration.Seconds()) * sampleRate * channels * bytesPerSample
 
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		deadline = time.Now().Add(duration + 5*time.Second)
+		deadline = time.Now().Add(skipDuration + duration + 5*time.Second)
 	}
 	conn.SetDeadline(deadline)
 
+	// Discard buffered audio from the previous track before the real capture.
+	if skipDuration > 0 {
+		skipBytes := int(skipDuration.Seconds()) * sampleRate * channels * bytesPerSample
+		skipBuf := make([]byte, skipBytes)
+		if _, err := readFull(conn, skipBuf); err != nil {
+			return "", fmt.Errorf("pcm socket skip: %w", err)
+		}
+	}
+
+	totalBytes := int(duration.Seconds()) * sampleRate * channels * bytesPerSample
 	pcmData := make([]byte, totalBytes)
 	if _, err := readFull(conn, pcmData); err != nil {
 		return "", fmt.Errorf("pcm socket read: %w", err)
@@ -89,8 +103,8 @@ func writePCMAsWAV(pcm []byte, sampleRate, channels int, path string) error {
 	hdr.WriteString("RIFF")
 	binary.Write(&hdr, binary.LittleEndian, uint32(36+len(pcm)))
 	hdr.WriteString("WAVEfmt ")
-	binary.Write(&hdr, binary.LittleEndian, uint32(16))              // PCM chunk size
-	binary.Write(&hdr, binary.LittleEndian, uint16(1))               // PCM format
+	binary.Write(&hdr, binary.LittleEndian, uint32(16)) // PCM chunk size
+	binary.Write(&hdr, binary.LittleEndian, uint16(1))  // PCM format
 	binary.Write(&hdr, binary.LittleEndian, uint16(channels))
 	binary.Write(&hdr, binary.LittleEndian, uint32(sampleRate))
 	binary.Write(&hdr, binary.LittleEndian, uint32(byteRate))
