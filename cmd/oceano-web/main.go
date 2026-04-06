@@ -104,13 +104,18 @@ func main() {
 			flusher.Flush()
 		}
 
+		var lastMod time.Time
 		// Push the current state immediately so the client doesn't need to wait
-		// up to 500 ms before it receives its first event.
-		if data, err := os.ReadFile(stateFile); err == nil {
-			writeStateEvent(data)
+		// up to 500 ms before it receives its first event. Capture the file
+		// modtime at the same time so the first poll tick doesn't resend the same
+		// unchanged state.
+		if info, err := os.Stat(stateFile); err == nil {
+			lastMod = info.ModTime()
+			if data, err := os.ReadFile(stateFile); err == nil {
+				writeStateEvent(data)
+			}
 		}
 
-		var lastMod time.Time
 		tick := time.NewTicker(500 * time.Millisecond)
 		ping := time.NewTicker(15 * time.Second)
 		defer tick.Stop()

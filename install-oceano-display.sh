@@ -60,7 +60,8 @@ write_display_check() {
 set -euo pipefail
 
 FOUND=false
-for status_file in /sys/class/drm/card*/status; do
+shopt -s nullglob
+for status_file in /sys/class/drm/card*-*/status; do
   [[ -f "$status_file" ]] || continue
   connector=$(basename "$(dirname "$status_file")")
   if [[ "$connector" == *HDMI* || "$connector" == *DSI* || "$connector" == *DP* ]]; then
@@ -70,6 +71,7 @@ for status_file in /sys/class/drm/card*/status; do
     fi
   fi
 done
+shopt -u nullglob
 
 if [[ "$FOUND" == "true" ]]; then
   exit 0
@@ -135,9 +137,20 @@ SCRIPT
 write_service() {
   local user="$1"
 
-  # Resolve the user's home directory for the SingletonLock cleanup.
+  # Resolve the user's home directory safely for the SingletonLock cleanup.
+  local passwd_entry
+  passwd_entry=$(getent passwd -- "${user}" || true)
+  if [[ -z "${passwd_entry}" ]]; then
+    log_error "User '${user}' does not exist"
+    exit 1
+  fi
+
   local user_home
-  user_home=$(eval echo "~${user}")
+  user_home=$(printf '%s\n' "${passwd_entry}" | cut -d: -f6)
+  if [[ -z "${user_home}" ]]; then
+    log_error "Could not resolve home directory for user '${user}'"
+    exit 1
+  fi
 
   cat > "${SERVICE_DEST}" <<EOF
 [Unit]
@@ -153,8 +166,9 @@ ConditionPathExists=/sys/class/drm
 Type=simple
 User=${user}
 Environment=HOME=${user_home}
-# Abort if no display is detected; prevents failure logs on headless deployments.
-ExecStartPre=${DISPLAY_CHECK_SCRIPT}
+# Skip cleanly if no display is detected; unlike ExecStartPre, ExecCondition
+# does not count a non-zero exit here as a unit failure.
+ExecCondition=${DISPLAY_CHECK_SCRIPT}
 # Brief pause to let the display server and oceano-web fully initialise.
 ExecStartPre=/bin/sleep 4
 ExecStart=${WRAPPER_SCRIPT}

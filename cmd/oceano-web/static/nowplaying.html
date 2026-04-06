@@ -1033,7 +1033,14 @@ function chipSVG(pathD) {
 function makeChip(icon, label) {
   const el = document.createElement('span');
   el.className = 'chip';
-  el.innerHTML = icon + label;
+
+  const iconWrap = document.createElement('span');
+  iconWrap.innerHTML = icon;
+  while (iconWrap.firstChild) {
+    el.appendChild(iconWrap.firstChild);
+  }
+
+  el.appendChild(document.createTextNode(String(label)));
   return el;
 }
 
@@ -1208,7 +1215,7 @@ function connect() {
   _es.onerror = () => {
     _es.close();
     _es = null;
-    // Exponential back-off: retry after 3 s, then browser will handle reconnects.
+    // Fixed reconnect delay: retry after 3 s, then the browser will handle reconnects.
     clearTimeout(_reconnectTimer);
     _reconnectTimer = setTimeout(connect, 3000);
   };
