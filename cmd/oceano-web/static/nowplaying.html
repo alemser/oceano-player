@@ -177,7 +177,41 @@
       gap: 0;
       min-width: 0;
       padding-right: 8px;
-      padding-top: 54px;
+      padding-top: 42px;
+    }
+
+    #meta-source {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      align-self: flex-start;
+      margin-bottom: 16px;
+      padding: 6px 11px;
+      border-radius: 999px;
+      border: 1px solid rgba(84, 106, 156, 0.44);
+      background: rgba(18, 25, 42, 0.42);
+      color: #a7b2d1;
+    }
+
+    #meta-source-icon {
+      width: 18px;
+      height: 18px;
+      color: #9fb2e2;
+      flex-shrink: 0;
+    }
+
+    #meta-source-icon svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #meta-source-label {
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      white-space: nowrap;
     }
 
     #track-title {
@@ -191,7 +225,7 @@
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       transition: opacity 0.4s;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
 
     #track-artist {
@@ -202,7 +236,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
       transition: opacity 0.4s;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
 
     #track-album {
@@ -212,7 +246,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
       transition: opacity 0.4s;
-      margin-bottom: 22px;
+      margin-bottom: 18px;
     }
 
     /* Divider */
@@ -221,7 +255,7 @@
       height: 2px;
       background: rgba(108, 126, 166, 0.4);
       border-radius: 2px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
       transition: opacity 0.4s;
     }
 
@@ -374,6 +408,10 @@
     </div>
 
     <div id="meta">
+      <div id="meta-source">
+        <div id="meta-source-icon" aria-hidden="true"></div>
+        <span id="meta-source-label">—</span>
+      </div>
       <div id="track-title">—</div>
       <div id="track-artist"></div>
       <div id="track-album"></div>
@@ -461,6 +499,8 @@ const $idle       = document.getElementById('idle-screen');
 const $idleTime   = document.getElementById('idle-time');
 const $sourceIcon = document.getElementById('source-icon');
 const $sourceLabel  = document.getElementById('source-label');
+const $metaSourceIcon = document.getElementById('meta-source-icon');
+const $metaSourceLabel = document.getElementById('meta-source-label');
 const $badge      = document.getElementById('playback-badge');
 const $artImg     = document.getElementById('artwork-img');
 const $artDefault = document.getElementById('artwork-default');
@@ -543,6 +583,8 @@ function applyState(state) {
   // Source icon + label
   $sourceIcon.innerHTML  = SOURCE_ICONS[source] || SOURCE_ICONS.None;
   $sourceLabel.textContent = SOURCE_LABELS[source] || source;
+  $metaSourceIcon.innerHTML = SOURCE_ICONS[source] || SOURCE_ICONS.None;
+  $metaSourceLabel.textContent = SOURCE_LABELS[source] || source;
 
   // Playback badge
   $badge.textContent = playing ? 'Playing' : 'Stopped';
