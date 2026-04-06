@@ -160,7 +160,10 @@ func (c *recognitionCoordinator) handleRecognitionError(err error, capturedFPs [
 }
 
 func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoundaryTrigger bool, backoffUntil *time.Time, backoffRateLimited *bool) {
-	const noMatchBackoff = 90 * time.Second
+	noMatchBackoff := c.mgr.cfg.NoMatchBackoff
+	if noMatchBackoff <= 0 {
+		noMatchBackoff = 15 * time.Second
+	}
 
 	if c.tryLocalFingerprintFallback(capturedFPs) {
 		*backoffUntil = time.Time{}

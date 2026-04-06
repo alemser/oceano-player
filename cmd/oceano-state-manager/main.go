@@ -114,6 +114,10 @@ type Config struct {
 	// triggers if the full interval has elapsed since the last recognition.
 	// Set to 0 to disable refresh (only boundary triggers will re-recognise).
 	RecognizerRefreshInterval time.Duration
+	// NoMatchBackoff is how long to wait before retrying after the recognition
+	// provider returns no result. Lower values identify tracks faster at the
+	// cost of more API calls. Default is 15s.
+	NoMatchBackoff time.Duration
 	// VUSocket is the Unix socket path for VU frames from oceano-source-detector.
 	// The state manager subscribes to detect silence→audio transitions (track boundaries)
 	// and uses them to trigger recognition at the right moment.
@@ -161,6 +165,7 @@ func defaultConfig() Config {
 		RecognizerCaptureDuration:       7 * time.Second,
 		RecognizerMaxInterval:           5 * time.Minute,
 		RecognizerRefreshInterval:       2 * time.Minute,
+		NoMatchBackoff:                  15 * time.Second,
 		IdleDelay:                       10 * time.Second,
 		LibraryDB:                       "/var/lib/oceano/library.db",
 		FingerprintWindows:              2,
@@ -438,6 +443,7 @@ func main() {
 	flag.DurationVar(&cfg.RecognizerCaptureDuration, "recognizer-capture-duration", cfg.RecognizerCaptureDuration, "audio capture duration per recognition attempt")
 	flag.DurationVar(&cfg.RecognizerMaxInterval, "recognizer-max-interval", cfg.RecognizerMaxInterval, "fallback re-recognition interval when no track boundary is detected and no result is held")
 	flag.DurationVar(&cfg.RecognizerRefreshInterval, "recognizer-refresh-interval", cfg.RecognizerRefreshInterval, "how soon to re-check after a successful recognition to catch gapless track changes (0 = disabled)")
+	flag.DurationVar(&cfg.NoMatchBackoff, "recognizer-no-match-backoff", cfg.NoMatchBackoff, "wait before retrying after a no-match response from the recognition provider")
 	flag.DurationVar(&cfg.IdleDelay, "idle-delay", cfg.IdleDelay, "how long to keep showing the last track after audio stops before switching to idle screen")
 	flag.StringVar(&cfg.LibraryDB, "library-db", cfg.LibraryDB, "path to SQLite library database (empty to disable)")
 	flag.IntVar(&cfg.FingerprintWindows, "fingerprint-windows", cfg.FingerprintWindows, "number of fingerprint windows to generate per recognition capture")

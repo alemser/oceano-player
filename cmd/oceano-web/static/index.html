@@ -749,6 +749,13 @@
         </div>
 
         <div class="field">
+          <label><span>No-match retry delay (seconds)</span></label>
+          <input type="number" id="rec-no-match-backoff" name="rec-no-match-backoff"
+                 step="5" min="5" max="300" placeholder="15">
+          <div class="hint">How long to wait before retrying after the provider returns no result. Lower values identify tracks faster at the cost of more API calls.</div>
+        </div>
+
+        <div class="field">
           <label><span>Confirmation delay (seconds)</span></label>
           <input type="number" id="rec-confirm-delay" name="rec-confirm-delay"
                  step="1" min="0" max="30" placeholder="2">
@@ -978,6 +985,7 @@ async function loadConfig() {
   set('rec-chain',         cfg.recognition?.recognizer_chain ?? 'acrcloud_first');
   set('rec-duration',      cfg.recognition?.capture_duration_secs ?? 7);
   set('rec-interval',      cfg.recognition?.max_interval_secs ?? 300);
+  set('rec-no-match-backoff', cfg.recognition?.no_match_backoff_secs ?? 15);
   set('rec-confirm-delay', cfg.recognition?.confirmation_delay_secs ?? 0);
   set('rec-confirm-duration', cfg.recognition?.confirmation_capture_duration_secs ?? 4);
   set('rec-confirm-bypass', cfg.recognition?.confirmation_bypass_score ?? 95);
@@ -1178,6 +1186,7 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
         recognizer_chain:     val('rec-chain') || 'acrcloud_first',
       capture_duration_secs: intOr('rec-duration', 7),
       max_interval_secs:     intOr('rec-interval', 300),
+      no_match_backoff_secs: intOr('rec-no-match-backoff', 15),
       confirmation_delay_secs: intOr('rec-confirm-delay', 0),
       confirmation_capture_duration_secs: intOr('rec-confirm-duration', 4),
       confirmation_bypass_score: intOr('rec-confirm-bypass', 95),

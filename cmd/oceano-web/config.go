@@ -102,6 +102,10 @@ type RecognitionConfig struct {
 	// RefreshIntervalSecs is how soon to re-check after a successful recognition
 	// to catch gapless track changes (no silence gap). 0 = disabled.
 	RefreshIntervalSecs int `json:"refresh_interval_secs"`
+	// NoMatchBackoffSecs is how long to wait before retrying after the provider
+	// returns no result. Lower values identify tracks faster at the cost of more
+	// API calls. Default is 15s.
+	NoMatchBackoffSecs int `json:"no_match_backoff_secs"`
 	// ConfirmationDelaySecs is the delay before the second (confirmation) call.
 	ConfirmationDelaySecs int `json:"confirmation_delay_secs"`
 	// ConfirmationCaptureDurationSecs is the capture length for the confirmation call.
@@ -150,6 +154,7 @@ func defaultConfig() Config {
 			CaptureDurationSecs:                 7,
 			MaxIntervalSecs:                     300,
 			RefreshIntervalSecs:                 120,
+			NoMatchBackoffSecs:                  15,
 			ConfirmationDelaySecs:               0,
 			ConfirmationCaptureDurationSecs:     4,
 			ConfirmationBypassScore:             95,
@@ -245,6 +250,7 @@ func managerArgs(cfg Config) []string {
 		"--recognizer-capture-duration", fmt.Sprintf("%ds", rec.CaptureDurationSecs),
 		"--recognizer-max-interval", fmt.Sprintf("%ds", rec.MaxIntervalSecs),
 		"--recognizer-refresh-interval", fmt.Sprintf("%ds", rec.RefreshIntervalSecs),
+		"--recognizer-no-match-backoff", fmt.Sprintf("%ds", rec.NoMatchBackoffSecs),
 		"--confirmation-delay", fmt.Sprintf("%ds", rec.ConfirmationDelaySecs),
 		"--confirmation-capture-duration", fmt.Sprintf("%ds", rec.ConfirmationCaptureDurationSecs),
 		"--confirmation-bypass-score", fmt.Sprintf("%d", rec.ConfirmationBypassScore),
