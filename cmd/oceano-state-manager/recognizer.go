@@ -4,44 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"time"
+
+	internalrecognition "github.com/alemser/oceano-player/internal/recognition"
 )
 
-// ErrRateLimit is returned by a Recognizer when the provider signals that the
-// request quota has been exceeded. The caller should back off before retrying
-// or fall through to a fallback provider.
-var ErrRateLimit = errors.New("recognition: rate limit exceeded")
+var ErrRateLimit = internalrecognition.ErrRateLimit
 
-// RecognitionResult holds the identified track metadata.
-type RecognitionResult struct {
-	ACRID    string // ACRCloud unique track ID
-	ShazamID string // Shazam track key/ID
-	Title    string
-	Artist   string
-	Album    string
-	Label    string
-	Released string
-	Score    int
-	Format   string // "Vinyl" | "CD" | "Unknown" — from library entry
-}
-
-// Recognizer identifies a track from a WAV audio file.
-// Implementations must be safe for concurrent use.
-type Recognizer interface {
-	// Name returns the provider name used in log messages.
-	Name() string
-
-	// Recognize queries the provider with the given WAV file path.
-	// Returns (nil, nil) when the track was not found (no match).
-	// Returns (nil, ErrRateLimit) when quota is exceeded.
-	// Returns (nil, err) on any other transport or API error.
-	Recognize(ctx context.Context, wavPath string) (*RecognitionResult, error)
-}
+type RecognitionResult = internalrecognition.Result
+type Recognizer = internalrecognition.Recognizer
 
 // captureFromPCMSocket reads duration of raw PCM from the source detector's
 // PCM relay socket and writes a temporary WAV file (S16_LE, stereo, 44100 Hz).

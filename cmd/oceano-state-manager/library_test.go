@@ -34,10 +34,10 @@ func TestOpen_CreatesSchema(t *testing.T) {
 	lib := openTestLibrary(t)
 	// A simple query proves the collection table exists.
 	var count int
-	if err := lib.db.QueryRow(`SELECT COUNT(*) FROM collection`).Scan(&count); err != nil {
+	if err := lib.DB().QueryRow(`SELECT COUNT(*) FROM collection`).Scan(&count); err != nil {
 		t.Fatalf("collection table missing after Open: %v", err)
 	}
-	if err := lib.db.QueryRow(`SELECT COUNT(*) FROM fingerprints`).Scan(&count); err != nil {
+	if err := lib.DB().QueryRow(`SELECT COUNT(*) FROM fingerprints`).Scan(&count); err != nil {
 		t.Fatalf("fingerprints table missing after Open: %v", err)
 	}
 }
@@ -262,7 +262,7 @@ func TestHasFingerprints_FirstPlayOnlySemantics(t *testing.T) {
 	// Verify count stays at len(fp) — caller is responsible for gating,
 	// but confirm the DB state is correct.
 	var count int
-	lib.db.QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id=?`, id).Scan(&count)
+	lib.DB().QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id=?`, id).Scan(&count)
 	if count != len(fp) {
 		t.Errorf("fingerprint count = %d, want %d", count, len(fp))
 	}
@@ -446,7 +446,7 @@ func TestUpsertStub_ReusesExistingStubByFingerprint(t *testing.T) {
 
 	// Re-read to check play_count was incremented.
 	var playCount int
-	lib.db.QueryRow(`SELECT play_count FROM collection WHERE id=?`, stub1.ID).Scan(&playCount)
+	lib.DB().QueryRow(`SELECT play_count FROM collection WHERE id=?`, stub1.ID).Scan(&playCount)
 	if playCount != 2 {
 		t.Errorf("play_count = %d after two upserts, want 2", playCount)
 	}
@@ -484,7 +484,7 @@ func TestPruneStub_RemovesStub(t *testing.T) {
 		t.Fatalf("PruneStub: %v", err)
 	}
 	var count int
-	lib.db.QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
+	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
 	if count != 0 {
 		t.Error("stub should have been deleted")
 	}
@@ -520,7 +520,7 @@ func TestPruneRecentStubs_DeletesStubsAfterBoundary(t *testing.T) {
 	lib.PruneRecentStubs(boundary, keepID)
 
 	var count int
-	lib.db.QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub1.ID).Scan(&count)
+	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub1.ID).Scan(&count)
 	if count != 0 {
 		t.Errorf("stub created after boundary should be pruned, still found id=%d", stub1.ID)
 	}
@@ -542,7 +542,7 @@ func TestPruneRecentStubs_SparesBoundaryExcludeID(t *testing.T) {
 	lib.PruneRecentStubs(boundary, stub.ID)
 
 	var count int
-	lib.db.QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
+	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
 	if count == 0 {
 		t.Error("stub matching excludeID should be spared by PruneRecentStubs")
 	}
@@ -554,14 +554,14 @@ func TestPruneRecentStubs_SparesStubsBeforeBoundary(t *testing.T) {
 	// Create stub, then set its first_played to before the boundary.
 	stub, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0x33333333, 50)}, 0.35, 30)
 	pastTime := time.Now().Add(-2 * time.Minute).UTC().Format(time.RFC3339)
-	lib.db.Exec(`UPDATE collection SET first_played=? WHERE id=?`, pastTime, stub.ID)
+	lib.DB().Exec(`UPDATE collection SET first_played=? WHERE id=?`, pastTime, stub.ID)
 
 	boundary := time.Now().Add(-1 * time.Minute) // 1 min ago — after pastTime above
 	lib.PruneRecentStubs(boundary, 0)
 
 	// Stub was created before boundary → spared.
 	var count int
-	lib.db.QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
+	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
 	if count == 0 {
 		t.Error("stub created before boundary should not be pruned")
 	}
@@ -582,7 +582,7 @@ func TestPruneMatchingStubs_DeletesMatchingStub(t *testing.T) {
 	lib.PruneMatchingStubs([]Fingerprint{fp}, 0.35, 30, keepID)
 
 	var count int
-	lib.db.QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
+	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
 	if count != 0 {
 		t.Errorf("stub with matching fingerprint should be pruned, found id=%d", stub.ID)
 	}
@@ -600,7 +600,7 @@ func TestPruneMatchingStubs_SparesNonMatchingStub(t *testing.T) {
 	lib.PruneMatchingStubs([]Fingerprint{makeFingerprint(0x00000000, 50)}, 0.35, 30, keepID)
 
 	var count int
-	lib.db.QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
+	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
 	if count == 0 {
 		t.Error("stub with non-matching fingerprint should NOT be pruned")
 	}
@@ -615,7 +615,7 @@ func TestPruneMatchingStubs_SparesExcludeID(t *testing.T) {
 	lib.PruneMatchingStubs([]Fingerprint{fp}, 0.35, 30, stub.ID)
 
 	var count int
-	lib.db.QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
+	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
 	if count == 0 {
 		t.Error("PruneMatchingStubs should spare the excludeID entry")
 	}

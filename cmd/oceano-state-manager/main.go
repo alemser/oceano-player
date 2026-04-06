@@ -1116,8 +1116,8 @@ func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Reco
 									err error
 								}
 								primaryRec := rec
-								if chain, ok := rec.(*ChainRecognizer); ok && len(chain.chain) > 0 {
-									primaryRec = chain.chain[0]
+								if chain, ok := rec.(*ChainRecognizer); ok && chain.Primary() != nil {
+									primaryRec = chain.Primary()
 								}
 								pCh := make(chan recOut, 1)
 								sCh := make(chan recOut, 1)
@@ -1818,46 +1818,17 @@ func main() {
 			log.Printf("library: opened at %s", cfg.LibraryDB)
 		}
 	}
-
-	var acrRec Recognizer
-	if cfg.ACRCloudHost != "" && cfg.ACRCloudAccessKey != "" && cfg.ACRCloudSecretKey != "" {
-		acrRec = NewACRCloudRecognizer(ACRCloudConfig{
-			Host:      cfg.ACRCloudHost,
-			AccessKey: cfg.ACRCloudAccessKey,
-			SecretKey: cfg.ACRCloudSecretKey,
-		})
-		log.Printf("recognizer: ACRCloud enabled (host=%s)", cfg.ACRCloudHost)
-	}
-
-	var shazamRec Recognizer
-	if cfg.ShazamPythonBin != "" {
-		if s := NewShazamRecognizer(cfg.ShazamPythonBin); s != nil {
-			shazamRec = s
-			log.Printf("recognizer: Shazam enabled (python=%s)", cfg.ShazamPythonBin)
-		} else {
-			log.Printf("recognizer: Shazam unavailable — %s not found or shazamio not installed", cfg.ShazamPythonBin)
-		}
-	}
-
-	rec := NewChainRecognizer(acrRec, shazamRec)
-
-	// confirmRec is the recognizer used to cross-validate a new-track candidate.
-	// When both ACRCloud and Shazam are available, Shazam confirms ACRCloud results
-	// (and vice-versa) — two independent services must agree before updating the display.
-	// When only one service is available, it confirms itself (same-provider second call).
-	var confirmRec Recognizer
-	if acrRec != nil && shazamRec != nil {
-		// ACRCloud is primary; Shazam is the cross-validator.
-		confirmRec = shazamRec
-	}
-	// confirmRec=nil → runRecognizer falls back to using rec for confirmation.
+	components := buildRecognitionComponents(cfg)
+	rec := components.chain
+	confirmRec := components.confirmer
+	shazamRec := components.continuity
 
 	if rec != nil {
 		log.Printf("recognizer: chain=%s pcm-socket=%s max-interval=%s refresh-interval=%s confirm-delay=%s shazam-continuity=%s",
 			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval, cfg.RecognizerRefreshInterval, cfg.ConfirmationDelay, cfg.ShazamContinuityInterval)
 	}
 
-	fpr := newFingerprinter()
+	fpr := components.fingerprint
 	if fpr != nil && rec != nil {
 		log.Printf("recognizer: local fingerprint cache enabled (windows=%d stride=%ds length=%ds threshold=%.2f)",
 			cfg.FingerprintWindows, cfg.FingerprintStrideSec, cfg.FingerprintLengthSec, cfg.FingerprintThreshold)
