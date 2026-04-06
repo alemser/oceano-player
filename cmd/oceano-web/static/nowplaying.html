@@ -514,6 +514,9 @@ const SOURCE_ICONS = {
     <circle cx="16" cy="16" r="9.5" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>
     <circle cx="16" cy="16" r="6"   stroke="currentColor" stroke-width="0.8" opacity="0.35"/>
     <circle cx="16" cy="16" r="2.5" fill="currentColor" opacity="0.6"/>
+    <path d="M23 6 L28 11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>
+    <path d="M28 11 L22.3 16.7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>
+    <circle cx="22.1" cy="16.9" r="1.1" fill="currentColor" opacity="0.95"/>
   </svg>`,
 
   CD: `<svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
@@ -753,33 +756,33 @@ function applyState(state) {
       ));
     }
 
-    // CD: track number
-    if (track.track_number && (source === 'CD' || source === 'Physical')) {
-      const cdNum = track.track_number;
-      // If the track_number looks like a vinyl position (A1, B2, etc.),
-      // parse it as side + track; otherwise treat it as a plain CD track.
-      const vinylMatch = /^([A-Da-d])(\d+)$/.exec(cdNum.trim());
-      if (vinylMatch && source === 'Vinyl') {
-        const side = vinylMatch[1].toUpperCase();
-        const num  = vinylMatch[2];
-        $chips.appendChild(makeChip(
-          chipSVG('M6 1 L6 11 M1 4 L6 1 L11 4'),
-          'Side ' + side
-        ));
+    // Track/side chips: supports CD and Vinyl representations.
+    if (track.track_number) {
+      const trackRef = String(track.track_number).trim();
+      const vinylMatch = /^([A-Da-d])\s*[-.]?\s*(\d+)$/.exec(trackRef);
+
+      if (source === 'Vinyl') {
+        if (vinylMatch) {
+          const side = vinylMatch[1].toUpperCase();
+          const num  = vinylMatch[2];
+          $chips.appendChild(makeChip(
+            chipSVG('M6 1 L6 11 M1 4 L6 1 L11 4'),
+            'Side ' + side
+          ));
+          $chips.appendChild(makeChip(
+            chipSVG('M2 6 Q2 2 6 2 Q10 2 10 6 Q10 10 6 10 Q2 10 2 6'),
+            'Track ' + num
+          ));
+        } else {
+          $chips.appendChild(makeChip(
+            chipSVG('M2 6 Q2 2 6 2 Q10 2 10 6 Q10 10 6 10 Q2 10 2 6'),
+            'Track ' + trackRef
+          ));
+        }
+      } else if (source === 'CD' || source === 'Physical') {
         $chips.appendChild(makeChip(
           chipSVG('M2 6 Q2 2 6 2 Q10 2 10 6 Q10 10 6 10 Q2 10 2 6'),
-          'Track ' + num
-        ));
-      } else if (source === 'CD') {
-        $chips.appendChild(makeChip(
-          chipSVG('M2 6 Q2 2 6 2 Q10 2 10 6 Q10 10 6 10 Q2 10 2 6'),
-          'Track ' + cdNum
-        ));
-      } else if (source === 'Vinyl') {
-        // Free-form vinyl track info
-        $chips.appendChild(makeChip(
-          chipSVG('M6 1 L6 11 M1 4 L6 1 L11 4'),
-          cdNum
+          'Track ' + trackRef
         ));
       }
     }
