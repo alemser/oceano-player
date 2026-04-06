@@ -305,7 +305,8 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 	// track (e.g. remaster/release variants). When Shazam is present and a
 	// confirmed metadata-equivalent row already exists, update that row instead
 	// of creating a duplicate keyed by a new ACRID.
-	allowEquivalentMerge := result.ShazamID != "" || result.Score >= 95
+	allowEquivalentMerge := result.ShazamID != "" ||
+		(result.ACRID != "" && strings.TrimSpace(result.Title) != "" && strings.TrimSpace(result.Artist) != "")
 	if allowEquivalentMerge {
 		if existing, err := l.lookupConfirmedByEquivalentMetadata(result.Title, result.Artist); err != nil {
 			return 0, err

@@ -259,6 +259,55 @@ func TestRecordPlay_MergesEquivalentHighConfidenceACRTrackWithoutShazam(t *testi
 	}
 }
 
+func TestRecordPlay_MergesEquivalentLowScoreACRTrackWithoutShazam(t *testing.T) {
+	lib := openTestLibrary(t)
+
+	first := &RecognitionResult{
+		ACRID:  "acr-first-low-111",
+		Title:  "Merry Go Round",
+		Artist: "The Replacements",
+		Score:  85,
+	}
+	firstID, err := lib.RecordPlay(first, "")
+	if err != nil {
+		t.Fatalf("RecordPlay(first): %v", err)
+	}
+
+	second := &RecognitionResult{
+		ACRID:  "acr-second-low-222",
+		Title:  "Merry Go Round (2008 Remaster)",
+		Artist: "The Replacements",
+		Score:  79,
+	}
+	secondID, err := lib.RecordPlay(second, "")
+	if err != nil {
+		t.Fatalf("RecordPlay(second): %v", err)
+	}
+
+	if secondID != firstID {
+		t.Fatalf("expected equivalent low-score track to reuse row id=%d, got id=%d", firstID, secondID)
+	}
+
+	entryByFirst, err := lib.Lookup("acr-first-low-111")
+	if err != nil {
+		t.Fatalf("Lookup(first acr): %v", err)
+	}
+	if entryByFirst == nil {
+		t.Fatal("entry not found by first ACRID")
+	}
+	if entryByFirst.PlayCount != 2 {
+		t.Fatalf("play_count = %d, want 2", entryByFirst.PlayCount)
+	}
+
+	entryBySecond, err := lib.Lookup("acr-second-low-222")
+	if err != nil {
+		t.Fatalf("Lookup(second acr): %v", err)
+	}
+	if entryBySecond != nil {
+		t.Fatalf("unexpected duplicate row by second ACRID: %+v", entryBySecond)
+	}
+}
+
 // ── Lookup ────────────────────────────────────────────────────────────────────
 
 func TestLookup_NotFound(t *testing.T) {
