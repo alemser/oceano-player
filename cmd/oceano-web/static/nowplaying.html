@@ -633,6 +633,25 @@ function makeChip(icon, label) {
   return el;
 }
 
+function parseVinylTrackRef(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  if (!raw) return null;
+
+  // Accept A1, B2, C-3, D.4
+  let m = /^([A-D])\s*[-.]?\s*(\d{1,2})$/.exec(raw);
+  if (m) {
+    return { side: m[1], track: String(parseInt(m[2], 10)) };
+  }
+
+  // Accept 1A, 2-B, 3.C
+  m = /^(\d{1,2})\s*[-.]?\s*([A-D])$/.exec(raw);
+  if (m) {
+    return { side: m[2], track: String(parseInt(m[1], 10)) };
+  }
+
+  return null;
+}
+
 function isStreamingSource(source) {
   return STREAMING_SOURCES.has(source);
 }
@@ -759,19 +778,17 @@ function applyState(state) {
     // Track/side chips: supports CD and Vinyl representations.
     if (track.track_number) {
       const trackRef = String(track.track_number).trim();
-      const vinylMatch = /^([A-Da-d])\s*[-.]?\s*(\d+)$/.exec(trackRef);
+      const vinylRef = parseVinylTrackRef(trackRef);
 
       if (source === 'Vinyl') {
-        if (vinylMatch) {
-          const side = vinylMatch[1].toUpperCase();
-          const num  = vinylMatch[2];
+        if (vinylRef) {
           $chips.appendChild(makeChip(
             chipSVG('M6 1 L6 11 M1 4 L6 1 L11 4'),
-            'Side ' + side
+            'Side ' + vinylRef.side
           ));
           $chips.appendChild(makeChip(
             chipSVG('M2 6 Q2 2 6 2 Q10 2 10 6 Q10 10 6 10 Q2 10 2 6'),
-            'Track ' + num
+            'Track ' + vinylRef.track
           ));
         } else {
           $chips.appendChild(makeChip(
