@@ -207,6 +207,14 @@ write_shairport_config() {
     log_info "Original shairport-sync.conf backed up to ${SHAIRPORT_CONF}.oceano.bak"
   fi
 
+  # In loopback mode shairport_output_device is the always-present Loopback
+  # device, so also pass the real DAC so the preplay-wait guards against the
+  # amplifier not yet being on the USB input when playback starts.
+  local dac_arg=""
+  if [[ "${output_strategy}" == "loopback" && -n "${alsa_device}" ]]; then
+    dac_arg=" \"${alsa_device}\""
+  fi
+
   cat > "${SHAIRPORT_CONF}" <<EOF
 general =
 {
@@ -238,7 +246,7 @@ metadata =
 sessioncontrol =
 {
   wait_for_completion = "yes";
-  run_this_before_play_begins = "${PREPLAY_WAIT_SCRIPT} \"${shairport_output_device}\" ${preplay_wait_seconds}";
+  run_this_before_play_begins = "${PREPLAY_WAIT_SCRIPT} \"${shairport_output_device}\" ${preplay_wait_seconds}${dac_arg}";
 };
 EOF
 }
@@ -248,8 +256,14 @@ write_preplay_wait_script() {
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Arg 1: output device (checked first — required for direct mode; always
+#         present Loopback device in loopback mode).
+# Arg 2: max seconds to wait (default 8).
+# Arg 3: real DAC device (optional; passed in loopback mode so we also gate
+#         on the amplifier actually being on the USB input).
 alsa_device="${1:-}"
 wait_seconds="${2:-8}"
+dac_device="${3:-}"
 
 if [[ -z "${alsa_device}" ]]; then
   exit 0
@@ -259,14 +273,30 @@ if ! [[ "${wait_seconds}" =~ ^[0-9]+$ ]]; then
   wait_seconds=8
 fi
 
-attempt=0
-while (( attempt < wait_seconds )); do
-  if aplay -q -D "${alsa_device}" -t raw -f S16_LE -r 44100 -d 1 /dev/zero >/dev/null 2>&1; then
-    exit 0
+wait_for_device() {
+  local dev="$1" secs="$2"
+  local attempt=0
+  while (( attempt < secs )); do
+    if aplay -q -D "${dev}" -t raw -f S16_LE -r 44100 -d 1 /dev/zero >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+    ((attempt += 1))
+  done
+  return 1
+}
+
+# Always check the shairport output device first.
+wait_for_device "${alsa_device}" "${wait_seconds}" || true
+
+# In loopback mode a real DAC device is also supplied.  Wait for it so we
+# don't start playing into the loopback before the bridge can route audio
+# to the amplifier (i.e. amp must be on the USB input).
+if [[ -n "${dac_device}" ]]; then
+  if ! wait_for_device "${dac_device}" "${wait_seconds}"; then
+    echo "preplay-wait: DAC ${dac_device} not available after ${wait_seconds}s — proceeding anyway" >&2
   fi
-  sleep 1
-  ((attempt += 1))
-done
+fi
 
 exit 0
 EOF
