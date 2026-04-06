@@ -1,9 +1,99 @@
 package main
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
+
+func TestShouldBypassBackoff(t *testing.T) {
+	if !shouldBypassBackoff(true, false) {
+		t.Fatal("expected boundary trigger without rate-limit backoff to bypass")
+	}
+	if shouldBypassBackoff(true, true) {
+		t.Fatal("expected rate-limited backoff not to be bypassed")
+	}
+	if shouldBypassBackoff(false, false) {
+		t.Fatal("expected non-boundary trigger not to bypass")
+	}
+}
+
+func TestShouldSkipRecognitionAttempt(t *testing.T) {
+	tests := []struct {
+		name       string
+		isPhysical bool
+		isAirPlay  bool
+		want       bool
+	}{
+		{name: "physical no airplay", isPhysical: true, isAirPlay: false, want: false},
+		{name: "none source", isPhysical: false, isAirPlay: false, want: true},
+		{name: "airplay active", isPhysical: true, isAirPlay: true, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldSkipRecognitionAttempt(tt.isPhysical, tt.isAirPlay); got != tt.want {
+				t.Fatalf("shouldSkipRecognitionAttempt(%v,%v) = %v, want %v", tt.isPhysical, tt.isAirPlay, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldCreateBoundaryStub(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name          string
+		lastStub      time.Time
+		lastBoundary  time.Time
+		stillPhysical bool
+		want          bool
+	}{
+		{name: "not physical", stillPhysical: false, want: false},
+		{name: "no previous stub", lastStub: time.Time{}, lastBoundary: now, stillPhysical: true, want: true},
+		{name: "stub before boundary", lastStub: now.Add(-2 * time.Second), lastBoundary: now, stillPhysical: true, want: true},
+		{name: "stub after boundary", lastStub: now.Add(2 * time.Second), lastBoundary: now, stillPhysical: true, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldCreateBoundaryStub(tt.lastStub, tt.lastBoundary, tt.stillPhysical); got != tt.want {
+				t.Fatalf("shouldCreateBoundaryStub(...) = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHandleRecognitionErrorSetsBackoff(t *testing.T) {
+	m := newTestMgr()
+	c := newRecognitionCoordinator(m, &stubRecognizer{name: "A"}, nil, nil, nil, nil)
+
+	var backoffUntil time.Time
+	backoffRateLimited := false
+	c.handleRecognitionError(errors.New("boom"), nil, &backoffUntil, &backoffRateLimited)
+
+	if backoffUntil.IsZero() {
+		t.Fatal("expected backoffUntil to be set")
+	}
+	if backoffRateLimited {
+		t.Fatal("expected non-rate-limited error to keep rate-limit flag false")
+	}
+}
+
+func TestHandleRecognitionErrorSetsRateLimitBackoff(t *testing.T) {
+	m := newTestMgr()
+	c := newRecognitionCoordinator(m, &stubRecognizer{name: "A"}, nil, nil, nil, nil)
+
+	var backoffUntil time.Time
+	backoffRateLimited := false
+	c.handleRecognitionError(ErrRateLimit, nil, &backoffUntil, &backoffRateLimited)
+
+	if backoffUntil.IsZero() {
+		t.Fatal("expected backoffUntil to be set for rate limit")
+	}
+	if !backoffRateLimited {
+		t.Fatal("expected rate-limit flag true")
+	}
+}
 
 func TestIsPhysicalFormat(t *testing.T) {
 	tests := []struct {

@@ -47,6 +47,9 @@ oceano-state-manager
   ├── reads /tmp/oceano-vu.sock          (VU monitor: silence→audio = track boundary trigger)
   ├── reads /tmp/oceano-pcm.sock         (recognition capture — no second arecord needed)
   ├── reads shairport-sync metadata pipe (AirPlay metadata)
+  ├── internal/recognition               (provider clients + chain + fingerprint logic)
+  ├── internal/library                   (SQLite collection, fingerprint cache, artwork paths)
+  ├── recognition coordinator            (trigger loop + confirmation + persistence policies)
   └── writes /tmp/oceano-state.json      (unified state for UI)
 ```
 
@@ -57,7 +60,9 @@ detection takes priority over any concurrently active AirPlay stream.
 **Recognition flow**:
 1. `pollSourceFile` detects `Physical` → fires trigger immediately
 2. `runVUMonitor` watches VU frames for silence gaps between tracks → fires trigger on audio resumption
-3. `runRecognizer` waits for triggers, reads PCM from the socket, calls ACRCloud, updates state
+3. `runRecognizer` delegates to the recognition coordinator, which waits for triggers,
+   captures PCM, runs the recognizer chain, applies confirmation/local fallback policies,
+   and persists track/fingerprint/artwork updates
 4. On rate limit: backs off 5 min. On no match: retries after 90 s. Fallback: re-runs every `RecognizerMaxInterval` (default 5 min) even without a track boundary event.
 
 **PipeWire migration**: once PipeWire replaces `arecord`, the PCM and VU sockets become PipeWire

@@ -54,6 +54,21 @@ func isNewTrackCandidate(result *RecognitionResult, currentACRID, currentShazamI
 	return currentACRID == "" && currentShazamID == ""
 }
 
+func shouldBypassBackoff(isBoundaryTrigger, backoffRateLimited bool) bool {
+	return isBoundaryTrigger && !backoffRateLimited
+}
+
+func shouldSkipRecognitionAttempt(isPhysical, isAirPlay bool) bool {
+	return !isPhysical || isAirPlay
+}
+
+func shouldCreateBoundaryStub(lastStub, lastBoundary time.Time, stillPhysical bool) bool {
+	if !stillPhysical {
+		return false
+	}
+	return lastStub.IsZero() || !lastStub.After(lastBoundary)
+}
+
 func (c *recognitionCoordinator) applyLocalFallbackEntry(entry *CollectionEntry) {
 	c.mgr.mu.Lock()
 	c.mgr.recognitionResult = &RecognitionResult{
@@ -93,6 +108,69 @@ func (c *recognitionCoordinator) tryLocalFingerprintFallback(capturedFPs []Finge
 		localEntry.ID, localEntry.Artist, localEntry.Title)
 	c.applyLocalFallbackEntry(localEntry)
 	return true
+}
+
+func (c *recognitionCoordinator) handleRecognitionError(err error, capturedFPs []Fingerprint, backoffUntil *time.Time, backoffRateLimited *bool) bool {
+	log.Printf("recognizer [%s]: error: %v", c.rec.Name(), err)
+	if c.tryLocalFingerprintFallback(capturedFPs) {
+		*backoffUntil = time.Time{}
+		return true
+	}
+	if errors.Is(err, ErrRateLimit) {
+		const rateLimitBackoff = 5 * time.Minute
+		log.Printf("recognizer [%s]: rate limited — backing off %s", c.rec.Name(), rateLimitBackoff)
+		*backoffUntil = time.Now().Add(rateLimitBackoff)
+		*backoffRateLimited = true
+		return true
+	}
+	const errorBackoff = 30 * time.Second
+	*backoffUntil = time.Now().Add(errorBackoff)
+	*backoffRateLimited = false
+	return true
+}
+
+func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoundaryTrigger bool, backoffUntil *time.Time, backoffRateLimited *bool) {
+	const noMatchBackoff = 90 * time.Second
+
+	if c.tryLocalFingerprintFallback(capturedFPs) {
+		*backoffUntil = time.Time{}
+		return
+	}
+
+	log.Printf("recognizer [%s]: no match — retrying in %s", c.rec.Name(), noMatchBackoff)
+	if len(capturedFPs) > 0 && c.lib != nil && isBoundaryTrigger {
+		c.mgr.mu.Lock()
+		lastStub := c.mgr.lastStubAt
+		lastBoundary := c.mgr.lastBoundaryAt
+		stillPhysical := c.mgr.physicalSource == "Physical"
+		c.mgr.mu.Unlock()
+
+		if shouldCreateBoundaryStub(lastStub, lastBoundary, stillPhysical) {
+			if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {
+				log.Printf("recognizer: stub upsert error: %v", stubErr)
+			} else {
+				log.Printf("recognizer: fingerprint stub stored (id=%d)", stub.ID)
+				c.mgr.mu.Lock()
+				c.mgr.lastStubAt = time.Now()
+				c.mgr.mu.Unlock()
+			}
+		} else if !stillPhysical {
+			log.Printf("recognizer: stub skipped — source is no longer Physical (run-out groove or disc removed)")
+		} else {
+			log.Printf("recognizer: stub skipped — already created for this boundary (lastStub=%s)", lastStub.Format(time.RFC3339))
+		}
+	}
+
+	if isBoundaryTrigger {
+		c.mgr.mu.Lock()
+		c.mgr.recognitionResult = nil
+		c.mgr.physicalArtworkPath = ""
+		c.mgr.shazamContinuityReady = false
+		c.mgr.mu.Unlock()
+	}
+
+	*backoffUntil = time.Now().Add(noMatchBackoff)
+	*backoffRateLimited = false
 }
 
 func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, result *RecognitionResult, isBoundaryTrigger bool) (bool, bool) {
@@ -295,11 +373,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		return
 	}
 
-	const (
-		rateLimitBackoff = 5 * time.Minute
-		noMatchBackoff   = 90 * time.Second
-		errorBackoff     = 30 * time.Second
-	)
+	const errorBackoff = 30 * time.Second
 
 	var backoffUntil time.Time
 	backoffRateLimited := false
@@ -344,7 +418,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		}
 
 		if wait := time.Until(backoffUntil); wait > 0 {
-			if isBoundaryTrigger && !backoffRateLimited {
+			if shouldBypassBackoff(isBoundaryTrigger, backoffRateLimited) {
 				log.Printf("recognizer [%s]: boundary trigger bypasses no-match/error backoff (%s remaining)", c.rec.Name(), wait)
 			} else {
 				select {
@@ -359,7 +433,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		isPhysical := c.mgr.physicalSource == "Physical"
 		isAirPlay := c.mgr.airplayPlaying
 		c.mgr.mu.Unlock()
-		if !isPhysical || isAirPlay {
+		if shouldSkipRecognitionAttempt(isPhysical, isAirPlay) {
 			if isAirPlay {
 				log.Printf("recognizer [%s]: skipping — AirPlay is active", c.rec.Name())
 			}
@@ -406,18 +480,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		}
 
 		if err != nil {
-			log.Printf("recognizer [%s]: error: %v", c.rec.Name(), err)
-			if c.tryLocalFingerprintFallback(capturedFPs) {
-				backoffUntil = time.Time{}
+			if c.handleRecognitionError(err, capturedFPs, &backoffUntil, &backoffRateLimited) {
 				continue
-			}
-			if errors.Is(err, ErrRateLimit) {
-				log.Printf("recognizer [%s]: rate limited — backing off %s", c.rec.Name(), rateLimitBackoff)
-				backoffUntil = time.Now().Add(rateLimitBackoff)
-				backoffRateLimited = true
-			} else {
-				backoffUntil = time.Now().Add(errorBackoff)
-				backoffRateLimited = false
 			}
 			continue
 		}
@@ -470,43 +534,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			}
 		drained:
 		} else {
-			if c.tryLocalFingerprintFallback(capturedFPs) {
-				backoffUntil = time.Time{}
+			c.handleNoMatch(capturedFPs, isBoundaryTrigger, &backoffUntil, &backoffRateLimited)
+			if backoffUntil.IsZero() {
 				continue
 			}
-
-			log.Printf("recognizer [%s]: no match — retrying in %s", c.rec.Name(), noMatchBackoff)
-			if len(capturedFPs) > 0 && c.lib != nil && isBoundaryTrigger {
-				c.mgr.mu.Lock()
-				lastStub := c.mgr.lastStubAt
-				lastBoundary := c.mgr.lastBoundaryAt
-				stillPhysical := c.mgr.physicalSource == "Physical"
-				c.mgr.mu.Unlock()
-				stubAlreadyCreated := !lastStub.IsZero() && lastStub.After(lastBoundary)
-				if !stubAlreadyCreated && stillPhysical {
-					if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {
-						log.Printf("recognizer: stub upsert error: %v", stubErr)
-					} else {
-						log.Printf("recognizer: fingerprint stub stored (id=%d)", stub.ID)
-						c.mgr.mu.Lock()
-						c.mgr.lastStubAt = time.Now()
-						c.mgr.mu.Unlock()
-					}
-				} else if !stillPhysical {
-					log.Printf("recognizer: stub skipped — source is no longer Physical (run-out groove or disc removed)")
-				} else {
-					log.Printf("recognizer: stub skipped — already created for this boundary (lastStub=%s)", lastStub.Format(time.RFC3339))
-				}
-			}
-			if isBoundaryTrigger {
-				c.mgr.mu.Lock()
-				c.mgr.recognitionResult = nil
-				c.mgr.physicalArtworkPath = ""
-				c.mgr.shazamContinuityReady = false
-				c.mgr.mu.Unlock()
-			}
-			backoffUntil = time.Now().Add(noMatchBackoff)
-			backoffRateLimited = false
 		}
 		c.mgr.markDirty()
 	}
