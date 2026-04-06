@@ -138,6 +138,70 @@ func TestRecordPlay_DoesNotOverwriteArtwork(t *testing.T) {
 	}
 }
 
+func TestRecordPlay_MergesEquivalentShazamConfirmedTrackIntoExistingRow(t *testing.T) {
+	lib := openTestLibrary(t)
+
+	first := &RecognitionResult{
+		ACRID:  "acr-old-001",
+		Title:  "Merry Go Round",
+		Artist: "The Replacements",
+		Score:  80,
+	}
+	firstID, err := lib.RecordPlay(first, "")
+	if err != nil {
+		t.Fatalf("RecordPlay(first): %v", err)
+	}
+
+	second := &RecognitionResult{
+		ACRID:    "acr-new-999",
+		ShazamID: "shz-20058157",
+		Title:    "Merry Go Round (2008 Remaster)",
+		Artist:   "The Replacements",
+		Score:    25,
+	}
+	secondID, err := lib.RecordPlay(second, "")
+	if err != nil {
+		t.Fatalf("RecordPlay(second): %v", err)
+	}
+
+	if secondID != firstID {
+		t.Fatalf("expected equivalent confirmed track to reuse row id=%d, got id=%d", firstID, secondID)
+	}
+
+	entryByOldACR, err := lib.Lookup("acr-old-001")
+	if err != nil {
+		t.Fatalf("Lookup(old acr): %v", err)
+	}
+	if entryByOldACR == nil {
+		t.Fatal("entry not found by old ACRID")
+	}
+	if entryByOldACR.PlayCount != 2 {
+		t.Fatalf("play_count = %d, want 2", entryByOldACR.PlayCount)
+	}
+	if entryByOldACR.ShazamID != "shz-20058157" {
+		t.Fatalf("shazam_id = %q, want %q", entryByOldACR.ShazamID, "shz-20058157")
+	}
+
+	entryByShazam, err := lib.LookupByShazamID("shz-20058157")
+	if err != nil {
+		t.Fatalf("LookupByShazamID: %v", err)
+	}
+	if entryByShazam == nil {
+		t.Fatal("entry not found by shazam_id")
+	}
+	if entryByShazam.ID != firstID {
+		t.Fatalf("LookupByShazamID id = %d, want %d", entryByShazam.ID, firstID)
+	}
+
+	var total int
+	if err := lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE lower(artist)=lower(?) AND lower(title) LIKE lower(?)`, "The Replacements", "%merry%go%round%").Scan(&total); err != nil {
+		t.Fatalf("count equivalent rows: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("equivalent track rows = %d, want 1", total)
+	}
+}
+
 // ── Lookup ────────────────────────────────────────────────────────────────────
 
 func TestLookup_NotFound(t *testing.T) {
