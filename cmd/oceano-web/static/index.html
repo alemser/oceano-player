@@ -1231,6 +1231,32 @@ function setFieldValue(id, value) {
   el.value = value;
 }
 
+async function reverseGeocodeLabel(lat, lon) {
+  const query = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    language: 'en',
+    count: '1',
+  });
+
+  const resp = await fetch('https://geocoding-api.open-meteo.com/v1/reverse?' + query.toString(), {
+    cache: 'no-store',
+  });
+  if (!resp.ok) {
+    throw new Error('reverse geocoding failed');
+  }
+
+  const data = await resp.json();
+  const r = Array.isArray(data?.results) ? data.results[0] : null;
+  if (!r) return '';
+
+  const city = (r.city || r.name || '').trim();
+  const country = (r.country || '').trim();
+  if (!city && !country) return '';
+  if (city && country) return `${city}, ${country}`;
+  return city || country;
+}
+
 function detectCurrentLocationWeather() {
   if (!('geolocation' in navigator)) {
     toast('Geolocation is not supported in this browser.', true);
@@ -1239,14 +1265,22 @@ function detectCurrentLocationWeather() {
 
   toast('Requesting current location…');
   navigator.geolocation.getCurrentPosition(
-    (pos) => {
+    async (pos) => {
       const lat = pos.coords.latitude;
       const lon = pos.coords.longitude;
       setFieldValue('weather-lat', lat.toFixed(5));
       setFieldValue('weather-lon', lon.toFixed(5));
 
-      if (!val('weather-label')) {
-        setFieldValue('weather-label', 'Current location');
+      // Always overwrite stale static labels (e.g. Lisbon) when using live
+      // geolocation; prefer a resolved city/country name when available.
+      setFieldValue('weather-label', 'Current location');
+      try {
+        const label = await reverseGeocodeLabel(lat, lon);
+        if (label) {
+          setFieldValue('weather-label', label);
+        }
+      } catch (_) {
+        // Keep generic label if reverse geocoding is unavailable.
       }
 
       toast(`Location captured: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
