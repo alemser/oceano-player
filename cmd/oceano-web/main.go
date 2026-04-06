@@ -96,11 +96,19 @@ func main() {
 		// pointed directly at the Pi host during local development.
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
+		// writeStateEvent writes JSON as valid SSE data frames. Because
+		// /tmp/oceano-state.json is pretty-printed with newlines, every line must
+		// be prefixed with "data: " per SSE framing rules.
+		writeStateEvent := func(data []byte) {
+			payload := strings.ReplaceAll(string(data), "\n", "\ndata: ")
+			fmt.Fprintf(w, "data: %s\n\n", payload)
+			flusher.Flush()
+		}
+
 		// Push the current state immediately so the client doesn't need to wait
 		// up to 500 ms before it receives its first event.
 		if data, err := os.ReadFile(stateFile); err == nil {
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
+			writeStateEvent(data)
 		}
 
 		var lastMod time.Time
@@ -129,8 +137,7 @@ func main() {
 				if err != nil {
 					continue
 				}
-				fmt.Fprintf(w, "data: %s\n\n", data)
-				flusher.Flush()
+				writeStateEvent(data)
 			}
 		}
 	})
