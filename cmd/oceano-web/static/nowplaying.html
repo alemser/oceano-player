@@ -374,6 +374,12 @@
     #idle-logo { color: var(--text-faint); }
     #idle-logo svg { width: 56px; height: 56px; display: block; }
 
+    #idle-top-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 18px;
+    }
+
     #idle-label {
       font-size: 0.8rem;
       letter-spacing: 0.18em;
@@ -387,6 +393,42 @@
       letter-spacing: 0.04em;
       color: var(--text-faint);
       font-variant-numeric: tabular-nums;
+    }
+
+    #idle-weather {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(84, 106, 156, 0.34);
+      background: rgba(17, 24, 40, 0.38);
+      color: #8d98bb;
+    }
+
+    #idle-weather svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      opacity: 0.9;
+    }
+
+    #idle-weather-temp {
+      font-size: 0.92rem;
+      font-weight: 650;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #a8b5d8;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #idle-weather-cond {
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #7883a8;
+      white-space: nowrap;
     }
 
     /* ─── Identifying overlay ──────────────────────────────────── */
@@ -424,7 +466,24 @@
       <rect x="44" y="17" width="8" height="18" rx="4"/>
     </svg>
   </div>
-  <div id="idle-time"></div>
+  <div id="idle-top-row">
+    <div id="idle-time"></div>
+    <div id="idle-weather" aria-label="Weather">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.6"/>
+        <path d="M12 2.2V5"/>
+        <path d="M12 19V21.8"/>
+        <path d="M2.2 12H5"/>
+        <path d="M19 12h2.8"/>
+        <path d="M5 5L7 7"/>
+        <path d="M17 17L19 19"/>
+        <path d="M17 7L19 5"/>
+        <path d="M5 19L7 17"/>
+      </svg>
+      <span id="idle-weather-temp">22°C</span>
+      <span id="idle-weather-cond">Lisbon · Clear</span>
+    </div>
+  </div>
   <div id="idle-label">Oceano Player</div>
 </div>
 
@@ -558,6 +617,8 @@ const STREAMING_SOURCES = new Set(['AirPlay', 'Bluetooth', 'UPnP']);
 
 const $idle       = document.getElementById('idle-screen');
 const $idleTime   = document.getElementById('idle-time');
+const $idleWeatherTemp = document.getElementById('idle-weather-temp');
+const $idleWeatherCond = document.getElementById('idle-weather-cond');
 const $sourceBar = document.getElementById('source-bar');
 const $sourceIcon = document.getElementById('source-icon');
 const $sourceLabel  = document.getElementById('source-label');
@@ -587,6 +648,96 @@ function tickClock() {
 }
 tickClock();
 setInterval(tickClock, 10_000);
+
+// ─── Idle weather (live, fixed location for now) ───────────────────────────
+
+const WEATHER_CONFIG = {
+  // Fixed location for now; future config UI can make this user-selectable.
+  latitude: 38.7223,
+  longitude: -9.1393,
+  locationLabel: 'Lisbon',
+  refreshMS: 10 * 60 * 1000,
+};
+
+const WEATHER_CODE_MAP = {
+  0: 'Clear',
+  1: 'Mostly clear',
+  2: 'Partly cloudy',
+  3: 'Overcast',
+  45: 'Fog',
+  48: 'Rime fog',
+  51: 'Light drizzle',
+  53: 'Drizzle',
+  55: 'Heavy drizzle',
+  56: 'Freezing drizzle',
+  57: 'Heavy freezing drizzle',
+  61: 'Light rain',
+  63: 'Rain',
+  65: 'Heavy rain',
+  66: 'Freezing rain',
+  67: 'Heavy freezing rain',
+  71: 'Light snow',
+  73: 'Snow',
+  75: 'Heavy snow',
+  77: 'Snow grains',
+  80: 'Light showers',
+  81: 'Showers',
+  82: 'Heavy showers',
+  85: 'Snow showers',
+  86: 'Heavy snow showers',
+  95: 'Thunderstorm',
+  96: 'Storm + hail',
+  99: 'Severe storm + hail',
+};
+
+function weatherLabelFromCode(code) {
+  return WEATHER_CODE_MAP[Number(code)] || 'Conditions unavailable';
+}
+
+function renderWeather(tempC, condition) {
+  const rounded = Number.isFinite(tempC) ? Math.round(tempC) + '°C' : '--°C';
+  $idleWeatherTemp.textContent = rounded;
+  $idleWeatherCond.textContent = WEATHER_CONFIG.locationLabel + ' · ' + condition;
+}
+
+async function refreshWeather() {
+  const query = new URLSearchParams({
+    latitude: String(WEATHER_CONFIG.latitude),
+    longitude: String(WEATHER_CONFIG.longitude),
+    current: 'temperature_2m,weather_code',
+    timezone: 'auto',
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const resp = await fetch('https://api.open-meteo.com/v1/forecast?' + query.toString(), {
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    if (!resp.ok) {
+      throw new Error('weather request failed: ' + resp.status);
+    }
+    const data = await resp.json();
+    const current = data && data.current ? data.current : null;
+    const temp = current ? Number(current.temperature_2m) : NaN;
+    const code = current ? current.weather_code : null;
+    renderWeather(temp, weatherLabelFromCode(code));
+  } catch (_err) {
+    // Keep UI stable offline: retain last value or show graceful fallback.
+    if (!$idleWeatherTemp.textContent) {
+      renderWeather(NaN, 'Offline');
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Start with a deterministic placeholder, then replace with live data.
+renderWeather(NaN, 'Loading…');
+refreshWeather();
+setInterval(refreshWeather, WEATHER_CONFIG.refreshMS);
 
 // ─── Artwork helpers ─────────────────────────────────────────────────────────
 
