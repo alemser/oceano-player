@@ -827,19 +827,19 @@
 
       <div class="field">
         <label><span>Location label</span></label>
-        <input type="text" id="weather-label" name="weather-label" placeholder="Lisbon">
-        <div class="hint">Displayed in the weather chip (e.g. Lisbon, Porto, Berlin).</div>
+        <input type="text" id="weather-label" name="weather-label" placeholder="Dublin">
+        <div class="hint">Displayed in the weather chip (e.g. Dublin, Porto, Berlin).</div>
       </div>
 
       <div class="field">
         <label><span>Latitude</span></label>
-        <input type="number" id="weather-lat" name="weather-lat" step="any" min="-90" max="90" placeholder="38.7223">
+        <input type="number" id="weather-lat" name="weather-lat" step="any" min="-90" max="90" placeholder="53.3498">
         <div class="hint">Valid range: -90 to 90 (example: <code>37.70215</code>).</div>
       </div>
 
       <div class="field">
         <label><span>Longitude</span></label>
-        <input type="number" id="weather-lon" name="weather-lon" step="any" min="-180" max="180" placeholder="-9.1393">
+        <input type="number" id="weather-lon" name="weather-lon" step="any" min="-180" max="180" placeholder="-6.2603">
         <div class="hint">Valid range: -180 to 180.</div>
       </div>
 
@@ -991,9 +991,9 @@ async function loadConfig() {
 
   const weatherEnabledEl = document.getElementById('weather-enabled');
   if (weatherEnabledEl) weatherEnabledEl.checked = cfg.weather?.enabled ?? true;
-  set('weather-label',   cfg.weather?.location_label ?? 'Lisbon');
-  set('weather-lat',     cfg.weather?.latitude ?? 38.7223);
-  set('weather-lon',     cfg.weather?.longitude ?? -9.1393);
+  set('weather-label',   cfg.weather?.location_label ?? 'Dublin');
+  set('weather-lat',     cfg.weather?.latitude ?? 53.3498);
+  set('weather-lon',     cfg.weather?.longitude ?? -6.2603);
   set('weather-refresh', cfg.weather?.refresh_mins ?? 10);
 
   // Preserve advanced values as-is from server.
@@ -1191,9 +1191,9 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
     },
     weather: {
       enabled:        document.getElementById('weather-enabled')?.checked ?? true,
-      location_label: val('weather-label') || 'Lisbon',
-      latitude:       floatOr('weather-lat', 38.7223),
-      longitude:      floatOr('weather-lon', -9.1393),
+      location_label: val('weather-label') || 'Dublin',
+      latitude:       floatOr('weather-lat', 53.3498),
+      longitude:      floatOr('weather-lon', -6.2603),
       refresh_mins:   intOr('weather-refresh', 10),
     },
   };

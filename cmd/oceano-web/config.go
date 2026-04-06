@@ -173,9 +173,9 @@ func defaultConfig() Config {
 		},
 		Weather: WeatherConfig{
 			Enabled:       true,
-			LocationLabel: "Lisbon",
-			Latitude:      38.7223,
-			Longitude:     -9.1393,
+			LocationLabel: "Dublin",
+			Latitude:      53.3498,
+			Longitude:     -6.2603,
 			RefreshMins:   10,
 		},
 	}
