@@ -84,6 +84,13 @@
       border: 1px solid rgba(67, 84, 126, 0.22);
       border-radius: 999px;
       background: linear-gradient(90deg, rgba(21, 29, 48, 0.56), rgba(17, 23, 39, 0.22));
+      transition: opacity 0.35s, transform 0.35s;
+    }
+
+    #source-bar.hidden {
+      opacity: 0;
+      transform: translateY(-8px);
+      pointer-events: none;
     }
 
     #source-icon {
@@ -214,6 +221,26 @@
       white-space: nowrap;
     }
 
+    #meta-playback-badge {
+      margin-left: 6px;
+      font-size: 0.67rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(106, 126, 166, 0.42);
+      color: #8f9dbf;
+      background: rgba(18, 25, 42, 0.28);
+      transition: all 0.3s;
+    }
+
+    #meta-playback-badge.playing {
+      border-color: rgba(79, 182, 123, 0.55);
+      color: #73d49a;
+      background: rgba(20, 42, 28, 0.35);
+    }
+
     #track-title {
       font-size: 2.1rem;
       font-weight: 600;
@@ -265,6 +292,46 @@
       flex-wrap: wrap;
       gap: 10px;
       transition: opacity 0.4s;
+    }
+
+    #stream-progress {
+      margin-top: 14px;
+      max-width: 540px;
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    #stream-progress.visible {
+      display: flex;
+    }
+
+    #stream-progress-bar {
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(74, 95, 139, 0.22);
+      border: 1px solid rgba(73, 94, 138, 0.4);
+      overflow: hidden;
+    }
+
+    #stream-progress-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #4a9eff, #73d4ff);
+      box-shadow: 0 0 10px rgba(74, 158, 255, 0.45);
+      transition: width 0.35s linear;
+    }
+
+    #stream-progress-times {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #7f8cb0;
+      font-variant-numeric: tabular-nums;
     }
 
     .chip {
@@ -341,23 +408,6 @@
 
     .pulsing { animation: pulse 1.8s ease-in-out infinite; }
 
-    /* ─── Connection indicator ─────────────────────────────────── */
-
-    #conn-dot {
-      position: fixed;
-      bottom: 14px;
-      right: 18px;
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--text-faint);
-      transition: background 0.4s;
-      z-index: 20;
-    }
-
-    #conn-dot.connected { background: #3a7a4a; }
-    #conn-dot.error     { background: #7a3a3a; }
-
   </style>
 </head>
 <body>
@@ -411,20 +461,25 @@
       <div id="meta-source">
         <div id="meta-source-icon" aria-hidden="true"></div>
         <span id="meta-source-label">—</span>
+        <span id="meta-playback-badge">Stopped</span>
       </div>
       <div id="track-title">—</div>
       <div id="track-artist"></div>
       <div id="track-album"></div>
       <div id="meta-divider"></div>
       <div id="meta-chips"></div>
+      <div id="stream-progress">
+        <div id="stream-progress-bar"><div id="stream-progress-fill"></div></div>
+        <div id="stream-progress-times">
+          <span id="stream-elapsed">0:00</span>
+          <span id="stream-total">0:00</span>
+        </div>
+      </div>
       <div id="identifying-label"></div>
     </div>
 
   </div>
 </div>
-
-<!-- Connection status dot -->
-<div id="conn-dot" title="Stream connection"></div>
 
 <script>
 "use strict";
@@ -493,14 +548,18 @@ const SOURCE_LABELS = {
   None:     '—',
 };
 
+const STREAMING_SOURCES = new Set(['AirPlay', 'Bluetooth', 'UPnP']);
+
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 
 const $idle       = document.getElementById('idle-screen');
 const $idleTime   = document.getElementById('idle-time');
+const $sourceBar = document.getElementById('source-bar');
 const $sourceIcon = document.getElementById('source-icon');
 const $sourceLabel  = document.getElementById('source-label');
 const $metaSourceIcon = document.getElementById('meta-source-icon');
 const $metaSourceLabel = document.getElementById('meta-source-label');
+const $metaPlaybackBadge = document.getElementById('meta-playback-badge');
 const $badge      = document.getElementById('playback-badge');
 const $artImg     = document.getElementById('artwork-img');
 const $artDefault = document.getElementById('artwork-default');
@@ -508,8 +567,11 @@ const $title      = document.getElementById('track-title');
 const $artist     = document.getElementById('track-artist');
 const $album      = document.getElementById('track-album');
 const $chips      = document.getElementById('meta-chips');
+const $streamProgress = document.getElementById('stream-progress');
+const $streamFill = document.getElementById('stream-progress-fill');
+const $streamElapsed = document.getElementById('stream-elapsed');
+const $streamTotal = document.getElementById('stream-total');
 const $identifying= document.getElementById('identifying-label');
-const $connDot    = document.getElementById('conn-dot');
 
 // ─── Idle clock ──────────────────────────────────────────────────────────────
 
@@ -568,6 +630,58 @@ function makeChip(icon, label) {
   return el;
 }
 
+function isStreamingSource(source) {
+  return STREAMING_SOURCES.has(source);
+}
+
+function formatMS(ms) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) {
+    return String(h) + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+  return String(m) + ':' + String(s).padStart(2, '0');
+}
+
+function computeElapsedMS(track, playing) {
+  const seekMS = Number(track?.seek_ms || 0);
+  if (!playing) return seekMS;
+
+  const updatedAt = track?.seek_updated_at ? Date.parse(track.seek_updated_at) : NaN;
+  if (Number.isNaN(updatedAt)) return seekMS;
+
+  const drift = Date.now() - updatedAt;
+  return seekMS + Math.max(0, drift);
+}
+
+function updateStreamingProgress() {
+  if (!_lastState) {
+    $streamProgress.classList.remove('visible');
+    return;
+  }
+
+  const source = _lastState.source || 'None';
+  const playing = _lastState.state === 'playing';
+  const track = _lastState.track || null;
+  const durationMS = Number(track?.duration_ms || 0);
+
+  if (!playing || !track || !isStreamingSource(source) || durationMS <= 0) {
+    $streamProgress.classList.remove('visible');
+    return;
+  }
+
+  const elapsedRaw = computeElapsedMS(track, playing);
+  const elapsed = Math.min(Math.max(0, elapsedRaw), durationMS);
+  const pct = Math.max(0, Math.min(100, (elapsed / durationMS) * 100));
+
+  $streamProgress.classList.add('visible');
+  $streamFill.style.width = pct.toFixed(2) + '%';
+  $streamElapsed.textContent = formatMS(elapsed);
+  $streamTotal.textContent = formatMS(durationMS);
+}
+
 // ─── Main UI update ──────────────────────────────────────────────────────────
 
 let _lastState = null;
@@ -586,9 +700,15 @@ function applyState(state) {
   $metaSourceIcon.innerHTML = SOURCE_ICONS[source] || SOURCE_ICONS.None;
   $metaSourceLabel.textContent = SOURCE_LABELS[source] || source;
 
+  // Option 1 UX: when there is active playback, keep source context in the
+  // in-content badge and hide the separate top bar.
+  $sourceBar.classList.toggle('hidden', playing && source !== 'None');
+
   // Playback badge
   $badge.textContent = playing ? 'Playing' : 'Stopped';
   $badge.classList.toggle('playing', playing);
+  $metaPlaybackBadge.textContent = playing ? 'Playing' : 'Stopped';
+  $metaPlaybackBadge.classList.toggle('playing', playing);
 
   // Track metadata
   const hasTrack = track && (track.title || track.artist);
@@ -667,7 +787,12 @@ function applyState(state) {
 
   // Store for change detection
   _lastState = state;
+  updateStreamingProgress();
 }
+
+// Update streaming elapsed/progress every second using seek_ms +
+// (now - seek_updated_at), matching the SPI behavior.
+setInterval(updateStreamingProgress, 1000);
 
 // ─── SSE connection ──────────────────────────────────────────────────────────
 
@@ -680,7 +805,6 @@ function connect() {
   _es = new EventSource('/api/stream');
 
   _es.onopen = () => {
-    $connDot.className = 'connected';
     clearTimeout(_reconnectTimer);
   };
 
@@ -694,7 +818,6 @@ function connect() {
   };
 
   _es.onerror = () => {
-    $connDot.className = 'error';
     _es.close();
     _es = null;
     // Exponential back-off: retry after 3 s, then browser will handle reconnects.
