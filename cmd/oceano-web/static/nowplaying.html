@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!--
+    Viewport is fixed at 1024×600 to match the target 7" HDMI monitor (1024×600 IPS).
+    The page is also usable on larger screens during local development — it will simply
+    be centred in the browser window.
+  -->
+  <meta name="viewport" content="width=1024">
+  <title>Oceano — Now Playing</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #07090f;
+      --surface:      #10131c;
+      --border:       #1e2231;
+      --text:         #e8eaf0;
+      --text-dim:     #7c839a;
+      --text-faint:   #3a3f52;
+      --accent:       #4a9eff;
+      --chip-text:    #aeb8d5;
+      --chip-bg:      rgba(18, 25, 42, 0.35);
+      --chip-border:  rgba(84, 106, 156, 0.45);
+      --radius:       12px;
+      --artwork-size: 340px;
+    }
+
+    html, body {
+      width: 1024px;
+      height: 600px;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+
+    body {
+      position: relative;
+      isolation: isolate;
+    }
+
+    /* Subtle light bloom so the upper half does not feel empty on larger displays. */
+    body::before {
+      content: "";
+      position: absolute;
+      inset: -120px -140px auto -120px;
+      height: 340px;
+      background:
+        radial-gradient(60% 90% at 18% 40%, rgba(74, 158, 255, 0.18), transparent 70%),
+        radial-gradient(50% 70% at 65% 10%, rgba(117, 146, 255, 0.12), transparent 78%);
+      z-index: -1;
+      pointer-events: none;
+    }
+
+    body::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(5, 8, 16, 0.22), rgba(5, 8, 16, 0));
+      z-index: -1;
+      pointer-events: none;
+    }
+
+    /* ─── Layout ──────────────────────────────────────────────── */
+
+    #app {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100%;
+      padding: 18px 32px 24px;
+      gap: 0;
+    }
+
+    /* ─── Source bar (top) ─────────────────────────────────────── */
+
+    #source-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding: 9px 14px;
+      border: 1px solid rgba(67, 84, 126, 0.22);
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(21, 29, 48, 0.56), rgba(17, 23, 39, 0.22));
+      transition: opacity 0.35s, transform 0.35s;
+    }
+
+    #source-bar.hidden {
+      opacity: 0;
+      transform: translateY(-8px);
+      pointer-events: none;
+    }
+
+    #source-icon {
+      width: 30px;
+      height: 30px;
+      flex-shrink: 0;
+      color: #9aa8cc;
+      transition: color 0.4s;
+    }
+
+    #source-icon svg { width: 100%; height: 100%; display: block; }
+
+    #source-label {
+      font-size: 0.94rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #a7b2d1;
+      transition: color 0.4s;
+    }
+
+    #playback-badge {
+      margin-left: auto;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--text-faint);
+      transition: all 0.4s;
+    }
+
+    #playback-badge.playing {
+      border-color: #2a5a3a;
+      color: #5ecb80;
+    }
+
+    /* ─── Main content ─────────────────────────────────────────── */
+
+    #content {
+      display: grid;
+      grid-template-columns: var(--artwork-size) 1fr;
+      gap: 44px;
+      align-items: start;
+      padding-top: 6px;
+      min-height: 0;
+    }
+
+    /* ─── Artwork ──────────────────────────────────────────────── */
+
+    #artwork-wrap {
+      width: var(--artwork-size);
+      height: var(--artwork-size);
+      flex-shrink: 0;
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--surface);
+      position: relative;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    }
+
+    #artwork-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: opacity 0.5s;
+    }
+
+    /* Default artwork shown when no real artwork is available */
+    #artwork-default {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-faint);
+      transition: opacity 0.4s;
+    }
+
+    #artwork-default svg { width: 120px; height: 120px; }
+
+    /* ─── Metadata ─────────────────────────────────────────────── */
+
+    #meta {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 0;
+      min-width: 0;
+      padding-right: 8px;
+      padding-top: 42px;
+    }
+
+    #meta-source {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      align-self: flex-start;
+      margin-bottom: 16px;
+      padding: 6px 11px;
+      border-radius: 999px;
+      border: 1px solid rgba(84, 106, 156, 0.44);
+      background: rgba(18, 25, 42, 0.42);
+      color: #a7b2d1;
+    }
+
+    #meta-source-icon {
+      width: 18px;
+      height: 18px;
+      color: #9fb2e2;
+      flex-shrink: 0;
+    }
+
+    #meta-source-icon svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #meta-source-label {
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    #meta-playback-badge {
+      margin-left: 6px;
+      font-size: 0.67rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(106, 126, 166, 0.42);
+      color: #8f9dbf;
+      background: rgba(18, 25, 42, 0.28);
+      transition: all 0.3s;
+    }
+
+    #meta-playback-badge.playing {
+      border-color: rgba(79, 182, 123, 0.55);
+      color: #73d49a;
+      background: rgba(20, 42, 28, 0.35);
+    }
+
+    #track-title {
+      font-size: 2.1rem;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      transition: opacity 0.4s;
+      margin-bottom: 8px;
+    }
+
+    #track-artist {
+      font-size: 1.45rem;
+      font-weight: 500;
+      color: #98a3c4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: opacity 0.4s;
+      margin-bottom: 2px;
+    }
+
+    #track-album {
+      font-size: 1.08rem;
+      color: #677094;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: opacity 0.4s;
+      margin-bottom: 18px;
+    }
+
+    /* Divider */
+    #meta-divider {
+      width: 42px;
+      height: 2px;
+      background: rgba(108, 126, 166, 0.4);
+      border-radius: 2px;
+      margin-bottom: 14px;
+      transition: opacity 0.4s;
+    }
+
+    /* Format / supplemental chips */
+    #meta-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      transition: opacity 0.4s;
+    }
+
+    #stream-progress {
+      margin-top: 14px;
+      max-width: 540px;
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    #stream-progress.visible {
+      display: flex;
+    }
+
+    #stream-progress-bar {
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(74, 95, 139, 0.22);
+      border: 1px solid rgba(73, 94, 138, 0.4);
+      overflow: hidden;
+    }
+
+    #stream-progress-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #4a9eff, #73d4ff);
+      box-shadow: 0 0 10px rgba(74, 158, 255, 0.45);
+      transition: width 0.35s linear;
+    }
+
+    #stream-progress-times {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #7f8cb0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--chip-text);
+      background: var(--chip-bg);
+      padding: 5px 12px;
+      border: 1px solid var(--chip-border);
+      border-radius: 20px;
+      box-shadow: inset 0 0 0 1px rgba(18, 28, 48, 0.3);
+    }
+
+    .chip svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+    /* ─── Idle screen ──────────────────────────────────────────── */
+
+    #idle-screen {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.8s;
+      z-index: 10;
+    }
+
+    #idle-screen::before {
+      content: "";
+      position: absolute;
+      inset: -20% -10% auto;
+      height: 55%;
+      background:
+        radial-gradient(50% 80% at 40% 30%, rgba(74, 158, 255, 0.14), transparent 70%),
+        radial-gradient(40% 70% at 70% 40%, rgba(116, 168, 255, 0.1), transparent 72%);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    #idle-power-btn {
+      position: absolute;
+      top: 20px;
+      right: 22px;
+      width: 40px;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      border: 1px solid rgba(90, 108, 148, 0.36);
+      background: rgba(14, 20, 34, 0.48);
+      color: #7f8db1;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    #idle-power-btn:hover {
+      color: #a6b5dc;
+      border-color: rgba(112, 130, 170, 0.5);
+      background: rgba(20, 28, 47, 0.66);
+    }
+
+    #idle-power-btn svg {
+      width: 18px;
+      height: 18px;
+      display: block;
+    }
+
+    #idle-screen.visible { opacity: 1; pointer-events: auto; }
+
+    #idle-logo { color: #5b6686; }
+    #idle-logo svg { width: 48px; height: 48px; display: block; }
+
+    #idle-top-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 16px;
+    }
+
+    #idle-label {
+      font-size: 0.84rem;
+      font-weight: 550;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #4b5678;
+    }
+
+    #idle-time {
+      font-size: 5.2rem;
+      font-weight: 240;
+      letter-spacing: 0.04em;
+      color: #404d70;
+      font-variant-numeric: tabular-nums;
+      line-height: 0.9;
+    }
+
+    #idle-weather {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      padding: 9px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(84, 106, 156, 0.42);
+      background: rgba(17, 24, 40, 0.52);
+      box-shadow: inset 0 0 0 1px rgba(22, 33, 55, 0.38);
+      color: #8d98bb;
+    }
+
+    #idle-weather svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      opacity: 0.9;
+    }
+
+    .power-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 8, 14, 0.72);
+      z-index: 30;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .power-overlay.open {
+      display: flex;
+    }
+
+    .power-dialog {
+      width: min(420px, 94vw);
+      background: #121722;
+      border: 1px solid rgba(90, 108, 148, 0.38);
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 18px 52px rgba(0, 0, 0, 0.55);
+    }
+
+    .power-dialog h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #d3dbef;
+      margin-bottom: 8px;
+    }
+
+    .power-dialog p {
+      font-size: 0.84rem;
+      color: #8a96b6;
+      margin-bottom: 16px;
+    }
+
+    .power-dialog-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .power-dialog-actions button {
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.86rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+    }
+
+    .btn-power-shutdown {
+      background: #4d1517;
+      color: #ffc3c3;
+      border-color: #7f2f31;
+    }
+
+    .btn-power-restart {
+      background: #162649;
+      color: #bfd0ff;
+      border-color: #2d4477;
+    }
+
+    .btn-power-cancel {
+      background: #1a1f2d;
+      color: #b8c4e6;
+      border-color: rgba(90, 108, 148, 0.42);
+    }
+
+    #idle-weather-temp {
+      font-size: 0.98rem;
+      font-weight: 650;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #bec9e7;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #idle-weather-cond {
+      font-size: 0.74rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #8f9bc2;
+      white-space: nowrap;
+    }
+
+    /* ─── Identifying overlay ──────────────────────────────────── */
+
+    #identifying-label {
+      font-size: 0.76rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-faint);
+      margin-top: 20px;
+      transition: opacity 0.4s;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.35; }
+      50% { opacity: 0.9; }
+    }
+
+    .pulsing { animation: pulse 1.8s ease-in-out infinite; }
+
+  </style>
+</head>
+<body>
+
+<!-- Idle screen (shown when no source is active) -->
+<div id="idle-screen" class="visible">
+  <button id="idle-power-btn" type="button" aria-label="Power options" title="Power options" onclick="openPowerDialog()">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
+  <div id="idle-logo">
+    <!-- Oceano waveform icon -->
+    <svg viewBox="0 0 52 52" fill="currentColor" aria-hidden="true">
+      <rect x="0"  y="16" width="8" height="20" rx="4"/>
+      <rect x="11" y="9"  width="8" height="34" rx="4"/>
+      <rect x="22" y="3"  width="8" height="46" rx="4"/>
+      <rect x="33" y="12" width="8" height="28" rx="4"/>
+      <rect x="44" y="17" width="8" height="18" rx="4"/>
+    </svg>
+  </div>
+  <div id="idle-top-row">
+    <div id="idle-time"></div>
+    <div id="idle-weather" aria-label="Weather">
+      <span id="idle-weather-icon" aria-hidden="true"></span>
+      <span id="idle-weather-temp">22°C</span>
+      <span id="idle-weather-cond">Dublin · Clear</span>
+    </div>
+  </div>
+  <div id="idle-label">Oceano Player</div>
+</div>
+
+<div class="power-overlay" id="power-dialog" onclick="if(event.target===this)closePowerDialog()">
+  <div class="power-dialog">
+    <h3>System power</h3>
+    <p>Choose an action for the Raspberry Pi.</p>
+    <div class="power-dialog-actions">
+      <button class="btn-power-shutdown" onclick="sendPowerAction('shutdown')">Shut down</button>
+      <button class="btn-power-restart" onclick="sendPowerAction('restart')">Restart</button>
+      <button class="btn-power-cancel" onclick="closePowerDialog()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Main playing UI -->
+<div id="app">
+
+  <!-- Source bar -->
+  <div id="source-bar">
+    <div id="source-icon" aria-hidden="true"></div>
+    <span id="source-label">—</span>
+    <span id="playback-badge">Stopped</span>
+  </div>
+
+  <!-- Artwork + metadata -->
+  <div id="content">
+
+    <div id="artwork-wrap">
+      <img id="artwork-img" src="" alt="Album artwork" style="opacity:0">
+      <div id="artwork-default">
+        <!-- Generic vinyl/music disc placeholder -->
+        <svg viewBox="0 0 120 120" fill="none" aria-hidden="true">
+          <circle cx="60" cy="60" r="56" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+          <circle cx="60" cy="60" r="40" stroke="currentColor" stroke-width="1"   opacity="0.2"/>
+          <circle cx="60" cy="60" r="24" stroke="currentColor" stroke-width="1"   opacity="0.2"/>
+          <circle cx="60" cy="60" r="7"  fill="currentColor" opacity="0.25"/>
+          <!-- stylised note -->
+          <path d="M54 45 L54 63 Q54 67 50 67 Q46 67 46 63 Q46 59 50 59 Q52 59 54 60 L54 49 L66 46 L66 58 Q66 62 62 62 Q58 62 58 58 Q58 54 62 54 Q64 54 66 55"
+                stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.2"/>
+        </svg>
+      </div>
+    </div>
+
+    <div id="meta">
+      <div id="meta-source">
+        <div id="meta-source-icon" aria-hidden="true"></div>
+        <span id="meta-source-label">—</span>
+        <span id="meta-playback-badge">Stopped</span>
+      </div>
+      <div id="track-title">—</div>
+      <div id="track-artist"></div>
+      <div id="track-album"></div>
+      <div id="meta-divider"></div>
+      <div id="meta-chips"></div>
+      <div id="stream-progress">
+        <div id="stream-progress-bar"><div id="stream-progress-fill"></div></div>
+        <div id="stream-progress-times">
+          <span id="stream-elapsed">0:00</span>
+          <span id="stream-total">0:00</span>
+        </div>
+      </div>
+      <div id="identifying-label"></div>
+    </div>
+
+  </div>
+</div>
+
+<script src="/nowplaying_helpers.js"></script>
+<script>
+"use strict";
+
+// ─── Source icon SVGs ─────────────────────────────────────────────────────────
+// All icons are original geometric representations, not brand trademarks.
+
+const SOURCE_ICONS = {
+  AirPlay: `<svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
+    <path d="M16 22 L8 30 L24 30 Z"/>
+    <path d="M16 6C21.5 6 26 10.5 26 16L24 16C24 11.6 20.4 8 16 8C11.6 8 8 11.6 8 16L6 16C6 10.5 10.5 6 16 6Z"/>
+    <path d="M16 11C19.3 11 22 13.7 22 17L20 17C20 14.8 18.2 13 16 13C13.8 13 12 14.8 12 17L10 17C10 13.7 12.7 11 16 11Z"/>
+    <path d="M16 16C17.7 16 19 17.3 19 19L17 19C17 18.4 16.6 18 16 18C15.4 18 15 18.4 15 19L13 19C13 17.3 14.3 16 16 16Z"/>
+  </svg>`,
+
+  Bluetooth: `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <polyline points="10,22 22,10 16,4 16,28 22,22 10,10"/>
+  </svg>`,
+
+  UPnP: `<svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
+    <circle cx="16" cy="8"  r="3"/>
+    <circle cx="6"  cy="24" r="3"/>
+    <circle cx="26" cy="24" r="3"/>
+    <line x1="16" y1="11" x2="6"  y2="21" stroke="currentColor" stroke-width="1.5"/>
+    <line x1="16" y1="11" x2="26" y2="21" stroke="currentColor" stroke-width="1.5"/>
+    <line x1="8"  y1="24" x2="24" y2="24" stroke="currentColor" stroke-width="1.5"/>
+  </svg>`,
+
+  Vinyl: `<svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    <circle cx="16" cy="16" r="13"  stroke="currentColor" stroke-width="1.5"/>
+    <circle cx="16" cy="16" r="9.5" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>
+    <circle cx="16" cy="16" r="6"   stroke="currentColor" stroke-width="0.8" opacity="0.35"/>
+    <circle cx="16" cy="16" r="2.5" fill="currentColor" opacity="0.6"/>
+    <path d="M23 6 L28 11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>
+    <path d="M28 11 L22.3 16.7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>
+    <circle cx="22.1" cy="16.9" r="1.1" fill="currentColor" opacity="0.95"/>
+  </svg>`,
+
+  CD: `<svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    <circle cx="16" cy="16" r="13"  stroke="currentColor" stroke-width="1.5"/>
+    <circle cx="16" cy="16" r="8"   stroke="currentColor" stroke-width="0.8" opacity="0.35"/>
+    <circle cx="16" cy="16" r="3"   stroke="currentColor" stroke-width="1.5"/>
+    <path d="M16 3 A13 13 0 0 1 29 16" stroke="currentColor" stroke-width="3"
+          stroke-linecap="round" opacity="0.5"/>
+  </svg>`,
+
+  Physical: `<svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    <circle cx="16" cy="16" r="13"  stroke="currentColor" stroke-width="1.5"/>
+    <circle cx="16" cy="16" r="8"   stroke="currentColor" stroke-width="0.8" opacity="0.4"/>
+    <circle cx="16" cy="16" r="3.5" fill="currentColor"  opacity="0.5"/>
+  </svg>`,
+
+  None: `<svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
+    <rect x="2"  y="14" width="6" height="10" rx="3" opacity="0.25"/>
+    <rect x="10" y="9"  width="6" height="15" rx="3" opacity="0.25"/>
+    <rect x="18" y="5"  width="6" height="19" rx="3" opacity="0.25"/>
+    <rect x="26" y="12" width="6" height="12" rx="3" opacity="0.25"/>
+  </svg>`,
+};
+
+const SOURCE_LABELS = {
+  AirPlay:  'AirPlay',
+  Bluetooth:'Bluetooth',
+  UPnP:     'UPnP',
+  Vinyl:    'Vinyl',
+  CD:       'CD',
+  Physical: 'Physical',
+  None:     '—',
+};
+
+const STREAMING_SOURCES = new Set(['AirPlay', 'Bluetooth', 'UPnP']);
+
+// ─── DOM refs ────────────────────────────────────────────────────────────────
+
+const $idle       = document.getElementById('idle-screen');
+const $idleTime   = document.getElementById('idle-time');
+const $idleWeather = document.getElementById('idle-weather');
+const $idleWeatherIcon = document.getElementById('idle-weather-icon');
+const $idleWeatherTemp = document.getElementById('idle-weather-temp');
+const $idleWeatherCond = document.getElementById('idle-weather-cond');
+const $sourceBar = document.getElementById('source-bar');
+const $sourceIcon = document.getElementById('source-icon');
+const $sourceLabel  = document.getElementById('source-label');
+const $metaSourceIcon = document.getElementById('meta-source-icon');
+const $metaSourceLabel = document.getElementById('meta-source-label');
+const $metaPlaybackBadge = document.getElementById('meta-playback-badge');
+const $badge      = document.getElementById('playback-badge');
+const $artImg     = document.getElementById('artwork-img');
+const $artDefault = document.getElementById('artwork-default');
+const $title      = document.getElementById('track-title');
+const $artist     = document.getElementById('track-artist');
+const $album      = document.getElementById('track-album');
+const $chips      = document.getElementById('meta-chips');
+const $streamProgress = document.getElementById('stream-progress');
+const $streamFill = document.getElementById('stream-progress-fill');
+const $streamElapsed = document.getElementById('stream-elapsed');
+const $streamTotal = document.getElementById('stream-total');
+const $identifying= document.getElementById('identifying-label');
+
+// ─── Idle clock ──────────────────────────────────────────────────────────────
+
+function tickClock() {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2, '0');
+  const m = String(now.getMinutes()).padStart(2, '0');
+  $idleTime.textContent = h + ':' + m;
+}
+tickClock();
+setInterval(tickClock, 10_000);
+
+// ─── Idle weather (live, fixed location for now) ───────────────────────────
+
+const WEATHER_DEFAULT = {
+  latitude: 53.3498,
+  longitude: -6.2603,
+  locationLabel: 'Dublin',
+  enabled: true,
+  refreshMS: 10 * 60 * 1000,
+};
+let WEATHER_CONFIG = { ...WEATHER_DEFAULT };
+let _weatherTimer = null;
+
+const WEATHER_CODE_MAP = {
+  0: 'Clear',
+  1: 'Mostly clear',
+  2: 'Partly cloudy',
+  3: 'Overcast',
+  45: 'Fog',
+  48: 'Rime fog',
+  51: 'Light drizzle',
+  53: 'Drizzle',
+  55: 'Heavy drizzle',
+  56: 'Freezing drizzle',
+  57: 'Heavy freezing drizzle',
+  61: 'Light rain',
+  63: 'Rain',
+  65: 'Heavy rain',
+  66: 'Freezing rain',
+  67: 'Heavy freezing rain',
+  71: 'Light snow',
+  73: 'Snow',
+  75: 'Heavy snow',
+  77: 'Snow grains',
+  80: 'Light showers',
+  81: 'Showers',
+  82: 'Heavy showers',
+  85: 'Snow showers',
+  86: 'Heavy snow showers',
+  95: 'Thunderstorm',
+  96: 'Storm + hail',
+  99: 'Severe storm + hail',
+};
+
+function weatherIconSVG(kind) {
+  switch (kind) {
+    case 'cloud':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 18h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.3-1.6A3.5 3.5 0 0 0 6 18Z"/></svg>`;
+    case 'rain':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 14h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.3-1.6A3.5 3.5 0 0 0 6 14Z"/><path d="M9 17v3M13 17v3M17 17v3"/></svg>`;
+    case 'storm':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 14h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.3-1.6A3.5 3.5 0 0 0 6 14Z"/><path d="m12 15-2 4h2l-1 3 4-6h-2l1-3"/></svg>`;
+    case 'snow':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 14h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.3-1.6A3.5 3.5 0 0 0 6 14Z"/><path d="M9 18h0M13 19h0M17 18h0"/></svg>`;
+    case 'fog':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 11h12"/><path d="M3 15h15"/><path d="M6 19h10"/></svg>`;
+    default:
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.6"/><path d="M12 2.2V5"/><path d="M12 19V21.8"/><path d="M2.2 12H5"/><path d="M19 12h2.8"/><path d="M5 5L7 7"/><path d="M17 17L19 19"/><path d="M17 7L19 5"/><path d="M5 19L7 17"/></svg>`;
+  }
+}
+
+function weatherIconKind(code) {
+  const n = Number(code);
+  if ([45, 48].includes(n)) return 'fog';
+  if ([95, 96, 99].includes(n)) return 'storm';
+  if ([71, 73, 75, 77, 85, 86].includes(n)) return 'snow';
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(n)) return 'rain';
+  if ([1, 2, 3].includes(n)) return 'cloud';
+  return 'sun';
+}
+
+function weatherLabelFromCode(code) {
+  return WEATHER_CODE_MAP[Number(code)] || 'Conditions unavailable';
+}
+
+function renderWeather(tempC, condition, code) {
+  const rounded = Number.isFinite(tempC) ? Math.round(tempC) + '°C' : '--°C';
+  if ($idleWeatherIcon) {
+    $idleWeatherIcon.innerHTML = weatherIconSVG(weatherIconKind(code));
+  }
+  $idleWeatherTemp.textContent = rounded;
+  $idleWeatherCond.textContent = WEATHER_CONFIG.locationLabel + ' · ' + condition;
+}
+
+function applyWeatherVisibility() {
+  if (!$idleWeather) return;
+  $idleWeather.style.display = WEATHER_CONFIG.enabled ? 'inline-flex' : 'none';
+}
+
+function normalizeRefreshMS(minutes) {
+  const mins = Number(minutes);
+  if (!Number.isFinite(mins)) return WEATHER_DEFAULT.refreshMS;
+  return Math.max(2, Math.min(120, Math.round(mins))) * 60 * 1000;
+}
+
+async function loadWeatherConfig() {
+  try {
+    const resp = await fetch('/api/config', { cache: 'no-store' });
+    if (!resp.ok) return;
+    const cfg = await resp.json();
+    const weather = cfg && cfg.weather ? cfg.weather : null;
+    if (!weather) return;
+
+    WEATHER_CONFIG = {
+      latitude: Number.isFinite(Number(weather.latitude)) ? Number(weather.latitude) : WEATHER_DEFAULT.latitude,
+      longitude: Number.isFinite(Number(weather.longitude)) ? Number(weather.longitude) : WEATHER_DEFAULT.longitude,
+      locationLabel: String(weather.location_label || WEATHER_DEFAULT.locationLabel).trim() || WEATHER_DEFAULT.locationLabel,
+      enabled: weather.enabled !== false,
+      refreshMS: normalizeRefreshMS(weather.refresh_mins),
+    };
+  } catch (_err) {
+    // Keep defaults when config endpoint is unavailable.
+  }
+}
+
+async function refreshWeather() {
+  if (!WEATHER_CONFIG.enabled) return;
+
+  const query = new URLSearchParams({
+    latitude: String(WEATHER_CONFIG.latitude),
+    longitude: String(WEATHER_CONFIG.longitude),
+    current: 'temperature_2m,weather_code',
+    timezone: 'auto',
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const resp = await fetch('https://api.open-meteo.com/v1/forecast?' + query.toString(), {
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    if (!resp.ok) {
+      throw new Error('weather request failed: ' + resp.status);
+    }
+    const data = await resp.json();
+    const current = data && data.current ? data.current : null;
+    const temp = current ? Number(current.temperature_2m) : NaN;
+    const code = current ? current.weather_code : null;
+    renderWeather(temp, weatherLabelFromCode(code), code);
+  } catch (_err) {
+    // Keep UI stable offline: retain last value or show graceful fallback.
+    if (!$idleWeatherTemp.textContent) {
+      renderWeather(NaN, 'Offline', null);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function startWeatherLoop() {
+  await loadWeatherConfig();
+  applyWeatherVisibility();
+
+  if (!WEATHER_CONFIG.enabled) {
+    return;
+  }
+
+  // Start with deterministic placeholder, then replace with live data.
+  renderWeather(NaN, 'Loading…', null);
+  await refreshWeather();
+
+  if (_weatherTimer) {
+    clearInterval(_weatherTimer);
+  }
+  _weatherTimer = setInterval(refreshWeather, WEATHER_CONFIG.refreshMS);
+}
+
+startWeatherLoop();
+
+function openPowerDialog() {
+  document.getElementById('power-dialog')?.classList.add('open');
+}
+
+function closePowerDialog() {
+  document.getElementById('power-dialog')?.classList.remove('open');
+}
+
+function showPowerActionToast(message) {
+  const toast = document.createElement('div');
+  toast.textContent = message;
+  toast.setAttribute('role', 'alert');
+  toast.style.position = 'fixed';
+  toast.style.right = '16px';
+  toast.style.bottom = '16px';
+  toast.style.zIndex = '9999';
+  toast.style.maxWidth = '320px';
+  toast.style.padding = '10px 14px';
+  toast.style.border = '1px solid #7a1a1a';
+  toast.style.borderRadius = '8px';
+  toast.style.background = '#2a1010';
+  toast.style.color = '#f5b5b5';
+  toast.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.35)';
+  toast.style.fontSize = '13px';
+  toast.style.lineHeight = '1.4';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 4500);
+}
+
+async function sendPowerAction(action) {
+  closePowerDialog();
+  try {
+    const response = await fetch('/api/power', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    if (!response.ok) {
+      const errorText = (await response.text()).trim();
+      throw new Error(errorText || `Power action failed (${response.status})`);
+    }
+  } catch (error) {
+    showPowerActionToast(error?.message || 'Failed to send power action');
+  }
+}
+
+// ─── Artwork helpers ─────────────────────────────────────────────────────────
+
+let _lastArtworkPath = null;
+
+function updateArtwork(artworkPath) {
+  if (artworkPath === _lastArtworkPath) return;
+  _lastArtworkPath = artworkPath;
+
+  if (artworkPath) {
+    const img = new Image();
+    img.onload = () => {
+      $artImg.src = img.src;
+      $artImg.style.opacity = '1';
+      $artDefault.style.opacity = '0';
+    };
+    img.onerror = () => showDefaultArtwork();
+    // Bust cache between track changes by appending the path as a cache-busting
+    // parameter — the server serves the same bytes but the URL is new.
+    img.src = '/api/artwork?' + encodeURIComponent(artworkPath);
+  } else {
+    showDefaultArtwork();
+  }
+}
+
+function showDefaultArtwork() {
+  $artImg.style.opacity = '0';
+  $artDefault.style.opacity = '1';
+  _lastArtworkPath = null;
+}
+
+// ─── Chip builders ───────────────────────────────────────────────────────────
+
+function chipSVG(pathD) {
+  return `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor"
+               stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+    <path d="${pathD}"/>
+  </svg>`;
+}
+
+function makeChip(icon, label) {
+  const el = document.createElement('span');
+  el.className = 'chip';
+
+  const iconWrap = document.createElement('span');
+  iconWrap.innerHTML = icon;
+  while (iconWrap.firstChild) {
+    el.appendChild(iconWrap.firstChild);
+  }
+
+  el.appendChild(document.createTextNode(String(label)));
+  return el;
+}
+
+const nowPlayingHelpers = window.NowPlayingHelpers || {};
+const parseVinylTrackRef = nowPlayingHelpers.parseVinylTrackRef || (() => null);
+const formatMS = nowPlayingHelpers.formatMS || ((ms) => String(ms));
+const computeElapsedMS = nowPlayingHelpers.computeElapsedMS || ((track) => Number(track?.seek_ms || 0));
+
+function isStreamingSource(source) {
+  return STREAMING_SOURCES.has(source);
+}
+
+function updateStreamingProgress() {
+  if (!_lastState) {
+    $streamProgress.classList.remove('visible');
+    return;
+  }
+
+  const source = _lastState.source || 'None';
+  const playing = _lastState.state === 'playing';
+  const track = _lastState.track || null;
+  const durationMS = Number(track?.duration_ms || 0);
+
+  if (!playing || !track || !isStreamingSource(source) || durationMS <= 0) {
+    $streamProgress.classList.remove('visible');
+    return;
+  }
+
+  const elapsedRaw = computeElapsedMS(track, playing);
+  const elapsed = Math.min(Math.max(0, elapsedRaw), durationMS);
+  const pct = Math.max(0, Math.min(100, (elapsed / durationMS) * 100));
+
+  $streamProgress.classList.add('visible');
+  $streamFill.style.width = pct.toFixed(2) + '%';
+  $streamElapsed.textContent = formatMS(elapsed);
+  $streamTotal.textContent = formatMS(durationMS);
+}
+
+// ─── Main UI update ──────────────────────────────────────────────────────────
+
+let _lastState = null;
+
+function applyState(state) {
+  const source  = state.source  || 'None';
+  const playing = state.state === 'playing';
+  const track   = state.track   || null;
+
+  const isIdle = !playing || source === 'None';
+  $idle.classList.toggle('visible', isIdle);
+
+  // Source icon + label
+  $sourceIcon.innerHTML  = SOURCE_ICONS[source] || SOURCE_ICONS.None;
+  $sourceLabel.textContent = SOURCE_LABELS[source] || source;
+  $metaSourceIcon.innerHTML = SOURCE_ICONS[source] || SOURCE_ICONS.None;
+  $metaSourceLabel.textContent = SOURCE_LABELS[source] || source;
+
+  // Option 1 UX: when there is active playback, keep source context in the
+  // in-content badge and hide the separate top bar.
+  $sourceBar.classList.toggle('hidden', playing && source !== 'None');
+
+  // Playback badge
+  $badge.textContent = playing ? 'Playing' : 'Stopped';
+  $badge.classList.toggle('playing', playing);
+  $metaPlaybackBadge.textContent = playing ? 'Playing' : 'Stopped';
+  $metaPlaybackBadge.classList.toggle('playing', playing);
+
+  // Track metadata
+  const hasTrack = track && (track.title || track.artist);
+  $identifying.className = '';
+  $identifying.textContent = '';
+
+  if (hasTrack) {
+    $title.textContent  = track.title  || '—';
+    $artist.textContent = track.artist || '';
+    $album.textContent  = track.album  || '';
+    updateArtwork(track.artwork_path || null);
+  } else if (playing && source !== 'None') {
+    // Playing but not yet identified (physical source recognizing)
+    $title.textContent  = 'Identifying…';
+    $artist.textContent = '';
+    $album.textContent  = '';
+    $identifying.className = 'pulsing';
+    $identifying.textContent = 'Listening for a match';
+    showDefaultArtwork();
+  } else {
+    $title.textContent  = '—';
+    $artist.textContent = '';
+    $album.textContent  = '';
+    showDefaultArtwork();
+  }
+
+  // Supplemental chips (format-specific metadata)
+  $chips.textContent = '';
+
+  if (track) {
+    // Streaming: sample rate + bit depth
+    if (track.samplerate) {
+      $chips.appendChild(makeChip(
+        chipSVG('M1 6 Q3 2 5 6 Q7 10 9 6 Q11 2 11 6'),
+        track.samplerate
+      ));
+    }
+    if (track.bitdepth) {
+      $chips.appendChild(makeChip(
+        chipSVG('M2 9 L2 3 M2 6 L6 3 M6 3 L6 9 M6 6 L10 3 M10 3 L10 9'),
+        track.bitdepth
+      ));
+    }
+
+    // Track/side chips: supports CD and Vinyl representations.
+    if (track.track_number) {
+      const trackRef = String(track.track_number).trim();
+      const vinylRef = parseVinylTrackRef(trackRef);
+
+      if (source === 'Vinyl') {
+        if (vinylRef) {
+          $chips.appendChild(makeChip(
+            chipSVG('M6 1 A5 5 0 1 1 6 11 A5 5 0 1 1 6 1 M6 1 V11'),
+            'Side ' + vinylRef.side
+          ));
+          $chips.appendChild(makeChip(
+            chipSVG('M2 6 Q2 2 6 2 Q10 2 10 6 Q10 10 6 10 Q2 10 2 6'),
+            'Track ' + vinylRef.track
+          ));
+        } else {
+          $chips.appendChild(makeChip(
+            chipSVG('M2 6 Q2 2 6 2 Q10 2 10 6 Q10 10 6 10 Q2 10 2 6'),
+            'Track ' + trackRef
+          ));
+        }
+      } else if (source === 'CD' || source === 'Physical') {
+        $chips.appendChild(makeChip(
+          chipSVG('M2 6 Q2 2 6 2 Q10 2 10 6 Q10 10 6 10 Q2 10 2 6'),
+          'Track ' + trackRef
+        ));
+      }
+    }
+  }
+
+  // Store for change detection
+  _lastState = state;
+  updateStreamingProgress();
+}
+
+// Update streaming elapsed/progress every second using seek_ms +
+// (now - seek_updated_at), matching the SPI behavior.
+setInterval(updateStreamingProgress, 1000);
+
+// ─── SSE connection ──────────────────────────────────────────────────────────
+
+let _es = null;
+let _reconnectTimer = null;
+
+function connect() {
+  if (_es) { _es.close(); _es = null; }
+
+  _es = new EventSource('/api/stream');
+
+  _es.onopen = () => {
+    clearTimeout(_reconnectTimer);
+  };
+
+  _es.onmessage = (e) => {
+    try {
+      const state = JSON.parse(e.data);
+      applyState(state);
+    } catch (err) {
+      console.warn('nowplaying: bad state payload', err);
+    }
+  };
+
+  _es.onerror = () => {
+    _es.close();
+    _es = null;
+    // Fixed reconnect delay: retry after 3 s, then the browser will handle reconnects.
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = setTimeout(connect, 3000);
+  };
+}
+
+// Kick off initial connection.
+connect();
+</script>
+</body>
+</html>

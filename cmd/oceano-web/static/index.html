@@ -812,6 +812,48 @@
       </div>
     </div>
 
+    <!-- Now Playing (HDMI/DSI) -->
+    <div class="section" id="nowplaying-section" style="display:none">
+      <div class="section-title">Now Playing (HDMI/DSI)</div>
+      <p class="hint" id="nowplaying-display-hint" style="margin-bottom:14px">Options for the HDMI/DSI now playing page.</p>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="weather-enabled" name="weather-enabled"
+                 style="width:auto;accent-color:var(--accent)">
+          <span>Enable weather on idle screen</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label><span>Location label</span></label>
+        <input type="text" id="weather-label" name="weather-label" placeholder="Dublin">
+        <div class="hint">Displayed in the weather chip (e.g. Dublin, Porto, Berlin).</div>
+      </div>
+
+      <div class="field">
+        <label><span>Latitude</span></label>
+        <input type="number" id="weather-lat" name="weather-lat" step="any" min="-90" max="90" placeholder="53.3498">
+        <div class="hint">Valid range: -90 to 90 (example: <code>37.70215</code>).</div>
+      </div>
+
+      <div class="field">
+        <label><span>Longitude</span></label>
+        <input type="number" id="weather-lon" name="weather-lon" step="any" min="-180" max="180" placeholder="-6.2603">
+        <div class="hint">Valid range: -180 to 180.</div>
+      </div>
+
+      <div class="field">
+        <button type="button" class="detect-btn" onclick="detectCurrentLocationWeather()">Use current location</button>
+        <div class="hint">Uses browser geolocation permission to fill latitude/longitude automatically.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Refresh interval (minutes)</span></label>
+        <input type="number" id="weather-refresh" name="weather-refresh" step="1" min="2" max="120" placeholder="10">
+      </div>
+    </div>
+
   </div><!-- .sections -->
 
   <div class="actions">
@@ -919,6 +961,8 @@ async function loadConfig() {
   const r = await fetch('/api/config');
   const cfg = await r.json();
 
+  await loadNowPlayingDisplayCapabilities();
+
   set('inp-device',        cfg.audio_input?.device ?? '');
   set('inp-device-match',  cfg.audio_input?.device_match ?? '');
   set('inp-silence',       cfg.audio_input?.silence_threshold ?? 0.025);
@@ -945,9 +989,44 @@ async function loadConfig() {
   const artworkEl = document.getElementById('disp-external-artwork');
   if (artworkEl) artworkEl.checked = cfg.display?.external_artwork_enabled ?? true;
 
+  const weatherEnabledEl = document.getElementById('weather-enabled');
+  if (weatherEnabledEl) weatherEnabledEl.checked = cfg.weather?.enabled ?? true;
+  set('weather-label',   cfg.weather?.location_label ?? 'Dublin');
+  set('weather-lat',     cfg.weather?.latitude ?? 53.3498);
+  set('weather-lon',     cfg.weather?.longitude ?? -6.2603);
+  set('weather-refresh', cfg.weather?.refresh_mins ?? 10);
+
   // Preserve advanced values as-is from server.
   _advancedConfig = cfg.advanced ?? {};
   updateRecognitionUI();
+}
+
+async function loadNowPlayingDisplayCapabilities() {
+  const section = document.getElementById('nowplaying-section');
+  const hint = document.getElementById('nowplaying-display-hint');
+  if (!section) return;
+
+  try {
+    const r = await fetch('/api/display-detected');
+    if (!r.ok) {
+      section.style.display = 'none';
+      return;
+    }
+    const d = await r.json();
+    if (d?.connected) {
+      section.style.display = '';
+      if (hint) {
+        const names = Array.isArray(d.connectors) ? d.connectors.join(', ') : '';
+        hint.textContent = names
+          ? `Detected display connectors: ${names}. Options below apply to the HDMI/DSI now playing page.`
+          : 'Options for the HDMI/DSI now playing page.';
+      }
+    } else {
+      section.style.display = 'none';
+    }
+  } catch {
+    section.style.display = 'none';
+  }
 }
 
 function set(id, val) {
@@ -1110,6 +1189,13 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       standby_timeout:          parseInt(val('disp-standby-timeout')) || 600,
       external_artwork_enabled: document.getElementById('disp-external-artwork')?.checked ?? true,
     },
+    weather: {
+      enabled:        document.getElementById('weather-enabled')?.checked ?? true,
+      location_label: val('weather-label') || 'Dublin',
+      latitude:       floatOr('weather-lat', 53.3498),
+      longitude:      floatOr('weather-lon', -6.2603),
+      refresh_mins:   intOr('weather-refresh', 10),
+    },
   };
 
   try {
@@ -1132,6 +1218,86 @@ function val(id) { return (document.getElementById(id)?.value || '').trim(); }
 function intOr(id, fallback) {
   const n = parseInt(val(id), 10);
   return Number.isNaN(n) ? fallback : n;
+}
+
+function floatOr(id, fallback) {
+  const n = parseFloat(val(id));
+  return Number.isNaN(n) ? fallback : n;
+}
+
+function setFieldValue(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.value = value;
+}
+
+async function reverseGeocodeLabel(lat, lon) {
+  const query = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    language: 'en',
+    count: '1',
+  });
+
+  const resp = await fetch('https://geocoding-api.open-meteo.com/v1/reverse?' + query.toString(), {
+    cache: 'no-store',
+  });
+  if (!resp.ok) {
+    throw new Error('reverse geocoding failed');
+  }
+
+  const data = await resp.json();
+  const r = Array.isArray(data?.results) ? data.results[0] : null;
+  if (!r) return '';
+
+  const city = (r.city || r.name || '').trim();
+  const country = (r.country || '').trim();
+  if (!city && !country) return '';
+  if (city && country) return `${city}, ${country}`;
+  return city || country;
+}
+
+function detectCurrentLocationWeather() {
+  if (!('geolocation' in navigator)) {
+    toast('Geolocation is not supported in this browser.', true);
+    return;
+  }
+
+  toast('Requesting current location…');
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      setFieldValue('weather-lat', lat.toFixed(5));
+      setFieldValue('weather-lon', lon.toFixed(5));
+
+      // Always overwrite stale static labels (e.g. Lisbon) when using live
+      // geolocation; prefer a resolved city/country name when available.
+      setFieldValue('weather-label', 'Current location');
+      try {
+        const label = await reverseGeocodeLabel(lat, lon);
+        if (label) {
+          setFieldValue('weather-label', label);
+        }
+      } catch (_) {
+        // Keep generic label if reverse geocoding is unavailable.
+      }
+
+      toast(`Location captured: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+    },
+    (err) => {
+      let msg = 'Unable to read current location.';
+      if (err && err.code === 1) msg = 'Location permission denied.';
+      if (err && err.code === 2) msg = 'Location unavailable.';
+      if (err && err.code === 3) msg = 'Location request timed out.';
+      toast(msg, true);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 12000,
+      maximumAge: 5 * 60 * 1000,
+    }
+  );
 }
 
 document.getElementById('rec-chain')?.addEventListener('change', updateRecognitionUI);

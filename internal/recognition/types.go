@@ -21,6 +21,10 @@ type Result struct {
 	Released string
 	Score    int
 	Format   string
+	// TrackNumber is the position of the track on the release (e.g. "3" for CD
+	// track 3, "A2" for vinyl side A track 2). Populated from the library DB;
+	// not currently returned by recognition providers.
+	TrackNumber string
 }
 
 // Recognizer identifies a track from a WAV audio file.
