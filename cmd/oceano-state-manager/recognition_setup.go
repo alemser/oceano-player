@@ -2,6 +2,18 @@ package main
 
 import "log"
 
+func normalizeRecognizerChain(raw string) string {
+	switch raw {
+	case "acrcloud_first", "shazam_first", "acrcloud_only", "shazam_only", "fingerprint_only":
+		return raw
+	case "":
+		return "acrcloud_first"
+	default:
+		log.Printf("recognizer: unknown recognizer chain %q — falling back to acrcloud_first", raw)
+		return "acrcloud_first"
+	}
+}
+
 // RecognitionPlan defines provider order and provider roles independently.
 // Ordered controls chain execution order. Confirmer and Continuity can point to
 // any recognizer in Ordered, or be nil when the role is disabled.
@@ -50,9 +62,12 @@ func buildRecognitionComponents(cfg Config) recognitionComponents {
 		}
 	}
 
+	chain := normalizeRecognizerChain(cfg.RecognizerChain)
+	log.Printf("recognizer: chain policy=%s", chain)
+
 	// Build chain order from the configured policy.
 	var ordered []Recognizer
-	switch cfg.RecognizerChain {
+	switch chain {
 	case "shazam_first":
 		if shazamRec != nil {
 			ordered = append(ordered, shazamRec)

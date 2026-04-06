@@ -174,7 +174,12 @@ func apiGetConfig(w http.ResponseWriter, configPath string) {
 }
 
 func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
-	var cfg Config
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		http.Error(w, "load current config failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
