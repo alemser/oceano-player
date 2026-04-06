@@ -5,6 +5,88 @@ import (
 	"time"
 )
 
+func TestIsPhysicalFormat(t *testing.T) {
+	tests := []struct {
+		name   string
+		format string
+		want   bool
+	}{
+		{name: "cd exact", format: "cd", want: true},
+		{name: "vinyl exact", format: "vinyl", want: true},
+		{name: "trim and case", format: " Vinyl ", want: true},
+		{name: "non physical", format: "Cassette", want: false},
+		{name: "empty", format: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isPhysicalFormat(tt.format); got != tt.want {
+				t.Fatalf("isPhysicalFormat(%q) = %v, want %v", tt.format, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsNewTrackCandidate(t *testing.T) {
+	tests := []struct {
+		name            string
+		result          *RecognitionResult
+		currentACRID    string
+		currentShazamID string
+		want            bool
+	}{
+		{
+			name:         "nil result",
+			result:       nil,
+			currentACRID: "acr-1",
+			want:         false,
+		},
+		{
+			name:         "acrid changed",
+			result:       &RecognitionResult{ACRID: "acr-2"},
+			currentACRID: "acr-1",
+			want:         true,
+		},
+		{
+			name:         "acrid unchanged",
+			result:       &RecognitionResult{ACRID: "acr-1"},
+			currentACRID: "acr-1",
+			want:         false,
+		},
+		{
+			name:            "shazam changed when no acrid",
+			result:          &RecognitionResult{ShazamID: "shz-2"},
+			currentShazamID: "shz-1",
+			want:            true,
+		},
+		{
+			name:            "shazam unchanged when no acrid",
+			result:          &RecognitionResult{ShazamID: "shz-1"},
+			currentShazamID: "shz-1",
+			want:            false,
+		},
+		{
+			name:   "no ids and no current ids",
+			result: &RecognitionResult{},
+			want:   true,
+		},
+		{
+			name:         "no ids but current acrid present",
+			result:       &RecognitionResult{},
+			currentACRID: "acr-1",
+			want:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isNewTrackCandidate(tt.result, tt.currentACRID, tt.currentShazamID); got != tt.want {
+				t.Fatalf("isNewTrackCandidate() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRecognitionCoordinator_PrimaryRecognizerUsesChainPrimary(t *testing.T) {
 	primary := &stubRecognizer{name: "ACRCloud"}
 	fallback := &stubRecognizer{name: "Shazam"}

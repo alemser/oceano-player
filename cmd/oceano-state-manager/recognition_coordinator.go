@@ -36,6 +36,24 @@ func (c *recognitionCoordinator) primaryRecognizer() Recognizer {
 	return c.rec
 }
 
+func isPhysicalFormat(format string) bool {
+	f := strings.ToLower(strings.TrimSpace(format))
+	return f == "cd" || f == "vinyl"
+}
+
+func isNewTrackCandidate(result *RecognitionResult, currentACRID, currentShazamID string) bool {
+	if result == nil {
+		return false
+	}
+	if result.ACRID != "" {
+		return result.ACRID != currentACRID
+	}
+	if result.ShazamID != "" {
+		return result.ShazamID != currentShazamID
+	}
+	return currentACRID == "" && currentShazamID == ""
+}
+
 func (c *recognitionCoordinator) applyLocalFallbackEntry(entry *CollectionEntry) {
 	c.mgr.mu.Lock()
 	c.mgr.recognitionResult = &RecognitionResult{
@@ -51,12 +69,218 @@ func (c *recognitionCoordinator) applyLocalFallbackEntry(entry *CollectionEntry)
 	}
 	c.mgr.lastRecognizedAt = time.Now()
 	c.mgr.shazamContinuityReady = entry.ShazamID != ""
-	if f := strings.ToLower(strings.TrimSpace(entry.Format)); f == "cd" || f == "vinyl" {
+	if isPhysicalFormat(entry.Format) {
 		c.mgr.physicalFormat = entry.Format
 	}
 	c.mgr.physicalArtworkPath = entry.ArtworkPath
 	c.mgr.mu.Unlock()
 	c.mgr.markDirty()
+}
+
+func (c *recognitionCoordinator) tryLocalFingerprintFallback(capturedFPs []Fingerprint) bool {
+	if len(capturedFPs) == 0 || c.lib == nil {
+		return false
+	}
+	localEntry, err := c.lib.FindByFingerprints(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30)
+	if err != nil {
+		log.Printf("recognizer: fingerprint lookup error: %v", err)
+		return false
+	}
+	if localEntry == nil || !localEntry.UserConfirmed {
+		return false
+	}
+	log.Printf("recognizer: local fingerprint fallback match (id=%d %s — %s)",
+		localEntry.ID, localEntry.Artist, localEntry.Title)
+	c.applyLocalFallbackEntry(localEntry)
+	return true
+}
+
+func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, result *RecognitionResult, isBoundaryTrigger bool) (bool, bool) {
+	if c.mgr.cfg.ConfirmationDelay <= 0 {
+		return false, false
+	}
+
+	c.mgr.mu.Lock()
+	currentACRID := ""
+	currentShazamID := ""
+	if c.mgr.recognitionResult != nil {
+		currentACRID = c.mgr.recognitionResult.ACRID
+		currentShazamID = c.mgr.recognitionResult.ShazamID
+	}
+	c.mgr.mu.Unlock()
+
+	if !isNewTrackCandidate(result, currentACRID, currentShazamID) {
+		return false, false
+	}
+
+	if c.mgr.cfg.ConfirmationBypassScore > 0 && result.Score >= c.mgr.cfg.ConfirmationBypassScore {
+		log.Printf("recognizer [%s]: high-confidence match (score=%d) — skipping confirmation", c.rec.Name(), result.Score)
+		return false, false
+	}
+	if isBoundaryTrigger {
+		log.Printf("recognizer [%s]: boundary-triggered recognition — skipping confirmation delay", c.rec.Name())
+		return false, false
+	}
+
+	log.Printf("recognizer [%s]: new track candidate — confirming in %s", c.rec.Name(), c.mgr.cfg.ConfirmationDelay)
+	select {
+	case <-ctx.Done():
+		return false, true
+	case <-time.After(c.mgr.cfg.ConfirmationDelay):
+	}
+
+	confirmer := c.confirmRec
+	if confirmer == nil {
+		confirmer = c.rec
+	}
+
+	confDur := c.mgr.cfg.ConfirmationCaptureDuration
+	if confDur <= 0 {
+		confDur = c.mgr.cfg.RecognizerCaptureDuration
+	}
+	confCtx, confCancel := context.WithTimeout(ctx, confDur+10*time.Second)
+	confWav, confErr := captureFromPCMSocket(confCtx, c.mgr.cfg.PCMSocket, confDur, 0, os.TempDir())
+	confCancel()
+
+	if confErr != nil {
+		if ctx.Err() != nil {
+			return false, true
+		}
+		log.Printf("recognizer [%s]: confirmation capture error — accepting original result: %v", c.rec.Name(), confErr)
+		return false, false
+	}
+
+	confCtx2, confCancel2 := context.WithTimeout(ctx, confDur+10*time.Second)
+	var conf *RecognitionResult
+	var confRecErr error
+	confProviderName := confirmer.Name()
+	if c.confirmRec != nil && c.confirmRec != c.rec {
+		type recOut struct {
+			res *RecognitionResult
+			err error
+		}
+		primaryRec := c.primaryRecognizer()
+		pCh := make(chan recOut, 1)
+		sCh := make(chan recOut, 1)
+		go func() {
+			r, e := primaryRec.Recognize(confCtx2, confWav)
+			pCh <- recOut{res: r, err: e}
+		}()
+		go func() {
+			r, e := c.confirmRec.Recognize(confCtx2, confWav)
+			sCh <- recOut{res: r, err: e}
+		}()
+		pOut := <-pCh
+		sOut := <-sCh
+		conf, confRecErr, confProviderName = chooseConfirmationResult(
+			primaryRec.Name(), pOut.res, pOut.err,
+			c.confirmRec.Name(), sOut.res, sOut.err,
+		)
+	} else {
+		conf, confRecErr = confirmer.Recognize(confCtx2, confWav)
+	}
+	confCancel2()
+	os.Remove(confWav)
+	if ctx.Err() != nil {
+		return false, true
+	}
+	if confRecErr != nil {
+		log.Printf("recognizer [%s]: confirmation (%s) error — accepting original result: %v", c.rec.Name(), confProviderName, confRecErr)
+		return false, false
+	}
+	if conf == nil {
+		log.Printf("recognizer [%s]: confirmation (%s) returned no match — keeping original candidate %s — %s",
+			c.rec.Name(), confProviderName, result.Artist, result.Title)
+		return false, false
+	}
+
+	sameTrack := confProviderName == c.rec.Name() && conf.ACRID != "" && conf.ACRID == result.ACRID
+	if !sameTrack {
+		sameTrack = tracksEquivalent(conf.Title, conf.Artist, result.Title, result.Artist)
+	}
+	if !sameTrack {
+		log.Printf("recognizer [%s]: confirmation (%s) disagrees (got %s — %s) — keeping original candidate %s — %s",
+			c.rec.Name(), confProviderName, conf.Artist, conf.Title, result.Artist, result.Title)
+		return false, false
+	}
+
+	log.Printf("recognizer [%s]: confirmed by %s — %s — %s", c.rec.Name(), confProviderName, result.Artist, result.Title)
+	if c.shazamRec != nil && confProviderName == c.shazamRec.Name() {
+		if result.ShazamID == "" {
+			result.ShazamID = conf.ShazamID
+		}
+		return true, false
+	}
+	return false, false
+}
+
+func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult, capturedFPs []Fingerprint, isBoundaryTrigger bool, isShazamFallback bool, shazamMatchedACR bool) {
+	if c.lib != nil {
+		artworkPath := ""
+		if entry, lookupErr := c.lib.LookupByIDs(result.ACRID, result.ShazamID); lookupErr != nil {
+			log.Printf("recognizer: library lookup error: %v", lookupErr)
+		} else if entry != nil {
+			log.Printf("recognizer: known track (plays: %d) — using saved metadata", entry.PlayCount)
+			result.Title = entry.Title
+			result.Artist = entry.Artist
+			result.Album = entry.Album
+			result.Format = entry.Format
+			if result.ShazamID == "" {
+				result.ShazamID = entry.ShazamID
+			}
+			artworkPath = entry.ArtworkPath
+		}
+
+		if artworkPath == "" && result.Album != "" {
+			if ap, artErr := fetchArtwork(result.Artist, result.Album, c.mgr.cfg.ArtworkDir); artErr != nil {
+				log.Printf("recognizer: artwork fetch error: %v", artErr)
+			} else if ap != "" {
+				log.Printf("recognizer: artwork saved at %s", ap)
+				artworkPath = ap
+			}
+		}
+
+		entryID, recErr := c.lib.RecordPlay(result, artworkPath)
+		if recErr != nil {
+			log.Printf("recognizer: library record error: %v", recErr)
+		} else if entryID > 0 {
+			if len(capturedFPs) > 0 && isBoundaryTrigger && !c.lib.HasFingerprints(entryID) {
+				if fpErr := c.lib.SaveFingerprints(entryID, capturedFPs); fpErr != nil {
+					log.Printf("recognizer: save fingerprints error: %v", fpErr)
+				}
+			}
+			c.mgr.mu.Lock()
+			lastBoundary := c.mgr.lastBoundaryAt
+			c.mgr.mu.Unlock()
+			if !lastBoundary.IsZero() {
+				c.lib.PruneRecentStubs(lastBoundary, entryID)
+			}
+		}
+
+		c.mgr.mu.Lock()
+		c.mgr.recognitionResult = result
+		c.mgr.lastRecognizedAt = time.Now()
+		c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
+		if isPhysicalFormat(result.Format) {
+			c.mgr.physicalFormat = result.Format
+		}
+		if entry, _ := c.lib.LookupByIDs(result.ACRID, result.ShazamID); entry != nil && entry.ArtworkPath != "" {
+			c.mgr.physicalArtworkPath = entry.ArtworkPath
+		} else {
+			c.mgr.physicalArtworkPath = artworkPath
+		}
+		c.mgr.mu.Unlock()
+		return
+	}
+
+	c.mgr.mu.Lock()
+	c.mgr.recognitionResult = result
+	c.mgr.lastRecognizedAt = time.Now()
+	c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
+	if isPhysicalFormat(result.Format) {
+		c.mgr.physicalFormat = result.Format
+	}
+	c.mgr.mu.Unlock()
 }
 
 func resolvedRefreshInterval(refresh, max time.Duration) time.Duration {
@@ -183,16 +407,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 
 		if err != nil {
 			log.Printf("recognizer [%s]: error: %v", c.rec.Name(), err)
-			if len(capturedFPs) > 0 && c.lib != nil {
-				if localEntry, fpErr := c.lib.FindByFingerprints(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); fpErr != nil {
-					log.Printf("recognizer: fingerprint lookup error: %v", fpErr)
-				} else if localEntry != nil && localEntry.UserConfirmed {
-					log.Printf("recognizer: local fingerprint fallback match (id=%d %s — %s)",
-						localEntry.ID, localEntry.Artist, localEntry.Title)
-					backoffUntil = time.Time{}
-					c.applyLocalFallbackEntry(localEntry)
-					continue
-				}
+			if c.tryLocalFingerprintFallback(capturedFPs) {
+				backoffUntil = time.Time{}
+				continue
 			}
 			if errors.Is(err, ErrRateLimit) {
 				log.Printf("recognizer [%s]: rate limited — backing off %s", c.rec.Name(), rateLimitBackoff)
@@ -232,185 +449,13 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				continue
 			}
 
-			if c.mgr.cfg.ConfirmationDelay > 0 {
-				c.mgr.mu.Lock()
-				currentACRID := ""
-				if c.mgr.recognitionResult != nil {
-					currentACRID = c.mgr.recognitionResult.ACRID
-				}
-				c.mgr.mu.Unlock()
-
-				currentShazamID := ""
-				if c.mgr.recognitionResult != nil {
-					currentShazamID = c.mgr.recognitionResult.ShazamID
-				}
-				isNewTrack := false
-				if result.ACRID != "" {
-					isNewTrack = result.ACRID != currentACRID
-				} else if result.ShazamID != "" {
-					isNewTrack = result.ShazamID != currentShazamID
-				} else {
-					isNewTrack = currentACRID == "" && currentShazamID == ""
-				}
-				if isNewTrack {
-					if c.mgr.cfg.ConfirmationBypassScore > 0 && result.Score >= c.mgr.cfg.ConfirmationBypassScore {
-						log.Printf("recognizer [%s]: high-confidence match (score=%d) — skipping confirmation", c.rec.Name(), result.Score)
-					} else if isBoundaryTrigger {
-						log.Printf("recognizer [%s]: boundary-triggered recognition — skipping confirmation delay", c.rec.Name())
-					} else {
-						log.Printf("recognizer [%s]: new track candidate — confirming in %s", c.rec.Name(), c.mgr.cfg.ConfirmationDelay)
-						select {
-						case <-ctx.Done():
-							return
-						case <-time.After(c.mgr.cfg.ConfirmationDelay):
-						}
-
-						confirmer := c.confirmRec
-						if confirmer == nil {
-							confirmer = c.rec
-						}
-
-						confDur := c.mgr.cfg.ConfirmationCaptureDuration
-						if confDur <= 0 {
-							confDur = c.mgr.cfg.RecognizerCaptureDuration
-						}
-						confCtx, confCancel := context.WithTimeout(ctx, confDur+10*time.Second)
-						confWav, confErr := captureFromPCMSocket(confCtx, c.mgr.cfg.PCMSocket, confDur, 0, os.TempDir())
-						confCancel()
-
-						if confErr != nil {
-							if ctx.Err() != nil {
-								return
-							}
-							log.Printf("recognizer [%s]: confirmation capture error — accepting original result: %v", c.rec.Name(), confErr)
-						} else {
-							confCtx2, confCancel2 := context.WithTimeout(ctx, confDur+10*time.Second)
-							var conf *RecognitionResult
-							var confRecErr error
-							confProviderName := confirmer.Name()
-							if c.confirmRec != nil && c.confirmRec != c.rec {
-								type recOut struct {
-									res *RecognitionResult
-									err error
-								}
-								primaryRec := c.primaryRecognizer()
-								pCh := make(chan recOut, 1)
-								sCh := make(chan recOut, 1)
-								go func() {
-									r, e := primaryRec.Recognize(confCtx2, confWav)
-									pCh <- recOut{res: r, err: e}
-								}()
-								go func() {
-									r, e := c.confirmRec.Recognize(confCtx2, confWav)
-									sCh <- recOut{res: r, err: e}
-								}()
-								pOut := <-pCh
-								sOut := <-sCh
-								conf, confRecErr, confProviderName = chooseConfirmationResult(
-									primaryRec.Name(), pOut.res, pOut.err,
-									c.confirmRec.Name(), sOut.res, sOut.err,
-								)
-							} else {
-								conf, confRecErr = confirmer.Recognize(confCtx2, confWav)
-							}
-							confCancel2()
-							os.Remove(confWav)
-							if ctx.Err() != nil {
-								return
-							}
-							if confRecErr != nil {
-								log.Printf("recognizer [%s]: confirmation (%s) error — accepting original result: %v", c.rec.Name(), confProviderName, confRecErr)
-							} else if conf == nil {
-								log.Printf("recognizer [%s]: confirmation (%s) returned no match — keeping original candidate %s — %s",
-									c.rec.Name(), confProviderName, result.Artist, result.Title)
-							} else {
-								sameTrack := confProviderName == c.rec.Name() && conf.ACRID != "" && conf.ACRID == result.ACRID
-								if !sameTrack {
-									sameTrack = tracksEquivalent(conf.Title, conf.Artist, result.Title, result.Artist)
-								}
-								if sameTrack {
-									log.Printf("recognizer [%s]: confirmed by %s — %s — %s", c.rec.Name(), confProviderName, result.Artist, result.Title)
-									if c.shazamRec != nil && confProviderName == c.shazamRec.Name() {
-										shazamMatchedACR = true
-										if result.ShazamID == "" {
-											result.ShazamID = conf.ShazamID
-										}
-									}
-								} else {
-									log.Printf("recognizer [%s]: confirmation (%s) disagrees (got %s — %s) — keeping original candidate %s — %s",
-										c.rec.Name(), confProviderName, conf.Artist, conf.Title, result.Artist, result.Title)
-								}
-							}
-						}
-					}
-				}
+			stop := false
+			shazamMatchedACR, stop = c.maybeConfirmCandidate(ctx, result, isBoundaryTrigger)
+			if stop {
+				return
 			}
 
-			if c.lib != nil {
-				artworkPath := ""
-				if entry, lookupErr := c.lib.LookupByIDs(result.ACRID, result.ShazamID); lookupErr != nil {
-					log.Printf("recognizer: library lookup error: %v", lookupErr)
-				} else if entry != nil {
-					log.Printf("recognizer: known track (plays: %d) — using saved metadata", entry.PlayCount)
-					result.Title = entry.Title
-					result.Artist = entry.Artist
-					result.Album = entry.Album
-					result.Format = entry.Format
-					if result.ShazamID == "" {
-						result.ShazamID = entry.ShazamID
-					}
-					artworkPath = entry.ArtworkPath
-				}
-
-				if artworkPath == "" && result.Album != "" {
-					if ap, artErr := fetchArtwork(result.Artist, result.Album, c.mgr.cfg.ArtworkDir); artErr != nil {
-						log.Printf("recognizer: artwork fetch error: %v", artErr)
-					} else if ap != "" {
-						log.Printf("recognizer: artwork saved at %s", ap)
-						artworkPath = ap
-					}
-				}
-
-				entryID, recErr := c.lib.RecordPlay(result, artworkPath)
-				if recErr != nil {
-					log.Printf("recognizer: library record error: %v", recErr)
-				} else if entryID > 0 {
-					if len(capturedFPs) > 0 && isBoundaryTrigger && !c.lib.HasFingerprints(entryID) {
-						if fpErr := c.lib.SaveFingerprints(entryID, capturedFPs); fpErr != nil {
-							log.Printf("recognizer: save fingerprints error: %v", fpErr)
-						}
-					}
-					c.mgr.mu.Lock()
-					lastBoundary := c.mgr.lastBoundaryAt
-					c.mgr.mu.Unlock()
-					if !lastBoundary.IsZero() {
-						c.lib.PruneRecentStubs(lastBoundary, entryID)
-					}
-				}
-
-				c.mgr.mu.Lock()
-				c.mgr.recognitionResult = result
-				c.mgr.lastRecognizedAt = time.Now()
-				c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
-				if f := strings.ToLower(strings.TrimSpace(result.Format)); f == "cd" || f == "vinyl" {
-					c.mgr.physicalFormat = result.Format
-				}
-				if entry, _ := c.lib.LookupByIDs(result.ACRID, result.ShazamID); entry != nil && entry.ArtworkPath != "" {
-					c.mgr.physicalArtworkPath = entry.ArtworkPath
-				} else {
-					c.mgr.physicalArtworkPath = artworkPath
-				}
-				c.mgr.mu.Unlock()
-			} else {
-				c.mgr.mu.Lock()
-				c.mgr.recognitionResult = result
-				c.mgr.lastRecognizedAt = time.Now()
-				c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
-				if f := strings.ToLower(strings.TrimSpace(result.Format)); f == "cd" || f == "vinyl" {
-					c.mgr.physicalFormat = result.Format
-				}
-				c.mgr.mu.Unlock()
-			}
+			c.applyRecognizedResult(result, capturedFPs, isBoundaryTrigger, isShazamFallback, shazamMatchedACR)
 
 			if c.shazamRec != nil && result.ACRID != "" && !shazamMatchedACR {
 				go c.mgr.tryEnableShazamContinuity(ctx, c.shazamRec, result)
@@ -425,16 +470,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			}
 		drained:
 		} else {
-			if len(capturedFPs) > 0 && c.lib != nil {
-				if localEntry, fpErr := c.lib.FindByFingerprints(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); fpErr != nil {
-					log.Printf("recognizer: fingerprint lookup error: %v", fpErr)
-				} else if localEntry != nil && localEntry.UserConfirmed {
-					log.Printf("recognizer: local fingerprint fallback match (id=%d %s — %s)",
-						localEntry.ID, localEntry.Artist, localEntry.Title)
-					backoffUntil = time.Time{}
-					c.applyLocalFallbackEntry(localEntry)
-					continue
-				}
+			if c.tryLocalFingerprintFallback(capturedFPs) {
+				backoffUntil = time.Time{}
+				continue
 			}
 
 			log.Printf("recognizer [%s]: no match — retrying in %s", c.rec.Name(), noMatchBackoff)
