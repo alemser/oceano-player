@@ -381,6 +381,35 @@
       z-index: -1;
     }
 
+    #idle-power-btn {
+      position: absolute;
+      top: 20px;
+      right: 22px;
+      width: 40px;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      border: 1px solid rgba(90, 108, 148, 0.36);
+      background: rgba(14, 20, 34, 0.48);
+      color: #7f8db1;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    #idle-power-btn:hover {
+      color: #a6b5dc;
+      border-color: rgba(112, 130, 170, 0.5);
+      background: rgba(20, 28, 47, 0.66);
+    }
+
+    #idle-power-btn svg {
+      width: 18px;
+      height: 18px;
+      display: block;
+    }
+
     #idle-screen.visible { opacity: 1; pointer-events: auto; }
 
     #idle-logo { color: #5b6686; }
@@ -429,6 +458,78 @@
       opacity: 0.9;
     }
 
+    .power-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 8, 14, 0.72);
+      z-index: 30;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .power-overlay.open {
+      display: flex;
+    }
+
+    .power-dialog {
+      width: min(420px, 94vw);
+      background: #121722;
+      border: 1px solid rgba(90, 108, 148, 0.38);
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 18px 52px rgba(0, 0, 0, 0.55);
+    }
+
+    .power-dialog h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #d3dbef;
+      margin-bottom: 8px;
+    }
+
+    .power-dialog p {
+      font-size: 0.84rem;
+      color: #8a96b6;
+      margin-bottom: 16px;
+    }
+
+    .power-dialog-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .power-dialog-actions button {
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.86rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+    }
+
+    .btn-power-shutdown {
+      background: #4d1517;
+      color: #ffc3c3;
+      border-color: #7f2f31;
+    }
+
+    .btn-power-restart {
+      background: #162649;
+      color: #bfd0ff;
+      border-color: #2d4477;
+    }
+
+    .btn-power-cancel {
+      background: #1a1f2d;
+      color: #b8c4e6;
+      border-color: rgba(90, 108, 148, 0.42);
+    }
+
     #idle-weather-temp {
       font-size: 0.98rem;
       font-weight: 650;
@@ -471,6 +572,12 @@
 
 <!-- Idle screen (shown when no source is active) -->
 <div id="idle-screen" class="visible">
+  <button id="idle-power-btn" type="button" aria-label="Power options" title="Power options" onclick="openPowerDialog()">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
   <div id="idle-logo">
     <!-- Oceano waveform icon -->
     <svg viewBox="0 0 52 52" fill="currentColor" aria-hidden="true">
@@ -484,22 +591,24 @@
   <div id="idle-top-row">
     <div id="idle-time"></div>
     <div id="idle-weather" aria-label="Weather">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="3.6"/>
-        <path d="M12 2.2V5"/>
-        <path d="M12 19V21.8"/>
-        <path d="M2.2 12H5"/>
-        <path d="M19 12h2.8"/>
-        <path d="M5 5L7 7"/>
-        <path d="M17 17L19 19"/>
-        <path d="M17 7L19 5"/>
-        <path d="M5 19L7 17"/>
-      </svg>
+      <span id="idle-weather-icon" aria-hidden="true"></span>
       <span id="idle-weather-temp">22°C</span>
       <span id="idle-weather-cond">Lisbon · Clear</span>
     </div>
   </div>
   <div id="idle-label">Oceano Player</div>
+</div>
+
+<div class="power-overlay" id="power-dialog" onclick="if(event.target===this)closePowerDialog()">
+  <div class="power-dialog">
+    <h3>System power</h3>
+    <p>Choose an action for the Raspberry Pi.</p>
+    <div class="power-dialog-actions">
+      <button class="btn-power-shutdown" onclick="sendPowerAction('shutdown')">Shut down</button>
+      <button class="btn-power-restart" onclick="sendPowerAction('restart')">Restart</button>
+      <button class="btn-power-cancel" onclick="closePowerDialog()">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <!-- Main playing UI -->
@@ -633,6 +742,7 @@ const STREAMING_SOURCES = new Set(['AirPlay', 'Bluetooth', 'UPnP']);
 const $idle       = document.getElementById('idle-screen');
 const $idleTime   = document.getElementById('idle-time');
 const $idleWeather = document.getElementById('idle-weather');
+const $idleWeatherIcon = document.getElementById('idle-weather-icon');
 const $idleWeatherTemp = document.getElementById('idle-weather-temp');
 const $idleWeatherCond = document.getElementById('idle-weather-cond');
 const $sourceBar = document.getElementById('source-bar');
@@ -708,12 +818,42 @@ const WEATHER_CODE_MAP = {
   99: 'Severe storm + hail',
 };
 
+function weatherIconSVG(kind) {
+  switch (kind) {
+    case 'cloud':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 18h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.3-1.6A3.5 3.5 0 0 0 6 18Z"/></svg>`;
+    case 'rain':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 14h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.3-1.6A3.5 3.5 0 0 0 6 14Z"/><path d="M9 17v3M13 17v3M17 17v3"/></svg>`;
+    case 'storm':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 14h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.3-1.6A3.5 3.5 0 0 0 6 14Z"/><path d="m12 15-2 4h2l-1 3 4-6h-2l1-3"/></svg>`;
+    case 'snow':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 14h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.3-1.6A3.5 3.5 0 0 0 6 14Z"/><path d="M9 18h0M13 19h0M17 18h0"/></svg>`;
+    case 'fog':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 11h12"/><path d="M3 15h15"/><path d="M6 19h10"/></svg>`;
+    default:
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.6"/><path d="M12 2.2V5"/><path d="M12 19V21.8"/><path d="M2.2 12H5"/><path d="M19 12h2.8"/><path d="M5 5L7 7"/><path d="M17 17L19 19"/><path d="M17 7L19 5"/><path d="M5 19L7 17"/></svg>`;
+  }
+}
+
+function weatherIconKind(code) {
+  const n = Number(code);
+  if ([45, 48].includes(n)) return 'fog';
+  if ([95, 96, 99].includes(n)) return 'storm';
+  if ([71, 73, 75, 77, 85, 86].includes(n)) return 'snow';
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(n)) return 'rain';
+  if ([1, 2, 3].includes(n)) return 'cloud';
+  return 'sun';
+}
+
 function weatherLabelFromCode(code) {
   return WEATHER_CODE_MAP[Number(code)] || 'Conditions unavailable';
 }
 
-function renderWeather(tempC, condition) {
+function renderWeather(tempC, condition, code) {
   const rounded = Number.isFinite(tempC) ? Math.round(tempC) + '°C' : '--°C';
+  if ($idleWeatherIcon) {
+    $idleWeatherIcon.innerHTML = weatherIconSVG(weatherIconKind(code));
+  }
   $idleWeatherTemp.textContent = rounded;
   $idleWeatherCond.textContent = WEATHER_CONFIG.locationLabel + ' · ' + condition;
 }
@@ -774,11 +914,11 @@ async function refreshWeather() {
     const current = data && data.current ? data.current : null;
     const temp = current ? Number(current.temperature_2m) : NaN;
     const code = current ? current.weather_code : null;
-    renderWeather(temp, weatherLabelFromCode(code));
+    renderWeather(temp, weatherLabelFromCode(code), code);
   } catch (_err) {
     // Keep UI stable offline: retain last value or show graceful fallback.
     if (!$idleWeatherTemp.textContent) {
-      renderWeather(NaN, 'Offline');
+      renderWeather(NaN, 'Offline', null);
     }
   } finally {
     clearTimeout(timeout);
@@ -794,7 +934,7 @@ async function startWeatherLoop() {
   }
 
   // Start with deterministic placeholder, then replace with live data.
-  renderWeather(NaN, 'Loading…');
+  renderWeather(NaN, 'Loading…', null);
   await refreshWeather();
 
   if (_weatherTimer) {
@@ -804,6 +944,52 @@ async function startWeatherLoop() {
 }
 
 startWeatherLoop();
+
+function openPowerDialog() {
+  document.getElementById('power-dialog')?.classList.add('open');
+}
+
+function closePowerDialog() {
+  document.getElementById('power-dialog')?.classList.remove('open');
+}
+
+function showPowerActionToast(message) {
+  const toast = document.createElement('div');
+  toast.textContent = message;
+  toast.setAttribute('role', 'alert');
+  toast.style.position = 'fixed';
+  toast.style.right = '16px';
+  toast.style.bottom = '16px';
+  toast.style.zIndex = '9999';
+  toast.style.maxWidth = '320px';
+  toast.style.padding = '10px 14px';
+  toast.style.border = '1px solid #7a1a1a';
+  toast.style.borderRadius = '8px';
+  toast.style.background = '#2a1010';
+  toast.style.color = '#f5b5b5';
+  toast.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.35)';
+  toast.style.fontSize = '13px';
+  toast.style.lineHeight = '1.4';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 4500);
+}
+
+async function sendPowerAction(action) {
+  closePowerDialog();
+  try {
+    const response = await fetch('/api/power', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    if (!response.ok) {
+      const errorText = (await response.text()).trim();
+      throw new Error(errorText || `Power action failed (${response.status})`);
+    }
+  } catch (error) {
+    showPowerActionToast(error?.message || 'Failed to send power action');
+  }
+}
 
 // ─── Artwork helpers ─────────────────────────────────────────────────────────
 

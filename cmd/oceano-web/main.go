@@ -223,6 +223,16 @@ func main() {
 		json.NewEncoder(w).Encode(devices)
 	})
 
+	// API: detect whether an HDMI/DSI display is currently connected.
+	mux.HandleFunc("/api/display-detected", func(w http.ResponseWriter, r *http.Request) {
+		connected, connectors := detectConnectedDisplay()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"connected":  connected,
+			"connectors": connectors,
+		})
+	})
+
 	log.Printf("oceano-web listening on %s", *addr)
 	if err := http.ListenAndServe(*addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
@@ -445,4 +455,31 @@ func scanALSADevices() []ALSADevice {
 		})
 	}
 	return devices
+}
+
+// detectConnectedDisplay checks DRM connector status files and reports whether
+// any HDMI/DSI connector is currently in "connected" state.
+func detectConnectedDisplay() (bool, []string) {
+	statusFiles, err := filepath.Glob("/sys/class/drm/card*/status")
+	if err != nil || len(statusFiles) == 0 {
+		return false, nil
+	}
+
+	var connected []string
+	for _, statusFile := range statusFiles {
+		connector := filepath.Base(filepath.Dir(statusFile))
+		upper := strings.ToUpper(connector)
+		if !strings.Contains(upper, "HDMI") && !strings.Contains(upper, "DSI") {
+			continue
+		}
+		statusRaw, err := os.ReadFile(statusFile)
+		if err != nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(string(statusRaw)), "connected") {
+			connected = append(connected, connector)
+		}
+	}
+
+	return len(connected) > 0, connected
 }
