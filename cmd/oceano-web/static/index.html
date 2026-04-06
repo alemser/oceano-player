@@ -833,12 +833,19 @@
 
       <div class="field">
         <label><span>Latitude</span></label>
-        <input type="number" id="weather-lat" name="weather-lat" step="0.0001" min="-90" max="90" placeholder="38.7223">
+        <input type="number" id="weather-lat" name="weather-lat" step="any" min="-90" max="90" placeholder="38.7223">
+        <div class="hint">Valid range: -90 to 90 (example: <code>37.70215</code>).</div>
       </div>
 
       <div class="field">
         <label><span>Longitude</span></label>
-        <input type="number" id="weather-lon" name="weather-lon" step="0.0001" min="-180" max="180" placeholder="-9.1393">
+        <input type="number" id="weather-lon" name="weather-lon" step="any" min="-180" max="180" placeholder="-9.1393">
+        <div class="hint">Valid range: -180 to 180.</div>
+      </div>
+
+      <div class="field">
+        <button type="button" class="detect-btn" onclick="detectCurrentLocationWeather()">Use current location</button>
+        <div class="hint">Uses browser geolocation permission to fill latitude/longitude automatically.</div>
       </div>
 
       <div class="field">
@@ -1216,6 +1223,47 @@ function intOr(id, fallback) {
 function floatOr(id, fallback) {
   const n = parseFloat(val(id));
   return Number.isNaN(n) ? fallback : n;
+}
+
+function setFieldValue(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.value = value;
+}
+
+function detectCurrentLocationWeather() {
+  if (!('geolocation' in navigator)) {
+    toast('Geolocation is not supported in this browser.', true);
+    return;
+  }
+
+  toast('Requesting current location…');
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      setFieldValue('weather-lat', lat.toFixed(5));
+      setFieldValue('weather-lon', lon.toFixed(5));
+
+      if (!val('weather-label')) {
+        setFieldValue('weather-label', 'Current location');
+      }
+
+      toast(`Location captured: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+    },
+    (err) => {
+      let msg = 'Unable to read current location.';
+      if (err && err.code === 1) msg = 'Location permission denied.';
+      if (err && err.code === 2) msg = 'Location unavailable.';
+      if (err && err.code === 3) msg = 'Location request timed out.';
+      toast(msg, true);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 12000,
+      maximumAge: 5 * 60 * 1000,
+    }
+  );
 }
 
 document.getElementById('rec-chain')?.addEventListener('change', updateRecognitionUI);
