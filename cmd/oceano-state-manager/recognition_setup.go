@@ -68,6 +68,8 @@ func buildRecognitionComponents(cfg Config) recognitionComponents {
 		if shazamRec != nil {
 			ordered = append(ordered, shazamRec)
 		}
+	case "fingerprint_only":
+		ordered = append(ordered, localOnlyRecognizer{})
 	default: // "acrcloud_first" or unset
 		if acrRec != nil {
 			ordered = append(ordered, acrRec)

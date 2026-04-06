@@ -219,7 +219,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	}
 
 	// Write display env and restart oceano-now-playing if it is installed.
-	if err := saveDisplayEnv(displayEnvPath, cfg.Display); err != nil {
+	if err := saveSPIDisplayEnv(displayEnvPath, cfg.Display); err != nil {
 		results = append(results, "display env write: "+err.Error())
 	} else {
 		displaySvc := "/etc/systemd/system/" + displayUnit

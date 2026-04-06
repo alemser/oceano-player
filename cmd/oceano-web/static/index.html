@@ -701,6 +701,7 @@
             <option value="shazam_first">Shazam → ACRCloud (Shazam first, ACRCloud fallback)</option>
             <option value="acrcloud_only">ACRCloud only</option>
             <option value="shazam_only">Shazam only</option>
+            <option value="fingerprint_only">Fingerprint only</option>
           </select>
           <div class="hint">Local fingerprint cache is always the final fallback and does not need configuration here.</div>
         </div>
@@ -772,8 +773,8 @@
 
     <!-- Display -->
     <div class="section">
-      <div class="section-title">Display</div>
-      <p class="hint" style="margin-bottom:14px">SPI screen (oceano-now-playing)</p>
+      <div class="section-title">SPI Display</div>
+      <p class="hint" style="margin-bottom:14px">Settings for the attached SPI screen only. Future HDMI and DSI display options will live in separate sections.</p>
 
       <div class="field">
         <label><span>UI preset</span></label>
@@ -784,7 +785,7 @@
           <option value="high_contrast_hybrid">Hybrid (text + artwork)</option>
           <option value="high_contrast_vu">VU meter</option>
         </select>
-        <div class="hint">Visual style and layout shown on the screen.</div>
+        <div class="hint">Visual style and layout shown on the SPI screen.</div>
       </div>
 
       <div class="field">
