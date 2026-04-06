@@ -133,9 +133,16 @@ type Config struct {
 	// FingerprintWindows is the number of overlapping windows generated per capture.
 	FingerprintWindows int
 	// FingerprintStrideSec is the offset in seconds between consecutive windows.
+	// Constraint: (FingerprintWindows-1)*FingerprintStrideSec + FingerprintLengthSec <= RecognizerCaptureDuration.
 	FingerprintStrideSec int
 	// FingerprintLengthSec is the duration in seconds of each fingerprint window.
+	// Must satisfy: FingerprintLengthSec <= RecognizerCaptureDuration - (FingerprintWindows-1)*FingerprintStrideSec.
 	FingerprintLengthSec int
+	// FingerprintBoundaryLeadSkipSecs is how many seconds to discard from the
+	// start of a boundary-triggered capture. On vinyl, the stylus drop and
+	// surface crackle precede the music; skipping a few seconds prevents a
+	// crackle-only fingerprint from being stored as the track stub.
+	FingerprintBoundaryLeadSkipSecs int
 	// FingerprintThreshold is the maximum BER for a fingerprint to be considered a match.
 	// 0.35 is the threshold used by AcoustID; lower values are stricter.
 	FingerprintThreshold float64
@@ -169,8 +176,9 @@ func defaultConfig() Config {
 		IdleDelay:                       10 * time.Second,
 		LibraryDB:                       "/var/lib/oceano/library.db",
 		FingerprintWindows:              2,
-		FingerprintStrideSec:            4,
-		FingerprintLengthSec:            8,
+		FingerprintStrideSec:            1,
+		FingerprintLengthSec:            6,
+		FingerprintBoundaryLeadSkipSecs: 2,
 		FingerprintThreshold:            0.25,
 		ConfirmationDelay:               0,
 		ConfirmationCaptureDuration:     4 * time.Second,
@@ -450,6 +458,7 @@ func main() {
 	flag.IntVar(&cfg.FingerprintStrideSec, "fingerprint-stride", cfg.FingerprintStrideSec, "stride in seconds between fingerprint windows")
 	flag.IntVar(&cfg.FingerprintLengthSec, "fingerprint-length", cfg.FingerprintLengthSec, "length in seconds of each fingerprint window")
 	flag.Float64Var(&cfg.FingerprintThreshold, "fingerprint-threshold", cfg.FingerprintThreshold, "maximum BER for a local fingerprint match (0.35 = AcoustID default)")
+	flag.IntVar(&cfg.FingerprintBoundaryLeadSkipSecs, "fingerprint-boundary-lead-skip", cfg.FingerprintBoundaryLeadSkipSecs, "seconds to skip at the start of a boundary-triggered capture (helps avoid vinyl crackle in the stored stub)")
 	flag.DurationVar(&cfg.ConfirmationDelay, "confirmation-delay", cfg.ConfirmationDelay, "wait before second recognition call to confirm a track change (0 = disabled)")
 	flag.DurationVar(&cfg.ConfirmationCaptureDuration, "confirmation-capture-duration", cfg.ConfirmationCaptureDuration, "audio capture duration for confirmation call")
 	flag.IntVar(&cfg.ConfirmationBypassScore, "confirmation-bypass-score", cfg.ConfirmationBypassScore, "skip confirmation when initial provider score is >= this value (0 = always confirm)")
@@ -492,8 +501,14 @@ func main() {
 
 	fpr := components.fingerprint
 	if fpr != nil && rec != nil {
-		log.Printf("recognizer: local fingerprint cache enabled (windows=%d stride=%ds length=%ds threshold=%.2f)",
-			cfg.FingerprintWindows, cfg.FingerprintStrideSec, cfg.FingerprintLengthSec, cfg.FingerprintThreshold)
+		log.Printf("recognizer: local fingerprint cache enabled (windows=%d stride=%ds length=%ds threshold=%.2f boundary-lead-skip=%ds)",
+			cfg.FingerprintWindows, cfg.FingerprintStrideSec, cfg.FingerprintLengthSec, cfg.FingerprintThreshold, cfg.FingerprintBoundaryLeadSkipSecs)
+		captureSec := int(cfg.RecognizerCaptureDuration.Seconds())
+		maxOffset := (cfg.FingerprintWindows - 1) * cfg.FingerprintStrideSec
+		if maxOffset+cfg.FingerprintLengthSec > captureSec {
+			log.Printf("WARN: fingerprint window clipping detected — window at offset %ds requests %ds but capture is only %ds; last window(s) will be truncated. Reduce fingerprint-length or fingerprint-stride.",
+				maxOffset, cfg.FingerprintLengthSec, captureSec)
+		}
 	} else if fpr != nil {
 		log.Printf("recognizer: fpcalc found but ACRCloud not configured — fingerprint cache inactive")
 	} else {

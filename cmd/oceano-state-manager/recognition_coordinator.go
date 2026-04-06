@@ -491,10 +491,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			continue
 		}
 
-		const boundarySkip = 0 * time.Second
 		var skip time.Duration
 		if isBoundaryTrigger {
-			skip = boundarySkip
+			skip = time.Duration(c.mgr.cfg.FingerprintBoundaryLeadSkipSecs) * time.Second
 			c.mgr.mu.Lock()
 			c.mgr.lastBoundaryAt = time.Now()
 			c.mgr.mu.Unlock()

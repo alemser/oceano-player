@@ -125,6 +125,11 @@ type RecognitionConfig struct {
 	// provider policy resolves to no available API provider, the manager
 	// automatically falls back to fingerprint-only recognition.
 	RecognizerChain string `json:"recognizer_chain"`
+	// FingerprintBoundaryLeadSkipSecs is how many seconds to discard at the
+	// start of a boundary-triggered capture. Skipping a couple of seconds
+	// avoids capturing vinyl crackle/transients before the music settles.
+	// Default 2; set 0 to disable.
+	FingerprintBoundaryLeadSkipSecs int `json:"fingerprint_boundary_lead_skip_secs"`
 }
 
 // AdvancedConfig holds paths and internal settings that rarely need
@@ -161,6 +166,7 @@ func defaultConfig() Config {
 			ShazamContinuityIntervalSecs:        8,
 			ShazamContinuityCaptureDurationSecs: 4,
 			RecognizerChain:                     "acrcloud_first",
+			FingerprintBoundaryLeadSkipSecs:     2,
 		},
 		Advanced: AdvancedConfig{
 			VUSocket:     "/tmp/oceano-vu.sock",
@@ -257,6 +263,9 @@ func managerArgs(cfg Config) []string {
 		"--shazam-continuity-interval", fmt.Sprintf("%ds", rec.ShazamContinuityIntervalSecs),
 		"--shazam-continuity-capture-duration", fmt.Sprintf("%ds", rec.ShazamContinuityCaptureDurationSecs),
 		"--recognizer-chain", rec.RecognizerChain,
+	}
+	if rec.FingerprintBoundaryLeadSkipSecs > 0 {
+		args = append(args, "--fingerprint-boundary-lead-skip", fmt.Sprintf("%d", rec.FingerprintBoundaryLeadSkipSecs))
 	}
 	if rec.ACRCloudHost != "" {
 		args = append(args,

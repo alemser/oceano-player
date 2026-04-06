@@ -756,6 +756,13 @@
         </div>
 
         <div class="field">
+          <label><span>Boundary lead skip (seconds)</span></label>
+          <input type="number" id="rec-fp-boundary-skip" name="rec-fp-boundary-skip"
+                 step="1" min="0" max="10" placeholder="2">
+          <div class="hint">Seconds discarded at the start of a track-boundary capture. Increasing this skips vinyl stylus drop crackle so the stored fingerprint contains clean music. Set 0 to disable.</div>
+        </div>
+
+        <div class="field">
           <label><span>Confirmation delay (seconds)</span></label>
           <input type="number" id="rec-confirm-delay" name="rec-confirm-delay"
                  step="1" min="0" max="30" placeholder="2">
@@ -986,6 +993,7 @@ async function loadConfig() {
   set('rec-duration',      cfg.recognition?.capture_duration_secs ?? 7);
   set('rec-interval',      cfg.recognition?.max_interval_secs ?? 300);
   set('rec-no-match-backoff', cfg.recognition?.no_match_backoff_secs ?? 15);
+  set('rec-fp-boundary-skip', cfg.recognition?.fingerprint_boundary_lead_skip_secs ?? 2);
   set('rec-confirm-delay', cfg.recognition?.confirmation_delay_secs ?? 0);
   set('rec-confirm-duration', cfg.recognition?.confirmation_capture_duration_secs ?? 4);
   set('rec-confirm-bypass', cfg.recognition?.confirmation_bypass_score ?? 95);
@@ -1187,6 +1195,7 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       capture_duration_secs: intOr('rec-duration', 7),
       max_interval_secs:     intOr('rec-interval', 300),
       no_match_backoff_secs: intOr('rec-no-match-backoff', 15),
+      fingerprint_boundary_lead_skip_secs: intOr('rec-fp-boundary-skip', 2),
       confirmation_delay_secs: intOr('rec-confirm-delay', 0),
       confirmation_capture_duration_secs: intOr('rec-confirm-duration', 4),
       confirmation_bypass_score: intOr('rec-confirm-bypass', 95),
