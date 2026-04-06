@@ -783,7 +783,7 @@ function applyState(state) {
       if (source === 'Vinyl') {
         if (vinylRef) {
           $chips.appendChild(makeChip(
-            chipSVG('M6 1 L6 11 M1 4 L6 1 L11 4'),
+            chipSVG('M6 1 A5 5 0 1 1 6 11 A5 5 0 1 1 6 1 M6 1 V11'),
             'Side ' + vinylRef.side
           ));
           $chips.appendChild(makeChip(
