@@ -152,6 +152,17 @@ Then pass the suggested `--vinyl-ratio-threshold` to `install-source-detector.sh
 - Systemd for process supervision — no custom daemons or init scripts
 - Output state as atomic JSON file writes (`write tmp → rename`)
 
+## Engineering principles valued in this repo
+
+- **Behavior-preserving refactors first**: prefer incremental extraction over rewrites; avoid changing runtime semantics unless explicitly requested.
+- **No-regression discipline**: run package and full-repo tests after structural changes; if tests fail, fix immediately before proceeding.
+- **Cohesion over file size**: group code by responsibility (wiring, metadata ingest, monitoring, recognition, persistence, output), not by convenience.
+- **Loose coupling at boundaries**: avoid hidden field/implementation coupling between components; use explicit interfaces and narrow contracts.
+- **Configurable provider orchestration**: recognizers should be easy to enable/disable/reorder and assign to distinct roles (primary, confirmer, continuity).
+- **Pragmatic simplicity**: avoid over-engineering; prefer same-package file splits before introducing deeper package trees.
+- **Operational reliability on Raspberry Pi**: prioritize stable long-running behavior, predictable backoff/retry logic, and atomic state updates.
+- **Documentation stays in sync**: when architecture/workflows change, update README/CLAUDE/install help in the same change set.
+
 ## Deployment
 
 ```bash
