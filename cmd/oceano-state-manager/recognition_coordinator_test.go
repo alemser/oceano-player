@@ -196,6 +196,7 @@ func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
 
 func TestDrainPendingTriggers_ReturnsDrainedCount(t *testing.T) {
 	m := newTestMgr()
+	m.recognizeTrigger = make(chan recognizeTrigger, 2)
 	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, nil)
 
 	m.recognizeTrigger <- recognizeTrigger{isBoundary: false}
