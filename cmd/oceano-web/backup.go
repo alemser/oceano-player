@@ -299,7 +299,8 @@ func restoreBackup(r io.Reader, libraryDBPath, artworkDir string) error {
 			}
 			// Reject any path component that escapes the artwork directory.
 			destPath := filepath.Join(absArtworkDir, filepath.FromSlash(rel))
-			if !strings.HasPrefix(destPath+string(os.PathSeparator), absArtworkDir+string(os.PathSeparator)) {
+			relCheck, err := filepath.Rel(absArtworkDir, destPath)
+			if err != nil || relCheck == ".." || strings.HasPrefix(relCheck, ".."+string(os.PathSeparator)) {
 				continue
 			}
 			if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
@@ -359,9 +360,10 @@ func registerRestoreRoute(mux *http.ServeMux, libraryDBPath, artworkDir string) 
 		defer file.Close()
 
 		// Stop services so the database is not held open during replacement.
+		// Use defer to ensure services are always restarted even if restoreBackup panics.
 		stopServices()
+		defer startServices()
 		restoreErr := restoreBackup(file, libraryDBPath, artworkDir)
-		startServices()
 
 		if restoreErr != nil {
 			log.Printf("restore: %v", restoreErr)
