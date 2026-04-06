@@ -100,8 +100,7 @@ func main() {
 		// /tmp/oceano-state.json is pretty-printed with newlines, every line must
 		// be prefixed with "data: " per SSE framing rules.
 		writeStateEvent := func(data []byte) {
-			payload := strings.ReplaceAll(string(data), "\n", "\ndata: ")
-			fmt.Fprintf(w, "data: %s\n\n", payload)
+			fmt.Fprint(w, formatSSEDataFrame(data))
 			flusher.Flush()
 		}
 
@@ -238,6 +237,17 @@ func apiGetConfig(w http.ResponseWriter, configPath string) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(cfg)
+}
+
+// formatSSEDataFrame converts arbitrary JSON/text payload into a valid SSE
+// event frame. Each line must be prefixed with "data: " by spec.
+func formatSSEDataFrame(data []byte) string {
+	payload := strings.TrimRight(string(data), "\r\n")
+	lines := strings.Split(payload, "\n")
+	for i, line := range lines {
+		lines[i] = "data: " + line
+	}
+	return strings.Join(lines, "\n") + "\n\n"
 }
 
 func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {

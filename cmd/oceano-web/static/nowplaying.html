@@ -481,6 +481,7 @@
   </div>
 </div>
 
+<script src="/nowplaying_helpers.js"></script>
 <script>
 "use strict";
 
@@ -633,49 +634,13 @@ function makeChip(icon, label) {
   return el;
 }
 
-function parseVinylTrackRef(value) {
-  const raw = String(value || '').trim().toUpperCase();
-  if (!raw) return null;
-
-  // Accept A1, B2, C-3, D.4
-  let m = /^([A-D])\s*[-.]?\s*(\d{1,2})$/.exec(raw);
-  if (m) {
-    return { side: m[1], track: String(parseInt(m[2], 10)) };
-  }
-
-  // Accept 1A, 2-B, 3.C
-  m = /^(\d{1,2})\s*[-.]?\s*([A-D])$/.exec(raw);
-  if (m) {
-    return { side: m[2], track: String(parseInt(m[1], 10)) };
-  }
-
-  return null;
-}
+const nowPlayingHelpers = window.NowPlayingHelpers || {};
+const parseVinylTrackRef = nowPlayingHelpers.parseVinylTrackRef || (() => null);
+const formatMS = nowPlayingHelpers.formatMS || ((ms) => String(ms));
+const computeElapsedMS = nowPlayingHelpers.computeElapsedMS || ((track) => Number(track?.seek_ms || 0));
 
 function isStreamingSource(source) {
   return STREAMING_SOURCES.has(source);
-}
-
-function formatMS(ms) {
-  const totalSec = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) {
-    return String(h) + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-  }
-  return String(m) + ':' + String(s).padStart(2, '0');
-}
-
-function computeElapsedMS(track, playing) {
-  const seekMS = Number(track?.seek_ms || 0);
-  if (!playing) return seekMS;
-
-  const updatedAt = track?.seek_updated_at ? Date.parse(track.seek_updated_at) : NaN;
-  if (Number.isNaN(updatedAt)) return seekMS;
-
-  const drift = Date.now() - updatedAt;
-  return seekMS + Math.max(0, drift);
 }
 
 function updateStreamingProgress() {
