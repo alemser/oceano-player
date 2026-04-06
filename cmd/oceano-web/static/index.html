@@ -56,6 +56,19 @@
       margin-top: 3px;
       letter-spacing: 0.05em;
     }
+    .btn-menu {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      padding: 6px;
+      border-radius: 6px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .btn-menu:hover { color: var(--text); background: var(--surface); }
+
     .btn-power {
       margin-left: auto;
       background: none;
@@ -234,32 +247,45 @@
     optgroup { color: var(--text-dim); font-style: normal; font-weight: 600; }
     option { background: #1a1a1a; color: var(--text); }
 
-    /* ── Tabs ── */
-    .tabs {
-      display: flex;
-      gap: 4px;
-      margin-bottom: var(--gap);
+    /* ── Config drawer ── */
+    .config-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55); z-index: 200;
+    }
+    .config-overlay.open { display: block; }
+    .config-drawer {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: 520px; max-width: 100vw;
+      background: var(--bg);
+      border-right: 1px solid var(--border);
+      z-index: 201;
+      overflow-y: auto;
+      padding: 0;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+    }
+    .config-drawer.open { transform: translateX(0); }
+    .config-drawer-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px;
       border-bottom: 1px solid var(--border);
-      padding-bottom: 0;
+      position: sticky; top: 0;
+      background: var(--bg);
+      z-index: 1;
     }
-    .tab {
-      background: none;
-      border: none;
-      border-bottom: 2px solid transparent;
-      color: var(--text-dim);
-      cursor: pointer;
-      font-size: 0.82rem;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      padding: 8px 16px;
-      text-transform: uppercase;
-      margin-bottom: -1px;
-      transition: color 0.15s, border-color 0.15s;
+    .config-drawer-title {
+      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--text-dim);
     }
-    .tab:hover { color: var(--text); }
-    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
+    .config-drawer-close {
+      background: none; border: none; color: var(--muted);
+      cursor: pointer; font-size: 1.2rem; line-height: 1;
+      padding: 4px 8px; border-radius: 5px;
+      transition: color 0.15s;
+    }
+    .config-drawer-close:hover { color: var(--text); }
+    .config-drawer-body { padding: 20px; }
+    .config-drawer .sections { grid-template-columns: 1fr; }
 
 
 
@@ -375,8 +401,8 @@
 
     .lib-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
     }
     .lib-card {
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
@@ -392,10 +418,10 @@
     .lib-card-art img { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; opacity: 0; transition: opacity 0.2s; }
     .lib-card-art img.loaded { opacity: 1; }
     .lib-card-art svg { color: var(--muted); }
-    .lib-card-body { padding: 10px 12px; }
-    .lib-card-title { font-size: 0.85rem; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .lib-card-artist { font-size: 0.75rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-    .lib-card-meta { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+    .lib-card-body { padding: 8px 10px; }
+    .lib-card-title { font-size: 0.8rem; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lib-card-artist { font-size: 0.7rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .lib-card-meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
     .lib-format-badge {
       font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
       padding: 2px 6px; border-radius: 10px;
@@ -504,6 +530,11 @@
 <body>
 
 <header>
+  <button type="button" class="btn-menu" onclick="openConfig()" title="Configuration" aria-label="Open configuration">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
   <div class="logo">
     <svg width="52" height="52" viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg">
       <rect x="0"  y="16" width="8" height="20" rx="4" fill="#888"/>
@@ -515,7 +546,7 @@
   </div>
   <div class="header-text">
     <h1>Oceano</h1>
-    <p>Audio player configuration</p>
+    <p>Audio player</p>
   </div>
   <button type="button" class="btn-power" onclick="openPowerDialog()" title="Power" aria-label="Power">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -543,12 +574,16 @@
   </div>
 </div>
 
-<div class="tabs">
-  <button type="button" class="tab" onclick="switchTab('config')">Configuration</button>
-  <button type="button" class="tab active" onclick="switchTab('library')">Library</button>
-</div>
+<!-- Config drawer overlay -->
+<div class="config-overlay" id="config-overlay" onclick="closeConfig()"></div>
 
-<div id="tab-config" class="tab-panel">
+<!-- Config drawer -->
+<div class="config-drawer" id="config-drawer">
+  <div class="config-drawer-header">
+    <span class="config-drawer-title">Configuration</span>
+    <button type="button" class="config-drawer-close" onclick="closeConfig()" aria-label="Close configuration">✕</button>
+  </div>
+  <div class="config-drawer-body">
 <form id="cfg-form">
   <div class="sections">
 
@@ -730,9 +765,10 @@
     <button type="submit" class="btn-save" id="btn-save">Save &amp; Restart Services</button>
   </div>
 </form>
-</div><!-- #tab-config -->
+  </div><!-- .config-drawer-body -->
+</div><!-- .config-drawer -->
 
-<div id="tab-library" class="tab-panel active">
+<div id="lib-panel">
   <div class="lib-toolbar">
     <input type="text" class="lib-filter" id="lib-search" placeholder="Search title or artist…" oninput="renderLibrary()">
     <select class="lib-format-filter" id="lib-format-filter" onchange="renderLibrary()">
@@ -745,7 +781,7 @@
     <a href="/api/library/export/backup" download class="lib-export-btn" title="Download backup archive (database + artwork + restore script)">Backup</a>
   </div>
   <div class="lib-grid" id="lib-grid"></div>
-</div><!-- #tab-library -->
+</div><!-- #lib-panel -->
 
 <!-- Edit modal -->
 <div class="modal-overlay" id="lib-modal" onclick="if(event.target===this)closeModal()">
@@ -1314,26 +1350,21 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── Tabs ─────────────────────────────────────────────────────────────────────
-function switchTab(name) {
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-' + name).classList.add('active');
-  document.querySelectorAll('.tab').forEach(t => {
-    if (t.textContent.toLowerCase().includes(name)) t.classList.add('active');
-  });
-  try { localStorage.setItem('oceano-last-tab', name); } catch (_) {}
-  if (name !== 'library') stopLibraryAutoRefresh();
-  if (name === 'library') {
-    loadLibrary();
-    startLibraryAutoRefresh();
-  }
+// ── Config drawer ─────────────────────────────────────────────────────────────
+function openConfig() {
+  document.getElementById('config-drawer').classList.add('open');
+  document.getElementById('config-overlay').classList.add('open');
+}
+function closeConfig() {
+  document.getElementById('config-drawer').classList.remove('open');
+  document.getElementById('config-overlay').classList.remove('open');
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 loadConfig();
 loadStatus();
-switchTab((function(){ try { return localStorage.getItem('oceano-last-tab'); } catch(_){ return null; } })() || 'library');
+loadLibrary();
+startLibraryAutoRefresh();
 
 // ── Power dialog ──────────────────────────────────────────────────────────────
 function openPowerDialog() {
