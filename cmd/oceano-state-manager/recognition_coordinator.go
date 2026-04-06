@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -82,6 +83,20 @@ func shouldCreateFingerprintOnlyStub(lastStub, lastBoundary time.Time, stillPhys
 		minInterval = 5 * time.Minute
 	}
 	return time.Since(lastStub) >= minInterval
+}
+
+func recognitionLogFields(result *RecognitionResult) (string, string) {
+	source := "unknown"
+	score := fmt.Sprintf("score=%d", result.Score)
+	if result.ACRID != "" {
+		source = "acrcloud"
+	} else if result.ShazamID != "" {
+		source = "shazam"
+		if result.Score == 0 {
+			score = "score=n/a"
+		}
+	}
+	return source, score
 }
 
 func (c *recognitionCoordinator) applyLocalFallbackEntry(entry *internallibrary.CollectionEntry) {
@@ -523,7 +538,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		backoffRateLimited = false
 
 		if result != nil {
-			log.Printf("recognizer [%s]: score=%d  %s — %s", c.rec.Name(), result.Score, result.Artist, result.Title)
+			source, score := recognitionLogFields(result)
+			log.Printf("recognizer [%s]: %s source=%s ids(acr=%q shazam=%q)  %s — %s",
+				c.rec.Name(), score, source, result.ACRID, result.ShazamID, result.Artist, result.Title)
 			isShazamFallback := result.ShazamID != "" && result.ACRID == ""
 			shazamMatchedACR := false
 
