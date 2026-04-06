@@ -43,6 +43,8 @@ func main() {
 	libraryDB := flag.String("library-db", "/var/lib/oceano/library.db", "path to collection SQLite database")
 	flag.Parse()
 
+	var err error
+
 	_ = os.MkdirAll("/etc/oceano", 0o755)
 
 	mux := http.NewServeMux()
@@ -170,6 +172,14 @@ func main() {
 	cfg, _ := loadConfig(*configPath)
 	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir)
 	registerBackupRoute(mux, *libraryDB, cfg.Advanced.ArtworkDir)
+
+	// API: amplifier and CD player IR control.
+	amp, err := buildAmplifierFromConfig(cfg.Amplifier)
+	if err != nil {
+		log.Printf("amplifier config error: %v (amplifier control disabled)", err)
+	}
+	cdPlayer := buildCDPlayerFromConfig(cfg.CDPlayer)
+	registerAmplifierRoutes(mux, amp, cdPlayer, *configPath)
 
 	// Scheduled backup: generate a fresh backup every 24 hours.
 	// The backup is written to the same directory as the library database.
