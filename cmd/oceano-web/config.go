@@ -25,6 +25,77 @@ type SPIDisplayConfig struct {
 	ExternalArtworkEnabled bool `json:"external_artwork_enabled"`
 }
 
+// BroadlinkConfig holds the pairing credentials for a Broadlink RM4 Mini device.
+// These values are populated once during the pairing wizard and not changed afterwards.
+type BroadlinkConfig struct {
+	// Host is the local IP address of the RM4 Mini (e.g. "192.168.1.100").
+	Host string `json:"host"`
+	// Port is the Broadlink local API port (default 80).
+	Port int `json:"port"`
+	// Token is the hex-encoded pairing token obtained during the pairing handshake.
+	Token string `json:"token"`
+	// DeviceID is the hex-encoded device identifier returned during pairing.
+	DeviceID string `json:"device_id"`
+}
+
+// AmplifierInputConfig declares a single selectable input on the amplifier.
+type AmplifierInputConfig struct {
+	// Label is the user-facing name shown in the UI (e.g. "USB Audio", "Phono").
+	Label string `json:"label"`
+	// ID is the internal identifier used to address IR commands (e.g. "USB", "PHONO").
+	ID string `json:"id"`
+}
+
+// AmplifierConfig controls the IR-controlled amplifier (e.g. Magnat MR 780).
+type AmplifierConfig struct {
+	// Enabled controls whether amplifier control is active.
+	Enabled bool `json:"enabled"`
+	// Maker is the manufacturer name (e.g. "Magnat").
+	Maker string `json:"maker"`
+	// Model is the model name (e.g. "MR 780").
+	Model string `json:"model"`
+	// Inputs is the ordered list of selectable inputs on this amplifier.
+	Inputs []AmplifierInputConfig `json:"inputs"`
+	// DefaultInput is the Input.ID that the amplifier is assumed to start on.
+	// Required because IR cycling (NextInput) needs a known starting point.
+	DefaultInput string `json:"default_input"`
+	// WarmupSeconds is the delay after power-on before audio is available.
+	// Defaults to 30 for tube amplifiers like the Magnat MR 780.
+	WarmupSeconds int `json:"warmup_seconds"`
+	// InputSwitchDelaySeconds is the settling time after an input change.
+	InputSwitchDelaySeconds int `json:"input_switch_delay_seconds"`
+	// InputSelectionMode controls how SetInput sends IR commands.
+	// "cycle"  — sends next_input repeatedly (e.g. Magnat MR 780, no direct IR per input).
+	// "direct" — sends a single input-specific IR code (most modern amplifiers).
+	InputSelectionMode string `json:"input_selection_mode"`
+	// Broadlink holds the pairing credentials for the RM4 Mini controlling this device.
+	Broadlink BroadlinkConfig `json:"broadlink"`
+	// IRCodes maps command names to base64-encoded Broadlink IR codes.
+	// Cycle mode keys:  "power_on", "power_off", "volume_up", "volume_down", "next_input"
+	// Direct mode adds: "input_<ID>" for each input (e.g. "input_USB", "input_PHONO")
+	// Values are populated via the IR learning workflow or copied from a
+	// community database. Empty string means the command is not yet configured.
+	IRCodes map[string]string `json:"ir_codes"`
+}
+
+// CDPlayerConfig controls the IR-controlled CD player (e.g. Yamaha CD-S300).
+type CDPlayerConfig struct {
+	// Enabled controls whether CD player control is active.
+	Enabled bool `json:"enabled"`
+	// Maker is the manufacturer name (e.g. "Yamaha").
+	Maker string `json:"maker"`
+	// Model is the model name (e.g. "CD-S300").
+	Model string `json:"model"`
+	// Broadlink holds the pairing credentials for the RM4 Mini controlling this device.
+	// May share the same RM4 Mini as the amplifier (same host/token, different device_id).
+	Broadlink BroadlinkConfig `json:"broadlink"`
+	// IRCodes maps command names to base64-encoded Broadlink IR codes.
+	// Keys: "play", "pause", "stop", "next", "previous", "power_on", "power_off".
+	// Values are populated via the IR learning workflow or copied from a
+	// community database. Empty string means the command is not yet configured.
+	IRCodes map[string]string `json:"ir_codes"`
+}
+
 // Config is the central configuration for all Oceano services.
 // It is stored at /etc/oceano/config.json and managed exclusively
 // through the web UI. Each service reads its section on startup.
@@ -43,6 +114,8 @@ type Config struct {
 	Advanced    AdvancedConfig    `json:"advanced"`
 	Display     SPIDisplayConfig  `json:"display"`
 	Weather     WeatherConfig     `json:"weather"`
+	Amplifier   AmplifierConfig   `json:"amplifier"`
+	CDPlayer    CDPlayerConfig    `json:"cd_player"`
 }
 
 // WeatherConfig controls idle-screen weather rendering in nowplaying.html.
