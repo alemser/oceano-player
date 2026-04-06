@@ -210,9 +210,10 @@ write_shairport_config() {
   # In loopback mode shairport_output_device is the always-present Loopback
   # device, so also pass the real DAC so the preplay-wait guards against the
   # amplifier not yet being on the USB input when playback starts.
-  local dac_arg=""
+  local preplay_cmd
+  preplay_cmd="${PREPLAY_WAIT_SCRIPT} \\\"${shairport_output_device}\\\" ${preplay_wait_seconds}"
   if [[ "${output_strategy}" == "loopback" && -n "${alsa_device}" ]]; then
-    dac_arg=" \"${alsa_device}\""
+    preplay_cmd+=" \\\"${alsa_device}\\\""
   fi
 
   cat > "${SHAIRPORT_CONF}" <<EOF
@@ -246,7 +247,7 @@ metadata =
 sessioncontrol =
 {
   wait_for_completion = "yes";
-  run_this_before_play_begins = "${PREPLAY_WAIT_SCRIPT} \"${shairport_output_device}\" ${preplay_wait_seconds}${dac_arg}";
+  run_this_before_play_begins = "${preplay_cmd}";
 };
 EOF
 }
