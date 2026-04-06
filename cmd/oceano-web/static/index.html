@@ -295,6 +295,33 @@
       margin-top: 4px;
     }
 
+    .config-subsection {
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .config-subsection:first-of-type {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: none;
+    }
+    .config-subtitle {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .field-group-muted {
+      opacity: 0.55;
+      transition: opacity 0.15s;
+    }
+    .field-group-muted input,
+    .field-group-muted select {
+      cursor: not-allowed;
+    }
+
     /* ── Device row (auto-detect / manual toggle) ── */
     .device-row { display: flex; gap: 8px; align-items: center; }
     .device-row input { flex: 1; }
@@ -662,66 +689,92 @@
     <!-- Track Recognition -->
     <div class="section">
       <div class="section-title">Track Recognition</div>
-      <p class="hint" style="margin-bottom:14px">ACRCloud audio fingerprinting for physical media</p>
+      <p class="hint" style="margin-bottom:14px">Physical media track identification with selectable provider order and automatic local fingerprint fallback.</p>
 
-      <div class="field">
-        <label><span>ACRCloud host</span></label>
-        <input type="text" id="rec-host" name="rec-host"
-               placeholder="identify-eu-west-1.acrcloud.com">
+      <div class="config-subsection">
+        <div class="config-subtitle">Providers</div>
+
+        <div class="field">
+          <label><span>Recognition chain</span></label>
+          <select id="rec-chain" name="rec-chain">
+            <option value="acrcloud_first">ACRCloud → Shazam (ACRCloud first, Shazam fallback)</option>
+            <option value="shazam_first">Shazam → ACRCloud (Shazam first, ACRCloud fallback)</option>
+            <option value="acrcloud_only">ACRCloud only</option>
+            <option value="shazam_only">Shazam only</option>
+            <option value="fingerprint_only">Fingerprint only</option>
+          </select>
+          <div class="hint">Local fingerprint cache is always the final fallback and does not need configuration here. If the selected provider policy has no available API provider at runtime, recognition automatically falls back to fingerprint-only mode.</div>
+        </div>
+
+        <div id="acrcloud-config-group">
+          <div class="field">
+            <label><span>ACRCloud host</span></label>
+            <input type="text" id="rec-host" name="rec-host"
+                   placeholder="identify-eu-west-1.acrcloud.com">
+          </div>
+
+          <div class="field">
+            <label><span>Access key</span></label>
+            <input type="text" id="rec-access-key" name="rec-access-key"
+                   autocomplete="off" placeholder="0dc1dbb4…">
+          </div>
+
+          <div class="field">
+            <label><span>Secret key</span></label>
+            <input type="password" id="rec-secret-key" name="rec-secret-key"
+                   autocomplete="off" placeholder="••••••••">
+          </div>
+
+          <div class="hint" id="acrcloud-config-hint">Stored and used whenever the selected chain includes ACRCloud.</div>
+        </div>
+
+        <div class="hint" style="margin-top:12px">Continuity monitoring is always performed by Shazam when available, independent of the selected chain.</div>
       </div>
 
-      <div class="field">
-        <label><span>Access key</span></label>
-        <input type="text" id="rec-access-key" name="rec-access-key"
-               autocomplete="off" placeholder="0dc1dbb4…">
-      </div>
+      <div class="config-subsection">
+        <div class="config-subtitle">Timing &amp; Confirmation</div>
 
-      <div class="field">
-        <label><span>Secret key</span></label>
-        <input type="password" id="rec-secret-key" name="rec-secret-key"
-               autocomplete="off" placeholder="••••••••">
-      </div>
+        <div class="field">
+          <label><span>Capture duration (seconds)</span></label>
+          <input type="number" id="rec-duration" name="rec-duration"
+                 step="1" min="5" max="30" placeholder="7">
+          <div class="hint">Audio sent per attempt. Recommended 6-8s for lower latency.</div>
+        </div>
 
-      <div class="field">
-        <label><span>Capture duration (seconds)</span></label>
-        <input type="number" id="rec-duration" name="rec-duration"
-               step="1" min="5" max="30" placeholder="7">
-        <div class="hint">Audio sent per attempt. Recommended 6-8s for lower latency.</div>
-      </div>
+        <div class="field">
+          <label><span>Max re-recognition interval (seconds)</span></label>
+          <input type="number" id="rec-interval" name="rec-interval"
+                 step="30" min="60" placeholder="300">
+          <div class="hint">Fallback interval when no track boundary is detected.</div>
+        </div>
 
-      <div class="field">
-        <label><span>Max re-recognition interval (seconds)</span></label>
-        <input type="number" id="rec-interval" name="rec-interval"
-               step="30" min="60" placeholder="300">
-        <div class="hint">Fallback interval when no track boundary (silence gap) is detected.</div>
-      </div>
+        <div class="field">
+          <label><span>Confirmation delay (seconds)</span></label>
+          <input type="number" id="rec-confirm-delay" name="rec-confirm-delay"
+                 step="1" min="0" max="30" placeholder="2">
+          <div class="hint">Wait before the confirmation capture. 0 disables confirmation.</div>
+        </div>
 
-      <div class="field">
-        <label><span>Confirmation delay (seconds)</span></label>
-        <input type="number" id="rec-confirm-delay" name="rec-confirm-delay"
-               step="1" min="0" max="30" placeholder="2">
-        <div class="hint">Wait before confirmation capture. 0 disables confirmation.</div>
-      </div>
+        <div class="field">
+          <label><span>Confirmation capture duration (seconds)</span></label>
+          <input type="number" id="rec-confirm-duration" name="rec-confirm-duration"
+                 step="1" min="2" max="20" placeholder="4">
+          <div class="hint">Shorter second capture to speed up confirmation.</div>
+        </div>
 
-      <div class="field">
-        <label><span>Confirmation capture duration (seconds)</span></label>
-        <input type="number" id="rec-confirm-duration" name="rec-confirm-duration"
-               step="1" min="2" max="20" placeholder="4">
-        <div class="hint">Shorter second capture to speed up confirmation.</div>
-      </div>
-
-      <div class="field">
-        <label><span>Confirmation bypass score</span></label>
-        <input type="number" id="rec-confirm-bypass" name="rec-confirm-bypass"
-               step="1" min="0" max="100" placeholder="95">
-        <div class="hint">Skip confirmation when initial score >= value. 0 = always confirm.</div>
+        <div class="field">
+          <label><span>Confirmation bypass score</span></label>
+          <input type="number" id="rec-confirm-bypass" name="rec-confirm-bypass"
+                 step="1" min="0" max="100" placeholder="95">
+          <div class="hint">Skip confirmation when initial score is at or above this value. 0 = always confirm.</div>
+        </div>
       </div>
     </div>
 
     <!-- Display -->
     <div class="section">
-      <div class="section-title">Display</div>
-      <p class="hint" style="margin-bottom:14px">SPI screen (oceano-now-playing)</p>
+      <div class="section-title">SPI Display</div>
+      <p class="hint" style="margin-bottom:14px">Settings for the attached SPI screen only. Future HDMI and DSI display options will live in separate sections.</p>
 
       <div class="field">
         <label><span>UI preset</span></label>
@@ -732,7 +785,7 @@
           <option value="high_contrast_hybrid">Hybrid (text + artwork)</option>
           <option value="high_contrast_vu">VU meter</option>
         </select>
-        <div class="hint">Visual style and layout shown on the screen.</div>
+        <div class="hint">Visual style and layout shown on the SPI screen.</div>
       </div>
 
       <div class="field">
@@ -878,6 +931,7 @@ async function loadConfig() {
   set('rec-host',          cfg.recognition?.acrcloud_host ?? '');
   set('rec-access-key',    cfg.recognition?.acrcloud_access_key ?? '');
   set('rec-secret-key',    cfg.recognition?.acrcloud_secret_key ?? '');
+  set('rec-chain',         cfg.recognition?.recognizer_chain ?? 'acrcloud_first');
   set('rec-duration',      cfg.recognition?.capture_duration_secs ?? 7);
   set('rec-interval',      cfg.recognition?.max_interval_secs ?? 300);
   set('rec-confirm-delay', cfg.recognition?.confirmation_delay_secs ?? 0);
@@ -893,11 +947,35 @@ async function loadConfig() {
 
   // Preserve advanced values as-is from server.
   _advancedConfig = cfg.advanced ?? {};
+  updateRecognitionUI();
 }
 
 function set(id, val) {
   const el = document.getElementById(id);
   if (el) el.value = val;
+}
+
+function updateRecognitionUI() {
+  const chain = val('rec-chain') || 'acrcloud_first';
+  const usesACRCloud = chain === 'acrcloud_first' || chain === 'shazam_first' || chain === 'acrcloud_only';
+  const group = document.getElementById('acrcloud-config-group');
+  const hint = document.getElementById('acrcloud-config-hint');
+  const ids = ['rec-host', 'rec-access-key', 'rec-secret-key'];
+
+  if (group) {
+    group.classList.toggle('field-group-muted', !usesACRCloud);
+  }
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = !usesACRCloud;
+    }
+  }
+  if (hint) {
+    hint.textContent = usesACRCloud
+      ? 'Stored and used whenever the selected chain includes ACRCloud.'
+      : 'Stored but currently inactive because the selected chain does not use ACRCloud.';
+  }
 }
 
 // ── Status bar ───────────────────────────────────────────────────────────────
@@ -1018,6 +1096,7 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       acrcloud_host:        val('rec-host'),
       acrcloud_access_key:  val('rec-access-key'),
       acrcloud_secret_key:  val('rec-secret-key'),
+        recognizer_chain:     val('rec-chain') || 'acrcloud_first',
       capture_duration_secs: intOr('rec-duration', 7),
       max_interval_secs:     intOr('rec-interval', 300),
       confirmation_delay_secs: intOr('rec-confirm-delay', 0),
@@ -1054,6 +1133,8 @@ function intOr(id, fallback) {
   const n = parseInt(val(id), 10);
   return Number.isNaN(n) ? fallback : n;
 }
+
+document.getElementById('rec-chain')?.addEventListener('change', updateRecognitionUI);
 
 function toast(msg, isError = false) {
   const el = document.getElementById('toast');

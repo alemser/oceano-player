@@ -7,10 +7,13 @@ import (
 	"strings"
 )
 
-// DisplayConfig controls the oceano-now-playing SPI display service.
+// SPIDisplayConfig controls the current oceano-now-playing SPI display service.
+// These settings apply only to the attached SPI screen for now; future HDMI
+// and DSI display configuration should live alongside this as separate config
+// sections rather than being folded into the same SPI-specific knobs.
 // Values are written to /etc/oceano/display.env and read as environment
 // variables by the service — no code changes required in oceano-now-playing.
-type DisplayConfig struct {
+type SPIDisplayConfig struct {
 	// UIPreset is the combined layout+mode preset (e.g. "high_contrast_rotate").
 	// Controls both visual style and what is shown on the display.
 	UIPreset string `json:"ui_preset"`
@@ -38,7 +41,7 @@ type Config struct {
 	AudioOutput AudioOutputConfig `json:"audio_output"`
 	Recognition RecognitionConfig `json:"recognition"`
 	Advanced    AdvancedConfig    `json:"advanced"`
-	Display     DisplayConfig     `json:"display"`
+	Display     SPIDisplayConfig  `json:"display"`
 }
 
 // AudioInputConfig controls the ALSA capture device used by
@@ -100,6 +103,12 @@ type RecognitionConfig struct {
 	// ShazamContinuityCaptureDurationSecs controls the capture duration for each
 	// periodic Shazam continuity check.
 	ShazamContinuityCaptureDurationSecs int `json:"shazam_continuity_capture_duration_secs"`
+	// RecognizerChain controls which API providers are active and their order.
+	// Valid values: "acrcloud_first" (default), "shazam_first", "acrcloud_only", "shazam_only", "fingerprint_only".
+	// Local fingerprint cache is always active as a final fallback. If the selected
+	// provider policy resolves to no available API provider, the manager
+	// automatically falls back to fingerprint-only recognition.
+	RecognizerChain string `json:"recognizer_chain"`
 }
 
 // AdvancedConfig holds paths and internal settings that rarely need
@@ -134,6 +143,7 @@ func defaultConfig() Config {
 			ConfirmationBypassScore:             95,
 			ShazamContinuityIntervalSecs:        8,
 			ShazamContinuityCaptureDurationSecs: 4,
+			RecognizerChain:                     "acrcloud_first",
 		},
 		Advanced: AdvancedConfig{
 			VUSocket:     "/tmp/oceano-vu.sock",
@@ -143,7 +153,7 @@ func defaultConfig() Config {
 			ArtworkDir:   "/var/lib/oceano/artwork",
 			MetadataPipe: "/tmp/shairport-sync-metadata",
 		},
-		Display: DisplayConfig{
+		Display: SPIDisplayConfig{
 			UIPreset:               "high_contrast_rotate",
 			CycleTime:              30,
 			StandbyTimeout:         600,
@@ -221,6 +231,7 @@ func managerArgs(cfg Config) []string {
 		"--confirmation-bypass-score", fmt.Sprintf("%d", rec.ConfirmationBypassScore),
 		"--shazam-continuity-interval", fmt.Sprintf("%ds", rec.ShazamContinuityIntervalSecs),
 		"--shazam-continuity-capture-duration", fmt.Sprintf("%ds", rec.ShazamContinuityCaptureDurationSecs),
+		"--recognizer-chain", rec.RecognizerChain,
 	}
 	if rec.ACRCloudHost != "" {
 		args = append(args,
@@ -235,9 +246,9 @@ func managerArgs(cfg Config) []string {
 	return args
 }
 
-// saveDisplayEnv writes /etc/oceano/display.env so that oceano-now-playing
-// picks up display settings as environment variables (EnvironmentFile=).
-func saveDisplayEnv(path string, cfg DisplayConfig) error {
+// saveSPIDisplayEnv writes /etc/oceano/display.env so that oceano-now-playing
+// picks up SPI display settings as environment variables (EnvironmentFile=).
+func saveSPIDisplayEnv(path string, cfg SPIDisplayConfig) error {
 	artwork := "true"
 	if !cfg.ExternalArtworkEnabled {
 		artwork = "false"

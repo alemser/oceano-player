@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -79,6 +80,124 @@ type CollectionEntry struct {
 	FirstPlayed   string
 	LastPlayed    string
 	UserConfirmed bool
+}
+
+var (
+	canonicalPartRE = regexp.MustCompile(`[^a-z0-9]+`)
+	parenPartRE     = regexp.MustCompile(`\s*[\(\[].*?[\)\]]\s*`)
+	wordPartRE      = regexp.MustCompile(`[a-z0-9]+`)
+)
+
+func canonicalTrackPart(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = parenPartRE.ReplaceAllString(s, " ")
+	s = canonicalPartRE.ReplaceAllString(s, "")
+	return s
+}
+
+func canonicalArtistTokens(s string) map[string]struct{} {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = parenPartRE.ReplaceAllString(s, " ")
+	tokens := wordPartRE.FindAllString(s, -1)
+	ignore := map[string]struct{}{
+		"the": {}, "and": {}, "feat": {}, "featuring": {},
+		"group": {}, "band": {}, "orchestra": {}, "ensemble": {},
+		"quartet": {}, "trio": {}, "choir": {},
+	}
+	set := make(map[string]struct{}, len(tokens))
+	for _, token := range tokens {
+		if _, skip := ignore[token]; skip {
+			continue
+		}
+		set[token] = struct{}{}
+	}
+	return set
+}
+
+func canonicalTokenSubset(a, b map[string]struct{}) bool {
+	if len(a) == 0 || len(a) > len(b) {
+		return false
+	}
+	for token := range a {
+		if _, ok := b[token]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func canonicalArtistsEquivalent(a, b string) bool {
+	aNorm := canonicalTrackPart(a)
+	bNorm := canonicalTrackPart(b)
+	if aNorm == "" || bNorm == "" {
+		return false
+	}
+	if aNorm == bNorm {
+		return true
+	}
+	aTokens := canonicalArtistTokens(a)
+	bTokens := canonicalArtistTokens(b)
+	if len(aTokens) == 0 || len(bTokens) == 0 {
+		return false
+	}
+	if len(aTokens) == len(bTokens) && canonicalTokenSubset(aTokens, bTokens) {
+		return true
+	}
+	shorter := aTokens
+	longer := bTokens
+	if len(shorter) > len(longer) {
+		shorter, longer = longer, shorter
+	}
+	return len(shorter) >= 2 && canonicalTokenSubset(shorter, longer)
+}
+
+func canonicalTracksEquivalent(aTitle, aArtist, bTitle, bArtist string) bool {
+	aT := canonicalTrackPart(aTitle)
+	bT := canonicalTrackPart(bTitle)
+	if aT == "" || bT == "" {
+		return false
+	}
+	return aT == bT && canonicalArtistsEquivalent(aArtist, bArtist)
+}
+
+func (l *Library) lookupConfirmedByEquivalentMetadata(title, artist string) (*CollectionEntry, error) {
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(artist) == "" {
+		return nil, nil
+	}
+
+	rows, err := l.db.Query(`
+		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist,
+		       COALESCE(album,''), COALESCE(label,''), COALESCE(released,''),
+		       COALESCE(score,0), COALESCE(format,'Unknown'),
+		       COALESCE(track_number,''), COALESCE(artwork_path,''),
+		       play_count, first_played, last_played, user_confirmed
+		FROM collection
+		WHERE user_confirmed = 1 AND title != '' AND artist != ''`)
+	if err != nil {
+		return nil, fmt.Errorf("library: equivalent metadata lookup query: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var e CollectionEntry
+		var confirmed int
+		if err := rows.Scan(
+			&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist,
+			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
+			&e.TrackNumber, &e.ArtworkPath,
+			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
+		); err != nil {
+			return nil, fmt.Errorf("library: equivalent metadata lookup scan: %w", err)
+		}
+		e.UserConfirmed = confirmed == 1
+		if canonicalTracksEquivalent(title, artist, e.Title, e.Artist) {
+			return &e, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("library: equivalent metadata lookup rows: %w", err)
+	}
+	return nil, nil
 }
 
 func Open(path string) (*Library, error) {
@@ -181,6 +300,45 @@ func (l *Library) LookupByIDs(acrid, shazamID string) (*CollectionEntry, error) 
 
 func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
+
+	// API providers can return different IDs for what is effectively the same
+	// track (e.g. remaster/release variants). When Shazam is present and a
+	// confirmed metadata-equivalent row already exists, update that row instead
+	// of creating a duplicate keyed by a new ACRID.
+	allowEquivalentMerge := result.ShazamID != "" ||
+		(result.ACRID != "" && strings.TrimSpace(result.Title) != "" && strings.TrimSpace(result.Artist) != "")
+	if allowEquivalentMerge {
+		if existing, err := l.lookupConfirmedByEquivalentMetadata(result.Title, result.Artist); err != nil {
+			return 0, err
+		} else if existing != nil {
+			_, err := l.db.Exec(`
+				UPDATE collection SET
+					play_count     = play_count + 1,
+					last_played    = ?,
+					user_confirmed = 1,
+					shazam_id      = CASE WHEN (COALESCE(shazam_id,'') = '') AND ? != '' THEN ? ELSE shazam_id END,
+					title          = CASE WHEN ? > score THEN ? ELSE title END,
+					artist         = CASE WHEN ? > score THEN ? ELSE artist END,
+					album          = CASE WHEN ? > score THEN ? ELSE album END,
+					score          = CASE WHEN ? > score THEN ? ELSE score END,
+					artwork_path   = CASE WHEN (artwork_path IS NULL OR artwork_path = '') AND ? != '' THEN ? ELSE artwork_path END
+				WHERE id = ?`,
+				now,
+				result.ShazamID, result.ShazamID,
+				result.Score, result.Title,
+				result.Score, result.Artist,
+				result.Score, result.Album,
+				result.Score, result.Score,
+				artworkPath, artworkPath,
+				existing.ID,
+			)
+			if err != nil {
+				return 0, fmt.Errorf("library: equivalent metadata update: %w", err)
+			}
+			log.Printf("library: merged equivalent confirmed track into existing row id=%d (score=%d shazam_id=%q)", existing.ID, result.Score, result.ShazamID)
+			return existing.ID, nil
+		}
+	}
 
 	if result.ACRID != "" {
 		var id int64

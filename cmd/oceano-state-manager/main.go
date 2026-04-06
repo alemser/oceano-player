@@ -83,6 +83,13 @@ type Config struct {
 	// ShazamPythonBin is the path to the Python binary in the shazam-env virtualenv.
 	// When set and shazamio is importable, Shazam is used as a fallback after ACRCloud.
 	ShazamPythonBin string
+	// RecognizerChain controls which API providers are included and their order.
+	// Valid values: "acrcloud_first" | "shazam_first" | "acrcloud_only" | "shazam_only" | "fingerprint_only".
+	// Local fingerprint cache is always active as a final fallback. If the selected
+	// policy resolves to no available API provider, recognition automatically
+	// falls back to fingerprint-only mode.
+	// Continuity monitoring always uses Shazam when available, independent of this setting.
+	RecognizerChain string
 	// ShazamContinuityInterval controls how often Shazam re-checks if the
 	// current track is still playing (for soft/gapless transitions).
 	ShazamContinuityInterval time.Duration
@@ -162,6 +169,7 @@ func defaultConfig() Config {
 		ShazamPythonBin:                 "/opt/shazam-env/bin/python",
 		ShazamContinuityInterval:        8 * time.Second,
 		ShazamContinuityCaptureDuration: 4 * time.Second,
+		RecognizerChain:                 "acrcloud_first",
 	}
 }
 
@@ -438,6 +446,7 @@ func main() {
 	flag.StringVar(&cfg.ShazamPythonBin, "shazam-python", cfg.ShazamPythonBin, "path to Python binary with shazamio installed (empty to disable Shazam fallback)")
 	flag.DurationVar(&cfg.ShazamContinuityInterval, "shazam-continuity-interval", cfg.ShazamContinuityInterval, "how often to run Shazam continuity checks for the current track")
 	flag.DurationVar(&cfg.ShazamContinuityCaptureDuration, "shazam-continuity-capture-duration", cfg.ShazamContinuityCaptureDuration, "audio capture duration per periodic Shazam continuity check")
+	flag.StringVar(&cfg.RecognizerChain, "recognizer-chain", cfg.RecognizerChain, "recognition chain order: acrcloud_first | shazam_first | acrcloud_only | shazam_only | fingerprint_only (continuity always uses Shazam when available)")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")

@@ -174,7 +174,12 @@ func apiGetConfig(w http.ResponseWriter, configPath string) {
 }
 
 func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
-	var cfg Config
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		http.Error(w, "load current config failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
@@ -219,7 +224,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	}
 
 	// Write display env and restart oceano-now-playing if it is installed.
-	if err := saveDisplayEnv(displayEnvPath, cfg.Display); err != nil {
+	if err := saveSPIDisplayEnv(displayEnvPath, cfg.Display); err != nil {
 		results = append(results, "display env write: "+err.Error())
 	} else {
 		displaySvc := "/etc/systemd/system/" + displayUnit

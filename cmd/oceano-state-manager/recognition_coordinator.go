@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -69,6 +70,33 @@ func shouldCreateBoundaryStub(lastStub, lastBoundary time.Time, stillPhysical bo
 		return false
 	}
 	return lastStub.IsZero() || !lastStub.After(lastBoundary)
+}
+
+func shouldCreateFingerprintOnlyStub(lastStub, lastBoundary time.Time, stillPhysical bool, minInterval time.Duration) bool {
+	if !stillPhysical {
+		return false
+	}
+	if shouldCreateBoundaryStub(lastStub, lastBoundary, stillPhysical) {
+		return true
+	}
+	if minInterval <= 0 {
+		minInterval = 5 * time.Minute
+	}
+	return time.Since(lastStub) >= minInterval
+}
+
+func recognitionLogFields(result *RecognitionResult) (string, string) {
+	source := "unknown"
+	score := fmt.Sprintf("score=%d", result.Score)
+	if result.ACRID != "" {
+		source = "acrcloud"
+	} else if result.ShazamID != "" {
+		source = "shazam"
+		if result.Score == 0 {
+			score = "score=n/a"
+		}
+	}
+	return source, score
 }
 
 func (c *recognitionCoordinator) applyLocalFallbackEntry(entry *internallibrary.CollectionEntry) {
@@ -140,14 +168,32 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 	}
 
 	log.Printf("recognizer [%s]: no match — retrying in %s", c.rec.Name(), noMatchBackoff)
-	if len(capturedFPs) > 0 && c.lib != nil && isBoundaryTrigger {
+	storeStubOnNoMatch := isBoundaryTrigger || c.mgr.cfg.RecognizerChain == "fingerprint_only"
+	if len(capturedFPs) > 0 && c.lib != nil && storeStubOnNoMatch {
 		c.mgr.mu.Lock()
 		lastStub := c.mgr.lastStubAt
 		lastBoundary := c.mgr.lastBoundaryAt
 		stillPhysical := c.mgr.physicalSource == "Physical"
 		c.mgr.mu.Unlock()
 
-		if shouldCreateBoundaryStub(lastStub, lastBoundary, stillPhysical) {
+		if c.mgr.cfg.RecognizerChain == "fingerprint_only" {
+			minInterval := c.mgr.cfg.RecognizerMaxInterval
+			if minInterval <= 0 {
+				minInterval = noMatchBackoff
+			}
+			if !stillPhysical {
+				log.Printf("recognizer: stub skipped — source is no longer Physical (run-out groove or disc removed)")
+			} else if !shouldCreateFingerprintOnlyStub(lastStub, lastBoundary, stillPhysical, minInterval) {
+				log.Printf("recognizer: fingerprint-only stub skipped — throttle active (lastStub=%s, minInterval=%s)", lastStub.Format(time.RFC3339), minInterval)
+			} else if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {
+				log.Printf("recognizer: stub upsert error: %v", stubErr)
+			} else {
+				log.Printf("recognizer: fingerprint-only no-match stub stored (id=%d)", stub.ID)
+				c.mgr.mu.Lock()
+				c.mgr.lastStubAt = time.Now()
+				c.mgr.mu.Unlock()
+			}
+		} else if shouldCreateBoundaryStub(lastStub, lastBoundary, stillPhysical) {
 			if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {
 				log.Printf("recognizer: stub upsert error: %v", stubErr)
 			} else {
@@ -492,7 +538,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		backoffRateLimited = false
 
 		if result != nil {
-			log.Printf("recognizer [%s]: score=%d  %s — %s", c.rec.Name(), result.Score, result.Artist, result.Title)
+			source, score := recognitionLogFields(result)
+			log.Printf("recognizer [%s]: %s source=%s ids(acr=%q shazam=%q)  %s — %s",
+				c.rec.Name(), score, source, result.ACRID, result.ShazamID, result.Artist, result.Title)
 			isShazamFallback := result.ShazamID != "" && result.ACRID == ""
 			shazamMatchedACR := false
 
