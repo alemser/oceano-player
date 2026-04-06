@@ -812,6 +812,41 @@
       </div>
     </div>
 
+    <!-- Weather -->
+    <div class="section">
+      <div class="section-title">Now Playing Weather</div>
+      <p class="hint" style="margin-bottom:14px">Idle-screen weather shown beside the clock on HDMI/DSI now playing page.</p>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="weather-enabled" name="weather-enabled"
+                 style="width:auto;accent-color:var(--accent)">
+          <span>Enable weather on idle screen</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label><span>Location label</span></label>
+        <input type="text" id="weather-label" name="weather-label" placeholder="Lisbon">
+        <div class="hint">Displayed in the weather chip (e.g. Lisbon, Porto, Berlin).</div>
+      </div>
+
+      <div class="field">
+        <label><span>Latitude</span></label>
+        <input type="number" id="weather-lat" name="weather-lat" step="0.0001" min="-90" max="90" placeholder="38.7223">
+      </div>
+
+      <div class="field">
+        <label><span>Longitude</span></label>
+        <input type="number" id="weather-lon" name="weather-lon" step="0.0001" min="-180" max="180" placeholder="-9.1393">
+      </div>
+
+      <div class="field">
+        <label><span>Refresh interval (minutes)</span></label>
+        <input type="number" id="weather-refresh" name="weather-refresh" step="1" min="2" max="120" placeholder="10">
+      </div>
+    </div>
+
   </div><!-- .sections -->
 
   <div class="actions">
@@ -944,6 +979,13 @@ async function loadConfig() {
   set('disp-standby-timeout', cfg.display?.standby_timeout ?? 600);
   const artworkEl = document.getElementById('disp-external-artwork');
   if (artworkEl) artworkEl.checked = cfg.display?.external_artwork_enabled ?? true;
+
+  const weatherEnabledEl = document.getElementById('weather-enabled');
+  if (weatherEnabledEl) weatherEnabledEl.checked = cfg.weather?.enabled ?? true;
+  set('weather-label',   cfg.weather?.location_label ?? 'Lisbon');
+  set('weather-lat',     cfg.weather?.latitude ?? 38.7223);
+  set('weather-lon',     cfg.weather?.longitude ?? -9.1393);
+  set('weather-refresh', cfg.weather?.refresh_mins ?? 10);
 
   // Preserve advanced values as-is from server.
   _advancedConfig = cfg.advanced ?? {};
@@ -1110,6 +1152,13 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       standby_timeout:          parseInt(val('disp-standby-timeout')) || 600,
       external_artwork_enabled: document.getElementById('disp-external-artwork')?.checked ?? true,
     },
+    weather: {
+      enabled:        document.getElementById('weather-enabled')?.checked ?? true,
+      location_label: val('weather-label') || 'Lisbon',
+      latitude:       floatOr('weather-lat', 38.7223),
+      longitude:      floatOr('weather-lon', -9.1393),
+      refresh_mins:   intOr('weather-refresh', 10),
+    },
   };
 
   try {
@@ -1131,6 +1180,11 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
 function val(id) { return (document.getElementById(id)?.value || '').trim(); }
 function intOr(id, fallback) {
   const n = parseInt(val(id), 10);
+  return Number.isNaN(n) ? fallback : n;
+}
+
+function floatOr(id, fallback) {
+  const n = parseFloat(val(id));
   return Number.isNaN(n) ? fallback : n;
 }
 

@@ -369,41 +369,56 @@
       z-index: 10;
     }
 
+    #idle-screen::before {
+      content: "";
+      position: absolute;
+      inset: -20% -10% auto;
+      height: 55%;
+      background:
+        radial-gradient(50% 80% at 40% 30%, rgba(74, 158, 255, 0.14), transparent 70%),
+        radial-gradient(40% 70% at 70% 40%, rgba(116, 168, 255, 0.1), transparent 72%);
+      pointer-events: none;
+      z-index: -1;
+    }
+
     #idle-screen.visible { opacity: 1; pointer-events: auto; }
 
-    #idle-logo { color: var(--text-faint); }
-    #idle-logo svg { width: 56px; height: 56px; display: block; }
+    #idle-logo { color: #5b6686; }
+    #idle-logo svg { width: 48px; height: 48px; display: block; }
 
     #idle-top-row {
       display: flex;
       align-items: flex-end;
-      gap: 18px;
+      gap: 16px;
     }
 
     #idle-label {
-      font-size: 0.8rem;
+      font-size: 0.84rem;
+      font-weight: 550;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: var(--text-faint);
+      color: #4b5678;
     }
 
     #idle-time {
-      font-size: 3.5rem;
-      font-weight: 200;
+      font-size: 5.2rem;
+      font-weight: 240;
       letter-spacing: 0.04em;
-      color: var(--text-faint);
+      color: #404d70;
       font-variant-numeric: tabular-nums;
+      line-height: 0.9;
     }
 
     #idle-weather {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 10px;
-      padding: 7px 12px;
+      margin-bottom: 14px;
+      padding: 9px 14px;
       border-radius: 999px;
-      border: 1px solid rgba(84, 106, 156, 0.34);
-      background: rgba(17, 24, 40, 0.38);
+      border: 1px solid rgba(84, 106, 156, 0.42);
+      background: rgba(17, 24, 40, 0.52);
+      box-shadow: inset 0 0 0 1px rgba(22, 33, 55, 0.38);
       color: #8d98bb;
     }
 
@@ -415,19 +430,19 @@
     }
 
     #idle-weather-temp {
-      font-size: 0.92rem;
+      font-size: 0.98rem;
       font-weight: 650;
       letter-spacing: 0.05em;
       text-transform: uppercase;
-      color: #a8b5d8;
+      color: #bec9e7;
       font-variant-numeric: tabular-nums;
     }
 
     #idle-weather-cond {
-      font-size: 0.72rem;
+      font-size: 0.74rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: #7883a8;
+      color: #8f9bc2;
       white-space: nowrap;
     }
 
@@ -617,6 +632,7 @@ const STREAMING_SOURCES = new Set(['AirPlay', 'Bluetooth', 'UPnP']);
 
 const $idle       = document.getElementById('idle-screen');
 const $idleTime   = document.getElementById('idle-time');
+const $idleWeather = document.getElementById('idle-weather');
 const $idleWeatherTemp = document.getElementById('idle-weather-temp');
 const $idleWeatherCond = document.getElementById('idle-weather-cond');
 const $sourceBar = document.getElementById('source-bar');
@@ -651,13 +667,15 @@ setInterval(tickClock, 10_000);
 
 // ─── Idle weather (live, fixed location for now) ───────────────────────────
 
-const WEATHER_CONFIG = {
-  // Fixed location for now; future config UI can make this user-selectable.
+const WEATHER_DEFAULT = {
   latitude: 38.7223,
   longitude: -9.1393,
   locationLabel: 'Lisbon',
+  enabled: true,
   refreshMS: 10 * 60 * 1000,
 };
+let WEATHER_CONFIG = { ...WEATHER_DEFAULT };
+let _weatherTimer = null;
 
 const WEATHER_CODE_MAP = {
   0: 'Clear',
@@ -700,7 +718,40 @@ function renderWeather(tempC, condition) {
   $idleWeatherCond.textContent = WEATHER_CONFIG.locationLabel + ' · ' + condition;
 }
 
+function applyWeatherVisibility() {
+  if (!$idleWeather) return;
+  $idleWeather.style.display = WEATHER_CONFIG.enabled ? 'inline-flex' : 'none';
+}
+
+function normalizeRefreshMS(minutes) {
+  const mins = Number(minutes);
+  if (!Number.isFinite(mins)) return WEATHER_DEFAULT.refreshMS;
+  return Math.max(2, Math.min(120, Math.round(mins))) * 60 * 1000;
+}
+
+async function loadWeatherConfig() {
+  try {
+    const resp = await fetch('/api/config', { cache: 'no-store' });
+    if (!resp.ok) return;
+    const cfg = await resp.json();
+    const weather = cfg && cfg.weather ? cfg.weather : null;
+    if (!weather) return;
+
+    WEATHER_CONFIG = {
+      latitude: Number.isFinite(Number(weather.latitude)) ? Number(weather.latitude) : WEATHER_DEFAULT.latitude,
+      longitude: Number.isFinite(Number(weather.longitude)) ? Number(weather.longitude) : WEATHER_DEFAULT.longitude,
+      locationLabel: String(weather.location_label || WEATHER_DEFAULT.locationLabel).trim() || WEATHER_DEFAULT.locationLabel,
+      enabled: weather.enabled !== false,
+      refreshMS: normalizeRefreshMS(weather.refresh_mins),
+    };
+  } catch (_err) {
+    // Keep defaults when config endpoint is unavailable.
+  }
+}
+
 async function refreshWeather() {
+  if (!WEATHER_CONFIG.enabled) return;
+
   const query = new URLSearchParams({
     latitude: String(WEATHER_CONFIG.latitude),
     longitude: String(WEATHER_CONFIG.longitude),
@@ -734,10 +785,25 @@ async function refreshWeather() {
   }
 }
 
-// Start with a deterministic placeholder, then replace with live data.
-renderWeather(NaN, 'Loading…');
-refreshWeather();
-setInterval(refreshWeather, WEATHER_CONFIG.refreshMS);
+async function startWeatherLoop() {
+  await loadWeatherConfig();
+  applyWeatherVisibility();
+
+  if (!WEATHER_CONFIG.enabled) {
+    return;
+  }
+
+  // Start with deterministic placeholder, then replace with live data.
+  renderWeather(NaN, 'Loading…');
+  await refreshWeather();
+
+  if (_weatherTimer) {
+    clearInterval(_weatherTimer);
+  }
+  _weatherTimer = setInterval(refreshWeather, WEATHER_CONFIG.refreshMS);
+}
+
+startWeatherLoop();
 
 // ─── Artwork helpers ─────────────────────────────────────────────────────────
 

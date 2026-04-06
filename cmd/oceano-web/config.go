@@ -42,6 +42,18 @@ type Config struct {
 	Recognition RecognitionConfig `json:"recognition"`
 	Advanced    AdvancedConfig    `json:"advanced"`
 	Display     SPIDisplayConfig  `json:"display"`
+	Weather     WeatherConfig     `json:"weather"`
+}
+
+// WeatherConfig controls idle-screen weather rendering in nowplaying.html.
+// The web UI uses these values to query a weather provider directly from the
+// browser (no backend weather proxy required).
+type WeatherConfig struct {
+	Enabled       bool    `json:"enabled"`
+	LocationLabel string  `json:"location_label"`
+	Latitude      float64 `json:"latitude"`
+	Longitude     float64 `json:"longitude"`
+	RefreshMins   int     `json:"refresh_mins"`
 }
 
 // AudioInputConfig controls the ALSA capture device used by
@@ -158,6 +170,13 @@ func defaultConfig() Config {
 			CycleTime:              30,
 			StandbyTimeout:         600,
 			ExternalArtworkEnabled: true,
+		},
+		Weather: WeatherConfig{
+			Enabled:       true,
+			LocationLabel: "Lisbon",
+			Latitude:      38.7223,
+			Longitude:     -9.1393,
+			RefreshMins:   10,
 		},
 	}
 }
