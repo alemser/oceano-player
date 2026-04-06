@@ -140,9 +140,23 @@ func (c *recognitionCoordinator) tryLocalFingerprintFallback(capturedFPs []Finge
 	return true
 }
 
+func (c *recognitionCoordinator) drainPendingTriggers() int {
+	drained := 0
+	for {
+		select {
+		case <-c.mgr.recognizeTrigger:
+			drained++
+		default:
+			return drained
+		}
+	}
+}
+
 func (c *recognitionCoordinator) handleRecognitionError(err error, capturedFPs []Fingerprint, backoffUntil *time.Time, backoffRateLimited *bool) bool {
 	log.Printf("recognizer [%s]: error: %v", c.rec.Name(), err)
 	if c.tryLocalFingerprintFallback(capturedFPs) {
+		drained := c.drainPendingTriggers()
+		log.Printf("recognizer [%s]: local fallback matched; pending triggers drained=%d", c.rec.Name(), drained)
 		*backoffUntil = time.Time{}
 		return true
 	}
@@ -166,6 +180,8 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 	}
 
 	if c.tryLocalFingerprintFallback(capturedFPs) {
+		drained := c.drainPendingTriggers()
+		log.Printf("recognizer [%s]: local fallback matched; pending triggers drained=%d", c.rec.Name(), drained)
 		*backoffUntil = time.Time{}
 		return
 	}
@@ -177,6 +193,7 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 		lastStub := c.mgr.lastStubAt
 		lastBoundary := c.mgr.lastBoundaryAt
 		stillPhysical := c.mgr.physicalSource == "Physical"
+		hasRecognition := c.mgr.recognitionResult != nil
 		c.mgr.mu.Unlock()
 
 		if c.mgr.cfg.RecognizerChain == "fingerprint_only" {
@@ -186,6 +203,8 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 			}
 			if !stillPhysical {
 				log.Printf("recognizer: stub skipped — source is no longer Physical (run-out groove or disc removed)")
+			} else if hasRecognition {
+				log.Printf("recognizer: fingerprint-only stub skipped — already holding recognized track")
 			} else if !shouldCreateFingerprintOnlyStub(lastStub, lastBoundary, stillPhysical, minInterval) {
 				log.Printf("recognizer: fingerprint-only stub skipped — throttle active (lastStub=%s, minInterval=%s)", lastStub.Format(time.RFC3339), minInterval)
 			} else if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {

@@ -135,6 +135,80 @@ func TestHandleNoMatch_FingerprintOnlyThrottlesStubUpserts(t *testing.T) {
 	}
 }
 
+func TestHandleNoMatch_FingerprintOnlySkipsStubWhenTrackAlreadyRecognized(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.RecognizerChain = "fingerprint_only"
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{Title: "Known", Artist: "Artist"}
+	m.mu.Unlock()
+
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{101, 102, 103, 104}}
+	var backoffUntil time.Time
+	backoffRateLimited := false
+
+	coordinator.handleNoMatch(fps, false, &backoffUntil, &backoffRateLimited)
+
+	entry, err := lib.FindByFingerprints(fps, m.cfg.FingerprintThreshold, 30)
+	if err != nil {
+		t.Fatalf("FindByFingerprints: %v", err)
+	}
+	if entry != nil {
+		t.Fatalf("expected no stub to be stored while a recognized track is active, got entry id=%d", entry.ID)
+	}
+}
+
+func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.RecognizerChain = "fingerprint_only"
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.mu.Unlock()
+
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{201, 202, 203, 204}}
+	if _, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30); err != nil {
+		t.Fatalf("UpsertStub: %v", err)
+	}
+
+	// Simulate an already-queued trigger that would otherwise cause an immediate
+	// redundant capture after fallback match.
+	m.recognizeTrigger <- recognizeTrigger{isBoundary: false}
+
+	var backoffUntil time.Time
+	backoffRateLimited := false
+	coordinator.handleNoMatch(fps, false, &backoffUntil, &backoffRateLimited)
+
+	if got := len(m.recognizeTrigger); got != 0 {
+		t.Fatalf("pending trigger queue size = %d, want 0 after local fallback", got)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recognitionResult == nil {
+		t.Fatal("expected recognitionResult to be set by local fallback")
+	}
+}
+
+func TestDrainPendingTriggers_ReturnsDrainedCount(t *testing.T) {
+	m := newTestMgr()
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, nil)
+
+	m.recognizeTrigger <- recognizeTrigger{isBoundary: false}
+	m.recognizeTrigger <- recognizeTrigger{isBoundary: true}
+
+	if drained := coordinator.drainPendingTriggers(); drained != 2 {
+		t.Fatalf("drainPendingTriggers() = %d, want 2", drained)
+	}
+	if got := len(m.recognizeTrigger); got != 0 {
+		t.Fatalf("pending trigger queue size = %d, want 0", got)
+	}
+}
+
 func TestHandleRecognitionErrorSetsBackoff(t *testing.T) {
 	m := newTestMgr()
 	c := newRecognitionCoordinator(m, &stubRecognizer{name: "A"}, nil, nil, nil, nil)
