@@ -2,10 +2,12 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"database/sql"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -429,4 +431,231 @@ func TestBackupHandler_ReturnsGzipArchive(t *testing.T) {
 	if !found {
 		t.Errorf("archive should contain library.db, got: %v", names)
 	}
+}
+
+// ── helpers for restore tests ──────────────────────────────────────────────
+
+// buildBackupArchive creates an in-memory .tar.gz archive with the provided
+// files. Each entry in files maps an archive path to its byte content.
+func buildBackupArchive(t *testing.T, files map[string][]byte) *bytes.Buffer {
+t.Helper()
+var buf bytes.Buffer
+gw := gzip.NewWriter(&buf)
+tw := tar.NewWriter(gw)
+for name, data := range files {
+hdr := &tar.Header{Name: name, Size: int64(len(data)), Mode: 0o644, Typeflag: tar.TypeReg}
+if err := tw.WriteHeader(hdr); err != nil {
+t.Fatalf("tar header %s: %v", name, err)
+}
+if _, err := tw.Write(data); err != nil {
+t.Fatalf("tar write %s: %v", name, err)
+}
+}
+if err := tw.Close(); err != nil {
+t.Fatalf("tar close: %v", err)
+}
+if err := gw.Close(); err != nil {
+t.Fatalf("gzip close: %v", err)
+}
+return &buf
+}
+
+// buildRestoreRequest wraps archive data in a multipart POST request.
+func buildRestoreRequest(t *testing.T, archive *bytes.Buffer) *http.Request {
+t.Helper()
+var body bytes.Buffer
+mw := multipart.NewWriter(&body)
+fw, err := mw.CreateFormFile("backup", "oceano-backup.tar.gz")
+if err != nil {
+t.Fatalf("create form file: %v", err)
+}
+if _, err := io.Copy(fw, archive); err != nil {
+t.Fatalf("copy archive to form: %v", err)
+}
+mw.Close()
+r := httptest.NewRequest(http.MethodPost, "/api/library/import/backup", &body)
+r.Header.Set("Content-Type", mw.FormDataContentType())
+return r
+}
+
+// --- restoreBackup ---
+
+func TestRestoreBackup_RestoresDB(t *testing.T) {
+src := t.TempDir()
+dbPath := createTestDB(t, src, nil)
+
+lib, err := openLibraryDB(dbPath)
+if err != nil || lib == nil {
+t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+}
+backupPath := filepath.Join(src, "backup.tar.gz")
+if err := lib.generateBackup(backupPath, filepath.Join(src, "artwork")); err != nil {
+t.Fatalf("generateBackup: %v", err)
+}
+lib.close()
+
+dst := t.TempDir()
+destDB := filepath.Join(dst, "library.db")
+
+f, err := os.Open(backupPath)
+if err != nil {
+t.Fatalf("open backup: %v", err)
+}
+defer f.Close()
+
+if err := restoreBackup(f, destDB, filepath.Join(dst, "artwork")); err != nil {
+t.Fatalf("restoreBackup: %v", err)
+}
+if _, err := os.Stat(destDB); err != nil {
+t.Errorf("restored db not found: %v", err)
+}
+}
+
+func TestRestoreBackup_RestoresArtwork(t *testing.T) {
+src := t.TempDir()
+artDir := filepath.Join(src, "artwork")
+if err := os.MkdirAll(artDir, 0o755); err != nil {
+t.Fatal(err)
+}
+artFile := filepath.Join(artDir, "oceano-artwork-test.jpg")
+if err := os.WriteFile(artFile, []byte("fake-jpeg"), 0o644); err != nil {
+t.Fatal(err)
+}
+dbPath := createTestDB(t, src, []string{artFile})
+lib, err := openLibraryDB(dbPath)
+if err != nil || lib == nil {
+t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+}
+backupPath := filepath.Join(src, "backup.tar.gz")
+if err := lib.generateBackup(backupPath, artDir); err != nil {
+t.Fatalf("generateBackup: %v", err)
+}
+lib.close()
+
+dst := t.TempDir()
+destDB := filepath.Join(dst, "library.db")
+destArt := filepath.Join(dst, "artwork")
+
+f, err := os.Open(backupPath)
+if err != nil {
+t.Fatalf("open backup: %v", err)
+}
+defer f.Close()
+
+if err := restoreBackup(f, destDB, destArt); err != nil {
+t.Fatalf("restoreBackup: %v", err)
+}
+restoredArt := filepath.Join(destArt, "oceano-artwork-test.jpg")
+if _, err := os.Stat(restoredArt); err != nil {
+t.Errorf("artwork not restored: %v", err)
+}
+}
+
+func TestRestoreBackup_MissingLibraryDB(t *testing.T) {
+archive := buildBackupArchive(t, map[string][]byte{
+"artwork/some.jpg": []byte("fake"),
+})
+dst := t.TempDir()
+err := restoreBackup(archive, filepath.Join(dst, "library.db"), filepath.Join(dst, "artwork"))
+if err == nil {
+t.Error("expected error when library.db is missing, got nil")
+}
+}
+
+func TestRestoreBackup_RejectsPathTraversal(t *testing.T) {
+dst := t.TempDir()
+// Build an archive with a path-traversal artwork entry.
+archive := buildBackupArchive(t, map[string][]byte{
+"library.db":                []byte("fake-db"),
+"artwork/../../../etc/evil": []byte("evil"),
+})
+destArt := filepath.Join(dst, "artwork")
+if err := restoreBackup(archive, filepath.Join(dst, "library.db"), destArt); err != nil {
+// restoreBackup may succeed (traversal entry is silently skipped).
+t.Fatalf("restoreBackup: %v", err)
+}
+// The evil file must not have been created outside the artwork dir.
+evil := filepath.Join(dst, "etc", "evil")
+if _, err := os.Stat(evil); err == nil {
+t.Error("path traversal: file was created outside artwork dir")
+}
+}
+
+func TestRestoreBackup_NotGzip(t *testing.T) {
+dst := t.TempDir()
+err := restoreBackup(strings.NewReader("not a gzip file"), filepath.Join(dst, "library.db"), filepath.Join(dst, "artwork"))
+if err == nil {
+t.Error("expected error for non-gzip input")
+}
+}
+
+// --- HTTP restore handler ---
+
+func TestRestoreHandler_MethodNotAllowed(t *testing.T) {
+mux := http.NewServeMux()
+registerRestoreRoute(mux, "/nonexistent/library.db", "/tmp")
+
+r := httptest.NewRequest(http.MethodGet, "/api/library/import/backup", nil)
+w := httptest.NewRecorder()
+mux.ServeHTTP(w, r)
+
+if w.Code != http.StatusMethodNotAllowed {
+t.Errorf("GET should return 405, got %d", w.Code)
+}
+}
+
+func TestRestoreHandler_MissingFile(t *testing.T) {
+mux := http.NewServeMux()
+registerRestoreRoute(mux, "/nonexistent/library.db", "/tmp")
+
+var body bytes.Buffer
+mw := multipart.NewWriter(&body)
+mw.Close()
+r := httptest.NewRequest(http.MethodPost, "/api/library/import/backup", &body)
+r.Header.Set("Content-Type", mw.FormDataContentType())
+w := httptest.NewRecorder()
+mux.ServeHTTP(w, r)
+
+if w.Code != http.StatusBadRequest {
+t.Errorf("missing backup field should return 400, got %d", w.Code)
+}
+}
+
+func TestRestoreHandler_Success(t *testing.T) {
+src := t.TempDir()
+dbPath := createTestDB(t, src, nil)
+
+lib, err := openLibraryDB(dbPath)
+if err != nil || lib == nil {
+t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+}
+backupPath := filepath.Join(src, "backup.tar.gz")
+if err := lib.generateBackup(backupPath, filepath.Join(src, "artwork")); err != nil {
+t.Fatalf("generateBackup: %v", err)
+}
+lib.close()
+
+backupData, err := os.ReadFile(backupPath)
+if err != nil {
+t.Fatalf("read backup: %v", err)
+}
+
+dst := t.TempDir()
+destDB := filepath.Join(dst, "library.db")
+destArt := filepath.Join(dst, "artwork")
+
+mux := http.NewServeMux()
+registerRestoreRoute(mux, destDB, destArt)
+
+archive := bytes.NewBuffer(backupData)
+req := buildRestoreRequest(t, archive)
+w := httptest.NewRecorder()
+mux.ServeHTTP(w, req)
+
+if w.Code != http.StatusOK {
+t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+}
+if _, err := os.Stat(destDB); err != nil {
+t.Errorf("restored db not found: %v", err)
+}
 }

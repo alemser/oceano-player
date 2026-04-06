@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -220,6 +221,178 @@ fi
 
 echo "Restore complete."
 `, shellQuote(dbPath), shellQuote(artworkDir))
+}
+
+// restoreBackup reads a .tar.gz backup archive from r and extracts:
+//   - library.db → libraryDBPath (written via temp file + rename for atomicity)
+//   - artwork/*  → artworkDir (only regular files; symlinks and path-traversal are rejected)
+//
+// The state-manager must be stopped before calling this function so it does
+// not hold the database open during the replacement.
+func restoreBackup(r io.Reader, libraryDBPath, artworkDir string) error {
+	absArtworkDir, err := filepath.Abs(artworkDir)
+	if err != nil {
+		return fmt.Errorf("restore: resolve artwork dir: %w", err)
+	}
+
+	gr, err := gzip.NewReader(r)
+	if err != nil {
+		return fmt.Errorf("restore: not a valid gzip archive: %w", err)
+	}
+	defer gr.Close()
+	tr := tar.NewReader(gr)
+
+	// Write the database to a temp file so we can replace it atomically.
+	dbDir := filepath.Dir(libraryDBPath)
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		return fmt.Errorf("restore: create db dir: %w", err)
+	}
+	tmpDB, err := os.CreateTemp(dbDir, "oceano-restore-*.db")
+	if err != nil {
+		return fmt.Errorf("restore: create temp db: %w", err)
+	}
+	tmpDBPath := tmpDB.Name()
+	tmpDB.Close()
+
+	cleanupDB := true
+	defer func() {
+		if cleanupDB {
+			os.Remove(tmpDBPath)
+		}
+	}()
+
+	dbRestored := false
+
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("restore: read archive: %w", err)
+		}
+
+		// Only process regular files; skip symlinks, directories, etc.
+		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != 0 {
+			continue
+		}
+
+		switch {
+		case hdr.Name == "library.db":
+			f, err := os.OpenFile(tmpDBPath, os.O_WRONLY|os.O_TRUNC, 0o644)
+			if err != nil {
+				return fmt.Errorf("restore: open temp db: %w", err)
+			}
+			if _, err := io.Copy(f, tr); err != nil {
+				f.Close()
+				return fmt.Errorf("restore: write db: %w", err)
+			}
+			if err := f.Close(); err != nil {
+				return fmt.Errorf("restore: close temp db: %w", err)
+			}
+			dbRestored = true
+
+		case strings.HasPrefix(hdr.Name, "artwork/"):
+			rel := strings.TrimPrefix(hdr.Name, "artwork/")
+			if rel == "" {
+				continue
+			}
+			// Reject any path component that escapes the artwork directory.
+			destPath := filepath.Join(absArtworkDir, filepath.FromSlash(rel))
+			if !strings.HasPrefix(destPath+string(os.PathSeparator), absArtworkDir+string(os.PathSeparator)) {
+				continue
+			}
+			if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+				return fmt.Errorf("restore: create artwork subdir: %w", err)
+			}
+			f, err := os.Create(destPath)
+			if err != nil {
+				return fmt.Errorf("restore: create artwork file: %w", err)
+			}
+			if _, err := io.Copy(f, tr); err != nil {
+				f.Close()
+				return fmt.Errorf("restore: write artwork: %w", err)
+			}
+			if err := f.Close(); err != nil {
+				return fmt.Errorf("restore: close artwork file: %w", err)
+			}
+		}
+	}
+
+	if !dbRestored {
+		return fmt.Errorf("restore: archive does not contain library.db")
+	}
+
+	cleanupDB = false
+	if err := os.Rename(tmpDBPath, libraryDBPath); err != nil {
+		os.Remove(tmpDBPath)
+		return fmt.Errorf("restore: install db: %w", err)
+	}
+	return nil
+}
+
+// registerRestoreRoute wires the POST /api/library/import/backup endpoint.
+// The request must be a multipart form with a "backup" field containing a
+// .tar.gz archive previously produced by registerBackupRoute.
+// The state-manager and source-detector services are stopped before the
+// database is replaced and restarted afterwards.
+func registerRestoreRoute(mux *http.ServeMux, libraryDBPath, artworkDir string) {
+	mux.HandleFunc("/api/library/import/backup", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Limit upload size to 512 MiB.
+		r.Body = http.MaxBytesReader(w, r.Body, 512<<20)
+
+		if err := r.ParseMultipartForm(64 << 20); err != nil {
+			http.Error(w, "invalid multipart form: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		file, _, err := r.FormFile("backup")
+		if err != nil {
+			http.Error(w, "backup file is required", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		// Stop services so the database is not held open during replacement.
+		stopServices()
+		restoreErr := restoreBackup(file, libraryDBPath, artworkDir)
+		startServices()
+
+		if restoreErr != nil {
+			log.Printf("restore: %v", restoreErr)
+			http.Error(w, "restore failed: "+restoreErr.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		log.Printf("restore: library restored successfully")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true}`))
+	})
+}
+
+// stopServices stops the oceano state-manager and source-detector systemd units.
+func stopServices() {
+	if err := exec.Command("systemctl", "stop", managerUnit).Run(); err != nil {
+		log.Printf("restore: stop %s: %v", managerUnit, err)
+	}
+	if err := exec.Command("systemctl", "stop", detectorUnit).Run(); err != nil {
+		log.Printf("restore: stop %s: %v", detectorUnit, err)
+	}
+}
+
+// startServices starts the oceano source-detector and state-manager systemd units.
+func startServices() {
+	if err := exec.Command("systemctl", "start", detectorUnit).Run(); err != nil {
+		log.Printf("restore: start %s: %v", detectorUnit, err)
+	}
+	if err := exec.Command("systemctl", "start", managerUnit).Run(); err != nil {
+		log.Printf("restore: start %s: %v", managerUnit, err)
+	}
 }
 
 // registerBackupRoute wires the /api/library/export/backup endpoint into mux.

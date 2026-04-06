@@ -166,10 +166,11 @@ func main() {
 		http.ServeFile(w, r, state.Track.ArtworkPath)
 	})
 
-	// API: physical media collection (library) and backup download.
+	// API: physical media collection (library) and backup download/restore.
 	cfg, _ := loadConfig(*configPath)
 	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir)
 	registerBackupRoute(mux, *libraryDB, cfg.Advanced.ArtworkDir)
+	registerRestoreRoute(mux, *libraryDB, cfg.Advanced.ArtworkDir)
 
 	// Scheduled backup: generate a fresh backup every 24 hours.
 	// The backup is written to the same directory as the library database.
