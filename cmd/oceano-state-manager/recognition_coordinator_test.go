@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	internallibrary "github.com/alemser/oceano-player/internal/library"
 )
 
 func TestShouldBypassBackoff(t *testing.T) {
@@ -219,7 +221,7 @@ func TestResolvedRefreshIntervalUsesExplicitRefresh(t *testing.T) {
 func TestRecognitionCoordinator_ApplyLocalFallbackEntryUpdatesManagerState(t *testing.T) {
 	m := newTestMgr()
 	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, nil)
-	entry := &CollectionEntry{
+	entry := &internallibrary.CollectionEntry{
 		ACRID:         "acr-1",
 		ShazamID:      "shz-1",
 		Title:         "Exodus",
@@ -268,7 +270,7 @@ func TestRecognitionCoordinator_ApplyLocalFallbackEntryUpdatesManagerState(t *te
 func TestRecognitionCoordinator_ApplyLocalFallbackEntryLeavesFormatUnsetForNonPhysicalMedia(t *testing.T) {
 	m := newTestMgr()
 	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, nil)
-	entry := &CollectionEntry{
+	entry := &internallibrary.CollectionEntry{
 		Title:       "Track",
 		Artist:      "Artist",
 		Format:      "Cassette",

@@ -22,6 +22,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	internallibrary "github.com/alemser/oceano-player/internal/library"
 )
 
 // airplaySampleRate and airplayBitDepth are fixed transport characteristics for AirPlay/shairport-sync.
@@ -842,7 +844,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 // display. When confirmRec differs from rec (e.g. Shazam confirming an ACRCloud
 // result), agreement from two independent services is required. When confirmRec
 // is nil, rec itself is used for the second call (same-provider confirmation).
-func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, fpr Fingerprinter, lib *Library) {
+func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, fpr Fingerprinter, lib *internallibrary.Library) {
 	newRecognitionCoordinator(m, rec, confirmRec, shazamRec, fpr, lib).run(ctx)
 }
 
@@ -994,7 +996,7 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 // runLibrarySync periodically refreshes the in-memory physical track metadata
 // from the library DB. This makes UI edits visible in state.json without
 // waiting for a new recognition cycle.
-func (m *mgr) runLibrarySync(ctx context.Context, lib *Library) {
+func (m *mgr) runLibrarySync(ctx context.Context, lib *internallibrary.Library) {
 	if lib == nil {
 		return
 	}
@@ -1016,7 +1018,7 @@ func (m *mgr) runLibrarySync(ctx context.Context, lib *Library) {
 // the current track (matched by ACRID or ShazamID) and user-edited fields differ
 // from in-memory values. This makes UI edits visible in state.json without waiting
 // for a new recognition cycle — including Shazam-only tracks (no ACRID).
-func (m *mgr) syncFromLibrary(lib *Library) {
+func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 	m.mu.Lock()
 	r := m.recognitionResult
 	if r == nil || (r.ACRID == "" && r.ShazamID == "") || m.physicalSource != "Physical" {
@@ -1306,10 +1308,10 @@ func main() {
 	m := newMgr(cfg)
 	m.markDirty() // write initial stopped state immediately
 
-	var lib *Library
+	var lib *internallibrary.Library
 	if cfg.LibraryDB != "" {
 		var err error
-		lib, err = Open(cfg.LibraryDB)
+		lib, err = internallibrary.Open(cfg.LibraryDB)
 		if err != nil {
 			log.Printf("library: failed to open %s: %v — library recording disabled", cfg.LibraryDB, err)
 		} else {

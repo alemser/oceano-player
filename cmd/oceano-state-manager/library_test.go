@@ -4,12 +4,14 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	internallibrary "github.com/alemser/oceano-player/internal/library"
 )
 
 // openTestLibrary creates an in-memory (":memory:") SQLite library for tests.
-func openTestLibrary(t *testing.T) *Library {
+func openTestLibrary(t *testing.T) *internallibrary.Library {
 	t.Helper()
-	lib, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	lib, err := internallibrary.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -45,12 +47,12 @@ func TestOpen_CreatesSchema(t *testing.T) {
 func TestOpen_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "lib.db")
-	lib1, err := Open(path)
+	lib1, err := internallibrary.Open(path)
 	if err != nil {
 		t.Fatalf("first Open: %v", err)
 	}
 	lib1.Close()
-	lib2, err := Open(path)
+	lib2, err := internallibrary.Open(path)
 	if err != nil {
 		t.Fatalf("second Open (re-open existing db): %v", err)
 	}

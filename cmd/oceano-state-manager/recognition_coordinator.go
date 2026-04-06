@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	internallibrary "github.com/alemser/oceano-player/internal/library"
 )
 
 type recognitionCoordinator struct {
@@ -15,10 +17,10 @@ type recognitionCoordinator struct {
 	confirmRec Recognizer
 	shazamRec  Recognizer
 	fpr        Fingerprinter
-	lib        *Library
+	lib        *internallibrary.Library
 }
 
-func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, fpr Fingerprinter, lib *Library) *recognitionCoordinator {
+func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, fpr Fingerprinter, lib *internallibrary.Library) *recognitionCoordinator {
 	return &recognitionCoordinator{
 		mgr:        m,
 		rec:        rec,
@@ -69,7 +71,7 @@ func shouldCreateBoundaryStub(lastStub, lastBoundary time.Time, stillPhysical bo
 	return lastStub.IsZero() || !lastStub.After(lastBoundary)
 }
 
-func (c *recognitionCoordinator) applyLocalFallbackEntry(entry *CollectionEntry) {
+func (c *recognitionCoordinator) applyLocalFallbackEntry(entry *internallibrary.CollectionEntry) {
 	c.mgr.mu.Lock()
 	c.mgr.recognitionResult = &RecognitionResult{
 		ACRID:    entry.ACRID,
