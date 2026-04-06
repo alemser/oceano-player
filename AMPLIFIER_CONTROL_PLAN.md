@@ -179,6 +179,16 @@ both hold a `BroadlinkClient` internally. Adding a new device = new file, no exi
 
 ---
 
+## Related Features
+
+- **Auto-switch + Kiosk source control**: fully specced in [AMPLIFIER_AUTO_SWITCH.md](AMPLIFIER_AUTO_SWITCH.md).
+  Implement after Milestone 5 (requires hardware). Key decisions already made:
+  - Assumed state persisted to `/tmp/oceano-amp-state.json` to survive server restarts
+  - No explicit PowerOff — amp manages its own standby timer
+  - Standby inferred from 20 min of `source = "None"` on REC OUT
+
+---
+
 ## Open Questions (from spec)
 
 1. **IR database coverage** — Are Magnat MR 780 and Yamaha CD-S300 in Broadlink's pre-programmed database? If not, manual IR learning workflow needed.
