@@ -28,7 +28,8 @@ func newRecognitionComponents(plan RecognitionPlan, fingerprinter Fingerprinter)
 }
 
 func buildRecognitionComponents(cfg Config) recognitionComponents {
-	var ordered []Recognizer
+	// Always try to create both recognizers so continuity can always use Shazam
+	// regardless of which providers are in the identification chain.
 	var acrRec Recognizer
 	if cfg.ACRCloudHost != "" && cfg.ACRCloudAccessKey != "" && cfg.ACRCloudSecretKey != "" {
 		acrRec = NewACRCloudRecognizer(ACRCloudConfig{
@@ -36,7 +37,6 @@ func buildRecognitionComponents(cfg Config) recognitionComponents {
 			AccessKey: cfg.ACRCloudAccessKey,
 			SecretKey: cfg.ACRCloudSecretKey,
 		})
-		ordered = append(ordered, acrRec)
 		log.Printf("recognizer: ACRCloud enabled (host=%s)", cfg.ACRCloudHost)
 	}
 
@@ -44,18 +44,52 @@ func buildRecognitionComponents(cfg Config) recognitionComponents {
 	if cfg.ShazamPythonBin != "" {
 		if s := NewShazamRecognizer(cfg.ShazamPythonBin); s != nil {
 			shazamRec = s
-			ordered = append(ordered, shazamRec)
 			log.Printf("recognizer: Shazam enabled (python=%s)", cfg.ShazamPythonBin)
 		} else {
 			log.Printf("recognizer: Shazam unavailable — %s not found or shazamio not installed", cfg.ShazamPythonBin)
 		}
 	}
 
-	plan := RecognitionPlan{Ordered: ordered}
-	if acrRec != nil && shazamRec != nil {
-		plan.Confirmer = shazamRec
+	// Build chain order from the configured policy.
+	var ordered []Recognizer
+	switch cfg.RecognizerChain {
+	case "shazam_first":
+		if shazamRec != nil {
+			ordered = append(ordered, shazamRec)
+		}
+		if acrRec != nil {
+			ordered = append(ordered, acrRec)
+		}
+	case "acrcloud_only":
+		if acrRec != nil {
+			ordered = append(ordered, acrRec)
+		}
+	case "shazam_only":
+		if shazamRec != nil {
+			ordered = append(ordered, shazamRec)
+		}
+	default: // "acrcloud_first" or unset
+		if acrRec != nil {
+			ordered = append(ordered, acrRec)
+		}
+		if shazamRec != nil {
+			ordered = append(ordered, shazamRec)
+		}
 	}
-	plan.Continuity = shazamRec
+
+	// Confirmer is the secondary provider in the chain — used for cross-provider
+	// confirmation when ConfirmationDelay > 0. Single-provider chains fall back
+	// to same-provider second call.
+	var confirmer Recognizer
+	if len(ordered) == 2 {
+		confirmer = ordered[1]
+	}
+
+	plan := RecognitionPlan{
+		Ordered:    ordered,
+		Confirmer:  confirmer,
+		Continuity: shazamRec, // always Shazam for continuity — independent of chain setting
+	}
 
 	return newRecognitionComponents(plan, newFingerprinter())
 }

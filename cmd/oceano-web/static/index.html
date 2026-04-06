@@ -662,7 +662,18 @@
     <!-- Track Recognition -->
     <div class="section">
       <div class="section-title">Track Recognition</div>
-      <p class="hint" style="margin-bottom:14px">ACRCloud audio fingerprinting for physical media</p>
+        <p class="hint" style="margin-bottom:14px">Physical media track identification via API providers</p>
+
+        <div class="field">
+          <label><span>Recognition chain</span></label>
+          <select id="rec-chain" name="rec-chain">
+            <option value="acrcloud_first">ACRCloud → Shazam (ACRCloud first, Shazam fallback)</option>
+            <option value="shazam_first">Shazam → ACRCloud (Shazam first, ACRCloud fallback)</option>
+            <option value="acrcloud_only">ACRCloud only</option>
+            <option value="shazam_only">Shazam only</option>
+          </select>
+          <div class="hint">Local fingerprint cache is always the final fallback — no setup needed. Continuity monitoring always uses Shazam when available, regardless of this setting.</div>
+        </div>
 
       <div class="field">
         <label><span>ACRCloud host</span></label>
@@ -878,6 +889,7 @@ async function loadConfig() {
   set('rec-host',          cfg.recognition?.acrcloud_host ?? '');
   set('rec-access-key',    cfg.recognition?.acrcloud_access_key ?? '');
   set('rec-secret-key',    cfg.recognition?.acrcloud_secret_key ?? '');
+    set('rec-chain',         cfg.recognition?.recognizer_chain ?? 'acrcloud_first');
   set('rec-duration',      cfg.recognition?.capture_duration_secs ?? 7);
   set('rec-interval',      cfg.recognition?.max_interval_secs ?? 300);
   set('rec-confirm-delay', cfg.recognition?.confirmation_delay_secs ?? 0);
@@ -1018,6 +1030,7 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       acrcloud_host:        val('rec-host'),
       acrcloud_access_key:  val('rec-access-key'),
       acrcloud_secret_key:  val('rec-secret-key'),
+        recognizer_chain:     val('rec-chain') || 'acrcloud_first',
       capture_duration_secs: intOr('rec-duration', 7),
       max_interval_secs:     intOr('rec-interval', 300),
       confirmation_delay_secs: intOr('rec-confirm-delay', 0),

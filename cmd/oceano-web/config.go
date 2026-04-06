@@ -100,6 +100,10 @@ type RecognitionConfig struct {
 	// ShazamContinuityCaptureDurationSecs controls the capture duration for each
 	// periodic Shazam continuity check.
 	ShazamContinuityCaptureDurationSecs int `json:"shazam_continuity_capture_duration_secs"`
+	// RecognizerChain controls which API providers are active and their order.
+	// Valid values: "acrcloud_first" (default), "shazam_first", "acrcloud_only", "shazam_only".
+	// Local fingerprint cache is always active as a final fallback regardless.
+	RecognizerChain string `json:"recognizer_chain"`
 }
 
 // AdvancedConfig holds paths and internal settings that rarely need
@@ -134,6 +138,7 @@ func defaultConfig() Config {
 			ConfirmationBypassScore:             95,
 			ShazamContinuityIntervalSecs:        8,
 			ShazamContinuityCaptureDurationSecs: 4,
+			RecognizerChain:                     "acrcloud_first",
 		},
 		Advanced: AdvancedConfig{
 			VUSocket:     "/tmp/oceano-vu.sock",
@@ -221,6 +226,7 @@ func managerArgs(cfg Config) []string {
 		"--confirmation-bypass-score", fmt.Sprintf("%d", rec.ConfirmationBypassScore),
 		"--shazam-continuity-interval", fmt.Sprintf("%ds", rec.ShazamContinuityIntervalSecs),
 		"--shazam-continuity-capture-duration", fmt.Sprintf("%ds", rec.ShazamContinuityCaptureDurationSecs),
+		"--recognizer-chain", rec.RecognizerChain,
 	}
 	if rec.ACRCloudHost != "" {
 		args = append(args,
