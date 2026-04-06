@@ -140,14 +140,26 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 	}
 
 	log.Printf("recognizer [%s]: no match — retrying in %s", c.rec.Name(), noMatchBackoff)
-	if len(capturedFPs) > 0 && c.lib != nil && isBoundaryTrigger {
+	storeStubOnNoMatch := isBoundaryTrigger || c.mgr.cfg.RecognizerChain == "fingerprint_only"
+	if len(capturedFPs) > 0 && c.lib != nil && storeStubOnNoMatch {
 		c.mgr.mu.Lock()
 		lastStub := c.mgr.lastStubAt
 		lastBoundary := c.mgr.lastBoundaryAt
 		stillPhysical := c.mgr.physicalSource == "Physical"
 		c.mgr.mu.Unlock()
 
-		if shouldCreateBoundaryStub(lastStub, lastBoundary, stillPhysical) {
+		if c.mgr.cfg.RecognizerChain == "fingerprint_only" {
+			if !stillPhysical {
+				log.Printf("recognizer: stub skipped — source is no longer Physical (run-out groove or disc removed)")
+			} else if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {
+				log.Printf("recognizer: stub upsert error: %v", stubErr)
+			} else {
+				log.Printf("recognizer: fingerprint-only no-match stub stored (id=%d)", stub.ID)
+				c.mgr.mu.Lock()
+				c.mgr.lastStubAt = time.Now()
+				c.mgr.mu.Unlock()
+			}
+		} else if shouldCreateBoundaryStub(lastStub, lastBoundary, stillPhysical) {
 			if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {
 				log.Printf("recognizer: stub upsert error: %v", stubErr)
 			} else {
