@@ -1,5 +1,7 @@
 # Automatic Amplifier Power Management & Kiosk Source Control
 
+**Link**: https://github.com/alemser/oceano-player/issues/47
+
 **Type**: Feature
 **Category**: Hardware Integration / UX
 **Scope**: v2 — requires Milestone 5 (Broadlink RM4 Mini) to be complete
