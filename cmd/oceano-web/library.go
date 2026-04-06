@@ -29,6 +29,9 @@ type LibraryEntry struct {
 	PlayCount   int    `json:"play_count"`
 	FirstPlayed string `json:"first_played"`
 	LastPlayed  string `json:"last_played"`
+	// IsFingerprintStub is true only for unresolved stub rows created from
+	// local fingerprint no-match captures (empty metadata + fingerprint rows).
+	IsFingerprintStub bool `json:"is_fingerprint_stub"`
 }
 
 // LibraryDB wraps the collection SQLite database for the web UI.
@@ -65,6 +68,18 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 	if _, err := l.db.Exec(`PRAGMA synchronous=NORMAL`); err != nil {
 		_ = l.db.Close()
 		return nil, fmt.Errorf("library: set PRAGMA synchronous=NORMAL: %w", err)
+	}
+	if _, err := l.db.Exec(`CREATE TABLE IF NOT EXISTS fingerprints (
+		id       INTEGER PRIMARY KEY AUTOINCREMENT,
+		entry_id INTEGER NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
+		data     TEXT    NOT NULL
+	)`); err != nil {
+		_ = l.db.Close()
+		return nil, fmt.Errorf("library: ensure fingerprints table exists: %w", err)
+	}
+	if _, err := l.db.Exec(`CREATE INDEX IF NOT EXISTS fingerprints_entry_id ON fingerprints(entry_id)`); err != nil {
+		_ = l.db.Close()
+		return nil, fmt.Errorf("library: ensure fingerprints index exists: %w", err)
 	}
 	// Ensure columns added by state-manager migrations are present.
 	// ALTER TABLE returns an error if the column already exists; that is safe to ignore.
@@ -114,7 +129,10 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 		SELECT id, title, artist, COALESCE(album,''), COALESCE(label,''),
 		       COALESCE(released,''), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
-		       play_count, first_played, last_played
+		       play_count, first_played, last_played,
+		       CASE WHEN user_confirmed = 0 AND title = '' AND artist = ''
+		                 AND EXISTS (SELECT 1 FROM fingerprints f WHERE f.entry_id = collection.id)
+		            THEN 1 ELSE 0 END AS is_fingerprint_stub
 		FROM collection ORDER BY last_played DESC`)
 	if err != nil {
 		return nil, err
@@ -124,14 +142,133 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 	var entries []LibraryEntry
 	for rows.Next() {
 		var e LibraryEntry
+		var stub int
 		if err := rows.Scan(&e.ID, &e.Title, &e.Artist, &e.Album, &e.Label,
 			&e.Released, &e.Format, &e.TrackNumber, &e.ArtworkPath,
-			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed); err != nil {
+			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &stub); err != nil {
 			return nil, err
 		}
+		e.IsFingerprintStub = stub == 1
 		entries = append(entries, e)
 	}
 	return entries, rows.Err()
+}
+
+// search returns user-confirmed tracks matching title/artist/album query.
+// Stub rows (empty metadata) are excluded by design.
+func (l *LibraryDB) search(q string, limit int) ([]LibraryEntry, error) {
+	q = strings.TrimSpace(strings.ToLower(q))
+	if q == "" {
+		return []LibraryEntry{}, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	like := "%" + q + "%"
+	rows, err := l.db.Query(`
+		SELECT id, title, artist, COALESCE(album,''), COALESCE(format,'Unknown')
+		FROM collection
+		WHERE user_confirmed = 1
+		  AND title != ''
+		  AND artist != ''
+		  AND (LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(COALESCE(album,'')) LIKE ?)
+		ORDER BY last_played DESC
+		LIMIT ?`, like, like, like, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]LibraryEntry, 0, limit)
+	for rows.Next() {
+		var e LibraryEntry
+		if err := rows.Scan(&e.ID, &e.Title, &e.Artist, &e.Album, &e.Format); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// resolveFingerprintStub attaches all fingerprints from stubID to targetID,
+// merges play counters, and removes the unresolved stub row.
+func (l *LibraryDB) resolveFingerprintStub(stubID, targetID int64) (*LibraryEntry, error) {
+	if stubID <= 0 || targetID <= 0 {
+		return nil, fmt.Errorf("stub_id and target_id are required")
+	}
+	if stubID == targetID {
+		return nil, fmt.Errorf("stub_id and target_id must be different")
+	}
+
+	tx, err := l.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var stubPlayCount int
+	var stubLastPlayed string
+	err = tx.QueryRow(`
+		SELECT play_count, last_played
+		FROM collection
+		WHERE id = ? AND user_confirmed = 0 AND title = '' AND artist = ''`, stubID).
+		Scan(&stubPlayCount, &stubLastPlayed)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("entry %d is not an unresolved fingerprint stub", stubID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var fpCount int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id = ?`, stubID).Scan(&fpCount); err != nil {
+		return nil, err
+	}
+	if fpCount == 0 {
+		return nil, fmt.Errorf("stub %d has no fingerprints", stubID)
+	}
+
+	target := &LibraryEntry{}
+	err = tx.QueryRow(`
+		SELECT id, title, artist, COALESCE(album,''), COALESCE(format,'Unknown'),
+		       COALESCE(artwork_path,''), play_count, last_played
+		FROM collection
+		WHERE id = ? AND title != '' AND artist != ''`, targetID).
+		Scan(&target.ID, &target.Title, &target.Artist, &target.Album, &target.Format,
+			&target.ArtworkPath, &target.PlayCount, &target.LastPlayed)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("target %d is not a valid identified track", targetID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.Exec(`UPDATE fingerprints SET entry_id = ? WHERE entry_id = ?`, targetID, stubID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`
+		UPDATE collection
+		SET play_count = play_count + ?,
+		    last_played = CASE WHEN last_played < ? THEN ? ELSE last_played END,
+		    user_confirmed = 1
+		WHERE id = ?`, stubPlayCount, stubLastPlayed, stubLastPlayed, targetID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`DELETE FROM collection WHERE id = ?`, stubID); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	target.PlayCount += stubPlayCount
+	if stubLastPlayed > target.LastPlayed {
+		target.LastPlayed = stubLastPlayed
+	}
+	return target, nil
 }
 
 // update patches editable fields for a single entry.
@@ -159,9 +296,11 @@ func (l *LibraryDB) deleteEntry(id int64) error {
 // UI always talks to the same database without extra configuration.
 func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string, artworkDir string) {
 	// GET  /api/library        → list all entries
+	// GET  /api/library/search?q=...&limit=20 → search confirmed tracks
 	// PUT  /api/library/{id}   → update entry metadata
 	// DELETE /api/library/{id} → remove entry
 	// POST /api/library/{id}/artwork → upload artwork image
+	// POST /api/library/{id}/resolve → resolve fingerprint stub to existing track
 	// GET  /api/library/{id}/artwork → serve artwork file
 
 	mux.HandleFunc("/api/library", func(w http.ResponseWriter, r *http.Request) {
@@ -188,6 +327,38 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		}
 		if entries == nil {
 			entries = []LibraryEntry{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(entries)
+	})
+
+	mux.HandleFunc("/api/library/search", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		lib, err := openLibraryDB(libraryDBPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("[]"))
+			return
+		}
+		defer lib.close()
+
+		limit := 20
+		if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil {
+				limit = n
+			}
+		}
+		entries, err := lib.search(r.URL.Query().Get("q"), limit)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(entries)
@@ -253,6 +424,8 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			handleGetArtwork(w, r, lib, id)
 		case sub == "artwork" && r.Method == http.MethodPost:
 			handleUploadArtwork(w, r, lib, id, artworkDir)
+		case sub == "resolve" && r.Method == http.MethodPost:
+			handleResolveStub(w, r, lib, id, stateFilePath)
 		case sub == "" && r.Method == http.MethodPut:
 			handleUpdateEntry(w, r, lib, id, stateFilePath)
 		case sub == "" && r.Method == http.MethodDelete:
@@ -260,6 +433,28 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
+	})
+}
+
+func handleResolveStub(w http.ResponseWriter, r *http.Request, lib *LibraryDB, stubID int64, stateFilePath string) {
+	var body struct {
+		TargetID int64 `json:"target_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	target, err := lib.resolveFingerprintStub(stubID, body.TargetID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	patchStateFile(stateFilePath, target.Title, target.Artist, target.Album, target.Format, target.ArtworkPath)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":      true,
+		"target":  target,
+		"stub_id": stubID,
 	})
 }
 
