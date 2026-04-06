@@ -63,7 +63,7 @@ func main() {
 		}
 	})
 
-	// API: current playback state
+	// API: current playback state (single poll)
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		cfg, _ := loadConfig(*configPath)
 		data, err := os.ReadFile(cfg.Advanced.StateFile)
@@ -73,6 +73,66 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
+	})
+
+	// API: Server-Sent Events stream for real-time state updates.
+	// Emits a "data:" frame whenever the state file changes (checked every 500 ms).
+	// A ": ping" comment is sent every 15 s to prevent proxy/browser timeouts.
+	// Supports local development: CORS is wide-open and missing state file is not fatal.
+	mux.HandleFunc("/api/stream", func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
+		cfg, _ := loadConfig(*configPath)
+		stateFile := cfg.Advanced.StateFile
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		// Allow cross-origin requests so the page works when the browser is
+		// pointed directly at the Pi host during local development.
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		// Push the current state immediately so the client doesn't need to wait
+		// up to 500 ms before it receives its first event.
+		if data, err := os.ReadFile(stateFile); err == nil {
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		}
+
+		var lastMod time.Time
+		tick := time.NewTicker(500 * time.Millisecond)
+		ping := time.NewTicker(15 * time.Second)
+		defer tick.Stop()
+		defer ping.Stop()
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-ping.C:
+				fmt.Fprintf(w, ": ping\n\n")
+				flusher.Flush()
+			case <-tick.C:
+				info, err := os.Stat(stateFile)
+				if err != nil {
+					continue
+				}
+				if !info.ModTime().After(lastMod) {
+					continue
+				}
+				lastMod = info.ModTime()
+				data, err := os.ReadFile(stateFile)
+				if err != nil {
+					continue
+				}
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+			}
+		}
 	})
 
 	// API: current artwork

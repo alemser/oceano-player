@@ -77,11 +77,16 @@ monitor taps. Only `oceano-source-detector/main.go` changes; the state manager i
 - **Service restarter** — on save, rewrites the systemd unit files for `oceano-source-detector`
   and `oceano-state-manager` and restarts them via `systemctl`.
 - **Status bar** — polls `/api/status` (proxies `/tmp/oceano-state.json`) to show live playback state.
+- **Real-time stream** — `/api/stream` is a Server-Sent Events endpoint that pushes state changes
+  whenever `/tmp/oceano-state.json` is modified (500 ms poll, `: ping` keepalive every 15 s).
+- **Now Playing UI** — `/nowplaying.html` is a full-screen display page for 5"–7" HDMI/DSI screens
+  (optimised for 1024×600). It connects to `/api/stream` and renders artwork, track metadata,
+  source logos, and format-specific info (sample rate, bit depth, CD track, vinyl side/track).
 - **Device picker** — `/api/devices` scans `/proc/asound/cards` and returns ALSA card names so
   the user can pick a device without knowing the card number.
 
-The static UI (`cmd/oceano-web/static/index.html`) is embedded into the binary at compile time via
-`//go:embed static`, so a single binary is deployed.
+All static assets (`index.html`, `nowplaying.html`) are embedded into the binary at compile time
+via `//go:embed static`, so a single binary is deployed.
 
 Config sections mirror the service CLI flags:
 
@@ -98,13 +103,45 @@ sudo ./install-oceano-web.sh
 # optional: --addr :9090  --branch my-branch
 ```
 
+## Now Playing display (HDMI/DSI)
+
+`/nowplaying.html` is served by `oceano-web` and targets 5"–7" displays connected via HDMI or DSI
+(validated on the 7" 1024×600 IPS HDMI monitor). It is designed for living-room viewing distance.
+
+**Features:**
+- Source logos (AirPlay, Bluetooth, UPnP, CD, Vinyl, Physical) with smooth transitions
+- Artwork with graceful placeholder for unidentified or artwork-less tracks
+- Large track title, artist, album text
+- Format chips: sample rate + bit depth (AirPlay/streaming), CD track number, vinyl side + track
+- Identifying animation while ACRCloud/Shazam fingerprints a new track
+- Idle clock screen when no source is active
+- Reconnecting SSE client with exponential back-off
+
+**Auto-launch on Pi boot:**
+```bash
+sudo ./install-oceano-display.sh
+# optional: --web-addr http://localhost:8080  --user pi
+```
+
+This installs `oceano-display.service`, which:
+1. Runs `oceano-display-check` to detect a connected HDMI or DSI panel via `/sys/class/drm`.
+   If no display is found the service exits cleanly — safe for headless Pi deployments.
+2. Launches Chromium in kiosk mode pointing at `http://localhost:8080/nowplaying.html`.
+3. Restarts automatically on crash.
+
+**Local development:** open `http://<pi-ip>:8080/nowplaying.html` in any browser. The SSE stream
+works across the network, so you can see the live display from a laptop while the Pi is playing.
+
 ## Repository layout
 
 ```
 cmd/
   oceano-source-detector/   # Go: Physical/None detector + VU + PCM relay (systemd service)
   oceano-state-manager/     # Go: unified state aggregator + ACRCloud recognition (systemd service)
-  oceano-web/               # Go: configuration web UI + status API (systemd service, port 8080)
+  oceano-web/               # Go: config UI + /api/stream SSE + /nowplaying.html (port 8080)
+    static/
+      index.html            #   Configuration UI (all screen sizes)
+      nowplaying.html       #   Full-screen now playing UI for 5"–7" HDMI/DSI displays
 calibration/                # Python: capture and analyse calibration sessions
 scripts/
   test-acoustid.sh          # Standalone ACRCloud recognition test (stop detector first)
@@ -112,6 +149,7 @@ install.sh                  # Installer: AirPlay stack (shairport-sync + bridge 
 install-source-detector.sh  # Installer: builds and installs the Go detector
 install-source-manager.sh   # Installer: builds and installs the Go state manager
 install-oceano-web.sh       # Installer: builds and installs the web UI
+install-oceano-display.sh   # Installer: kiosk Chromium service for HDMI/DSI display
 config.yaml                 # ALSA device + AirPlay name
 ```
 
@@ -171,6 +209,10 @@ sudo ./install.sh
 
 # Then open http://<pi-ip>:8080 to set ACRCloud credentials and audio devices.
 
+# Install the now-playing kiosk display (HDMI/DSI screens):
+sudo ./install-oceano-display.sh
+# optional: --web-addr http://localhost:8080  --user pi
+
 # Individual services can still be updated independently:
 sudo ./install-source-detector.sh --branch my-branch
 sudo ./install-source-manager.sh --branch my-branch
@@ -180,6 +222,7 @@ sudo ./install-oceano-web.sh --branch my-branch
 journalctl -u oceano-source-detector.service -f
 journalctl -u oceano-state-manager.service -f
 journalctl -u oceano-web.service -f
+journalctl -u oceano-display.service -f
 ```
 
 ## Troubleshooting

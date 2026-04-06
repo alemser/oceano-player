@@ -84,6 +84,7 @@ func (m *mgr) buildState() PlayerState {
 				Title:       r.Title,
 				Artist:      r.Artist,
 				Album:       r.Album,
+				TrackNumber: r.TrackNumber,
 				SampleRate:  sampleRate,
 				BitDepth:    bitDepth,
 				ArtworkPath: m.physicalArtworkPath,
@@ -171,6 +172,10 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 			if f := strings.ToLower(strings.TrimSpace(entry.Format)); f == "cd" || f == "vinyl" {
 				m.physicalFormat = entry.Format
 			}
+			changed = true
+		}
+		if m.recognitionResult.TrackNumber != entry.TrackNumber {
+			m.recognitionResult.TrackNumber = entry.TrackNumber
 			changed = true
 		}
 		if m.physicalArtworkPath != entry.ArtworkPath {

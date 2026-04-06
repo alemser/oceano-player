@@ -51,9 +51,13 @@ type PlayerState struct {
 // TrackInfo holds per-track metadata. SeekMS + SeekUpdatedAt allow the UI to
 // interpolate playback position without polling: pos = SeekMS + (now - SeekUpdatedAt).
 type TrackInfo struct {
-	Title         string `json:"title,omitempty"`
-	Artist        string `json:"artist,omitempty"`
-	Album         string `json:"album,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Artist string `json:"artist,omitempty"`
+	Album  string `json:"album,omitempty"`
+	// TrackNumber is the track position on the release. For CD it is a numeric
+	// string ("3"); for vinyl it may encode side and position ("A2"). Empty when
+	// unknown. Set from the library and not populated by recognition providers.
+	TrackNumber   string `json:"track_number,omitempty"`
 	DurationMS    int64  `json:"duration_ms"`
 	SeekMS        int64  `json:"seek_ms"`
 	SeekUpdatedAt string `json:"seek_updated_at"`
