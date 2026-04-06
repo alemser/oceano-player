@@ -65,6 +65,76 @@ func TestShouldCreateBoundaryStub(t *testing.T) {
 	}
 }
 
+func TestShouldCreateFingerprintOnlyStub(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name          string
+		lastStub      time.Time
+		lastBoundary  time.Time
+		stillPhysical bool
+		minInterval   time.Duration
+		want          bool
+	}{
+		{name: "not physical", stillPhysical: false, minInterval: time.Minute, want: false},
+		{name: "first stub", stillPhysical: true, lastStub: time.Time{}, lastBoundary: now, minInterval: time.Minute, want: true},
+		{name: "new boundary", stillPhysical: true, lastStub: now.Add(-5 * time.Second), lastBoundary: now, minInterval: time.Hour, want: true},
+		{name: "throttled between boundaries", stillPhysical: true, lastStub: now.Add(-10 * time.Second), lastBoundary: now.Add(-1 * time.Minute), minInterval: time.Minute, want: false},
+		{name: "allowed after interval", stillPhysical: true, lastStub: now.Add(-2 * time.Minute), lastBoundary: now.Add(-3 * time.Minute), minInterval: time.Minute, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldCreateFingerprintOnlyStub(tt.lastStub, tt.lastBoundary, tt.stillPhysical, tt.minInterval); got != tt.want {
+				t.Fatalf("shouldCreateFingerprintOnlyStub(...) = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHandleNoMatch_FingerprintOnlyThrottlesStubUpserts(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.RecognizerChain = "fingerprint_only"
+	m.cfg.RecognizerMaxInterval = 10 * time.Minute
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.mu.Unlock()
+
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{1, 2, 3, 4, 5, 6, 7, 8}}
+	var backoffUntil time.Time
+	backoffRateLimited := false
+
+	coordinator.handleNoMatch(fps, false, &backoffUntil, &backoffRateLimited)
+
+	entry, err := lib.FindByFingerprints(fps, m.cfg.FingerprintThreshold, 30)
+	if err != nil {
+		t.Fatalf("FindByFingerprints after first no-match: %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected stub entry to be created on first fingerprint-only no-match")
+	}
+
+	var playCount1 int
+	if err := lib.DB().QueryRow(`SELECT play_count FROM collection WHERE id=?`, entry.ID).Scan(&playCount1); err != nil {
+		t.Fatalf("query first play_count: %v", err)
+	}
+	if playCount1 != 1 {
+		t.Fatalf("first play_count = %d, want 1", playCount1)
+	}
+
+	coordinator.handleNoMatch(fps, false, &backoffUntil, &backoffRateLimited)
+
+	var playCount2 int
+	if err := lib.DB().QueryRow(`SELECT play_count FROM collection WHERE id=?`, entry.ID).Scan(&playCount2); err != nil {
+		t.Fatalf("query second play_count: %v", err)
+	}
+	if playCount2 != 1 {
+		t.Fatalf("play_count after throttled no-match = %d, want 1", playCount2)
+	}
+}
+
 func TestHandleRecognitionErrorSetsBackoff(t *testing.T) {
 	m := newTestMgr()
 	c := newRecognitionCoordinator(m, &stubRecognizer{name: "A"}, nil, nil, nil, nil)

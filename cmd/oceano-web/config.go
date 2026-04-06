@@ -105,7 +105,9 @@ type RecognitionConfig struct {
 	ShazamContinuityCaptureDurationSecs int `json:"shazam_continuity_capture_duration_secs"`
 	// RecognizerChain controls which API providers are active and their order.
 	// Valid values: "acrcloud_first" (default), "shazam_first", "acrcloud_only", "shazam_only", "fingerprint_only".
-	// Local fingerprint cache is always active as a final fallback regardless.
+	// Local fingerprint cache is always active as a final fallback. If the selected
+	// provider policy resolves to no available API provider, the manager
+	// automatically falls back to fingerprint-only recognition.
 	RecognizerChain string `json:"recognizer_chain"`
 }
 

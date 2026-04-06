@@ -85,7 +85,9 @@ type Config struct {
 	ShazamPythonBin string
 	// RecognizerChain controls which API providers are included and their order.
 	// Valid values: "acrcloud_first" | "shazam_first" | "acrcloud_only" | "shazam_only" | "fingerprint_only".
-	// Local fingerprint cache is always active as a final fallback regardless.
+	// Local fingerprint cache is always active as a final fallback. If the selected
+	// policy resolves to no available API provider, recognition automatically
+	// falls back to fingerprint-only mode.
 	// Continuity monitoring always uses Shazam when available, independent of this setting.
 	RecognizerChain string
 	// ShazamContinuityInterval controls how often Shazam re-checks if the

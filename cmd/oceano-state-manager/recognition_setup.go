@@ -94,6 +94,11 @@ func buildRecognitionComponents(cfg Config) recognitionComponents {
 		}
 	}
 
+	if len(ordered) == 0 {
+		log.Printf("recognizer: chain policy=%s resolved to no available providers — falling back to local fingerprint-only mode", chain)
+		ordered = append(ordered, localOnlyRecognizer{})
+	}
+
 	// Confirmer is the secondary provider in the chain — used for cross-provider
 	// confirmation when ConfirmationDelay > 0. Single-provider chains fall back
 	// to same-provider second call.
