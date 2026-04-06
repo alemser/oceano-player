@@ -131,11 +131,11 @@ func (c *recognitionCoordinator) tryLocalFingerprintFallback(capturedFPs []Finge
 		log.Printf("recognizer: fingerprint lookup error: %v", err)
 		return false
 	}
-	if localEntry == nil || !localEntry.UserConfirmed {
+	if localEntry == nil {
 		return false
 	}
-	log.Printf("recognizer: local fingerprint fallback match (id=%d %s — %s)",
-		localEntry.ID, localEntry.Artist, localEntry.Title)
+	log.Printf("recognizer: local fingerprint fallback match (id=%d confirmed=%v %s — %s)",
+		localEntry.ID, localEntry.UserConfirmed, localEntry.Artist, localEntry.Title)
 	c.applyLocalFallbackEntry(localEntry)
 	return true
 }

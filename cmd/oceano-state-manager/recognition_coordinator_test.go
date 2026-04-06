@@ -337,6 +337,99 @@ func TestRecognitionCoordinator_ApplyLocalFallbackEntryUpdatesManagerState(t *te
 	}
 }
 
+// TestTryLocalFingerprintFallback_MatchesUnconfirmedStub verifies that the
+// fingerprint fallback returns a stub even when UserConfirmed = false.
+// This is the core "Option A" behaviour: the same unknown track is identified
+// consistently across plays without requiring the user to confirm it first.
+func TestTryLocalFingerprintFallback_MatchesUnconfirmedStub(t *testing.T) {
+	m := newTestMgr()
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{0xAABBCCDD, 0x11223344, 0x55667788, 0x99AABBCC}}
+
+	// First play: no match anywhere — stub is created.
+	var backoffUntil time.Time
+	backoffRateLimited := false
+	m.cfg.RecognizerChain = "fingerprint_only"
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.mu.Unlock()
+	coordinator.handleNoMatch(fps, true, &backoffUntil, &backoffRateLimited)
+
+	entry, err := lib.FindByFingerprints(fps, m.cfg.FingerprintThreshold, 30)
+	if err != nil || entry == nil {
+		t.Fatalf("stub not created after first no-match: err=%v entry=%v", err, entry)
+	}
+	if entry.UserConfirmed {
+		t.Fatal("stub should not be user-confirmed yet")
+	}
+
+	// Second play: fingerprint fallback must now match the unconfirmed stub.
+	matched := coordinator.tryLocalFingerprintFallback(fps)
+	if !matched {
+		t.Fatal("tryLocalFingerprintFallback returned false for unconfirmed stub — expected true")
+	}
+
+	m.mu.Lock()
+	result := m.recognitionResult
+	m.mu.Unlock()
+	if result == nil {
+		t.Fatal("recognitionResult is nil after fallback match")
+	}
+}
+
+// TestTryLocalFingerprintFallback_MatchesConfirmedStub verifies that a
+// user-confirmed stub (with title/artist filled in) is also matched and that
+// its metadata is applied.
+func TestTryLocalFingerprintFallback_MatchesConfirmedStub(t *testing.T) {
+	m := newTestMgr()
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{0x12345678, 0x9ABCDEF0, 0x11111111, 0x22222222}}
+
+	// Insert a confirmed entry directly, as the user would after filling details.
+	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30)
+	if err != nil || stub == nil {
+		t.Fatalf("UpsertStub: err=%v stub=%v", err, stub)
+	}
+	if _, err := lib.DB().Exec(
+		`UPDATE collection SET title='Dark Side', artist='Pink Floyd', user_confirmed=1 WHERE id=?`,
+		stub.ID,
+	); err != nil {
+		t.Fatalf("confirm stub: %v", err)
+	}
+
+	matched := coordinator.tryLocalFingerprintFallback(fps)
+	if !matched {
+		t.Fatal("tryLocalFingerprintFallback returned false for confirmed stub")
+	}
+
+	m.mu.Lock()
+	result := m.recognitionResult
+	m.mu.Unlock()
+	if result == nil {
+		t.Fatal("recognitionResult is nil")
+	}
+	if result.Title != "Dark Side" || result.Artist != "Pink Floyd" {
+		t.Fatalf("unexpected metadata: title=%q artist=%q", result.Title, result.Artist)
+	}
+}
+
+// TestTryLocalFingerprintFallback_NoMatch verifies that a fingerprint that
+// does not exist in the library returns false without error.
+func TestTryLocalFingerprintFallback_NoMatch(t *testing.T) {
+	m := newTestMgr()
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{0xDEADBEEF, 0xCAFEBABE, 0xFEEDFACE, 0xBAADF00D}}
+	if coordinator.tryLocalFingerprintFallback(fps) {
+		t.Fatal("expected false for fingerprint not in library")
+	}
+}
+
 func TestRecognitionCoordinator_ApplyLocalFallbackEntryLeavesFormatUnsetForNonPhysicalMedia(t *testing.T) {
 	m := newTestMgr()
 	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, nil)
