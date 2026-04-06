@@ -552,6 +552,51 @@
       padding: 2px 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .artwork-picker-thumb:hover .thumb-label { display: block; }
+
+    /* ── Amplifier / CD player control widget ── */
+    .amp-widget {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+    }
+    #amp-panel { margin-bottom: var(--gap); }
+    #cd-widget { margin-top: 10px; }
+    .amp-header {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+    }
+    .amp-title {
+      font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--text-dim);
+    }
+    .amp-status-chip {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 0.75rem; color: var(--text-dim); margin-left: auto;
+    }
+    .amp-ready-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--muted); flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .amp-ready-dot.ready { background: var(--ok-text); }
+    .amp-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .btn-amp {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-size: 0.82rem; padding: 6px 13px;
+      cursor: pointer; transition: border-color 0.15s, color 0.15s; white-space: nowrap;
+    }
+    .btn-amp:hover   { border-color: var(--accent); color: var(--accent); }
+    .btn-amp-on      { border-color: #1a3a1a !important; color: var(--ok-text) !important; }
+    .btn-amp-on:hover{ border-color: var(--ok-text) !important; }
+    .btn-amp-off     { border-color: #3a1a1a !important; color: #e06060 !important; }
+    .btn-amp-off:hover{ border-color: #e06060 !important; }
+    .amp-input-select {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-size: 0.82rem; padding: 6px 10px;
+      cursor: pointer; outline: none; transition: border-color 0.15s;
+    }
+    .amp-input-select:focus { border-color: var(--accent); }
+    .amp-divider { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -598,6 +643,42 @@
   <div id="status-right">
     <span id="status-badge" class="source-badge" style="display:none"></span>
     <div class="dot"></div>
+  </div>
+</div>
+
+<!-- Amplifier / CD player control widget -->
+<div id="amp-panel" style="display:none">
+  <div class="amp-widget">
+    <div class="amp-header">
+      <span class="amp-title" id="amp-widget-title">Amplifier</span>
+      <span class="amp-status-chip">
+        <span class="amp-ready-dot" id="amp-ready-dot"></span>
+        <span id="amp-ready-label">—</span>
+      </span>
+    </div>
+    <div class="amp-controls">
+      <button class="btn-amp btn-amp-on"  onclick="ampPower('on')"     title="Power On">⏻ On</button>
+      <button class="btn-amp btn-amp-off" onclick="ampPower('off')"    title="Power Off">⏻ Off</button>
+      <div class="amp-divider"></div>
+      <button class="btn-amp" onclick="ampVolume('down')" title="Volume Down">− Vol</button>
+      <button class="btn-amp" onclick="ampVolume('up')"   title="Volume Up">+ Vol</button>
+      <div class="amp-divider"></div>
+      <select class="amp-input-select" id="amp-input-select" onchange="ampSetInput(this.value)" title="Select input"></select>
+    </div>
+  </div>
+  <div id="cd-widget" style="display:none">
+    <div class="amp-widget">
+      <div class="amp-header">
+        <span class="amp-title" id="cd-widget-title">CD Player</span>
+      </div>
+      <div class="amp-controls">
+        <button class="btn-amp" onclick="cdTransport('prev')"  title="Previous">⏮</button>
+        <button class="btn-amp" onclick="cdTransport('stop')"  title="Stop">⏹</button>
+        <button class="btn-amp" onclick="cdTransport('play')"  title="Play">▶</button>
+        <button class="btn-amp" onclick="cdTransport('pause')" title="Pause">⏸</button>
+        <button class="btn-amp" onclick="cdTransport('next')"  title="Next">⏭</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -854,6 +935,95 @@
       </div>
     </div>
 
+    <!-- Amplifier Control -->
+    <div class="section">
+      <div class="section-title">Amplifier Control</div>
+      <p class="hint" style="margin-bottom:14px">IR control via Broadlink RM4 Mini. Requires pairing before commands work.</p>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="amp-enabled" style="width:auto;accent-color:var(--accent)" onchange="updateAmpPanel()">
+          <span>Enable amplifier control</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label><span>Maker</span></label>
+        <input type="text" id="amp-maker" placeholder="Magnat">
+      </div>
+      <div class="field">
+        <label><span>Model</span></label>
+        <input type="text" id="amp-model" placeholder="MR 780">
+      </div>
+      <div class="field">
+        <label><span>Input selection</span></label>
+        <select id="amp-input-mode">
+          <option value="cycle">Cycle (next_input IR code — e.g. Magnat MR 780)</option>
+          <option value="direct">Direct (one IR code per input)</option>
+        </select>
+        <div class="hint">Cycle: steps through inputs in order. Direct: sends a specific IR code per input.</div>
+      </div>
+      <div class="field">
+        <label><span>Default input ID</span></label>
+        <input type="text" id="amp-default-input" placeholder="USB">
+        <div class="hint">Input the amplifier is assumed to start on. Required for cycle mode.</div>
+      </div>
+      <div class="field">
+        <label><span>Warm-up delay (seconds)</span></label>
+        <input type="number" id="amp-warmup" step="1" min="0" max="120" placeholder="30">
+        <div class="hint">Delay after power-on before audio is available (e.g. 30 s for tube amps).</div>
+      </div>
+      <div class="field">
+        <label><span>Input switch delay (seconds)</span></label>
+        <input type="number" id="amp-switch-delay" step="1" min="0" max="30" placeholder="2">
+        <div class="hint">Settling time after input change before audio resumes.</div>
+      </div>
+
+      <div class="config-subsection">
+        <div class="config-subtitle">Broadlink RM4 Mini</div>
+        <div class="field">
+          <label><span>IP address</span></label>
+          <input type="text" id="amp-broadlink-host" placeholder="192.168.1.100">
+        </div>
+        <div class="field">
+          <label><span>Pairing token</span></label>
+          <input type="text" id="amp-token" placeholder="(set via pairing wizard)" readonly style="opacity:0.6;cursor:default">
+        </div>
+        <div class="field">
+          <button type="button" class="detect-btn" onclick="window.open('/pair.html','_blank')">Open Pairing Wizard ↗</button>
+          <div class="hint">Pairs the RM4 Mini and stores credentials automatically. Opens in a new tab.</div>
+        </div>
+      </div>
+
+      <div class="config-subsection">
+        <div class="config-subtitle">IR Codes</div>
+        <div class="hint">Codes are learned via the pairing wizard once the RM4 Mini is available.</div>
+        <div id="amp-ir-summary" style="margin-top:8px;font-size:0.75rem;color:var(--text-dim)">No codes configured.</div>
+      </div>
+    </div>
+
+    <!-- CD Player Control -->
+    <div class="section">
+      <div class="section-title">CD Player Control</div>
+      <p class="hint" style="margin-bottom:14px">IR transport control via Broadlink RM4 Mini.</p>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="cd-enabled" style="width:auto;accent-color:var(--accent)" onchange="updateAmpPanel()">
+          <span>Enable CD player control</span>
+        </label>
+      </div>
+      <div class="field">
+        <label><span>Maker</span></label>
+        <input type="text" id="cd-maker" placeholder="Yamaha">
+      </div>
+      <div class="field">
+        <label><span>Model</span></label>
+        <input type="text" id="cd-model" placeholder="CD-S300">
+      </div>
+      <div class="hint">Uses the same RM4 Mini as the amplifier (paired via the Amplifier wizard above).</div>
+    </div>
+
   </div><!-- .sections -->
 
   <div class="actions">
@@ -995,6 +1165,28 @@ async function loadConfig() {
   set('weather-lat',     cfg.weather?.latitude ?? 53.3498);
   set('weather-lon',     cfg.weather?.longitude ?? -6.2603);
   set('weather-refresh', cfg.weather?.refresh_mins ?? 10);
+
+  // Amplifier / CD player config
+  const ampEl = document.getElementById('amp-enabled');
+  if (ampEl) ampEl.checked = cfg.amplifier?.enabled ?? false;
+  set('amp-maker',          cfg.amplifier?.maker ?? '');
+  set('amp-model',          cfg.amplifier?.model ?? '');
+  set('amp-input-mode',     cfg.amplifier?.input_selection_mode ?? 'cycle');
+  set('amp-default-input',  cfg.amplifier?.default_input ?? '');
+  set('amp-warmup',         cfg.amplifier?.warmup_seconds ?? 30);
+  set('amp-switch-delay',   cfg.amplifier?.input_switch_delay_seconds ?? 2);
+  set('amp-broadlink-host', cfg.amplifier?.broadlink?.host ?? '');
+  set('amp-token',          cfg.amplifier?.broadlink?.token ?? '');
+  updateAmpIRSummary(cfg.amplifier?.ir_codes ?? {});
+  _ampConfig = cfg.amplifier ?? {};
+
+  const cdEl = document.getElementById('cd-enabled');
+  if (cdEl) cdEl.checked = cfg.cd_player?.enabled ?? false;
+  set('cd-maker',  cfg.cd_player?.maker ?? '');
+  set('cd-model',  cfg.cd_player?.model ?? '');
+  _cdConfig = cfg.cd_player ?? {};
+
+  updateAmpPanel();
 
   // Preserve advanced values as-is from server.
   _advancedConfig = cfg.advanced ?? {};
@@ -1195,6 +1387,23 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       latitude:       floatOr('weather-lat', 53.3498),
       longitude:      floatOr('weather-lon', -6.2603),
       refresh_mins:   intOr('weather-refresh', 10),
+    },
+    amplifier: {
+      ..._ampConfig,
+      enabled:                   document.getElementById('amp-enabled')?.checked ?? false,
+      maker:                     val('amp-maker'),
+      model:                     val('amp-model'),
+      input_selection_mode:      val('amp-input-mode') || 'cycle',
+      default_input:             val('amp-default-input'),
+      warmup_seconds:            intOr('amp-warmup', 30),
+      input_switch_delay_seconds: intOr('amp-switch-delay', 2),
+      broadlink: { ...(_ampConfig.broadlink ?? {}), host: val('amp-broadlink-host') },
+    },
+    cd_player: {
+      ..._cdConfig,
+      enabled: document.getElementById('cd-enabled')?.checked ?? false,
+      maker:   val('cd-maker'),
+      model:   val('cd-model'),
     },
   };
 
@@ -1607,11 +1816,115 @@ function closeConfig() {
   document.getElementById('config-overlay').classList.remove('open');
 }
 
+// ── Amplifier / CD player control ────────────────────────────────────────────
+let _ampConfig = {};
+let _cdConfig  = {};
+
+function updateAmpPanel() {
+  const ampEnabled = document.getElementById('amp-enabled')?.checked;
+  const cdEnabled  = document.getElementById('cd-enabled')?.checked;
+  const panel    = document.getElementById('amp-panel');
+  const cdWidget = document.getElementById('cd-widget');
+  if (panel)    panel.style.display    = ampEnabled ? '' : 'none';
+  if (cdWidget) cdWidget.style.display = (ampEnabled && cdEnabled) ? '' : 'none';
+}
+
+function updateAmpIRSummary(irCodes) {
+  const el = document.getElementById('amp-ir-summary');
+  if (!el) return;
+  const configured = Object.entries(irCodes).filter(([,v]) => v).map(([k]) => k);
+  el.textContent = configured.length
+    ? `${configured.length} configured: ${configured.join(', ')}`
+    : 'No codes configured.';
+}
+
+async function loadAmplifierState() {
+  try {
+    const r = await fetch('/api/amplifier/state');
+    if (!r.ok) return;
+    renderAmpWidget(await r.json());
+  } catch { /* not configured or offline — widget stays hidden */ }
+
+  try {
+    const r = await fetch('/api/cdplayer/state');
+    if (!r.ok) { document.getElementById('cd-widget').style.display = 'none'; return; }
+    const state = await r.json();
+    const title = document.getElementById('cd-widget-title');
+    if (title) title.textContent = `${state.maker} ${state.model}`;
+    document.getElementById('cd-widget').style.display = '';
+  } catch { /* not configured */ }
+}
+
+function renderAmpWidget(state) {
+  const panel = document.getElementById('amp-panel');
+  if (!state || !panel) return;
+  panel.style.display = '';
+
+  const title = document.getElementById('amp-widget-title');
+  if (title) title.textContent = `${state.maker} ${state.model}`;
+
+  const dot   = document.getElementById('amp-ready-dot');
+  const label = document.getElementById('amp-ready-label');
+  if (dot && label) {
+    if (!state.power_on) {
+      dot.className = 'amp-ready-dot';
+      label.textContent = 'Off';
+    } else if (state.audio_ready) {
+      dot.className = 'amp-ready-dot ready';
+      label.textContent = state.current_input?.label ?? 'Ready';
+    } else {
+      dot.className = 'amp-ready-dot';
+      label.textContent = state.audio_ready_at ? 'Warming up…' : 'Switching…';
+    }
+  }
+
+  const sel = document.getElementById('amp-input-select');
+  if (sel && Array.isArray(state.input_list)) {
+    const curId = state.current_input?.id ?? '';
+    sel.innerHTML = state.input_list.map(inp =>
+      `<option value="${esc(inp.id)}"${inp.id === curId ? ' selected' : ''}>${esc(inp.label)}</option>`
+    ).join('');
+  }
+}
+
+async function ampPower(action) {
+  await fetch('/api/amplifier/power', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({action}),
+  });
+  setTimeout(loadAmplifierState, 300);
+}
+
+async function ampVolume(direction) {
+  await fetch('/api/amplifier/volume', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({direction}),
+  });
+}
+
+async function ampSetInput(id) {
+  if (!id) return;
+  await fetch('/api/amplifier/input', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id}),
+  });
+  setTimeout(loadAmplifierState, 300);
+}
+
+async function cdTransport(action) {
+  await fetch('/api/cdplayer/transport', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({action}),
+  });
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 loadConfig();
 loadStatus();
 loadLibrary();
+loadAmplifierState();
 startLibraryAutoRefresh();
+setInterval(loadAmplifierState, 5000);
 
 // ── Power dialog ──────────────────────────────────────────────────────────────
 function openPowerDialog() {
