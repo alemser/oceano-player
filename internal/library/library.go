@@ -478,100 +478,26 @@ func (l *Library) SaveFingerprints(entryID int64, fps []recognition.Fingerprint)
 }
 
 func (l *Library) FindByFingerprints(fps []recognition.Fingerprint, threshold float64, maxShift int) (*CollectionEntry, error) {
-	if len(fps) == 0 {
-		return nil, nil
-	}
-
-	rows, err := l.db.Query(`
-		SELECT f.entry_id, f.data,
-		       COALESCE(c.acrid,''), COALESCE(c.shazam_id,''), c.title, c.artist,
-		       COALESCE(c.album,''), COALESCE(c.label,''), COALESCE(c.released,''),
-		       COALESCE(c.score,0), COALESCE(c.format,'Unknown'),
-		       COALESCE(c.track_number,''), COALESCE(c.artwork_path,''),
-		       c.play_count, c.first_played, c.last_played, c.user_confirmed
-		FROM fingerprints f
-		JOIN collection c ON c.id = f.entry_id`)
-	if err != nil {
-		return nil, fmt.Errorf("library: fingerprint scan: %w", err)
-	}
-	defer rows.Close()
-
-	type entryState struct {
-		entry     CollectionEntry
-		bestBERs  []float64
-		worstBest float64
-	}
-	entries := make(map[int64]*entryState)
-
-	for rows.Next() {
-		var entryID int64
-		var data string
-		var e CollectionEntry
-		var confirmed int
-		if err := rows.Scan(
-			&entryID, &data,
-			&e.ACRID, &e.ShazamID, &e.Title, &e.Artist,
-			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
-			&e.TrackNumber, &e.ArtworkPath,
-			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-		); err != nil {
-			return nil, fmt.Errorf("library: fingerprint row scan: %w", err)
-		}
-		e.ID = entryID
-		e.UserConfirmed = confirmed == 1
-
-		stored, parseErr := recognition.ParseFingerprint(data)
-		if parseErr != nil {
-			continue
-		}
-
-		state, ok := entries[entryID]
-		if !ok {
-			state = &entryState{entry: e, bestBERs: make([]float64, len(fps)), worstBest: 1.0}
-			for i := range state.bestBERs {
-				state.bestBERs[i] = 1.0
-			}
-			entries[entryID] = state
-		}
-		for i, fp := range fps {
-			if b := recognition.BER(fp, stored, maxShift); b < state.bestBERs[i] {
-				state.bestBERs[i] = b
-			}
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("library: fingerprint scan rows: %w", err)
-	}
-
-	var bestEntry *CollectionEntry
-	bestScore := threshold
-	for _, state := range entries {
-		state.worstBest = 0.0
-		for _, b := range state.bestBERs {
-			if b > state.worstBest {
-				state.worstBest = b
-			}
-		}
-		label := state.entry.Artist + " — " + state.entry.Title
-		if label == " — " {
-			label = fmt.Sprintf("stub id=%d", state.entry.ID)
-		}
-		log.Printf("library: fingerprint candidate id=%d %q worst-best-ber=%.3f threshold=%.2f", state.entry.ID, label, state.worstBest, threshold)
-		if state.worstBest < bestScore {
-			bestScore = state.worstBest
-			e := state.entry
-			bestEntry = &e
-		}
-	}
-	return bestEntry, nil
+	return l.findByFingerprintsWithFilter(fps, threshold, maxShift, "", "fingerprint", true)
 }
 
 func (l *Library) FindConfirmedByFingerprints(fps []recognition.Fingerprint, threshold float64, maxShift int) (*CollectionEntry, error) {
+	return l.findByFingerprintsWithFilter(
+		fps,
+		threshold,
+		maxShift,
+		"WHERE c.user_confirmed = 1 AND c.title != '' AND c.artist != ''",
+		"confirmed fingerprint",
+		false,
+	)
+}
+
+func (l *Library) findByFingerprintsWithFilter(fps []recognition.Fingerprint, threshold float64, maxShift int, whereClause, logScope string, labelFallbackToStub bool) (*CollectionEntry, error) {
 	if len(fps) == 0 {
 		return nil, nil
 	}
 
-	rows, err := l.db.Query(`
+	query := `
 		SELECT f.entry_id, f.data,
 		       COALESCE(c.acrid,''), COALESCE(c.shazam_id,''), c.title, c.artist,
 		       COALESCE(c.album,''), COALESCE(c.label,''), COALESCE(c.released,''),
@@ -579,10 +505,14 @@ func (l *Library) FindConfirmedByFingerprints(fps []recognition.Fingerprint, thr
 		       COALESCE(c.track_number,''), COALESCE(c.artwork_path,''),
 		       c.play_count, c.first_played, c.last_played, c.user_confirmed
 		FROM fingerprints f
-		JOIN collection c ON c.id = f.entry_id
-		WHERE c.user_confirmed = 1 AND c.title != '' AND c.artist != ''`)
+		JOIN collection c ON c.id = f.entry_id`
+	if whereClause != "" {
+		query += "\n\t\t" + whereClause
+	}
+
+	rows, err := l.db.Query(query)
 	if err != nil {
-		return nil, fmt.Errorf("library: confirmed fingerprint scan: %w", err)
+		return nil, fmt.Errorf("library: %s scan: %w", logScope, err)
 	}
 	defer rows.Close()
 
@@ -605,7 +535,7 @@ func (l *Library) FindConfirmedByFingerprints(fps []recognition.Fingerprint, thr
 			&e.TrackNumber, &e.ArtworkPath,
 			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
 		); err != nil {
-			return nil, fmt.Errorf("library: confirmed fingerprint row scan: %w", err)
+			return nil, fmt.Errorf("library: %s row scan: %w", logScope, err)
 		}
 		e.ID = entryID
 		e.UserConfirmed = confirmed == 1
@@ -630,7 +560,7 @@ func (l *Library) FindConfirmedByFingerprints(fps []recognition.Fingerprint, thr
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("library: confirmed fingerprint scan rows: %w", err)
+		return nil, fmt.Errorf("library: %s scan rows: %w", logScope, err)
 	}
 
 	var bestEntry *CollectionEntry
@@ -643,7 +573,10 @@ func (l *Library) FindConfirmedByFingerprints(fps []recognition.Fingerprint, thr
 			}
 		}
 		label := state.entry.Artist + " — " + state.entry.Title
-		log.Printf("library: confirmed fingerprint candidate id=%d %q worst-best-ber=%.3f threshold=%.2f", state.entry.ID, label, state.worstBest, threshold)
+		if label == " — " && labelFallbackToStub {
+			label = fmt.Sprintf("stub id=%d", state.entry.ID)
+		}
+		log.Printf("library: %s candidate id=%d %q worst-best-ber=%.3f threshold=%.2f", logScope, state.entry.ID, label, state.worstBest, threshold)
 		if state.worstBest < bestScore {
 			bestScore = state.worstBest
 			e := state.entry

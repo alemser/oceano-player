@@ -69,6 +69,10 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		_ = l.db.Close()
 		return nil, fmt.Errorf("library: set PRAGMA synchronous=NORMAL: %w", err)
 	}
+	if _, err := l.db.Exec(`PRAGMA foreign_keys=ON`); err != nil {
+		_ = l.db.Close()
+		return nil, fmt.Errorf("library: set PRAGMA foreign_keys=ON: %w", err)
+	}
 	if _, err := l.db.Exec(`CREATE TABLE IF NOT EXISTS fingerprints (
 		id       INTEGER PRIMARY KEY AUTOINCREMENT,
 		entry_id INTEGER NOT NULL REFERENCES collection(id) ON DELETE CASCADE,

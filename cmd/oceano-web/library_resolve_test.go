@@ -135,7 +135,9 @@ func TestResolveEndpoint_RejectsNonStubSource(t *testing.T) {
 	registerLibraryRoutes(mux, dbPath, statePath, t.TempDir())
 
 	// Entry 1 is a confirmed track, not a stub, and must be rejected as source.
-	req := httptest.NewRequest(http.MethodPost, "/api/library/1/resolve", strings.NewReader(`{"target_id":1}`))
+	// Use target_id=2 so rejection happens because source id=1 is not an
+	// unresolved stub, not because source and target IDs are equal.
+	req := httptest.NewRequest(http.MethodPost, "/api/library/1/resolve", strings.NewReader(`{"target_id":2}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)

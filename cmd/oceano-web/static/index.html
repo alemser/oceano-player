@@ -1377,6 +1377,7 @@ let _editingId = null;
 let _libraryAutoTimer = null;
 let _librarySignature = '';
 let _resolveSearchTimer = null;
+let _resolveSearchRequestId = 0;
 
 function librarySignature(items) {
   return (items || []).map(e => [
@@ -1559,17 +1560,21 @@ function searchResolveTargets() {
   if (!out) return;
   if (_resolveSearchTimer) clearTimeout(_resolveSearchTimer);
   _resolveSearchTimer = setTimeout(async () => {
+    const requestId = ++_resolveSearchRequestId;
     if (q.length < 2) {
+      if (requestId !== _resolveSearchRequestId) return;
       out.innerHTML = '<div class="resolve-empty">Type at least 2 characters to search.</div>';
       return;
     }
     try {
       const r = await fetch(`/api/library/search?q=${encodeURIComponent(q)}&limit=12`);
+      if (requestId !== _resolveSearchRequestId) return;
       if (!r.ok) {
         out.innerHTML = '<div class="resolve-empty">Search failed.</div>';
         return;
       }
       const rows = await r.json();
+      if (requestId !== _resolveSearchRequestId) return;
       if (!Array.isArray(rows) || rows.length === 0) {
         out.innerHTML = '<div class="resolve-empty">No matches found.</div>';
         return;
@@ -1584,6 +1589,7 @@ function searchResolveTargets() {
         </div>
       `).join('');
     } catch {
+      if (requestId !== _resolveSearchRequestId) return;
       out.innerHTML = '<div class="resolve-empty">Search failed.</div>';
     }
   }, 220);
