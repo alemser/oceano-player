@@ -665,18 +665,36 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			currentResult := c.mgr.recognitionResult
 			c.mgr.mu.Unlock()
 			if currentResult != nil && sameTrackByProviderIDs(currentResult, result) {
+				if isBoundaryTrigger {
+					retry := c.mgr.cfg.NoMatchBackoff
+					if retry <= 0 {
+						retry = 15 * time.Second
+					}
+					log.Printf("recognizer [%s]: boundary trigger returned same track (%s — %s) — retrying in %s",
+						c.rec.Name(), result.Artist, result.Title, retry)
+					backoffUntil = time.Now().Add(retry)
+					backoffRateLimited = false
+					continue
+				}
+
 				log.Printf("recognizer [%s]: same track confirmed — no change (%s — %s)", c.rec.Name(), result.Artist, result.Title)
+				shouldMarkDirty := false
 				c.mgr.mu.Lock()
 				c.mgr.lastRecognizedAt = time.Now()
 				if c.mgr.recognitionResult != nil {
 					if c.mgr.recognitionResult.ACRID == "" && result.ACRID != "" {
 						c.mgr.recognitionResult.ACRID = result.ACRID
+						shouldMarkDirty = true
 					}
 					if c.mgr.recognitionResult.ShazamID == "" && result.ShazamID != "" {
 						c.mgr.recognitionResult.ShazamID = result.ShazamID
+						shouldMarkDirty = true
 					}
 				}
 				c.mgr.mu.Unlock()
+				if shouldMarkDirty {
+					c.mgr.markDirty()
+				}
 				continue
 			}
 
