@@ -623,22 +623,28 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			c.mgr.cfg.FingerprintWindows, c.mgr.cfg.FingerprintStrideSec,
 			c.mgr.cfg.FingerprintLengthSec, captureSec)
 
-		if localEntry := c.lookupLocalFingerprintLocalFirst(capturedFPs); localEntry != nil {
-			c.mgr.mu.Lock()
-			currentResult := c.mgr.recognitionResult
-			c.mgr.mu.Unlock()
-			if shouldShortCircuitLocalFirst(currentResult, localEntry) {
-				log.Printf("recognizer: local-first fingerprint match (id=%d %s — %s)",
-					localEntry.ID, localEntry.Artist, localEntry.Title)
-				c.applyLocalFallbackEntry(localEntry)
-				drained := c.drainPendingTriggers()
-				log.Printf("recognizer [%s]: local-first matched; pending triggers drained=%d", c.rec.Name(), drained)
-				os.Remove(wavPath)
-				backoffUntil = time.Time{}
-				backoffRateLimited = false
-				continue
+		// Local-first short-circuit is skipped on boundary triggers: a boundary means
+		// the track changed, so the local fingerprint match may be the previous track
+		// (residual audio or a fingerprint overlap). Always use the remote provider to
+		// confirm what is actually playing after a boundary.
+		if !isBoundaryTrigger {
+			if localEntry := c.lookupLocalFingerprintLocalFirst(capturedFPs); localEntry != nil {
+				c.mgr.mu.Lock()
+				currentResult := c.mgr.recognitionResult
+				c.mgr.mu.Unlock()
+				if shouldShortCircuitLocalFirst(currentResult, localEntry) {
+					log.Printf("recognizer: local-first fingerprint match (id=%d %s — %s)",
+						localEntry.ID, localEntry.Artist, localEntry.Title)
+					c.applyLocalFallbackEntry(localEntry)
+					drained := c.drainPendingTriggers()
+					log.Printf("recognizer [%s]: local-first matched; pending triggers drained=%d", c.rec.Name(), drained)
+					os.Remove(wavPath)
+					backoffUntil = time.Time{}
+					backoffRateLimited = false
+					continue
+				}
+				log.Printf("recognizer [%s]: local-first matched current track — continuing provider chain", c.rec.Name())
 			}
-			log.Printf("recognizer [%s]: local-first matched current track — continuing provider chain", c.rec.Name())
 		}
 
 		result, err := c.rec.Recognize(ctx, wavPath)
