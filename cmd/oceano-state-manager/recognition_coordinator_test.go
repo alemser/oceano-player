@@ -161,6 +161,54 @@ func TestHandleNoMatch_FingerprintOnlySkipsStubWhenTrackAlreadyRecognized(t *tes
 	}
 }
 
+func TestHandleNoMatch_FingerprintOnlyEnrichesPendingStubAcrossRetries(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.RecognizerChain = "fingerprint_only"
+	m.cfg.FingerprintThreshold = 0
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.mu.Unlock()
+
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
+
+	fps1 := []Fingerprint{{1, 2, 3, 4}}
+	fps2 := []Fingerprint{{999, 998, 997, 996}} // intentionally different: no local fallback hit
+	var backoffUntil time.Time
+	backoffRateLimited := false
+
+	coordinator.handleNoMatch(fps1, false, &backoffUntil, &backoffRateLimited)
+
+	m.mu.Lock()
+	pendingID := m.pendingStubID
+	m.mu.Unlock()
+	if pendingID == 0 {
+		t.Fatal("expected pendingStubID to be set after first stub creation")
+	}
+
+	var beforeCount int
+	if err := lib.DB().QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id=?`, pendingID).Scan(&beforeCount); err != nil {
+		t.Fatalf("count fingerprints before enrich: %v", err)
+	}
+
+	coordinator.handleNoMatch(fps2, false, &backoffUntil, &backoffRateLimited)
+
+	m.mu.Lock()
+	pendingID2 := m.pendingStubID
+	m.mu.Unlock()
+	if pendingID2 != pendingID {
+		t.Fatalf("pendingStubID changed across retries: got %d want %d", pendingID2, pendingID)
+	}
+
+	var afterCount int
+	if err := lib.DB().QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id=?`, pendingID).Scan(&afterCount); err != nil {
+		t.Fatalf("count fingerprints after enrich: %v", err)
+	}
+	if afterCount <= beforeCount {
+		t.Fatalf("expected fingerprint rows to increase after enrich, before=%d after=%d", beforeCount, afterCount)
+	}
+}
+
 func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
 	m := newTestMgr()
 	m.cfg.RecognizerChain = "fingerprint_only"
@@ -191,6 +239,52 @@ func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
 	defer m.mu.Unlock()
 	if m.recognitionResult == nil {
 		t.Fatal("expected recognitionResult to be set by local fallback")
+	}
+}
+
+func TestApplyRecognizedResult_PromotesPendingStubFingerprints(t *testing.T) {
+	m := newTestMgr()
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{42, 43, 44, 45}}
+	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30)
+	if err != nil || stub == nil {
+		t.Fatalf("UpsertStub: err=%v stub=%v", err, stub)
+	}
+
+	m.mu.Lock()
+	m.pendingStubID = stub.ID
+	m.mu.Unlock()
+
+	result := &RecognitionResult{
+		ACRID:  "acr-promote-1",
+		Title:  "Promoted Song",
+		Artist: "Promoted Artist",
+		Score:  90,
+	}
+	coordinator.applyRecognizedResult(result, nil, false, false, false)
+
+	entry, err := lib.Lookup("acr-promote-1")
+	if err != nil || entry == nil {
+		t.Fatalf("Lookup promoted entry: err=%v entry=%v", err, entry)
+	}
+	if !lib.HasFingerprints(entry.ID) {
+		t.Fatal("expected promoted entry to have fingerprints")
+	}
+
+	var remaining int
+	if err := lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&remaining); err != nil {
+		t.Fatalf("count old stub row: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expected old stub to be pruned after promotion, found %d row(s)", remaining)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.pendingStubID != 0 {
+		t.Fatalf("pendingStubID = %d, want 0 after successful promotion", m.pendingStubID)
 	}
 }
 

@@ -240,6 +240,10 @@ type mgr struct {
 	// multiple boundary triggers within the same track (brief musical pauses,
 	// run-out groove noise at end of side, etc.).
 	lastStubAt time.Time
+	// pendingStubID tracks the unresolved stub currently being enriched by
+	// retry attempts within the same boundary/session. Subsequent no-match
+	// retries append fingerprints to this stub instead of creating new rows.
+	pendingStubID int64
 	// lastRecognizedAt is the time of the most recent successful recognition.
 	// Used by the fallback timer to allow periodic re-checks when no VU boundary
 	// trigger fires (e.g. gapless albums with no audible silence between tracks).

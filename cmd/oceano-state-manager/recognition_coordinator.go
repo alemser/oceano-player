@@ -113,6 +113,7 @@ func (c *recognitionCoordinator) applyLocalFallbackEntry(entry *internallibrary.
 		Format:   entry.Format,
 	}
 	c.mgr.lastRecognizedAt = time.Now()
+	c.mgr.pendingStubID = 0
 	c.mgr.shazamContinuityReady = entry.ShazamID != ""
 	if isPhysicalFormat(entry.Format) {
 		c.mgr.physicalFormat = entry.Format
@@ -216,6 +217,7 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 		lastBoundary := c.mgr.lastBoundaryAt
 		stillPhysical := c.mgr.physicalSource == "Physical"
 		hasRecognition := c.mgr.recognitionResult != nil
+		pendingStubID := c.mgr.pendingStubID
 		c.mgr.mu.Unlock()
 
 		if c.mgr.cfg.RecognizerChain == "fingerprint_only" {
@@ -225,8 +227,23 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 			}
 			if !stillPhysical {
 				log.Printf("recognizer: stub skipped — source is no longer Physical (run-out groove or disc removed)")
+				c.mgr.mu.Lock()
+				c.mgr.pendingStubID = 0
+				c.mgr.mu.Unlock()
 			} else if hasRecognition {
 				log.Printf("recognizer: fingerprint-only stub skipped — already holding recognized track")
+				c.mgr.mu.Lock()
+				c.mgr.pendingStubID = 0
+				c.mgr.mu.Unlock()
+			} else if pendingStubID > 0 {
+				if saveErr := c.lib.SaveFingerprints(pendingStubID, capturedFPs); saveErr != nil {
+					log.Printf("recognizer: pending stub enrich error (id=%d): %v", pendingStubID, saveErr)
+					c.mgr.mu.Lock()
+					c.mgr.pendingStubID = 0
+					c.mgr.mu.Unlock()
+				} else {
+					log.Printf("recognizer: fingerprint-only no-match enriched pending stub (id=%d)", pendingStubID)
+				}
 			} else if !shouldCreateFingerprintOnlyStub(lastStub, lastBoundary, stillPhysical, minInterval) {
 				log.Printf("recognizer: fingerprint-only stub skipped — throttle active (lastStub=%s, minInterval=%s)", lastStub.Format(time.RFC3339), minInterval)
 			} else if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {
@@ -235,6 +252,7 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 				log.Printf("recognizer: fingerprint-only no-match stub stored (id=%d)", stub.ID)
 				c.mgr.mu.Lock()
 				c.mgr.lastStubAt = time.Now()
+				c.mgr.pendingStubID = stub.ID
 				c.mgr.mu.Unlock()
 			}
 		} else if shouldCreateBoundaryStub(lastStub, lastBoundary, stillPhysical) {
@@ -244,10 +262,14 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 				log.Printf("recognizer: fingerprint stub stored (id=%d)", stub.ID)
 				c.mgr.mu.Lock()
 				c.mgr.lastStubAt = time.Now()
+				c.mgr.pendingStubID = stub.ID
 				c.mgr.mu.Unlock()
 			}
 		} else if !stillPhysical {
 			log.Printf("recognizer: stub skipped — source is no longer Physical (run-out groove or disc removed)")
+			c.mgr.mu.Lock()
+			c.mgr.pendingStubID = 0
+			c.mgr.mu.Unlock()
 		} else {
 			log.Printf("recognizer: stub skipped — already created for this boundary (lastStub=%s)", lastStub.Format(time.RFC3339))
 		}
@@ -386,6 +408,10 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 
 func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult, capturedFPs []Fingerprint, isBoundaryTrigger bool, isShazamFallback bool, shazamMatchedACR bool) {
 	if c.lib != nil {
+		c.mgr.mu.Lock()
+		pendingStubID := c.mgr.pendingStubID
+		c.mgr.mu.Unlock()
+
 		artworkPath := ""
 		if entry, lookupErr := c.lib.LookupByIDs(result.ACRID, result.ShazamID); lookupErr != nil {
 			log.Printf("recognizer: library lookup error: %v", lookupErr)
@@ -414,6 +440,13 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		if recErr != nil {
 			log.Printf("recognizer: library record error: %v", recErr)
 		} else if entryID > 0 {
+			if pendingStubID > 0 && pendingStubID != entryID {
+				if promoteErr := c.lib.PromoteStubFingerprints(pendingStubID, entryID); promoteErr != nil {
+					log.Printf("recognizer: promote pending stub fingerprints error (stub=%d target=%d): %v", pendingStubID, entryID, promoteErr)
+				} else {
+					log.Printf("recognizer: promoted pending stub fingerprints (stub=%d target=%d)", pendingStubID, entryID)
+				}
+			}
 			if len(capturedFPs) > 0 && isBoundaryTrigger && !c.lib.HasFingerprints(entryID) {
 				if fpErr := c.lib.SaveFingerprints(entryID, capturedFPs); fpErr != nil {
 					log.Printf("recognizer: save fingerprints error: %v", fpErr)
@@ -430,6 +463,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.mu.Lock()
 		c.mgr.recognitionResult = result
 		c.mgr.lastRecognizedAt = time.Now()
+		c.mgr.pendingStubID = 0
 		c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
 		if isPhysicalFormat(result.Format) {
 			c.mgr.physicalFormat = result.Format
@@ -537,6 +571,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			skip = time.Duration(c.mgr.cfg.FingerprintBoundaryLeadSkipSecs) * time.Second
 			c.mgr.mu.Lock()
 			c.mgr.lastBoundaryAt = time.Now()
+			c.mgr.pendingStubID = 0
 			c.mgr.mu.Unlock()
 		}
 

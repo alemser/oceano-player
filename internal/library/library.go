@@ -658,6 +658,32 @@ func (l *Library) PruneStub(id int64) error {
 	return err
 }
 
+// PromoteStubFingerprints moves all fingerprint rows from an unresolved stub to
+// an identified entry, then prunes the source stub if it is still unresolved.
+func (l *Library) PromoteStubFingerprints(stubID, entryID int64) error {
+	if stubID <= 0 || entryID <= 0 || stubID == entryID {
+		return nil
+	}
+
+	tx, err := l.db.Begin()
+	if err != nil {
+		return fmt.Errorf("library: promote stub fingerprints begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.Exec(`UPDATE fingerprints SET entry_id=? WHERE entry_id=?`, entryID, stubID); err != nil {
+		return fmt.Errorf("library: promote stub fingerprints move: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM collection WHERE id=? AND title='' AND artist='' AND user_confirmed=0`, stubID); err != nil {
+		return fmt.Errorf("library: promote stub fingerprints prune: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("library: promote stub fingerprints commit: %w", err)
+	}
+	return nil
+}
+
 func (l *Library) PruneMatchingStubs(fps []recognition.Fingerprint, threshold float64, maxShift int, excludeID int64) {
 	if len(fps) == 0 {
 		return
