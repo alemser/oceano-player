@@ -242,6 +242,47 @@ func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
 	}
 }
 
+func TestHandleNoMatch_BoundaryKeepsExistingRecognition(t *testing.T) {
+	m := newTestMgr()
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{
+		ACRID:  "acr-existing",
+		Title:  "Existing Track",
+		Artist: "Existing Artist",
+	}
+	m.physicalArtworkPath = "/tmp/existing.jpg"
+	m.shazamContinuityReady = true
+	m.mu.Unlock()
+
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, nil)
+
+	var backoffUntil time.Time
+	backoffRateLimited := false
+	coordinator.handleNoMatch(nil, true, &backoffUntil, &backoffRateLimited)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recognitionResult == nil {
+		t.Fatal("expected recognitionResult to be preserved on boundary no-match")
+	}
+	if m.recognitionResult.ACRID != "acr-existing" {
+		t.Fatalf("ACRID changed unexpectedly: got %q", m.recognitionResult.ACRID)
+	}
+	if m.physicalArtworkPath != "/tmp/existing.jpg" {
+		t.Fatalf("physicalArtworkPath changed unexpectedly: got %q", m.physicalArtworkPath)
+	}
+	if !m.shazamContinuityReady {
+		t.Fatal("shazamContinuityReady unexpectedly cleared")
+	}
+	if backoffUntil.IsZero() {
+		t.Fatal("expected no-match backoff to be scheduled")
+	}
+	if backoffRateLimited {
+		t.Fatal("expected non-rate-limit backoff")
+	}
+}
+
 func TestApplyRecognizedResult_PromotesPendingStubFingerprints(t *testing.T) {
 	m := newTestMgr()
 	lib := openTestLibrary(t)
