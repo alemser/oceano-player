@@ -35,6 +35,12 @@ type AmplifierSettings struct {
 	// Cycle mode keys: "power_on", "power_off", "volume_up", "volume_down", "next_input"
 	// Direct mode adds: "input_<ID>" for each input (e.g. "input_USB", "input_PHONO")
 	IRCodes map[string]string
+
+	// VUSocketPath is the Unix socket path for the VU frame stream produced by
+	// oceano-source-detector (default /tmp/oceano-vu.sock). Used by
+	// DetectPowerState to read the REC-OUT noise floor (Check 2).
+	// Leave empty to skip noise floor analysis.
+	VUSocketPath string
 }
 
 // BroadlinkAmplifier implements Amplifier for any IR-controlled amplifier
@@ -256,6 +262,34 @@ func (a *BroadlinkAmplifier) CurrentState() (bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.powerOn, nil
+}
+
+// DetectPowerState probes the hardware through a three-check cascade:
+//
+//  1. USB DAC discovery — if the amplifier model appears in "aplay -l", the amp
+//     is on with its USB Audio input selected.
+//  2. REC-OUT noise floor — reads the VU socket for ~3 s and classifies the
+//     average RMS against calibrated thresholds for the Magnat MR 780.
+//  3. Blind IR probe — stub; requires Broadlink RM4 Mini (Milestone 5).
+func (a *BroadlinkAmplifier) DetectPowerState(ctx context.Context) (PowerState, error) {
+	// Check 1: USB DAC presence.
+	if checkUSBDAC(a.settings.Model) {
+		return PowerStateOn, nil
+	}
+
+	// Check 2: REC-OUT noise floor via VU socket.
+	if a.settings.VUSocketPath != "" {
+		rms, err := checkNoiseFloor(ctx, a.settings.VUSocketPath)
+		if err == nil {
+			if state := classifyNoiseFloor(rms); state != PowerStateUnknown {
+				return state, nil
+			}
+		}
+	}
+
+	// Check 3: Blind IR probe — TODO(M5): send USB-input IR code, wait warmup, re-run Check 1.
+
+	return PowerStateUnknown, nil
 }
 
 func (a *BroadlinkAmplifier) WarmupTimeSeconds() int       { return a.settings.WarmupSecs }

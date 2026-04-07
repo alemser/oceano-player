@@ -1,6 +1,26 @@
 package amplifier
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
+
+// PowerState represents the detected hardware power state of a device.
+type PowerState string
+
+const (
+	// PowerStateOn indicates the device is powered on and responsive.
+	// Confirmed by USB DAC presence or REC-OUT noise floor above the on-threshold.
+	PowerStateOn PowerState = "on"
+
+	// PowerStateOff indicates the device is powered off or in standby.
+	// Inferred from a low-but-present REC-OUT noise floor (amp noise floor absent).
+	PowerStateOff PowerState = "off"
+
+	// PowerStateUnknown means no check could conclusively determine the state.
+	// Either no detection method is available, or all checks were inconclusive.
+	PowerStateUnknown PowerState = "unknown"
+)
 
 // ErrNotSupported is returned by RemoteDevice methods that are not available
 // on a particular device (e.g. CurrentTrack() on an amplifier).
@@ -52,8 +72,15 @@ type Amplifier interface {
 	// NextInput cycles to the next input in InputList order.
 	NextInput() error
 
-	// CurrentState returns whether the amplifier is powered on.
+	// CurrentState returns whether the amplifier is powered on according to
+	// the internal software state machine (based on IR commands sent).
 	CurrentState() (powerOn bool, err error)
+
+	// DetectPowerState probes the hardware to determine the actual power state.
+	// Unlike CurrentState, this performs real I/O: USB device scan, REC-OUT
+	// noise floor analysis, and (in Milestone 5) a blind IR probe.
+	// The context controls the total detection timeout.
+	DetectPowerState(ctx context.Context) (PowerState, error)
 
 	// WarmupTimeSeconds is the delay (in seconds) after PowerOn before audio
 	// is available (e.g. 30 for the Magnat MR 780 tube pre-amp).

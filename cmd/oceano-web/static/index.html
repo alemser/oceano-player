@@ -573,6 +573,18 @@
       display: flex; align-items: center; gap: 6px;
       font-size: 0.75rem; color: var(--text-dim); margin-left: auto;
     }
+    .amp-detected-chip {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 0.72rem; color: var(--text-dim);
+      border: 1px solid var(--border); border-radius: 20px;
+      padding: 2px 9px 2px 7px; margin-left: 6px;
+    }
+    .amp-detected-dot {
+      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+      background: var(--muted); transition: background 0.3s;
+    }
+    .amp-detected-dot.ps-on  { background: #4cba80; }
+    .amp-detected-dot.ps-off { background: #e05e5e; }
     .amp-ready-dot {
       width: 6px; height: 6px; border-radius: 50%;
       background: var(--muted); flex-shrink: 0;
@@ -654,6 +666,10 @@
       <span class="amp-status-chip">
         <span class="amp-ready-dot" id="amp-ready-dot"></span>
         <span id="amp-ready-label">—</span>
+      </span>
+      <span class="amp-detected-chip" id="amp-detected-chip" style="display:none" title="Hardware-detected power state">
+        <span class="amp-detected-dot" id="amp-detected-dot"></span>
+        <span id="amp-detected-label">—</span>
       </span>
     </div>
     <div class="amp-controls">
@@ -1884,6 +1900,18 @@ function renderAmpWidget(state) {
     sel.innerHTML = state.input_list.map(inp =>
       `<option value="${esc(inp.id)}"${inp.id === curId ? ' selected' : ''}>${esc(inp.label)}</option>`
     ).join('');
+  }
+
+  const detectedChip  = document.getElementById('amp-detected-chip');
+  const detectedDot   = document.getElementById('amp-detected-dot');
+  const detectedLabel = document.getElementById('amp-detected-label');
+  if (detectedChip && detectedDot && detectedLabel) {
+    const ps = state.detected_power_state ?? 'unknown';
+    detectedChip.style.display = 'flex';
+    detectedDot.className = `amp-detected-dot${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
+    detectedLabel.textContent = ps === 'on' ? 'Detected: On' :
+                                ps === 'off' ? 'Detected: Off' : 'Detected: —';
+    detectedChip.title = `Hardware-detected power state: ${ps}`;
   }
 }
 

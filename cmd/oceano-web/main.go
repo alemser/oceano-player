@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -14,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/alemser/oceano-player/internal/amplifier"
 )
 
 //go:embed static
@@ -174,12 +177,20 @@ func main() {
 	registerBackupRoute(mux, *libraryDB, cfg.Advanced.ArtworkDir)
 
 	// API: amplifier and CD player IR control.
-	amp, err := buildAmplifierFromConfig(cfg.Amplifier)
+	amp, err := buildAmplifierFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket)
 	if err != nil {
 		log.Printf("amplifier config error: %v (amplifier control disabled)", err)
 	}
 	cdPlayer := buildCDPlayerFromConfig(cfg.CDPlayer)
-	registerAmplifierRoutes(mux, amp, cdPlayer, *configPath)
+
+	// Power state monitor: polls hardware every 30 s, broadcasts changes to
+	// subscribers (REST handlers, future SSE enrichment, auto-switch logic).
+	var powerMonitor *amplifier.PowerStateMonitor
+	if amp != nil {
+		powerMonitor = amplifier.NewPowerStateMonitor(amp, 30*time.Second)
+		go powerMonitor.Start(context.Background())
+	}
+	registerAmplifierRoutes(mux, amp, cdPlayer, powerMonitor, *configPath)
 
 	// Scheduled backup: generate a fresh backup every 24 hours.
 	// The backup is written to the same directory as the library database.

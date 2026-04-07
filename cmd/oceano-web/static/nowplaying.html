@@ -566,6 +566,39 @@
 
     .pulsing { animation: pulse 1.8s ease-in-out infinite; }
 
+    /* Amplifier power state indicator — fixed bottom-right, shown only when
+       an amplifier is configured. Designed for living-room viewing distance. */
+    #amp-indicator {
+      position: fixed;
+      bottom: 22px; right: 22px;
+      display: none; /* shown via JS once amp state is loaded */
+      align-items: center;
+      gap: 9px;
+      background: rgba(7, 9, 15, 0.82);
+      border: 1px solid var(--border);
+      border-radius: 26px;
+      padding: 9px 16px 9px 12px;
+      cursor: pointer;
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+      transition: border-color 0.25s;
+      color: var(--text-dim);
+    }
+    #amp-indicator:hover { border-color: var(--accent); }
+    #amp-indicator svg { width: 22px; height: 22px; flex-shrink: 0; opacity: 0.7; }
+    #amp-power-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: var(--text-faint);
+      transition: background 0.4s;
+    }
+    #amp-power-dot.ps-on  { background: #4cba80; }
+    #amp-power-dot.ps-off { background: #e05e5e; }
+    #amp-indicator-label {
+      font-size: 0.73rem;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
   </style>
 </head>
 <body>
@@ -610,6 +643,23 @@
     </div>
   </div>
 </div>
+
+<!-- Amplifier power state indicator.
+     Shown only when an amplifier is configured. Clicking it will open an
+     input-selector dialog in a future milestone. -->
+<button id="amp-indicator" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
+  <!-- Stylised amplifier icon: front-panel rectangle + speaker cone + knobs -->
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect x="2" y="5" width="20" height="14" rx="2.5" stroke="currentColor" stroke-width="1.5"/>
+    <circle cx="8.5" cy="12" r="3.5" stroke="currentColor" stroke-width="1.4"/>
+    <circle cx="8.5" cy="12" r="1.2" fill="currentColor" opacity="0.55"/>
+    <line x1="14.5" y1="9"  x2="20" y2="9"  stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.45"/>
+    <line x1="14.5" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.45"/>
+    <line x1="14.5" y1="15" x2="18" y2="15" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.45"/>
+  </svg>
+  <span id="amp-power-dot"></span>
+  <span id="amp-indicator-label">—</span>
+</button>
 
 <!-- Main playing UI -->
 <div id="app">
@@ -1223,6 +1273,37 @@ function connect() {
 
 // Kick off initial connection.
 connect();
+
+// ─── Amplifier power state indicator ─────────────────────────────────────────
+
+async function loadAmpPowerState() {
+  try {
+    const r = await fetch('/api/amplifier/state');
+    if (!r.ok) return; // 404 → amp not configured; keep indicator hidden
+    const s = await r.json();
+
+    const indicator = document.getElementById('amp-indicator');
+    const dot       = document.getElementById('amp-power-dot');
+    const lbl       = document.getElementById('amp-indicator-label');
+    if (!indicator) return;
+
+    indicator.style.display = 'flex';
+    const ps    = s.detected_power_state ?? 'unknown';
+    const model = s.model ?? s.maker ?? 'Amp';
+
+    dot.className = ps === 'on' ? 'ps-on' : ps === 'off' ? 'ps-off' : '';
+    lbl.textContent = ps === 'on'  ? `${model} · On`  :
+                      ps === 'off' ? `${model} · Off` : model;
+    indicator.title = `${s.maker} ${s.model} — detected: ${ps}`;
+  } catch { /* network error or amp not available — leave indicator hidden */ }
+}
+
+function ampIndicatorClick() {
+  // TODO(future): open input-selector dialog
+}
+
+loadAmpPowerState();
+setInterval(loadAmpPowerState, 30_000);
 </script>
 </body>
 </html>

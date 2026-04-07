@@ -16,6 +16,7 @@ type amplifierServer struct {
 	configPath string
 	amp        *amplifier.BroadlinkAmplifier
 	cdPlayer   *amplifier.BroadlinkCDPlayer
+	monitor    *amplifier.PowerStateMonitor // nil when amp is not configured
 
 	pairMu    sync.Mutex
 	pairState *pairingAttempt
@@ -30,12 +31,13 @@ type pairingAttempt struct {
 }
 
 // registerAmplifierRoutes wires all /api/amplifier/* and /api/cdplayer/* endpoints.
-// amp and cdPlayer may be nil; affected endpoints return 404 in that case.
-func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifier, cdPlayer *amplifier.BroadlinkCDPlayer, configPath string) {
+// amp, cdPlayer, and monitor may be nil; affected endpoints return 404 in that case.
+func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifier, cdPlayer *amplifier.BroadlinkCDPlayer, monitor *amplifier.PowerStateMonitor, configPath string) {
 	s := &amplifierServer{
 		configPath: configPath,
 		amp:        amp,
 		cdPlayer:   cdPlayer,
+		monitor:    monitor,
 	}
 	mux.HandleFunc("/api/amplifier/state", s.handleAmplifierState)
 	mux.HandleFunc("/api/amplifier/power", s.handleAmplifierPower)
@@ -52,17 +54,21 @@ func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifi
 // --- response types ---
 
 type amplifierStateResponse struct {
-	Maker                   string          `json:"maker"`
-	Model                   string          `json:"model"`
-	PowerOn                 bool            `json:"power_on"`
-	CurrentInput            amplifier.Input `json:"current_input"`
-	InputList               []amplifier.Input `json:"input_list"`
-	DefaultInput            amplifier.Input `json:"default_input"`
-	AudioReady              bool            `json:"audio_ready"`
-	AudioReadyAt            *time.Time      `json:"audio_ready_at,omitempty"`
-	WarmupSeconds           int             `json:"warmup_seconds"`
-	InputSwitchDelaySeconds int             `json:"input_switch_delay_seconds"`
-	LastUpdated             time.Time       `json:"last_updated"`
+	Maker                   string                `json:"maker"`
+	Model                   string                `json:"model"`
+	PowerOn                 bool                  `json:"power_on"`
+	CurrentInput            amplifier.Input       `json:"current_input"`
+	InputList               []amplifier.Input     `json:"input_list"`
+	DefaultInput            amplifier.Input       `json:"default_input"`
+	AudioReady              bool                  `json:"audio_ready"`
+	AudioReadyAt            *time.Time            `json:"audio_ready_at,omitempty"`
+	WarmupSeconds           int                   `json:"warmup_seconds"`
+	InputSwitchDelaySeconds int                   `json:"input_switch_delay_seconds"`
+	// DetectedPowerState is the hardware-detected state from the last monitor poll.
+	// "on" | "off" | "unknown" — see internal/amplifier for detection strategy.
+	DetectedPowerState      amplifier.PowerState  `json:"detected_power_state"`
+	DetectedAt              *time.Time            `json:"detected_at,omitempty"`
+	LastUpdated             time.Time             `json:"last_updated"`
 }
 
 type cdPlayerStateResponse struct {
@@ -101,10 +107,18 @@ func (s *amplifierServer) handleAmplifierState(w http.ResponseWriter, r *http.Re
 		AudioReady:              s.amp.AudioReady(),
 		WarmupSeconds:           s.amp.WarmupTimeSeconds(),
 		InputSwitchDelaySeconds: s.amp.InputSwitchDelaySeconds(),
+		DetectedPowerState:      amplifier.PowerStateUnknown,
 		LastUpdated:             time.Now(),
 	}
 	if at := s.amp.AudioReadyAt(); !at.IsZero() {
 		resp.AudioReadyAt = &at
+	}
+	if s.monitor != nil {
+		detected, detAt := s.monitor.Current()
+		resp.DetectedPowerState = detected
+		if !detAt.IsZero() {
+			resp.DetectedAt = &detAt
+		}
 	}
 
 	jsonOK(w, resp)
@@ -397,8 +411,9 @@ func (s *amplifierServer) handlePairComplete(w http.ResponseWriter, r *http.Requ
 // --- config helpers ---
 
 // buildAmplifierFromConfig constructs a BroadlinkAmplifier from AmplifierConfig.
-// Returns nil, nil when the amplifier is disabled.
-func buildAmplifierFromConfig(cfg AmplifierConfig) (*amplifier.BroadlinkAmplifier, error) {
+// vuSocketPath is the VU frame socket (from AdvancedConfig) used for noise floor
+// detection. Returns nil, nil when the amplifier is disabled.
+func buildAmplifierFromConfig(cfg AmplifierConfig, vuSocketPath string) (*amplifier.BroadlinkAmplifier, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
@@ -424,6 +439,7 @@ func buildAmplifierFromConfig(cfg AmplifierConfig) (*amplifier.BroadlinkAmplifie
 			SwitchDelaySecs: cfg.InputSwitchDelaySeconds,
 			InputMode:       mode,
 			IRCodes:         cfg.IRCodes,
+			VUSocketPath:    vuSocketPath,
 		},
 	)
 }

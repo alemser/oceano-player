@@ -445,7 +445,7 @@ func TestPairComplete_MissingToken(t *testing.T) {
 // --- buildAmplifierFromConfig / buildCDPlayerFromConfig ---
 
 func TestBuildAmplifierFromConfig_Disabled(t *testing.T) {
-	amp, err := buildAmplifierFromConfig(AmplifierConfig{Enabled: false})
+	amp, err := buildAmplifierFromConfig(AmplifierConfig{Enabled: false}, "")
 	if err != nil || amp != nil {
 		t.Errorf("expected nil,nil for disabled amp; got %v, %v", amp, err)
 	}
@@ -461,7 +461,7 @@ func TestBuildAmplifierFromConfig_Enabled(t *testing.T) {
 		InputSelectionMode: "cycle",
 		IRCodes:            map[string]string{"power_on": "IR_ON"},
 	}
-	amp, err := buildAmplifierFromConfig(cfg)
+	amp, err := buildAmplifierFromConfig(cfg, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
