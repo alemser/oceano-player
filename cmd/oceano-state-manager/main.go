@@ -223,9 +223,10 @@ type mgr struct {
 	// Physical source (updated by source watcher goroutine)
 	physicalSource      string             // "Physical" or "None"
 	lastPhysicalAt      time.Time          // last time physicalSource was "Physical"
-	recognitionResult   *RecognitionResult // last successful recognition; nil until identified
-	physicalArtworkPath string             // artwork path for current physical track (from library or fetch)
-	physicalFormat      string             // "CD" | "Vinyl" — set on recognition success; cleared only on new session
+	recognitionResult       *RecognitionResult // last successful recognition; nil until identified
+	physicalArtworkPath     string             // artwork path for current physical track (from library or fetch)
+	physicalFormat          string             // "CD" | "Vinyl" — set on recognition success; cleared only on new session
+	physicalLibraryEntryID  int64              // library DB row ID for the current physical track; 0 when unknown
 
 	// recognizeTrigger is sent to when a new recognition attempt should start:
 	// on Physical source activation and on track-boundary events from runVUMonitor.

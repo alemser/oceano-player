@@ -130,15 +130,22 @@ func (m *mgr) runLibrarySync(ctx context.Context, lib *internallibrary.Library) 
 func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 	m.mu.Lock()
 	r := m.recognitionResult
-	if r == nil || (r.ACRID == "" && r.ShazamID == "") || m.physicalSource != "Physical" {
+	if r == nil || m.physicalSource != "Physical" {
 		m.mu.Unlock()
 		return
 	}
 	acrid := r.ACRID
 	shazamID := r.ShazamID
+	entryID := m.physicalLibraryEntryID
 	m.mu.Unlock()
 
-	entry, err := lib.LookupByIDs(acrid, shazamID)
+	var entry *internallibrary.CollectionEntry
+	var err error
+	if acrid != "" || shazamID != "" {
+		entry, err = lib.LookupByIDs(acrid, shazamID)
+	} else if entryID > 0 {
+		entry, err = lib.GetByID(entryID)
+	}
 	if err != nil || entry == nil {
 		return
 	}

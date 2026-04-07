@@ -287,6 +287,35 @@ func (l *Library) Lookup(acrid string) (*CollectionEntry, error) {
 	return l.lookupByColumn("acrid", acrid)
 }
 
+func (l *Library) GetByID(id int64) (*CollectionEntry, error) {
+	if id <= 0 {
+		return nil, nil
+	}
+	row := l.db.QueryRow(`
+		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist,
+		       COALESCE(album,''), COALESCE(label,''), COALESCE(released,''),
+		       COALESCE(score,0), COALESCE(format,'Unknown'),
+		       COALESCE(track_number,''), COALESCE(artwork_path,''),
+		       play_count, first_played, last_played, user_confirmed
+		FROM collection WHERE id = ?`, id)
+	var e CollectionEntry
+	var confirmed int
+	err := row.Scan(
+		&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist,
+		&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
+		&e.TrackNumber, &e.ArtworkPath,
+		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
+	)
+	e.UserConfirmed = confirmed == 1
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("library: lookup by id: %w", err)
+	}
+	return &e, nil
+}
+
 func (l *Library) LookupByShazamID(shazamID string) (*CollectionEntry, error) {
 	return l.lookupByColumn("shazam_id", shazamID)
 }

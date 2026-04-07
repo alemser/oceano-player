@@ -114,6 +114,7 @@ func (c *recognitionCoordinator) applyLocalFallbackEntry(entry *internallibrary.
 	}
 	c.mgr.lastRecognizedAt = time.Now()
 	c.mgr.pendingStubID = 0
+	c.mgr.physicalLibraryEntryID = entry.ID
 	c.mgr.shazamContinuityReady = entry.ShazamID != ""
 	if isPhysicalFormat(entry.Format) {
 		c.mgr.physicalFormat = entry.Format
@@ -300,6 +301,7 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 		c.mgr.mu.Lock()
 		c.mgr.recognitionResult = nil
 		c.mgr.physicalArtworkPath = ""
+		c.mgr.physicalLibraryEntryID = 0
 		c.mgr.shazamContinuityReady = false
 		c.mgr.mu.Unlock()
 	}
@@ -485,6 +487,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.recognitionResult = result
 		c.mgr.lastRecognizedAt = time.Now()
 		c.mgr.pendingStubID = 0
+		c.mgr.physicalLibraryEntryID = entryID
 		c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
 		if isPhysicalFormat(result.Format) {
 			c.mgr.physicalFormat = result.Format
@@ -665,18 +668,6 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			currentResult := c.mgr.recognitionResult
 			c.mgr.mu.Unlock()
 			if currentResult != nil && sameTrackByProviderIDs(currentResult, result) {
-				if isBoundaryTrigger {
-					retry := c.mgr.cfg.NoMatchBackoff
-					if retry <= 0 {
-						retry = 15 * time.Second
-					}
-					log.Printf("recognizer [%s]: boundary trigger returned same track (%s — %s) — retrying in %s",
-						c.rec.Name(), result.Artist, result.Title, retry)
-					backoffUntil = time.Now().Add(retry)
-					backoffRateLimited = false
-					continue
-				}
-
 				log.Printf("recognizer [%s]: same track confirmed — no change (%s — %s)", c.rec.Name(), result.Artist, result.Title)
 				shouldMarkDirty := false
 				c.mgr.mu.Lock()
