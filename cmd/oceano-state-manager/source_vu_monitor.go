@@ -57,6 +57,7 @@ func (m *mgr) pollSourceFile() {
 		m.recognitionResult = nil
 		m.physicalArtworkPath = ""
 		m.physicalFormat = ""
+		m.pendingStubID = 0
 		m.shazamContinuityReady = false
 		m.lastContinuityMismatchAt = time.Time{}
 		m.lastContinuityMismatchFrom = ""

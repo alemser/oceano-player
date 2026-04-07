@@ -102,6 +102,10 @@ type RecognitionConfig struct {
 	// RefreshIntervalSecs is how soon to re-check after a successful recognition
 	// to catch gapless track changes (no silence gap). 0 = disabled.
 	RefreshIntervalSecs int `json:"refresh_interval_secs"`
+	// NoMatchBackoffSecs is how long to wait before retrying after the provider
+	// returns no result. Lower values identify tracks faster at the cost of more
+	// API calls. Default is 15s.
+	NoMatchBackoffSecs int `json:"no_match_backoff_secs"`
 	// ConfirmationDelaySecs is the delay before the second (confirmation) call.
 	ConfirmationDelaySecs int `json:"confirmation_delay_secs"`
 	// ConfirmationCaptureDurationSecs is the capture length for the confirmation call.
@@ -121,6 +125,11 @@ type RecognitionConfig struct {
 	// provider policy resolves to no available API provider, the manager
 	// automatically falls back to fingerprint-only recognition.
 	RecognizerChain string `json:"recognizer_chain"`
+	// FingerprintBoundaryLeadSkipSecs is how many seconds to discard at the
+	// start of a boundary-triggered capture. Skipping a couple of seconds
+	// avoids capturing vinyl crackle/transients before the music settles.
+	// Default 2; set 0 to disable.
+	FingerprintBoundaryLeadSkipSecs int `json:"fingerprint_boundary_lead_skip_secs"`
 }
 
 // AdvancedConfig holds paths and internal settings that rarely need
@@ -150,12 +159,14 @@ func defaultConfig() Config {
 			CaptureDurationSecs:                 7,
 			MaxIntervalSecs:                     300,
 			RefreshIntervalSecs:                 120,
+			NoMatchBackoffSecs:                  15,
 			ConfirmationDelaySecs:               0,
 			ConfirmationCaptureDurationSecs:     4,
 			ConfirmationBypassScore:             95,
 			ShazamContinuityIntervalSecs:        8,
 			ShazamContinuityCaptureDurationSecs: 4,
 			RecognizerChain:                     "acrcloud_first",
+			FingerprintBoundaryLeadSkipSecs:     2,
 		},
 		Advanced: AdvancedConfig{
 			VUSocket:     "/tmp/oceano-vu.sock",
@@ -245,12 +256,16 @@ func managerArgs(cfg Config) []string {
 		"--recognizer-capture-duration", fmt.Sprintf("%ds", rec.CaptureDurationSecs),
 		"--recognizer-max-interval", fmt.Sprintf("%ds", rec.MaxIntervalSecs),
 		"--recognizer-refresh-interval", fmt.Sprintf("%ds", rec.RefreshIntervalSecs),
+		"--recognizer-no-match-backoff", fmt.Sprintf("%ds", rec.NoMatchBackoffSecs),
 		"--confirmation-delay", fmt.Sprintf("%ds", rec.ConfirmationDelaySecs),
 		"--confirmation-capture-duration", fmt.Sprintf("%ds", rec.ConfirmationCaptureDurationSecs),
 		"--confirmation-bypass-score", fmt.Sprintf("%d", rec.ConfirmationBypassScore),
 		"--shazam-continuity-interval", fmt.Sprintf("%ds", rec.ShazamContinuityIntervalSecs),
 		"--shazam-continuity-capture-duration", fmt.Sprintf("%ds", rec.ShazamContinuityCaptureDurationSecs),
 		"--recognizer-chain", rec.RecognizerChain,
+	}
+	if rec.FingerprintBoundaryLeadSkipSecs > 0 {
+		args = append(args, "--fingerprint-boundary-lead-skip", fmt.Sprintf("%d", rec.FingerprintBoundaryLeadSkipSecs))
 	}
 	if rec.ACRCloudHost != "" {
 		args = append(args,
