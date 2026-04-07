@@ -141,9 +141,9 @@ func (c *recognitionCoordinator) tryLocalFingerprintFallback(capturedFPs []Finge
 	return true
 }
 
-func (c *recognitionCoordinator) tryLocalFingerprintLocalFirst(capturedFPs []Fingerprint) bool {
+func (c *recognitionCoordinator) lookupLocalFingerprintLocalFirst(capturedFPs []Fingerprint) *internallibrary.CollectionEntry {
 	if !c.mgr.cfg.FingerprintLocalFirst || len(capturedFPs) == 0 || c.lib == nil {
-		return false
+		return nil
 	}
 	threshold := c.mgr.cfg.FingerprintLocalFirstThreshold
 	if threshold <= 0 {
@@ -152,8 +152,29 @@ func (c *recognitionCoordinator) tryLocalFingerprintLocalFirst(capturedFPs []Fin
 	localEntry, err := c.lib.FindConfirmedByFingerprints(capturedFPs, threshold, 30)
 	if err != nil {
 		log.Printf("recognizer: local-first fingerprint lookup error: %v", err)
+		return nil
+	}
+	return localEntry
+}
+
+func shouldShortCircuitLocalFirst(current *RecognitionResult, localEntry *internallibrary.CollectionEntry) bool {
+	if localEntry == nil {
 		return false
 	}
+	if current == nil {
+		return true
+	}
+	candidate := &RecognitionResult{
+		ACRID:    localEntry.ACRID,
+		ShazamID: localEntry.ShazamID,
+		Title:    localEntry.Title,
+		Artist:   localEntry.Artist,
+	}
+	return !sameTrackByProviderIDs(current, candidate)
+}
+
+func (c *recognitionCoordinator) tryLocalFingerprintLocalFirst(capturedFPs []Fingerprint) bool {
+	localEntry := c.lookupLocalFingerprintLocalFirst(capturedFPs)
 	if localEntry == nil {
 		return false
 	}
@@ -599,13 +620,22 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			c.mgr.cfg.FingerprintWindows, c.mgr.cfg.FingerprintStrideSec,
 			c.mgr.cfg.FingerprintLengthSec, captureSec)
 
-		if c.tryLocalFingerprintLocalFirst(capturedFPs) {
-			drained := c.drainPendingTriggers()
-			log.Printf("recognizer [%s]: local-first matched; pending triggers drained=%d", c.rec.Name(), drained)
-			os.Remove(wavPath)
-			backoffUntil = time.Time{}
-			backoffRateLimited = false
-			continue
+		if localEntry := c.lookupLocalFingerprintLocalFirst(capturedFPs); localEntry != nil {
+			c.mgr.mu.Lock()
+			currentResult := c.mgr.recognitionResult
+			c.mgr.mu.Unlock()
+			if shouldShortCircuitLocalFirst(currentResult, localEntry) {
+				log.Printf("recognizer: local-first fingerprint match (id=%d %s — %s)",
+					localEntry.ID, localEntry.Artist, localEntry.Title)
+				c.applyLocalFallbackEntry(localEntry)
+				drained := c.drainPendingTriggers()
+				log.Printf("recognizer [%s]: local-first matched; pending triggers drained=%d", c.rec.Name(), drained)
+				os.Remove(wavPath)
+				backoffUntil = time.Time{}
+				backoffRateLimited = false
+				continue
+			}
+			log.Printf("recognizer [%s]: local-first matched current track — continuing provider chain", c.rec.Name())
 		}
 
 		result, err := c.rec.Recognize(ctx, wavPath)

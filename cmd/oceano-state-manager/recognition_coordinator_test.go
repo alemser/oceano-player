@@ -673,3 +673,26 @@ func TestRecognitionCoordinator_ApplyLocalFallbackEntryLeavesFormatUnsetForNonPh
 		t.Fatalf("physicalArtworkPath = %q, want %q", m.physicalArtworkPath, entry.ArtworkPath)
 	}
 }
+
+func TestShouldShortCircuitLocalFirst_NoCurrentTrack(t *testing.T) {
+	entry := &internallibrary.CollectionEntry{ACRID: "acrid-1", Title: "Song", Artist: "Artist"}
+	if !shouldShortCircuitLocalFirst(nil, entry) {
+		t.Fatal("expected short-circuit when there is no current recognition")
+	}
+}
+
+func TestShouldShortCircuitLocalFirst_SameCurrentTrack(t *testing.T) {
+	current := &RecognitionResult{ACRID: "acrid-1", Title: "Song", Artist: "Artist"}
+	entry := &internallibrary.CollectionEntry{ACRID: "acrid-1", Title: "Song", Artist: "Artist"}
+	if shouldShortCircuitLocalFirst(current, entry) {
+		t.Fatal("expected no short-circuit when local-first matches current track")
+	}
+}
+
+func TestShouldShortCircuitLocalFirst_DifferentCurrentTrack(t *testing.T) {
+	current := &RecognitionResult{ACRID: "acrid-1", Title: "Song A", Artist: "Artist"}
+	entry := &internallibrary.CollectionEntry{ACRID: "acrid-2", Title: "Song B", Artist: "Artist"}
+	if !shouldShortCircuitLocalFirst(current, entry) {
+		t.Fatal("expected short-circuit when local-first points to a different track")
+	}
+}
