@@ -505,6 +505,58 @@ func TestTryLocalFingerprintFallback_NoMatch(t *testing.T) {
 	}
 }
 
+func TestTryLocalFingerprintLocalFirst_MatchesConfirmedOnly(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.FingerprintLocalFirst = true
+	m.cfg.FingerprintLocalFirstThreshold = 0.18
+
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{0xCAFE1234, 0xBEEF5678, 0x11111111, 0x22222222}}
+	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30)
+	if err != nil || stub == nil {
+		t.Fatalf("UpsertStub: err=%v stub=%v", err, stub)
+	}
+	if _, err := lib.DB().Exec(
+		`UPDATE collection SET title='Confirmed Track', artist='Confirmed Artist', user_confirmed=1 WHERE id=?`,
+		stub.ID,
+	); err != nil {
+		t.Fatalf("confirm stub: %v", err)
+	}
+
+	if !coordinator.tryLocalFingerprintLocalFirst(fps) {
+		t.Fatal("expected local-first to match confirmed fingerprint entry")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recognitionResult == nil {
+		t.Fatal("recognitionResult is nil")
+	}
+	if m.recognitionResult.Title != "Confirmed Track" || m.recognitionResult.Artist != "Confirmed Artist" {
+		t.Fatalf("unexpected metadata after local-first: %+v", m.recognitionResult)
+	}
+}
+
+func TestTryLocalFingerprintLocalFirst_DoesNotMatchUnconfirmedStub(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.FingerprintLocalFirst = true
+	m.cfg.FingerprintLocalFirstThreshold = 0.18
+
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{0xAAAA0001, 0xAAAA0002, 0xAAAA0003, 0xAAAA0004}}
+	if _, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30); err != nil {
+		t.Fatalf("UpsertStub: %v", err)
+	}
+
+	if coordinator.tryLocalFingerprintLocalFirst(fps) {
+		t.Fatal("expected local-first to ignore unconfirmed stub entries")
+	}
+}
+
 func TestRecognitionCoordinator_ApplyLocalFallbackEntryLeavesFormatUnsetForNonPhysicalMedia(t *testing.T) {
 	m := newTestMgr()
 	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, nil)

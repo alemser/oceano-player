@@ -140,6 +140,28 @@ func (c *recognitionCoordinator) tryLocalFingerprintFallback(capturedFPs []Finge
 	return true
 }
 
+func (c *recognitionCoordinator) tryLocalFingerprintLocalFirst(capturedFPs []Fingerprint) bool {
+	if !c.mgr.cfg.FingerprintLocalFirst || len(capturedFPs) == 0 || c.lib == nil {
+		return false
+	}
+	threshold := c.mgr.cfg.FingerprintLocalFirstThreshold
+	if threshold <= 0 {
+		threshold = c.mgr.cfg.FingerprintThreshold
+	}
+	localEntry, err := c.lib.FindConfirmedByFingerprints(capturedFPs, threshold, 30)
+	if err != nil {
+		log.Printf("recognizer: local-first fingerprint lookup error: %v", err)
+		return false
+	}
+	if localEntry == nil {
+		return false
+	}
+	log.Printf("recognizer: local-first fingerprint match (id=%d %s — %s)",
+		localEntry.ID, localEntry.Artist, localEntry.Title)
+	c.applyLocalFallbackEntry(localEntry)
+	return true
+}
+
 func (c *recognitionCoordinator) drainPendingTriggers() int {
 	drained := 0
 	for {
@@ -541,6 +563,15 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		capturedFPs := GenerateFingerprints(c.fpr, wavPath,
 			c.mgr.cfg.FingerprintWindows, c.mgr.cfg.FingerprintStrideSec,
 			c.mgr.cfg.FingerprintLengthSec, captureSec)
+
+		if c.tryLocalFingerprintLocalFirst(capturedFPs) {
+			drained := c.drainPendingTriggers()
+			log.Printf("recognizer [%s]: local-first matched; pending triggers drained=%d", c.rec.Name(), drained)
+			os.Remove(wavPath)
+			backoffUntil = time.Time{}
+			backoffRateLimited = false
+			continue
+		}
 
 		result, err := c.rec.Recognize(ctx, wavPath)
 		os.Remove(wavPath)

@@ -146,6 +146,13 @@ type Config struct {
 	// FingerprintThreshold is the maximum BER for a fingerprint to be considered a match.
 	// 0.35 is the threshold used by AcoustID; lower values are stricter.
 	FingerprintThreshold float64
+	// FingerprintLocalFirst enables a conservative local-first lookup before
+	// calling online providers. Only confirmed library entries are considered,
+	// and matching uses FingerprintLocalFirstThreshold.
+	FingerprintLocalFirst bool
+	// FingerprintLocalFirstThreshold is the maximum BER for local-first matches.
+	// Keep this stricter (lower) than FingerprintThreshold to avoid false positives.
+	FingerprintLocalFirstThreshold float64
 
 	// ConfirmationDelay is how long to wait before making a second ACRCloud call
 	// to confirm a track change. When a recognition result differs from the current
@@ -180,6 +187,8 @@ func defaultConfig() Config {
 		FingerprintLengthSec:            6,
 		FingerprintBoundaryLeadSkipSecs: 2,
 		FingerprintThreshold:            0.25,
+		FingerprintLocalFirst:           true,
+		FingerprintLocalFirstThreshold:  0.18,
 		ConfirmationDelay:               0,
 		ConfirmationCaptureDuration:     4 * time.Second,
 		ConfirmationBypassScore:         95,
@@ -458,6 +467,8 @@ func main() {
 	flag.IntVar(&cfg.FingerprintStrideSec, "fingerprint-stride", cfg.FingerprintStrideSec, "stride in seconds between fingerprint windows")
 	flag.IntVar(&cfg.FingerprintLengthSec, "fingerprint-length", cfg.FingerprintLengthSec, "length in seconds of each fingerprint window")
 	flag.Float64Var(&cfg.FingerprintThreshold, "fingerprint-threshold", cfg.FingerprintThreshold, "maximum BER for a local fingerprint match (0.35 = AcoustID default)")
+	flag.BoolVar(&cfg.FingerprintLocalFirst, "fingerprint-local-first", cfg.FingerprintLocalFirst, "attempt a conservative local fingerprint lookup before online providers")
+	flag.Float64Var(&cfg.FingerprintLocalFirstThreshold, "fingerprint-local-first-threshold", cfg.FingerprintLocalFirstThreshold, "maximum BER for conservative local-first fingerprint matches")
 	flag.IntVar(&cfg.FingerprintBoundaryLeadSkipSecs, "fingerprint-boundary-lead-skip", cfg.FingerprintBoundaryLeadSkipSecs, "seconds to skip at the start of a boundary-triggered capture (helps avoid vinyl crackle in the stored stub)")
 	flag.DurationVar(&cfg.ConfirmationDelay, "confirmation-delay", cfg.ConfirmationDelay, "wait before second recognition call to confirm a track change (0 = disabled)")
 	flag.DurationVar(&cfg.ConfirmationCaptureDuration, "confirmation-capture-duration", cfg.ConfirmationCaptureDuration, "audio capture duration for confirmation call")
@@ -501,8 +512,8 @@ func main() {
 
 	fpr := components.fingerprint
 	if fpr != nil && rec != nil {
-		log.Printf("recognizer: local fingerprint cache enabled (windows=%d stride=%ds length=%ds threshold=%.2f boundary-lead-skip=%ds)",
-			cfg.FingerprintWindows, cfg.FingerprintStrideSec, cfg.FingerprintLengthSec, cfg.FingerprintThreshold, cfg.FingerprintBoundaryLeadSkipSecs)
+		log.Printf("recognizer: local fingerprint cache enabled (windows=%d stride=%ds length=%ds threshold=%.2f local-first=%v local-first-threshold=%.2f boundary-lead-skip=%ds)",
+			cfg.FingerprintWindows, cfg.FingerprintStrideSec, cfg.FingerprintLengthSec, cfg.FingerprintThreshold, cfg.FingerprintLocalFirst, cfg.FingerprintLocalFirstThreshold, cfg.FingerprintBoundaryLeadSkipSecs)
 		captureSec := int(cfg.RecognizerCaptureDuration.Seconds())
 		maxOffset := (cfg.FingerprintWindows - 1) * cfg.FingerprintStrideSec
 		if maxOffset+cfg.FingerprintLengthSec > captureSec {
