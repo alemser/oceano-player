@@ -135,6 +135,215 @@ func TestHandleNoMatch_FingerprintOnlyThrottlesStubUpserts(t *testing.T) {
 	}
 }
 
+func TestHandleNoMatch_FingerprintOnlySkipsStubWhenTrackAlreadyRecognized(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.RecognizerChain = "fingerprint_only"
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{Title: "Known", Artist: "Artist"}
+	m.mu.Unlock()
+
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{101, 102, 103, 104}}
+	var backoffUntil time.Time
+	backoffRateLimited := false
+
+	coordinator.handleNoMatch(fps, false, &backoffUntil, &backoffRateLimited)
+
+	entry, err := lib.FindByFingerprints(fps, m.cfg.FingerprintThreshold, 30)
+	if err != nil {
+		t.Fatalf("FindByFingerprints: %v", err)
+	}
+	if entry != nil {
+		t.Fatalf("expected no stub to be stored while a recognized track is active, got entry id=%d", entry.ID)
+	}
+}
+
+func TestHandleNoMatch_FingerprintOnlyEnrichesPendingStubAcrossRetries(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.RecognizerChain = "fingerprint_only"
+	m.cfg.FingerprintThreshold = 0
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.mu.Unlock()
+
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
+
+	fps1 := []Fingerprint{{1, 2, 3, 4}}
+	fps2 := []Fingerprint{{999, 998, 997, 996}} // intentionally different: no local fallback hit
+	var backoffUntil time.Time
+	backoffRateLimited := false
+
+	coordinator.handleNoMatch(fps1, false, &backoffUntil, &backoffRateLimited)
+
+	m.mu.Lock()
+	pendingID := m.pendingStubID
+	m.mu.Unlock()
+	if pendingID == 0 {
+		t.Fatal("expected pendingStubID to be set after first stub creation")
+	}
+
+	var beforeCount int
+	if err := lib.DB().QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id=?`, pendingID).Scan(&beforeCount); err != nil {
+		t.Fatalf("count fingerprints before enrich: %v", err)
+	}
+
+	coordinator.handleNoMatch(fps2, false, &backoffUntil, &backoffRateLimited)
+
+	m.mu.Lock()
+	pendingID2 := m.pendingStubID
+	m.mu.Unlock()
+	if pendingID2 != pendingID {
+		t.Fatalf("pendingStubID changed across retries: got %d want %d", pendingID2, pendingID)
+	}
+
+	var afterCount int
+	if err := lib.DB().QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id=?`, pendingID).Scan(&afterCount); err != nil {
+		t.Fatalf("count fingerprints after enrich: %v", err)
+	}
+	if afterCount <= beforeCount {
+		t.Fatalf("expected fingerprint rows to increase after enrich, before=%d after=%d", beforeCount, afterCount)
+	}
+}
+
+func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.RecognizerChain = "fingerprint_only"
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.mu.Unlock()
+
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{201, 202, 203, 204}}
+	if _, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30); err != nil {
+		t.Fatalf("UpsertStub: %v", err)
+	}
+
+	// Simulate an already-queued trigger that would otherwise cause an immediate
+	// redundant capture after fallback match.
+	m.recognizeTrigger <- recognizeTrigger{isBoundary: false}
+
+	var backoffUntil time.Time
+	backoffRateLimited := false
+	coordinator.handleNoMatch(fps, false, &backoffUntil, &backoffRateLimited)
+
+	if got := len(m.recognizeTrigger); got != 0 {
+		t.Fatalf("pending trigger queue size = %d, want 0 after local fallback", got)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recognitionResult == nil {
+		t.Fatal("expected recognitionResult to be set by local fallback")
+	}
+}
+
+func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
+	m := newTestMgr()
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{
+		ACRID:  "acr-existing",
+		Title:  "Existing Track",
+		Artist: "Existing Artist",
+	}
+	m.physicalArtworkPath = "/tmp/existing.jpg"
+	m.shazamContinuityReady = true
+	m.mu.Unlock()
+
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, nil)
+
+	var backoffUntil time.Time
+	backoffRateLimited := false
+	coordinator.handleNoMatch(nil, true, &backoffUntil, &backoffRateLimited)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Boundary no-match must clear recognition state so the UI shows "identifying"
+	// rather than showing the previous track while a new one is playing.
+	if m.recognitionResult != nil {
+		t.Fatalf("expected recognitionResult to be cleared on boundary no-match, got %+v", m.recognitionResult)
+	}
+	if m.physicalArtworkPath != "" {
+		t.Fatalf("expected physicalArtworkPath to be cleared, got %q", m.physicalArtworkPath)
+	}
+	if m.shazamContinuityReady {
+		t.Fatal("expected shazamContinuityReady to be cleared on boundary no-match")
+	}
+	if backoffUntil.IsZero() {
+		t.Fatal("expected no-match backoff to be scheduled")
+	}
+	if backoffRateLimited {
+		t.Fatal("expected non-rate-limit backoff")
+	}
+}
+
+func TestApplyRecognizedResult_PromotesPendingStubFingerprints(t *testing.T) {
+	m := newTestMgr()
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{42, 43, 44, 45}}
+	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30)
+	if err != nil || stub == nil {
+		t.Fatalf("UpsertStub: err=%v stub=%v", err, stub)
+	}
+
+	m.mu.Lock()
+	m.pendingStubID = stub.ID
+	m.mu.Unlock()
+
+	result := &RecognitionResult{
+		ACRID:  "acr-promote-1",
+		Title:  "Promoted Song",
+		Artist: "Promoted Artist",
+		Score:  90,
+	}
+	coordinator.applyRecognizedResult(result, nil, false, false, false)
+
+	entry, err := lib.Lookup("acr-promote-1")
+	if err != nil || entry == nil {
+		t.Fatalf("Lookup promoted entry: err=%v entry=%v", err, entry)
+	}
+	if !lib.HasFingerprints(entry.ID) {
+		t.Fatal("expected promoted entry to have fingerprints")
+	}
+
+	var remaining int
+	if err := lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&remaining); err != nil {
+		t.Fatalf("count old stub row: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expected old stub to be pruned after promotion, found %d row(s)", remaining)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.pendingStubID != 0 {
+		t.Fatalf("pendingStubID = %d, want 0 after successful promotion", m.pendingStubID)
+	}
+}
+
+func TestDrainPendingTriggers_ReturnsDrainedCount(t *testing.T) {
+	m := newTestMgr()
+	m.recognizeTrigger = make(chan recognizeTrigger, 2)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, nil)
+
+	m.recognizeTrigger <- recognizeTrigger{isBoundary: false}
+	m.recognizeTrigger <- recognizeTrigger{isBoundary: true}
+
+	if drained := coordinator.drainPendingTriggers(); drained != 2 {
+		t.Fatalf("drainPendingTriggers() = %d, want 2", drained)
+	}
+	if got := len(m.recognizeTrigger); got != 0 {
+		t.Fatalf("pending trigger queue size = %d, want 0", got)
+	}
+}
+
 func TestHandleRecognitionErrorSetsBackoff(t *testing.T) {
 	m := newTestMgr()
 	c := newRecognitionCoordinator(m, &stubRecognizer{name: "A"}, nil, nil, nil, nil)
@@ -337,6 +546,151 @@ func TestRecognitionCoordinator_ApplyLocalFallbackEntryUpdatesManagerState(t *te
 	}
 }
 
+// TestTryLocalFingerprintFallback_MatchesUnconfirmedStub verifies that the
+// fingerprint fallback returns a stub even when UserConfirmed = false.
+// This is the core "Option A" behaviour: the same unknown track is identified
+// consistently across plays without requiring the user to confirm it first.
+func TestTryLocalFingerprintFallback_MatchesUnconfirmedStub(t *testing.T) {
+	m := newTestMgr()
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{0xAABBCCDD, 0x11223344, 0x55667788, 0x99AABBCC}}
+
+	// First play: no match anywhere — stub is created.
+	var backoffUntil time.Time
+	backoffRateLimited := false
+	m.cfg.RecognizerChain = "fingerprint_only"
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.mu.Unlock()
+	coordinator.handleNoMatch(fps, true, &backoffUntil, &backoffRateLimited)
+
+	entry, err := lib.FindByFingerprints(fps, m.cfg.FingerprintThreshold, 30)
+	if err != nil || entry == nil {
+		t.Fatalf("stub not created after first no-match: err=%v entry=%v", err, entry)
+	}
+	if entry.UserConfirmed {
+		t.Fatal("stub should not be user-confirmed yet")
+	}
+
+	// Second play: fingerprint fallback must now match the unconfirmed stub.
+	matched := coordinator.tryLocalFingerprintFallback(fps)
+	if !matched {
+		t.Fatal("tryLocalFingerprintFallback returned false for unconfirmed stub — expected true")
+	}
+
+	m.mu.Lock()
+	result := m.recognitionResult
+	m.mu.Unlock()
+	if result == nil {
+		t.Fatal("recognitionResult is nil after fallback match")
+	}
+}
+
+// TestTryLocalFingerprintFallback_MatchesConfirmedStub verifies that a
+// user-confirmed stub (with title/artist filled in) is also matched and that
+// its metadata is applied.
+func TestTryLocalFingerprintFallback_MatchesConfirmedStub(t *testing.T) {
+	m := newTestMgr()
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{0x12345678, 0x9ABCDEF0, 0x11111111, 0x22222222}}
+
+	// Insert a confirmed entry directly, as the user would after filling details.
+	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30)
+	if err != nil || stub == nil {
+		t.Fatalf("UpsertStub: err=%v stub=%v", err, stub)
+	}
+	if _, err := lib.DB().Exec(
+		`UPDATE collection SET title='Dark Side', artist='Pink Floyd', user_confirmed=1 WHERE id=?`,
+		stub.ID,
+	); err != nil {
+		t.Fatalf("confirm stub: %v", err)
+	}
+
+	matched := coordinator.tryLocalFingerprintFallback(fps)
+	if !matched {
+		t.Fatal("tryLocalFingerprintFallback returned false for confirmed stub")
+	}
+
+	m.mu.Lock()
+	result := m.recognitionResult
+	m.mu.Unlock()
+	if result == nil {
+		t.Fatal("recognitionResult is nil")
+	}
+	if result.Title != "Dark Side" || result.Artist != "Pink Floyd" {
+		t.Fatalf("unexpected metadata: title=%q artist=%q", result.Title, result.Artist)
+	}
+}
+
+// TestTryLocalFingerprintFallback_NoMatch verifies that a fingerprint that
+// does not exist in the library returns false without error.
+func TestTryLocalFingerprintFallback_NoMatch(t *testing.T) {
+	m := newTestMgr()
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{0xDEADBEEF, 0xCAFEBABE, 0xFEEDFACE, 0xBAADF00D}}
+	if coordinator.tryLocalFingerprintFallback(fps) {
+		t.Fatal("expected false for fingerprint not in library")
+	}
+}
+
+func TestTryLocalFingerprintLocalFirst_MatchesConfirmedOnly(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.FingerprintLocalFirst = true
+	m.cfg.FingerprintLocalFirstThreshold = 0.18
+
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{0xCAFE1234, 0xBEEF5678, 0x11111111, 0x22222222}}
+	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30)
+	if err != nil || stub == nil {
+		t.Fatalf("UpsertStub: err=%v stub=%v", err, stub)
+	}
+	if _, err := lib.DB().Exec(
+		`UPDATE collection SET title='Confirmed Track', artist='Confirmed Artist', user_confirmed=1 WHERE id=?`,
+		stub.ID,
+	); err != nil {
+		t.Fatalf("confirm stub: %v", err)
+	}
+
+	if !coordinator.tryLocalFingerprintLocalFirst(fps) {
+		t.Fatal("expected local-first to match confirmed fingerprint entry")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recognitionResult == nil {
+		t.Fatal("recognitionResult is nil")
+	}
+	if m.recognitionResult.Title != "Confirmed Track" || m.recognitionResult.Artist != "Confirmed Artist" {
+		t.Fatalf("unexpected metadata after local-first: %+v", m.recognitionResult)
+	}
+}
+
+func TestTryLocalFingerprintLocalFirst_DoesNotMatchUnconfirmedStub(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.FingerprintLocalFirst = true
+	m.cfg.FingerprintLocalFirstThreshold = 0.18
+
+	lib := openTestLibrary(t)
+	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
+
+	fps := []Fingerprint{{0xAAAA0001, 0xAAAA0002, 0xAAAA0003, 0xAAAA0004}}
+	if _, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30); err != nil {
+		t.Fatalf("UpsertStub: %v", err)
+	}
+
+	if coordinator.tryLocalFingerprintLocalFirst(fps) {
+		t.Fatal("expected local-first to ignore unconfirmed stub entries")
+	}
+}
+
 func TestRecognitionCoordinator_ApplyLocalFallbackEntryLeavesFormatUnsetForNonPhysicalMedia(t *testing.T) {
 	m := newTestMgr()
 	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, nil)
@@ -357,5 +711,28 @@ func TestRecognitionCoordinator_ApplyLocalFallbackEntryLeavesFormatUnsetForNonPh
 	}
 	if m.physicalArtworkPath != entry.ArtworkPath {
 		t.Fatalf("physicalArtworkPath = %q, want %q", m.physicalArtworkPath, entry.ArtworkPath)
+	}
+}
+
+func TestShouldShortCircuitLocalFirst_NoCurrentTrack(t *testing.T) {
+	entry := &internallibrary.CollectionEntry{ACRID: "acrid-1", Title: "Song", Artist: "Artist"}
+	if !shouldShortCircuitLocalFirst(nil, entry) {
+		t.Fatal("expected short-circuit when there is no current recognition")
+	}
+}
+
+func TestShouldShortCircuitLocalFirst_SameCurrentTrack(t *testing.T) {
+	current := &RecognitionResult{ACRID: "acrid-1", Title: "Song", Artist: "Artist"}
+	entry := &internallibrary.CollectionEntry{ACRID: "acrid-1", Title: "Song", Artist: "Artist"}
+	if shouldShortCircuitLocalFirst(current, entry) {
+		t.Fatal("expected no short-circuit when local-first matches current track")
+	}
+}
+
+func TestShouldShortCircuitLocalFirst_DifferentCurrentTrack(t *testing.T) {
+	current := &RecognitionResult{ACRID: "acrid-1", Title: "Song A", Artist: "Artist"}
+	entry := &internallibrary.CollectionEntry{ACRID: "acrid-2", Title: "Song B", Artist: "Artist"}
+	if !shouldShortCircuitLocalFirst(current, entry) {
+		t.Fatal("expected short-circuit when local-first points to a different track")
 	}
 }

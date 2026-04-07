@@ -129,58 +129,97 @@ func (m *mgr) runLibrarySync(ctx context.Context, lib *internallibrary.Library) 
 // for a new recognition cycle — including Shazam-only tracks (no ACRID).
 func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 	m.mu.Lock()
-	r := m.recognitionResult
-	if r == nil || (r.ACRID == "" && r.ShazamID == "") || m.physicalSource != "Physical" {
+	if m.physicalSource != "Physical" {
 		m.mu.Unlock()
 		return
 	}
-	acrid := r.ACRID
-	shazamID := r.ShazamID
+	r := m.recognitionResult
+	acrid := ""
+	shazamID := ""
+	if r != nil {
+		acrid = r.ACRID
+		shazamID = r.ShazamID
+	}
+	entryID := m.physicalLibraryEntryID
+	pendingStubID := m.pendingStubID
 	m.mu.Unlock()
 
-	entry, err := lib.LookupByIDs(acrid, shazamID)
+	var entry *internallibrary.CollectionEntry
+	var err error
+	if acrid != "" || shazamID != "" {
+		entry, err = lib.LookupByIDs(acrid, shazamID)
+	} else if entryID > 0 {
+		entry, err = lib.GetByID(entryID)
+	} else if pendingStubID > 0 {
+		entry, err = lib.GetByID(pendingStubID)
+	}
 	if err != nil || entry == nil {
 		return
 	}
 
 	m.mu.Lock()
 	changed := false
-	currentACRID := ""
-	currentShazamID := ""
-	if m.recognitionResult != nil {
-		currentACRID = m.recognitionResult.ACRID
-		currentShazamID = m.recognitionResult.ShazamID
+
+	// When recognitionResult is nil but the pending stub has been user-enriched
+	// (title/artist filled in by the user), promote it to recognitionResult so
+	// the display shows the track info without waiting for a new recognition cycle.
+	if m.recognitionResult == nil && m.pendingStubID == entry.ID &&
+		(entry.Title != "" || entry.Artist != "") {
+		m.recognitionResult = &RecognitionResult{
+			ACRID:       entry.ACRID,
+			ShazamID:    entry.ShazamID,
+			Title:       entry.Title,
+			Artist:      entry.Artist,
+			Album:       entry.Album,
+			Label:       entry.Label,
+			Released:    entry.Released,
+			Score:       entry.Score,
+			Format:      entry.Format,
+			TrackNumber: entry.TrackNumber,
+		}
+		m.physicalLibraryEntryID = entry.ID
+		m.physicalArtworkPath = entry.ArtworkPath
+		if f := strings.ToLower(strings.TrimSpace(entry.Format)); f == "cd" || f == "vinyl" {
+			m.physicalFormat = entry.Format
+		}
+		m.mu.Unlock()
+		m.markDirty()
+		return
 	}
-	// Match by whichever ID is available — same logic as LookupByIDs.
-	entryMatchesCurrent := (acrid != "" && currentACRID == acrid) ||
-		(shazamID != "" && currentShazamID == shazamID)
-	if m.recognitionResult != nil && entryMatchesCurrent {
-		if m.recognitionResult.Title != entry.Title {
-			m.recognitionResult.Title = entry.Title
-			changed = true
-		}
-		if m.recognitionResult.Artist != entry.Artist {
-			m.recognitionResult.Artist = entry.Artist
-			changed = true
-		}
-		if m.recognitionResult.Album != entry.Album {
-			m.recognitionResult.Album = entry.Album
-			changed = true
-		}
-		if m.recognitionResult.Format != entry.Format {
-			m.recognitionResult.Format = entry.Format
-			if f := strings.ToLower(strings.TrimSpace(entry.Format)); f == "cd" || f == "vinyl" {
-				m.physicalFormat = entry.Format
+
+	if m.recognitionResult != nil {
+		// Match by whichever ID is available, or by DB entry ID as a final fallback.
+		entryMatchesCurrent := (acrid != "" && m.recognitionResult.ACRID == acrid) ||
+			(shazamID != "" && m.recognitionResult.ShazamID == shazamID) ||
+			(m.physicalLibraryEntryID > 0 && m.physicalLibraryEntryID == entry.ID)
+		if entryMatchesCurrent {
+			if m.recognitionResult.Title != entry.Title {
+				m.recognitionResult.Title = entry.Title
+				changed = true
 			}
-			changed = true
-		}
-		if m.recognitionResult.TrackNumber != entry.TrackNumber {
-			m.recognitionResult.TrackNumber = entry.TrackNumber
-			changed = true
-		}
-		if m.physicalArtworkPath != entry.ArtworkPath {
-			m.physicalArtworkPath = entry.ArtworkPath
-			changed = true
+			if m.recognitionResult.Artist != entry.Artist {
+				m.recognitionResult.Artist = entry.Artist
+				changed = true
+			}
+			if m.recognitionResult.Album != entry.Album {
+				m.recognitionResult.Album = entry.Album
+				changed = true
+			}
+			if m.recognitionResult.Format != entry.Format {
+				m.recognitionResult.Format = entry.Format
+				if f := strings.ToLower(strings.TrimSpace(entry.Format)); f == "cd" || f == "vinyl" {
+					m.physicalFormat = entry.Format
+				}
+				changed = true
+			}
+			if m.recognitionResult.TrackNumber != entry.TrackNumber {
+				m.recognitionResult.TrackNumber = entry.TrackNumber
+				changed = true
+			}
+			if m.physicalArtworkPath != entry.ArtworkPath {
+				m.physicalArtworkPath = entry.ArtworkPath
+				changed = true
+			}
 		}
 	}
 	m.mu.Unlock()
