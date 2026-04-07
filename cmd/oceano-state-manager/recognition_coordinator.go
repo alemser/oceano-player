@@ -297,7 +297,11 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 	}
 
 	if isBoundaryTrigger {
-		log.Printf("recognizer [%s]: boundary no-match — keeping current track until replacement is identified", c.rec.Name())
+		c.mgr.mu.Lock()
+		c.mgr.recognitionResult = nil
+		c.mgr.physicalArtworkPath = ""
+		c.mgr.shazamContinuityReady = false
+		c.mgr.mu.Unlock()
 	}
 
 	*backoffUntil = time.Now().Add(noMatchBackoff)

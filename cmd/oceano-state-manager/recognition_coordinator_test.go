@@ -242,7 +242,7 @@ func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
 	}
 }
 
-func TestHandleNoMatch_BoundaryKeepsExistingRecognition(t *testing.T) {
+func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 	m := newTestMgr()
 	m.mu.Lock()
 	m.physicalSource = "Physical"
@@ -263,17 +263,16 @@ func TestHandleNoMatch_BoundaryKeepsExistingRecognition(t *testing.T) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.recognitionResult == nil {
-		t.Fatal("expected recognitionResult to be preserved on boundary no-match")
+	// Boundary no-match must clear recognition state so the UI shows "identifying"
+	// rather than showing the previous track while a new one is playing.
+	if m.recognitionResult != nil {
+		t.Fatalf("expected recognitionResult to be cleared on boundary no-match, got %+v", m.recognitionResult)
 	}
-	if m.recognitionResult.ACRID != "acr-existing" {
-		t.Fatalf("ACRID changed unexpectedly: got %q", m.recognitionResult.ACRID)
+	if m.physicalArtworkPath != "" {
+		t.Fatalf("expected physicalArtworkPath to be cleared, got %q", m.physicalArtworkPath)
 	}
-	if m.physicalArtworkPath != "/tmp/existing.jpg" {
-		t.Fatalf("physicalArtworkPath changed unexpectedly: got %q", m.physicalArtworkPath)
-	}
-	if !m.shazamContinuityReady {
-		t.Fatal("shazamContinuityReady unexpectedly cleared")
+	if m.shazamContinuityReady {
+		t.Fatal("expected shazamContinuityReady to be cleared on boundary no-match")
 	}
 	if backoffUntil.IsZero() {
 		t.Fatal("expected no-match backoff to be scheduled")
