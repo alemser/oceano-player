@@ -497,8 +497,8 @@
       }
 
       .amp-indicator {
-        bottom: 16px;
-        right: 16px;
+        top: 16px;
+        right: 72px;
       }
     }
 
@@ -712,18 +712,18 @@
 
     .pulsing { animation: pulse 1.8s ease-in-out infinite; }
 
-    /* Amplifier power state indicator — sits inside #idle-screen, bottom-right.
-       Also reused inside #app (playing screen). Hidden until amp is configured. */
+    /* Amplifier power state indicator — shown near Pi power button at top-right. */
     .amp-indicator {
       position: absolute;
-      bottom: 22px; right: 22px;
+      top: 20px;
+      right: 72px;
       display: none; /* shown via JS once amp state is loaded */
       align-items: center;
       gap: 8px;
       background: rgba(7, 9, 15, 0.75);
       border: 1px solid var(--border);
       border-radius: 26px;
-      padding: 8px 15px 8px 11px;
+      padding: 7px 11px;
       cursor: pointer;
       -webkit-backdrop-filter: blur(10px);
       backdrop-filter: blur(10px);
@@ -734,12 +734,63 @@
     .amp-indicator:hover { border-color: rgba(255,255,255,0.2); }
     .amp-indicator.ps-on  { border-color: #2a5c2a; color: #4cba80; }
     .amp-indicator.ps-off { border-color: #5c2a2a; color: #e05e5e; }
-    .amp-indicator svg { width: 16px; height: 16px; flex-shrink: 0; }
+    .amp-indicator-icon {
+      width: 18px;
+      height: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(120, 138, 176, 0.35);
+      border-radius: 50%;
+      color: #93a4ca;
+      flex-shrink: 0;
+    }
+    .amp-indicator-icon svg { width: 11px; height: 11px; display: block; }
     .amp-indicator-label {
       font-size: 0.76rem;
       font-weight: 500;
       letter-spacing: 0.04em;
       white-space: nowrap;
+    }
+    .amp-indicator-state {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(99, 116, 154, 0.48);
+      color: #9aacd5;
+      background: rgba(19, 27, 45, 0.44);
+      line-height: 1.3;
+    }
+    .amp-indicator.ps-on .amp-indicator-state {
+      border-color: rgba(76, 186, 128, 0.62);
+      color: #7edba6;
+      background: rgba(20, 45, 30, 0.46);
+    }
+    .amp-indicator.ps-off .amp-indicator-state {
+      border-color: rgba(224, 94, 94, 0.62);
+      color: #f08f8f;
+      background: rgba(58, 21, 21, 0.5);
+    }
+
+    @media (max-width: 640px), (max-height: 460px) {
+      .amp-indicator {
+        top: 12px;
+        right: 60px;
+        padding: 6px 9px;
+        gap: 6px;
+      }
+      .amp-indicator-label {
+        max-width: 112px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .amp-indicator-state {
+        font-size: 0.62rem;
+        padding: 2px 6px;
+      }
     }
 
     /* Ensure indicator appears above all screens */
@@ -792,7 +843,14 @@
 
 <!-- Amp indicator (appears above all screens) -->
 <button class="amp-indicator" id="amp-indicator" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
+  <span class="amp-indicator-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none">
+      <path d="M12 3v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <path d="M7.76 6.76a7 7 0 1 0 8.48 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </span>
   <span class="amp-indicator-label" id="amp-label">—</span>
+  <span class="amp-indicator-state" id="amp-state">--</span>
 </button>
 
 <!-- Main playing UI -->
@@ -1417,17 +1475,23 @@ async function loadAmpPowerState() {
     const r = await fetch('/api/amplifier/state');
     if (!r.ok) return; // 404 → amp not configured; keep indicator hidden
     const s = await r.json();
-    const ps    = s.detected_power_state ?? 'unknown';
-    const model = s.model || s.maker || 'Amp';
+    const ps = String(s.detected_power_state ?? 'unknown').toLowerCase();
+    const maker = String(s.maker || '').trim();
+    const model = String(s.model || '').trim();
+    const ampName = [maker, model].filter(Boolean).join(' ') || 'Amplifier';
+    const stateLabel = ps === 'on' ? 'ON' : ps === 'off' ? 'OFF' : 'UNKNOWN';
 
     const el = document.getElementById('amp-indicator');
     const labelEl = document.getElementById('amp-label');
+    const stateEl = document.getElementById('amp-state');
     if (!el) return;
-    
+
     el.style.display = 'flex';
     el.className = `amp-indicator${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
-    labelEl.textContent = ps === 'on' ? 'ON' : ps === 'off' ? 'OFF' : '?';
-    el.title = `${model} — ${ps === 'on' ? 'On' : ps === 'off' ? 'Off' : 'unknown'}`;
+    if (labelEl) labelEl.textContent = ampName;
+    if (stateEl) stateEl.textContent = stateLabel;
+    el.title = `${ampName} — ${stateLabel}`;
+    el.setAttribute('aria-label', `${ampName} power ${stateLabel.toLowerCase()}`);
   } catch { /* network error or amp not available — leave indicator hidden */ }
 }
 
