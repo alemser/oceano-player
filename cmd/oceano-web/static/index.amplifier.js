@@ -164,15 +164,15 @@ function renderAmpWidget(state) {
   const title = document.getElementById('amp-widget-title');
   if (title) title.textContent = `${state.maker} ${state.model}`;
 
-  // Hardware-detected power label ⏻ Model (always visible in collapsed header)
+  // Hardware-detected power label ⏻ ON/OFF/? (always visible in collapsed header)
   const pwrLabel = document.getElementById('amp-power-label');
   const pwrText  = document.getElementById('amp-power-label-text');
   if (pwrLabel && pwrText) {
     const ps    = state.detected_power_state ?? 'unknown';
     const model = state.model || state.maker || 'Amp';
     pwrLabel.className = `amp-power-label${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
-    pwrText.textContent = model;
-    pwrLabel.title = `Detected: ${ps === 'on' ? 'On' : ps === 'off' ? 'Off' : '—'}`;
+    pwrText.textContent = ps === 'on' ? 'ON' : ps === 'off' ? 'OFF' : '?';
+    pwrLabel.title = `${model} — Detected: ${ps === 'on' ? 'On' : ps === 'off' ? 'Off' : '—'}`;
   }
 
   // Software ready state chip (visible next to pill)

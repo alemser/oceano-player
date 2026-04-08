@@ -1279,7 +1279,7 @@ async function loadAmpPowerState() {
     
     el.style.display = 'flex';
     el.className = `amp-indicator${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
-    labelEl.textContent = ps === 'on' ? `⏻ ${model}` : ps === 'off' ? `⏻ ${model}` : model;
+    labelEl.textContent = ps === 'on' ? 'ON' : ps === 'off' ? 'OFF' : '?';
     el.title = `${model} — ${ps === 'on' ? 'On' : ps === 'off' ? 'Off' : 'unknown'}`;
   } catch { /* network error or amp not available — leave indicator hidden */ }
 }
