@@ -509,16 +509,20 @@
 
     @media (max-width: 900px) {
       :root {
-        --artwork-size: clamp(168px, 40vw, 280px);
+        --artwork-size: clamp(170px, 32vw, 240px);
+        --layout-gap: clamp(14px, 2.5vw, 22px);
+        --app-pad-x: 14px;
+        --app-pad-top: 10px;
+        --app-pad-bot: 12px;
       }
 
       #content {
-        grid-template-columns: 1fr;
-        gap: 14px;
+        grid-template-columns: minmax(0, var(--artwork-size)) minmax(0, 1fr);
+        gap: var(--layout-gap);
       }
 
       #artwork-wrap {
-        margin: 0 auto;
+        margin: 0;
       }
 
       #meta {
@@ -528,6 +532,56 @@
 
       #source-bar {
         margin-bottom: 10px;
+        padding: 7px 10px;
+      }
+
+      #source-icon {
+        width: 24px;
+        height: 24px;
+      }
+
+      #source-label {
+        font-size: 0.82rem;
+        letter-spacing: 0.11em;
+      }
+
+      #playback-badge {
+        font-size: 0.64rem;
+        padding: 3px 8px;
+      }
+
+      #track-title {
+        font-size: clamp(1.36rem, 4vw, 1.8rem);
+        margin-bottom: 6px;
+      }
+
+      #track-artist {
+        font-size: clamp(1rem, 2.7vw, 1.22rem);
+      }
+
+      #track-album {
+        font-size: clamp(0.86rem, 2.1vw, 0.98rem);
+        margin-bottom: 10px;
+      }
+
+      #meta-divider {
+        margin-bottom: 10px;
+      }
+
+      .chip {
+        font-size: 0.68rem;
+        padding: 3px 8px;
+      }
+    }
+
+    @media (max-width: 720px) {
+      #content {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+
+      #artwork-wrap {
+        margin: 0 auto;
       }
     }
 
