@@ -503,7 +503,7 @@
       }
     }
 
-    @media (max-width: 900px), (max-height: 560px) {
+    @media (max-width: 900px) {
       :root {
         --artwork-size: clamp(168px, 40vw, 280px);
       }
@@ -524,6 +524,60 @@
 
       #source-bar {
         margin-bottom: 10px;
+      }
+    }
+
+    /* Short but still wide windows: keep 2-column layout and compact proportions. */
+    @media (max-height: 560px) and (min-width: 901px) {
+      :root {
+        --artwork-size: clamp(184px, 26vw, 254px);
+        --layout-gap: clamp(16px, 2.6vw, 26px);
+        --app-pad-top: 10px;
+        --app-pad-bot: 12px;
+      }
+
+      #source-bar {
+        margin-bottom: 8px;
+        padding: 7px 11px;
+      }
+
+      #source-icon {
+        width: 25px;
+        height: 25px;
+      }
+
+      #meta {
+        padding-top: 8px;
+      }
+
+      #track-title {
+        font-size: clamp(1.42rem, 3.2vw, 1.82rem);
+        margin-bottom: 5px;
+      }
+
+      #track-artist {
+        font-size: clamp(1rem, 2.2vw, 1.2rem);
+      }
+
+      #track-album {
+        margin-bottom: 10px;
+      }
+
+      #meta-divider {
+        margin-bottom: 10px;
+      }
+
+      #meta-chips {
+        gap: 7px;
+      }
+
+      .chip {
+        font-size: 0.7rem;
+        padding: 3px 8px;
+      }
+
+      #stream-progress {
+        margin-top: 8px;
       }
     }
 
