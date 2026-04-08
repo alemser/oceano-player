@@ -19,6 +19,7 @@
       --chip-bg:      rgba(18, 25, 42, 0.35);
       --chip-border:  rgba(84, 106, 156, 0.45);
       --radius:       12px;
+      --content-max-width: 1380px;
       --artwork-size: clamp(190px, 34vw, 340px);
       --layout-gap:   clamp(18px, 4vw, 44px);
       --app-pad-x:    clamp(14px, 3.2vw, 32px);
@@ -76,6 +77,8 @@
       display: grid;
       grid-template-rows: auto 1fr;
       height: 100%;
+      width: min(100%, var(--content-max-width));
+      margin: 0 auto;
       padding: var(--app-pad-top) var(--app-pad-x) var(--app-pad-bot);
       gap: 0;
     }
@@ -391,7 +394,7 @@
     #idle-power-btn {
       position: absolute;
       top: 20px;
-      right: 22px;
+      right: max(22px, calc((100vw - min(100vw, var(--content-max-width))) / 2 + 22px));
       z-index: 22;
       width: 40px;
       height: 40px;
@@ -771,7 +774,7 @@
     .amp-indicator {
       position: absolute;
       top: 20px;
-      right: 72px;
+      right: max(72px, calc((100vw - min(100vw, var(--content-max-width))) / 2 + 72px));
       display: none; /* shown via JS once amp state is loaded */
       align-items: center;
       gap: 8px;
