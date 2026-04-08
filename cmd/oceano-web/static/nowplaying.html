@@ -69,7 +69,7 @@
       display: grid;
       grid-template-rows: auto 1fr;
       height: 100%;
-      padding: 18px 32px 24px;
+      padding: 70px 32px 24px;
       gap: 0;
     }
 
@@ -357,6 +357,7 @@
     #idle-screen {
       position: fixed;
       inset: 0;
+      padding-top: 52px;
       background: var(--bg);
       display: flex;
       flex-direction: column;
@@ -599,18 +600,198 @@
     /* Ensure indicator appears above all screens */
     #amp-indicator { z-index: 20; }
 
+    /* ─── Source bar hidden — topbar replaces it ──────────────────── */
+    #source-bar { display: none; }
+
+    /* ─── Global top bar (always above idle and playing screens) ───── */
+    #topbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 52px;
+      z-index: 15;
+      display: flex;
+      align-items: center;
+      padding: 0 18px;
+      gap: 10px;
+      background: rgba(7, 9, 15, 0.90);
+      border-bottom: 1px solid rgba(67, 84, 126, 0.22);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+    }
+
+    #topbar-source {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    #topbar-source-icon { width: 24px; height: 24px; flex-shrink: 0; color: #9aa8cc; }
+    #topbar-source-icon svg { width: 100%; height: 100%; display: block; }
+
+    #topbar-source-label {
+      font-size: 0.88rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #a7b2d1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #topbar-source-badge {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 9px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--text-faint);
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: all 0.4s;
+    }
+    #topbar-source-badge.playing { border-color: #2a5a3a; color: #5ecb80; }
+
+    #topbar-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    #topbar-amp-chip {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 12px 6px 10px;
+      border: 1px solid rgba(67, 84, 126, 0.32);
+      border-radius: 999px;
+      background: rgba(14, 20, 34, 0.55);
+      color: var(--text-dim);
+      font-size: 0.82rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    #topbar-amp-chip:hover { border-color: rgba(112, 130, 170, 0.5); background: rgba(20, 28, 47, 0.7); }
+    #topbar-amp-chip.ps-on  { border-color: #2a5c2a; color: #4cba80; }
+    #topbar-amp-chip.ps-off { border-color: #5c2a2a; color: #e05e5e; }
+    #topbar-amp-chip.open .topbar-chevron { transform: rotate(180deg); }
+    #topbar-amp-chip > svg:first-child { width: 15px; height: 15px; flex-shrink: 0; }
+    #topbar-amp-model { font-weight: 600; letter-spacing: 0.02em; }
+    #topbar-amp-state {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 10px;
+      border: 1px solid currentColor;
+    }
+    .topbar-chevron { width: 12px; height: 12px; flex-shrink: 0; transition: transform 0.25s; }
+
+    #topbar-power-btn {
+      width: 36px;
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      border: 1px solid rgba(90, 108, 148, 0.3);
+      background: rgba(14, 20, 34, 0.4);
+      color: #7f8db1;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    #topbar-power-btn:hover { color: #a6b5dc; border-color: rgba(112, 130, 170, 0.5); background: rgba(20, 28, 47, 0.66); }
+    #topbar-power-btn svg { width: 16px; height: 16px; display: block; }
+
+    /* ─── Amp input selector panel ──────────────────────────────────── */
+    #amp-input-panel {
+      position: fixed;
+      top: 52px;
+      right: 18px;
+      width: 240px;
+      z-index: 16;
+      background: #10151f;
+      border: 1px solid rgba(74, 95, 139, 0.38);
+      border-top: none;
+      border-radius: 0 0 12px 12px;
+      padding: 6px 0 8px;
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #amp-input-panel.open { display: flex; }
+
+    .amp-input-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 18px;
+      color: #9aaacb;
+      font-size: 0.86rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+      user-select: none;
+    }
+    .amp-input-item:hover { background: rgba(84, 106, 156, 0.12); }
+    .amp-input-item.current { color: #72c4f0; background: rgba(74, 158, 255, 0.08); }
+    .amp-input-current-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      flex-shrink: 0;
+    }
+
   </style>
 </head>
 <body>
 
 <!-- Idle screen (shown when no source is active) -->
+<!-- Global top bar — always visible above idle and playing screens -->
+<div id="topbar">
+  <div id="topbar-source">
+    <div id="topbar-source-icon" aria-hidden="true"></div>
+    <span id="topbar-source-label"></span>
+    <span id="topbar-source-badge" style="display:none"></span>
+  </div>
+  <div id="topbar-right">
+    <!-- Amp chip: hidden until amp is configured; click opens input selector -->
+    <button id="topbar-amp-chip" type="button" aria-label="Amplifier — select input" style="display:none" onclick="toggleAmpPanel()">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 3v9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+      <span id="topbar-amp-model"></span>
+      <span id="topbar-amp-state"></span>
+      <svg class="topbar-chevron" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M2 4.5L7 9.5L12 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <!-- Raspberry Pi power button -->
+    <button id="topbar-power-btn" type="button" aria-label="System power" title="System power" onclick="openPowerDialog()">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- Amp input selector panel (drops below topbar amp chip) -->
+<div id="amp-input-panel" role="listbox" aria-label="Select amplifier input"></div>
+
 <div id="idle-screen" class="visible">
-  <button id="idle-power-btn" type="button" aria-label="Power options" title="Power options" onclick="openPowerDialog()">
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-  </button>
   <div id="idle-logo">
     <!-- Oceano waveform icon -->
     <svg viewBox="0 0 52 52" fill="currentColor" aria-hidden="true">
@@ -643,11 +824,6 @@
     </div>
   </div>
 </div>
-
-<!-- Amp indicator (appears above all screens) -->
-<button class="amp-indicator" id="amp-indicator" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
-  <span class="amp-indicator-label" id="amp-label">—</span>
-</button>
 
 <!-- Main playing UI -->
 <div id="app" style="position:relative">
@@ -801,6 +977,14 @@ const $streamFill = document.getElementById('stream-progress-fill');
 const $streamElapsed = document.getElementById('stream-elapsed');
 const $streamTotal = document.getElementById('stream-total');
 const $identifying= document.getElementById('identifying-label');
+
+const $topbarSourceIcon  = document.getElementById('topbar-source-icon');
+const $topbarSourceLabel = document.getElementById('topbar-source-label');
+const $topbarSourceBadge = document.getElementById('topbar-source-badge');
+const $topbarAmpChip  = document.getElementById('topbar-amp-chip');
+const $topbarAmpModel = document.getElementById('topbar-amp-model');
+const $topbarAmpState = document.getElementById('topbar-amp-state');
+const $ampInputPanel  = document.getElementById('amp-input-panel');
 
 // ─── Idle clock ──────────────────────────────────────────────────────────────
 
@@ -1135,9 +1319,15 @@ function applyState(state) {
   $metaSourceIcon.innerHTML = SOURCE_ICONS[source] || SOURCE_ICONS.None;
   $metaSourceLabel.textContent = SOURCE_LABELS[source] || source;
 
-  // Option 1 UX: when there is active playback, keep source context in the
-  // in-content badge and hide the separate top bar.
-  $sourceBar.classList.toggle('hidden', playing && source !== 'None');
+  // Topbar: always update source info
+  if ($topbarSourceIcon)  $topbarSourceIcon.innerHTML = SOURCE_ICONS[source] || SOURCE_ICONS.None;
+  if ($topbarSourceLabel) $topbarSourceLabel.textContent = source !== 'None' ? (SOURCE_LABELS[source] || source) : '';
+  if ($topbarSourceBadge) {
+    const showBadge = source !== 'None';
+    $topbarSourceBadge.style.display = showBadge ? '' : 'none';
+    $topbarSourceBadge.textContent   = playing ? 'Playing' : 'Stopped';
+    $topbarSourceBadge.classList.toggle('playing', playing);
+  }
 
   // Playback badge
   $badge.textContent = playing ? 'Playing' : 'Stopped';
@@ -1262,31 +1452,96 @@ function connect() {
 // Kick off initial connection.
 connect();
 
-// ─── Amplifier power state indicator ────────────────────────────────────────
-// Single indicator that appears above all screens. Z-index ensures visibility.
+// ─── Amplifier top-bar chip + input panel ────────────────────────────────────
+
+let _ampInputList = [];
+let _ampCurrentId = '';
+let _ampPanelOpen = false;
 
 async function loadAmpPowerState() {
   try {
     const r = await fetch('/api/amplifier/state');
-    if (!r.ok) return; // 404 → amp not configured; keep indicator hidden
+    if (!r.ok) return; // 404 → amp not configured
     const s = await r.json();
     const ps    = s.detected_power_state ?? 'unknown';
     const model = s.model || s.maker || 'Amp';
 
-    const el = document.getElementById('amp-indicator');
-    const labelEl = document.getElementById('amp-label');
-    if (!el) return;
-    
-    el.style.display = 'flex';
-    el.className = `amp-indicator${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
-    labelEl.textContent = ps === 'on' ? 'ON' : ps === 'off' ? 'OFF' : '?';
-    el.title = `${model} — ${ps === 'on' ? 'On' : ps === 'off' ? 'Off' : 'unknown'}`;
-  } catch { /* network error or amp not available — leave indicator hidden */ }
+    _ampInputList = Array.isArray(s.input_list) ? s.input_list : [];
+    _ampCurrentId = s.current_input?.id ?? '';
+
+    if ($topbarAmpChip) {
+      $topbarAmpChip.style.display = 'flex';
+      $topbarAmpChip.classList.toggle('ps-on',  ps === 'on');
+      $topbarAmpChip.classList.toggle('ps-off', ps === 'off');
+      $topbarAmpChip.title = model;
+    }
+    if ($topbarAmpModel) $topbarAmpModel.textContent = model;
+    if ($topbarAmpState) $topbarAmpState.textContent = ps === 'on' ? 'ON' : ps === 'off' ? 'OFF' : '?';
+
+    if (_ampPanelOpen) populateAmpPanel();
+  } catch { /* amp offline or not configured */ }
 }
 
-function ampIndicatorClick() {
-  // TODO(future): open input-selector dialog
+function populateAmpPanel() {
+  if (!$ampInputPanel) return;
+  $ampInputPanel.innerHTML = '';
+  const list = _ampInputList.length
+    ? _ampInputList
+    : (_ampCurrentId ? [{ id: _ampCurrentId, label: _ampCurrentId }] : []);
+  list.forEach(inp => {
+    const isCurrent = inp.id === _ampCurrentId;
+    const item = document.createElement('div');
+    item.className = 'amp-input-item' + (isCurrent ? ' current' : '');
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', String(isCurrent));
+    if (isCurrent) {
+      const dot = document.createElement('span');
+      dot.className = 'amp-input-current-dot';
+      item.appendChild(dot);
+    }
+    item.appendChild(document.createTextNode(inp.label || inp.id));
+    item.addEventListener('click', () => selectAmpInput(inp.id));
+    $ampInputPanel.appendChild(item);
+  });
 }
+
+async function selectAmpInput(id) {
+  closeAmpPanel();
+  _ampCurrentId = id;
+  await fetch('/api/amplifier/input', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  setTimeout(loadAmpPowerState, 400);
+}
+
+function toggleAmpPanel() {
+  _ampPanelOpen ? closeAmpPanel() : openAmpPanel();
+}
+
+function openAmpPanel() {
+  if (!$ampInputPanel) return;
+  _ampPanelOpen = true;
+  populateAmpPanel();
+  $ampInputPanel.classList.add('open');
+  if ($topbarAmpChip) $topbarAmpChip.classList.add('open');
+}
+
+function closeAmpPanel() {
+  if (!$ampInputPanel) return;
+  _ampPanelOpen = false;
+  $ampInputPanel.classList.remove('open');
+  if ($topbarAmpChip) $topbarAmpChip.classList.remove('open');
+}
+
+document.addEventListener('click', e => {
+  if (_ampPanelOpen &&
+      !$topbarAmpChip?.contains(e.target) &&
+      !$ampInputPanel?.contains(e.target)) {
+    closeAmpPanel();
+  }
+});
 
 loadAmpPowerState();
 setInterval(loadAmpPowerState, 30_000);
