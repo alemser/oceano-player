@@ -195,7 +195,7 @@ func main() {
 		powerMonitor = amplifier.NewPowerStateMonitor(monitorAmp, 30*time.Second)
 		go powerMonitor.Start(context.Background())
 	}
-	registerAmplifierRoutes(mux, amp, cdPlayer, powerMonitor, *configPath)
+	registerAmplifierRoutes(mux, amp, cdPlayer, powerMonitor, cfg.Amplifier, *configPath)
 
 	// Scheduled backup: generate a fresh backup every 24 hours.
 	// The backup is written to the same directory as the library database.

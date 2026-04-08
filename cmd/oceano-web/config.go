@@ -44,6 +44,10 @@ type AmplifierInputConfig struct {
 	Label string `json:"label"`
 	// ID is the internal identifier used to address IR commands (e.g. "USB", "PHONO").
 	ID string `json:"id"`
+	// Visible controls whether this input appears in the UI input selector and
+	// kiosk display. Hidden inputs are still included in cycle-mode step counting
+	// because the amplifier cycles through all physical inputs regardless.
+	Visible bool `json:"visible"`
 }
 
 // AmplifierConfig controls the IR-controlled amplifier (e.g. Magnat MR 780).

@@ -672,6 +672,51 @@
     }
     .amp-input-select:focus { border-color: var(--accent); }
     .amp-divider { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
+
+    /* ── Inputs editor ── */
+    .amp-inputs-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+    .amp-input-row {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 6px 8px;
+      cursor: grab;
+    }
+    .amp-input-row:active { cursor: grabbing; }
+    .amp-input-row.drag-over { border-color: var(--accent); }
+    .amp-input-drag {
+      color: var(--text-faint); font-size: 1rem; flex-shrink: 0;
+      cursor: grab; user-select: none; padding: 0 2px;
+    }
+    .amp-input-label {
+      flex: 2; background: transparent; border: none; outline: none;
+      color: var(--text); font-size: 0.83rem; min-width: 0;
+    }
+    .amp-input-label::placeholder { color: var(--text-faint); }
+    .amp-input-id {
+      flex: 1; background: transparent; border: none; outline: none;
+      color: var(--text-dim); font-size: 0.78rem;
+      font-family: monospace; min-width: 0;
+    }
+    .amp-input-id::placeholder { color: var(--text-faint); }
+    .amp-input-sep { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
+    .btn-input-visible {
+      background: none; border: none; cursor: pointer; padding: 2px 4px;
+      color: var(--text-faint); font-size: 1rem; flex-shrink: 0;
+      transition: color 0.15s;
+    }
+    .btn-input-visible.is-visible { color: var(--accent); }
+    .btn-input-visible:hover { color: var(--text); }
+    .btn-input-remove {
+      background: none; border: none; cursor: pointer; padding: 2px 4px;
+      color: var(--text-faint); font-size: 0.85rem; flex-shrink: 0;
+    }
+    .btn-input-remove:hover { color: #e06060; }
+    .btn-add-input {
+      background: none; border: 1px dashed var(--border); border-radius: 6px;
+      color: var(--text-dim); font-size: 0.8rem; padding: 6px 12px;
+      cursor: pointer; width: 100%; transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-add-input:hover { border-color: var(--accent); color: var(--accent); }
   </style>
 </head>
 <body>
@@ -1075,10 +1120,20 @@
         </select>
         <div class="hint">Cycle: steps through inputs in order. Direct: sends a specific IR code per input.</div>
       </div>
+
       <div class="field">
-        <label><span>Default input ID</span></label>
-        <input type="text" id="amp-default-input" placeholder="USB">
-        <div class="hint">Input the amplifier is assumed to start on. Required for cycle mode.</div>
+        <label><span>Inputs</span></label>
+        <div class="hint" style="margin-bottom:8px">All physical inputs in cycle order. Hidden inputs still count as steps — include them all. Toggle the eye icon to show/hide in the UI.</div>
+        <div id="amp-inputs-list" class="amp-inputs-list"></div>
+        <button type="button" class="btn-add-input" onclick="ampAddInput()">+ Add input</button>
+      </div>
+
+      <div class="field">
+        <label><span>Default input</span></label>
+        <select id="amp-default-input">
+          <option value="">— select —</option>
+        </select>
+        <div class="hint">The input Oceano assumes the amplifier starts on. Required for cycle mode.</div>
       </div>
       <div class="field">
         <label><span>Warm-up delay (seconds)</span></label>
@@ -1292,7 +1347,8 @@ async function loadConfig() {
   set('amp-maker',          cfg.amplifier?.maker ?? '');
   set('amp-model',          cfg.amplifier?.model ?? '');
   set('amp-input-mode',     cfg.amplifier?.input_selection_mode ?? 'cycle');
-  set('amp-default-input',  cfg.amplifier?.default_input ?? '');
+  renderAmpInputsList(cfg.amplifier?.inputs ?? []);
+  refreshDefaultInputDropdown(cfg.amplifier?.default_input ?? '');
   set('amp-warmup',         cfg.amplifier?.warmup_seconds ?? 30);
   set('amp-switch-delay',   cfg.amplifier?.input_switch_delay_seconds ?? 2);
   set('amp-broadlink-host', cfg.amplifier?.broadlink?.host ?? '');
@@ -1516,6 +1572,7 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       maker:                     val('amp-maker'),
       model:                     val('amp-model'),
       input_selection_mode:      val('amp-input-mode') || 'cycle',
+      inputs:                    collectAmpInputs(),
       default_input:             val('amp-default-input'),
       warmup_seconds:            intOr('amp-warmup', 30),
       input_switch_delay_seconds: intOr('amp-switch-delay', 2),
@@ -2038,6 +2095,105 @@ function closeConfig() {
 // ── Amplifier / CD player control ────────────────────────────────────────────
 let _ampConfig = {};
 let _cdConfig  = {};
+
+// ── Inputs editor ─────────────────────────────────────────────────────────────
+
+function renderAmpInputsList(inputs) {
+  const list = document.getElementById('amp-inputs-list');
+  if (!list) return;
+  list.innerHTML = '';
+  inputs.forEach((inp, i) => list.appendChild(buildInputRow(inp, i)));
+}
+
+function buildInputRow(inp, idx) {
+  const row = document.createElement('div');
+  row.className = 'amp-input-row';
+  row.draggable = true;
+  row.dataset.idx = idx;
+
+  row.innerHTML = `
+    <span class="amp-input-drag" title="Drag to reorder">⠿</span>
+    <input class="amp-input-label" type="text" placeholder="Label (e.g. USB Audio)"
+           value="${esc(inp.label ?? '')}" oninput="refreshDefaultInputDropdown()">
+    <span class="amp-input-sep"></span>
+    <input class="amp-input-id" type="text" placeholder="ID (e.g. USB)"
+           value="${esc(inp.id ?? '')}" oninput="refreshDefaultInputDropdown()">
+    <span class="amp-input-sep"></span>
+    <button type="button" class="btn-input-visible ${inp.visible ? 'is-visible' : ''}"
+            title="${inp.visible ? 'Visible in UI' : 'Hidden in UI'}"
+            onclick="toggleInputVisible(this)">
+      ${inp.visible ? '👁' : '○'}
+    </button>
+    <button type="button" class="btn-input-remove" title="Remove" onclick="removeInputRow(this)">✕</button>`;
+
+  // Drag-and-drop reordering
+  row.addEventListener('dragstart', e => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', row.dataset.idx);
+    row.style.opacity = '0.4';
+  });
+  row.addEventListener('dragend', () => { row.style.opacity = ''; });
+  row.addEventListener('dragover', e => { e.preventDefault(); row.classList.add('drag-over'); });
+  row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+  row.addEventListener('drop', e => {
+    e.preventDefault();
+    row.classList.remove('drag-over');
+    const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+    const toIdx   = parseInt(row.dataset.idx, 10);
+    if (fromIdx === toIdx) return;
+    const inputs = collectAmpInputs();
+    const [moved] = inputs.splice(fromIdx, 1);
+    inputs.splice(toIdx, 0, moved);
+    renderAmpInputsList(inputs);
+    refreshDefaultInputDropdown();
+  });
+
+  return row;
+}
+
+function ampAddInput() {
+  const inputs = collectAmpInputs();
+  inputs.push({ label: '', id: '', visible: true });
+  renderAmpInputsList(inputs);
+  refreshDefaultInputDropdown();
+  // Focus the label field of the new row
+  const rows = document.querySelectorAll('.amp-input-row');
+  if (rows.length) rows[rows.length - 1].querySelector('.amp-input-label')?.focus();
+}
+
+function removeInputRow(btn) {
+  btn.closest('.amp-input-row').remove();
+  refreshDefaultInputDropdown();
+}
+
+function toggleInputVisible(btn) {
+  const isNowVisible = !btn.classList.contains('is-visible');
+  btn.classList.toggle('is-visible', isNowVisible);
+  btn.title   = isNowVisible ? 'Visible in UI' : 'Hidden in UI';
+  btn.textContent = isNowVisible ? '👁' : '○';
+}
+
+// collectAmpInputs reads current row state from the DOM.
+function collectAmpInputs() {
+  return Array.from(document.querySelectorAll('.amp-input-row')).map(row => ({
+    label:   row.querySelector('.amp-input-label')?.value ?? '',
+    id:      row.querySelector('.amp-input-id')?.value ?? '',
+    visible: row.querySelector('.btn-input-visible')?.classList.contains('is-visible') ?? false,
+  }));
+}
+
+// refreshDefaultInputDropdown rebuilds the dropdown from current input rows
+// and re-selects the previously chosen value (or the passed value on load).
+function refreshDefaultInputDropdown(selectValue) {
+  const sel = document.getElementById('amp-default-input');
+  if (!sel) return;
+  const prev = selectValue ?? sel.value;
+  const inputs = collectAmpInputs();
+  sel.innerHTML = '<option value="">— select —</option>' +
+    inputs.filter(i => i.id).map(i =>
+      `<option value="${esc(i.id)}"${i.id === prev ? ' selected' : ''}>${esc(i.label || i.id)}</option>`
+    ).join('');
+}
 
 function updateAmpPanel() {
   const ampEnabled = document.getElementById('amp-enabled')?.checked;

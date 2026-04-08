@@ -13,10 +13,11 @@ import (
 // amplifierServer holds the in-memory state for amplifier and CD player control.
 // amp and cdPlayer are nil when the respective device is not configured or enabled.
 type amplifierServer struct {
-	configPath string
-	amp        *amplifier.BroadlinkAmplifier
-	cdPlayer   *amplifier.BroadlinkCDPlayer
-	monitor    *amplifier.PowerStateMonitor // nil when amp is not configured
+	configPath  string
+	ampConfig   AmplifierConfig // kept for input visibility filtering
+	amp         *amplifier.BroadlinkAmplifier
+	cdPlayer    *amplifier.BroadlinkCDPlayer
+	monitor     *amplifier.PowerStateMonitor // nil when amp is not configured
 
 	pairMu    sync.Mutex
 	pairState *pairingAttempt
@@ -32,9 +33,10 @@ type pairingAttempt struct {
 
 // registerAmplifierRoutes wires all /api/amplifier/* and /api/cdplayer/* endpoints.
 // amp, cdPlayer, and monitor may be nil; affected endpoints return 404 in that case.
-func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifier, cdPlayer *amplifier.BroadlinkCDPlayer, monitor *amplifier.PowerStateMonitor, configPath string) {
+func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifier, cdPlayer *amplifier.BroadlinkCDPlayer, monitor *amplifier.PowerStateMonitor, ampConfig AmplifierConfig, configPath string) {
 	s := &amplifierServer{
 		configPath: configPath,
+		ampConfig:  ampConfig,
 		amp:        amp,
 		cdPlayer:   cdPlayer,
 		monitor:    monitor,
@@ -49,6 +51,22 @@ func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifi
 	mux.HandleFunc("/api/amplifier/pair-complete", s.handlePairComplete)
 	mux.HandleFunc("/api/cdplayer/state", s.handleCDPlayerState)
 	mux.HandleFunc("/api/cdplayer/transport", s.handleCDPlayerTransport)
+}
+
+// visibleInputList returns only the inputs marked visible:true in config.
+// Falls back to the full amp list if no config inputs exist (e.g. all visible).
+func (s *amplifierServer) visibleInputList() []amplifier.Input {
+	var visible []amplifier.Input
+	for _, inp := range s.ampConfig.Inputs {
+		if inp.Visible {
+			visible = append(visible, amplifier.Input{Label: inp.Label, ID: inp.ID})
+		}
+	}
+	// If no input is marked visible (e.g. old config without the field), show all.
+	if len(visible) == 0 {
+		return s.amp.InputList()
+	}
+	return visible
 }
 
 // --- response types ---
@@ -107,7 +125,7 @@ func (s *amplifierServer) handleAmplifierState(w http.ResponseWriter, r *http.Re
 		resp.Model                   = s.amp.Model()
 		resp.PowerOn                 = powerOn
 		resp.CurrentInput            = currentInput
-		resp.InputList               = s.amp.InputList()
+		resp.InputList               = s.visibleInputList()
 		resp.DefaultInput            = s.amp.DefaultInput()
 		resp.AudioReady              = s.amp.AudioReady()
 		resp.WarmupSeconds           = s.amp.WarmupTimeSeconds()
