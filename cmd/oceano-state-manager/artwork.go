@@ -47,6 +47,9 @@ func fetchArtwork(artist, album, dir string) (string, error) {
 	if _, err := os.Stat(path); err == nil {
 		return path, nil // already on disk
 	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("artwork: mkdir: %w", err)
+	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return "", fmt.Errorf("artwork: write: %w", err)
 	}
@@ -79,7 +82,7 @@ func itunesArtworkURL(artist, album string) (string, error) {
 		return "", fmt.Errorf("artwork: itunes decode: %w", err)
 	}
 
-	albumLower  := strings.ToLower(album)
+	albumLower := strings.ToLower(album)
 	artistLower := strings.ToLower(artist)
 
 	// Prefer an exact album+artist match; fall back to first result.

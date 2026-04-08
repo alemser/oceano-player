@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -14,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/alemser/oceano-player/internal/amplifier"
 )
 
 //go:embed static
@@ -42,6 +45,8 @@ func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	libraryDB := flag.String("library-db", "/var/lib/oceano/library.db", "path to collection SQLite database")
 	flag.Parse()
+
+	var err error
 
 	_ = os.MkdirAll("/etc/oceano", 0o755)
 
@@ -171,6 +176,27 @@ func main() {
 	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir)
 	registerBackupRoute(mux, *libraryDB, cfg.Advanced.ArtworkDir)
 
+	// API: amplifier and CD player IR control.
+	amp, err := buildAmplifierFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket)
+	if err != nil {
+		log.Printf("amplifier config error: %v (amplifier control disabled)", err)
+	}
+	cdPlayer := buildCDPlayerFromConfig(cfg.CDPlayer)
+
+	// Power state monitor: polls hardware every 30 s.
+	// Uses the full amp when inputs are configured; falls back to a detection-only
+	// instance (Maker+Model+VUSocket only) when inputs are not yet set up.
+	var powerMonitor *amplifier.PowerStateMonitor
+	monitorAmp := amp
+	if monitorAmp == nil {
+		monitorAmp = buildDetectionAmpFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket)
+	}
+	if monitorAmp != nil {
+		powerMonitor = amplifier.NewPowerStateMonitor(monitorAmp, 30*time.Second)
+		go powerMonitor.Start(context.Background())
+	}
+	registerAmplifierRoutes(mux, amp, cdPlayer, powerMonitor, cfg.Amplifier, *configPath)
+
 	// Scheduled backup: generate a fresh backup every 24 hours.
 	// The backup is written to the same directory as the library database.
 	// There is no history — each run replaces the previous backup.
@@ -266,12 +292,13 @@ func formatSSEDataFrame(data []byte) string {
 }
 
 func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
-	cfg, err := loadConfig(configPath)
+	old, err := loadConfig(configPath)
 	if err != nil {
 		http.Error(w, "load current config failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	cfg := old
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
@@ -283,57 +310,89 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	}
 
 	var results []string
+	hadError := false
 
-	// Rewrite and restart source detector if service file exists.
-	if _, err := os.Stat(detectorSvc); err == nil {
-		if err := writeDetectorService(cfg); err != nil {
-			results = append(results, "detector service write: "+err.Error())
-		} else if err := restartService(detectorUnit); err != nil {
-			results = append(results, "detector restart: "+err.Error())
-		} else {
-			results = append(results, "oceano-source-detector restarted")
+	detectorChanged := old.AudioInput != cfg.AudioInput ||
+		old.Advanced.SourceFile != cfg.Advanced.SourceFile ||
+		old.Advanced.VUSocket != cfg.Advanced.VUSocket ||
+		old.Advanced.PCMSocket != cfg.Advanced.PCMSocket
+
+	managerChanged := old.Recognition != cfg.Recognition ||
+		old.Advanced.MetadataPipe != cfg.Advanced.MetadataPipe ||
+		old.Advanced.SourceFile != cfg.Advanced.SourceFile ||
+		old.Advanced.StateFile != cfg.Advanced.StateFile ||
+		old.Advanced.ArtworkDir != cfg.Advanced.ArtworkDir ||
+		old.Advanced.VUSocket != cfg.Advanced.VUSocket ||
+		old.Advanced.PCMSocket != cfg.Advanced.PCMSocket
+
+	// Restart source detector only when audio input settings or shared socket
+	// paths changed — recognition-only edits leave the detector untouched.
+	if detectorChanged {
+		if _, err := os.Stat(detectorSvc); err == nil {
+			if err := writeDetectorService(cfg); err != nil {
+				results = append(results, "detector service write: "+err.Error())
+				hadError = true
+			} else if err := restartService(detectorUnit); err != nil {
+				results = append(results, "detector restart: "+err.Error())
+				hadError = true
+			} else {
+				results = append(results, "oceano-source-detector restarted")
+			}
 		}
 	}
 
-	// Rewrite and restart state manager if service file exists.
-	if _, err := os.Stat(managerSvc); err == nil {
-		if err := writeManagerService(cfg); err != nil {
-			results = append(results, "manager service write: "+err.Error())
-		} else if err := restartService(managerUnit); err != nil {
-			results = append(results, "manager restart: "+err.Error())
-		} else {
-			results = append(results, "oceano-state-manager restarted")
+	// Restart state manager only when recognition settings or shared socket
+	// paths changed — audio input edits leave the manager untouched.
+	if managerChanged {
+		if _, err := os.Stat(managerSvc); err == nil {
+			if err := writeManagerService(cfg); err != nil {
+				results = append(results, "manager service write: "+err.Error())
+				hadError = true
+			} else if err := restartService(managerUnit); err != nil {
+				results = append(results, "manager restart: "+err.Error())
+				hadError = true
+			} else {
+				results = append(results, "oceano-state-manager restarted")
+			}
 		}
 	}
 
-	// Update AirPlay name in shairport-sync.conf and restart if name changed.
-	if cfg.AudioOutput.AirPlayName != "" {
+	// Restart shairport-sync only when the AirPlay name actually changed.
+	if old.AudioOutput.AirPlayName != cfg.AudioOutput.AirPlayName && cfg.AudioOutput.AirPlayName != "" {
 		if err := updateShairportName(cfg.AudioOutput.AirPlayName); err != nil {
 			results = append(results, "shairport-sync name update: "+err.Error())
+			hadError = true
 		} else {
 			results = append(results, "shairport-sync restarted (new AirPlay name)")
 		}
 	}
 
-	// Write display env and restart oceano-now-playing if it is installed.
-	if err := saveSPIDisplayEnv(displayEnvPath, cfg.Display); err != nil {
-		results = append(results, "display env write: "+err.Error())
-	} else {
-		displaySvc := "/etc/systemd/system/" + displayUnit
-		if _, err := os.Stat(displaySvc); err == nil {
-			if err := restartService(displayUnit); err != nil {
-				results = append(results, "display restart: "+err.Error())
-			} else {
-				results = append(results, "oceano-now-playing restarted")
-			}
+	// Restart now-playing display only when display settings actually changed.
+	if old.Display != cfg.Display {
+		if err := saveSPIDisplayEnv(displayEnvPath, cfg.Display); err != nil {
+			results = append(results, "display env write: "+err.Error())
+			hadError = true
 		} else {
-			results = append(results, "display.env written (oceano-now-playing not installed)")
+			displaySvc := "/etc/systemd/system/" + displayUnit
+			if _, err := os.Stat(displaySvc); err == nil {
+				if err := restartService(displayUnit); err != nil {
+					results = append(results, "display restart: "+err.Error())
+					hadError = true
+				} else {
+					results = append(results, "oceano-now-playing restarted")
+				}
+			} else {
+				results = append(results, "display.env written (oceano-now-playing not installed)")
+			}
 		}
 	}
 
+	// amplifier, cd_player: managed in-memory by oceano-web — no systemd restart needed.
+	// weather: rendered client-side from /api/config — no restart needed.
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"ok":      len(results) > 0,
+		"ok":      !hadError,
 		"results": results,
 	})
 }

@@ -566,6 +566,39 @@
 
     .pulsing { animation: pulse 1.8s ease-in-out infinite; }
 
+    /* Amplifier power state indicator — sits inside #idle-screen, bottom-right.
+       Also reused inside #app (playing screen). Hidden until amp is configured. */
+    .amp-indicator {
+      position: absolute;
+      bottom: 22px; right: 22px;
+      display: none; /* shown via JS once amp state is loaded */
+      align-items: center;
+      gap: 8px;
+      background: rgba(7, 9, 15, 0.75);
+      border: 1px solid var(--border);
+      border-radius: 26px;
+      padding: 8px 15px 8px 11px;
+      cursor: pointer;
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+      transition: border-color 0.25s;
+      color: var(--text-dim);
+      z-index: 10;
+    }
+    .amp-indicator:hover { border-color: rgba(255,255,255,0.2); }
+    .amp-indicator.ps-on  { border-color: #2a5c2a; color: #4cba80; }
+    .amp-indicator.ps-off { border-color: #5c2a2a; color: #e05e5e; }
+    .amp-indicator svg { width: 16px; height: 16px; flex-shrink: 0; }
+    .amp-indicator-label {
+      font-size: 0.76rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    /* Ensure indicator appears above all screens */
+    #amp-indicator { z-index: 20; }
+
   </style>
 </head>
 <body>
@@ -611,8 +644,13 @@
   </div>
 </div>
 
+<!-- Amp indicator (appears above all screens) -->
+<button class="amp-indicator" id="amp-indicator" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
+  <span class="amp-indicator-label" id="amp-label">—</span>
+</button>
+
 <!-- Main playing UI -->
-<div id="app">
+<div id="app" style="position:relative">
 
   <!-- Source bar -->
   <div id="source-bar">
@@ -1007,9 +1045,10 @@ function updateArtwork(artworkPath) {
       $artDefault.style.opacity = '0';
     };
     img.onerror = () => showDefaultArtwork();
-    // Bust cache between track changes by appending the path as a cache-busting
-    // parameter — the server serves the same bytes but the URL is new.
-    img.src = '/api/artwork?' + encodeURIComponent(artworkPath);
+    // Bust cache between track changes with a timestamp parameter.
+    // The server reads the artwork path directly from the state file;
+    // the ?t parameter is ignored by the server but forces browser cache refresh.
+    img.src = '/api/artwork?t=' + Date.now();
   } else {
     showDefaultArtwork();
   }
@@ -1223,6 +1262,35 @@ function connect() {
 
 // Kick off initial connection.
 connect();
+
+// ─── Amplifier power state indicator ────────────────────────────────────────
+// Single indicator that appears above all screens. Z-index ensures visibility.
+
+async function loadAmpPowerState() {
+  try {
+    const r = await fetch('/api/amplifier/state');
+    if (!r.ok) return; // 404 → amp not configured; keep indicator hidden
+    const s = await r.json();
+    const ps    = s.detected_power_state ?? 'unknown';
+    const model = s.model || s.maker || 'Amp';
+
+    const el = document.getElementById('amp-indicator');
+    const labelEl = document.getElementById('amp-label');
+    if (!el) return;
+    
+    el.style.display = 'flex';
+    el.className = `amp-indicator${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
+    labelEl.textContent = ps === 'on' ? 'ON' : ps === 'off' ? 'OFF' : '?';
+    el.title = `${model} — ${ps === 'on' ? 'On' : ps === 'off' ? 'Off' : 'unknown'}`;
+  } catch { /* network error or amp not available — leave indicator hidden */ }
+}
+
+function ampIndicatorClick() {
+  // TODO(future): open input-selector dialog
+}
+
+loadAmpPowerState();
+setInterval(loadAmpPowerState, 30_000);
 </script>
 </body>
 </html>
