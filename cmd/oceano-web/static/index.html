@@ -597,7 +597,6 @@
       overflow: hidden;
     }
     #amp-panel { margin-bottom: var(--gap); }
-    #cd-widget { margin-top: 10px; }
 
     /* Clickable header row — acts as collapse toggle */
     .amp-header {
@@ -672,6 +671,26 @@
     }
     .amp-input-select:focus { border-color: var(--accent); }
     .amp-divider { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
+
+    /* CD controls live inside the amplifier accordion */
+    #cd-widget {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+    .cd-inline-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .cd-inline-title {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-faint);
+    }
 
     /* ── Inputs editor ── */
     .amp-inputs-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
@@ -803,24 +822,17 @@
     </div>
   </div>
 
-  <!-- CD Player widget -->
-  <div id="cd-widget" style="display:none; margin-top:10px">
-    <div class="amp-widget" id="cd-amp-widget">
-      <div class="amp-header" onclick="toggleAmpWidget('cd-amp-widget')" onkeydown="handleAmpHeaderKey(event, 'cd-amp-widget')" role="button" tabindex="0" aria-expanded="false">
-        <span class="amp-title" id="cd-widget-title">CD Player</span>
-        <svg class="amp-chevron" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <path d="M2 4.5 L7 9.5 L12 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div class="amp-body">
-        <div class="amp-controls">
-          <button class="btn-amp" onclick="cdTransport('prev')"  title="Previous">⏮</button>
-          <button class="btn-amp" onclick="cdTransport('stop')"  title="Stop">⏹</button>
-          <button class="btn-amp" onclick="cdTransport('play')"  title="Play">▶</button>
-          <button class="btn-amp" onclick="cdTransport('pause')" title="Pause">⏸</button>
-          <button class="btn-amp" onclick="cdTransport('next')"  title="Next">⏭</button>
-        </div>
-      </div>
+  <!-- CD Player controls (integrated under amplifier) -->
+  <div id="cd-widget" style="display:none">
+    <div class="cd-inline-head">
+      <span class="cd-inline-title" id="cd-widget-title">CD Player</span>
+    </div>
+    <div class="amp-controls">
+      <button class="btn-amp" onclick="cdTransport('prev')"  title="Previous">⏮</button>
+      <button class="btn-amp" onclick="cdTransport('stop')"  title="Stop">⏹</button>
+      <button class="btn-amp" onclick="cdTransport('play')"  title="Play">▶</button>
+      <button class="btn-amp" onclick="cdTransport('pause')" title="Pause">⏸</button>
+      <button class="btn-amp" onclick="cdTransport('next')"  title="Next">⏭</button>
     </div>
   </div>
 </div>
