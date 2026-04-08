@@ -14,9 +14,9 @@ const (
 	PowerStateOn PowerState = "on"
 
 	// PowerStateOff indicates the device is powered off or in standby.
-	// Reserved for explicit negative evidence from hardware checks.
-	// Current detector is intentionally conservative and may return "unknown"
-	// instead of "off" when evidence is inconclusive.
+	// Inferred when hardware checks provide explicit negative evidence
+	// (e.g. REC-OUT noise floor at/below calibrated off-threshold).
+	// Ambiguous values are reported as "unknown".
 	PowerStateOff PowerState = "off"
 
 	// PowerStateUnknown means no check could conclusively determine the state.

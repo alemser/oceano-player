@@ -15,7 +15,14 @@ import (
 // noiseFloorOnThreshold is the minimum average RMS from the VU socket that
 // indicates the amplifier is powered on (noise floor is audible on REC-OUT).
 // Derived from Magnat MR 780 measurements: "on and silent" ≈ 0.0145.
-const noiseFloorOnThreshold = 0.010
+// We keep margin below the measured average to tolerate capture variance.
+const noiseFloorOnThreshold = 0.012
+
+// noiseFloorOffThreshold is the maximum average RMS from the VU socket that
+// strongly indicates the amplifier is off/standby.
+// Derived from Magnat MR 780 measurements: "off" ≈ 0.0074.
+// Values between off and on thresholds are treated as inconclusive.
+const noiseFloorOffThreshold = 0.009
 
 // vuSampleDuration is how long checkNoiseFloor reads frames before computing
 // the average. Long enough for ~64 frames at the ~21.5 Hz VU frame rate.
@@ -96,9 +103,11 @@ func classifyNoiseFloor(rms float64) PowerState {
 	if rms >= noiseFloorOnThreshold {
 		return PowerStateOn
 	}
-	// Conservative classification: below the "on" threshold is inconclusive.
-	// This avoids false "off" when the amplifier is on but routed to an input
-	// that does not expose USB DAC presence (e.g. CD/Phono), or when the
-	// currently selected source is silent.
+	if rms <= noiseFloorOffThreshold {
+		return PowerStateOff
+	}
+	// Dead zone between off/on thresholds is intentionally inconclusive. This
+	// avoids false "off" when the amplifier is on but routed to a non-USB input
+	// with low signal/noise variation.
 	return PowerStateUnknown
 }
