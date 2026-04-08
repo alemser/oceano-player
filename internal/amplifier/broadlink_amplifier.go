@@ -88,6 +88,17 @@ func NewBroadlinkAmplifier(client BroadlinkClient, settings AmplifierSettings) (
 	}, nil
 }
 
+// NewBroadlinkAmplifierForDetection constructs a minimal BroadlinkAmplifier
+// used exclusively for power state detection (CheckUSBDAC + noise floor).
+// Input list and IR codes are not required — all IR command methods will
+// return ErrNotSupported until the full config is provided.
+func NewBroadlinkAmplifierForDetection(settings AmplifierSettings) *BroadlinkAmplifier {
+	return &BroadlinkAmplifier{
+		client:   &MockBroadlinkClient{}, // no IR commands are sent during detection
+		settings: settings,
+	}
+}
+
 func (a *BroadlinkAmplifier) Maker() string { return a.settings.Maker }
 func (a *BroadlinkAmplifier) Model() string { return a.settings.Model }
 

@@ -63,6 +63,9 @@ func (m *PowerStateMonitor) Start(ctx context.Context) {
 	}
 }
 
+// Amp returns the Amplifier being monitored.
+func (m *PowerStateMonitor) Amp() Amplifier { return m.amp }
+
 // Current returns the last detected power state and the time it was last
 // checked. Returns (PowerStateUnknown, zero) before the first detection.
 func (m *PowerStateMonitor) Current() (PowerState, time.Time) {

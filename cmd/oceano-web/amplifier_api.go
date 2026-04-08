@@ -89,30 +89,39 @@ func (s *amplifierServer) handleAmplifierState(w http.ResponseWriter, r *http.Re
 		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.amp == nil {
+	// Return 404 only when neither the full amp nor the monitor is available.
+	if s.amp == nil && s.monitor == nil {
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
 		return
 	}
 
-	powerOn, _ := s.amp.CurrentState()
-	currentInput, _ := s.amp.CurrentInput()
-
 	resp := amplifierStateResponse{
-		Maker:                   s.amp.Maker(),
-		Model:                   s.amp.Model(),
-		PowerOn:                 powerOn,
-		CurrentInput:            currentInput,
-		InputList:               s.amp.InputList(),
-		DefaultInput:            s.amp.DefaultInput(),
-		AudioReady:              s.amp.AudioReady(),
-		WarmupSeconds:           s.amp.WarmupTimeSeconds(),
-		InputSwitchDelaySeconds: s.amp.InputSwitchDelaySeconds(),
-		DetectedPowerState:      amplifier.PowerStateUnknown,
-		LastUpdated:             time.Now(),
+		DetectedPowerState: amplifier.PowerStateUnknown,
+		LastUpdated:        time.Now(),
 	}
-	if at := s.amp.AudioReadyAt(); !at.IsZero() {
-		resp.AudioReadyAt = &at
+
+	if s.amp != nil {
+		powerOn, _ := s.amp.CurrentState()
+		currentInput, _ := s.amp.CurrentInput()
+		resp.Maker                   = s.amp.Maker()
+		resp.Model                   = s.amp.Model()
+		resp.PowerOn                 = powerOn
+		resp.CurrentInput            = currentInput
+		resp.InputList               = s.amp.InputList()
+		resp.DefaultInput            = s.amp.DefaultInput()
+		resp.AudioReady              = s.amp.AudioReady()
+		resp.WarmupSeconds           = s.amp.WarmupTimeSeconds()
+		resp.InputSwitchDelaySeconds = s.amp.InputSwitchDelaySeconds()
+		if at := s.amp.AudioReadyAt(); !at.IsZero() {
+			resp.AudioReadyAt = &at
+		}
+	} else {
+		// Detection-only mode: identity from monitor's amp; IR fields stay zero.
+		a := s.monitor.Amp()
+		resp.Maker = a.Maker()
+		resp.Model = a.Model()
 	}
+
 	if s.monitor != nil {
 		detected, detAt := s.monitor.Current()
 		resp.DetectedPowerState = detected
@@ -410,11 +419,15 @@ func (s *amplifierServer) handlePairComplete(w http.ResponseWriter, r *http.Requ
 
 // --- config helpers ---
 
-// buildAmplifierFromConfig constructs a BroadlinkAmplifier from AmplifierConfig.
-// vuSocketPath is the VU frame socket (from AdvancedConfig) used for noise floor
-// detection. Returns nil, nil when the amplifier is disabled.
+// buildAmplifierFromConfig constructs a full BroadlinkAmplifier (IR commands +
+// detection) from AmplifierConfig. Returns nil, nil when disabled or when
+// inputs are not yet configured (detection-only monitor is used instead).
 func buildAmplifierFromConfig(cfg AmplifierConfig, vuSocketPath string) (*amplifier.BroadlinkAmplifier, error) {
 	if !cfg.Enabled {
+		return nil, nil
+	}
+	if len(cfg.Inputs) == 0 {
+		// Inputs not configured yet — IR commands unavailable; use detection-only amp.
 		return nil, nil
 	}
 
@@ -442,6 +455,20 @@ func buildAmplifierFromConfig(cfg AmplifierConfig, vuSocketPath string) (*amplif
 			VUSocketPath:    vuSocketPath,
 		},
 	)
+}
+
+// buildDetectionAmpFromConfig constructs a detection-only BroadlinkAmplifier
+// used exclusively by PowerStateMonitor when the full amp (inputs) is not yet
+// configured. Requires only Maker, Model, and VUSocketPath.
+func buildDetectionAmpFromConfig(cfg AmplifierConfig, vuSocketPath string) *amplifier.BroadlinkAmplifier {
+	if !cfg.Enabled || cfg.Maker == "" || cfg.Model == "" {
+		return nil
+	}
+	return amplifier.NewBroadlinkAmplifierForDetection(amplifier.AmplifierSettings{
+		Maker:        cfg.Maker,
+		Model:        cfg.Model,
+		VUSocketPath: vuSocketPath,
+	})
 }
 
 // buildCDPlayerFromConfig constructs a BroadlinkCDPlayer from CDPlayerConfig.

@@ -183,11 +183,16 @@ func main() {
 	}
 	cdPlayer := buildCDPlayerFromConfig(cfg.CDPlayer)
 
-	// Power state monitor: polls hardware every 30 s, broadcasts changes to
-	// subscribers (REST handlers, future SSE enrichment, auto-switch logic).
+	// Power state monitor: polls hardware every 30 s.
+	// Uses the full amp when inputs are configured; falls back to a detection-only
+	// instance (Maker+Model+VUSocket only) when inputs are not yet set up.
 	var powerMonitor *amplifier.PowerStateMonitor
-	if amp != nil {
-		powerMonitor = amplifier.NewPowerStateMonitor(amp, 30*time.Second)
+	monitorAmp := amp
+	if monitorAmp == nil {
+		monitorAmp = buildDetectionAmpFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket)
+	}
+	if monitorAmp != nil {
+		powerMonitor = amplifier.NewPowerStateMonitor(monitorAmp, 30*time.Second)
 		go powerMonitor.Start(context.Background())
 	}
 	registerAmplifierRoutes(mux, amp, cdPlayer, powerMonitor, *configPath)
