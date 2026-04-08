@@ -596,6 +596,9 @@
       white-space: nowrap;
     }
 
+    /* Ensure indicator appears above all screens */
+    #amp-indicator { z-index: 20; }
+
   </style>
 </head>
 <body>
@@ -627,11 +630,6 @@
     </div>
   </div>
   <div id="idle-label">Oceano Player</div>
-
-  <!-- Amp indicator — idle screen copy -->
-  <button class="amp-indicator" id="amp-indicator-idle" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
-    <span class="amp-indicator-label" id="amp-label-idle">—</span>
-  </button>
 </div>
 
 <div class="power-overlay" id="power-dialog" onclick="if(event.target===this)closePowerDialog()">
@@ -646,13 +644,13 @@
   </div>
 </div>
 
+<!-- Amp indicator (appears above all screens) -->
+<button class="amp-indicator" id="amp-indicator" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
+  <span class="amp-indicator-label" id="amp-label">—</span>
+</button>
+
 <!-- Main playing UI -->
 <div id="app" style="position:relative">
-
-  <!-- Amp indicator — playing screen copy -->
-  <button class="amp-indicator" id="amp-indicator-playing" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
-    <span class="amp-indicator-label" id="amp-label-playing">—</span>
-  </button>
 
   <!-- Source bar -->
   <div id="source-bar">
@@ -1264,37 +1262,26 @@ function connect() {
 // Kick off initial connection.
 connect();
 
-// ─── Amplifier power state indicator ─────────────────────────────────────────
-// Two copies exist: one inside #idle-screen, one inside #app.
-// Both are updated together so state is consistent across screens.
-
-function _applyAmpIndicator(el, labelEl, ps, model) {
-  if (!el) return;
-  el.style.display = 'flex';
-  el.className = `amp-indicator${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
-  labelEl.textContent = ps === 'on' ? `⏻ ${model}` : ps === 'off' ? `⏻ ${model}` : model;
-  el.title = `${model} — ${ps === 'on' ? 'On' : ps === 'off' ? 'Off' : 'unknown'}`;
-}
+// ─── Amplifier power state indicator ────────────────────────────────────────
+// Single indicator that appears above all screens. Z-index ensures visibility.
 
 async function loadAmpPowerState() {
   try {
     const r = await fetch('/api/amplifier/state');
-    if (!r.ok) return; // 404 → amp not configured; keep indicators hidden
+    if (!r.ok) return; // 404 → amp not configured; keep indicator hidden
     const s = await r.json();
     const ps    = s.detected_power_state ?? 'unknown';
     const model = s.model || s.maker || 'Amp';
 
-    _applyAmpIndicator(
-      document.getElementById('amp-indicator-idle'),
-      document.getElementById('amp-label-idle'),
-      ps, model
-    );
-    _applyAmpIndicator(
-      document.getElementById('amp-indicator-playing'),
-      document.getElementById('amp-label-playing'),
-      ps, model
-    );
-  } catch { /* network error or amp not available — leave indicators hidden */ }
+    const el = document.getElementById('amp-indicator');
+    const labelEl = document.getElementById('amp-label');
+    if (!el) return;
+    
+    el.style.display = 'flex';
+    el.className = `amp-indicator${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
+    labelEl.textContent = ps === 'on' ? `⏻ ${model}` : ps === 'off' ? `⏻ ${model}` : model;
+    el.title = `${model} — ${ps === 'on' ? 'On' : ps === 'off' ? 'Off' : 'unknown'}`;
+  } catch { /* network error or amp not available — leave indicator hidden */ }
 }
 
 function ampIndicatorClick() {
