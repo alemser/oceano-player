@@ -622,6 +622,43 @@
       backdrop-filter: blur(12px);
     }
 
+    #topbar-source {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    #topbar-source-icon { width: 24px; height: 24px; flex-shrink: 0; color: #9aa8cc; }
+    #topbar-source-icon svg { width: 100%; height: 100%; display: block; }
+
+    #topbar-source-label {
+      font-size: 0.88rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #a7b2d1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #topbar-source-badge {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 9px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--text-faint);
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: all 0.4s;
+    }
+    #topbar-source-badge.playing { border-color: #2a5a3a; color: #5ecb80; }
+
     #topbar-right {
       margin-left: auto;
       display: flex;
@@ -726,6 +763,11 @@
 <!-- Idle screen (shown when no source is active) -->
 <!-- Global top bar — always visible above idle and playing screens -->
 <div id="topbar">
+  <div id="topbar-source">
+    <div id="topbar-source-icon" aria-hidden="true"></div>
+    <span id="topbar-source-label"></span>
+    <span id="topbar-source-badge" style="display:none"></span>
+  </div>
   <div id="topbar-right">
     <!-- Amp chip: hidden until amp is configured; click opens input selector -->
     <button id="topbar-amp-chip" type="button" aria-label="Amplifier — select input" style="display:none" onclick="toggleAmpPanel()">
@@ -939,6 +981,9 @@ const $streamElapsed = document.getElementById('stream-elapsed');
 const $streamTotal = document.getElementById('stream-total');
 const $identifying= document.getElementById('identifying-label');
 
+const $topbarSourceIcon  = document.getElementById('topbar-source-icon');
+const $topbarSourceLabel = document.getElementById('topbar-source-label');
+const $topbarSourceBadge = document.getElementById('topbar-source-badge');
 const $topbarAmpChip  = document.getElementById('topbar-amp-chip');
 const $topbarAmpModel = document.getElementById('topbar-amp-model');
 const $topbarAmpState = document.getElementById('topbar-amp-state');
