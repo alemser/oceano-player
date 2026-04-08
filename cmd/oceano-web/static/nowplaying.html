@@ -566,36 +566,33 @@
 
     .pulsing { animation: pulse 1.8s ease-in-out infinite; }
 
-    /* Amplifier power state indicator — fixed bottom-right, shown only when
-       an amplifier is configured. Designed for living-room viewing distance. */
-    #amp-indicator {
-      position: fixed;
+    /* Amplifier power state indicator — sits inside #idle-screen, bottom-right.
+       Also reused inside #app (playing screen). Hidden until amp is configured. */
+    .amp-indicator {
+      position: absolute;
       bottom: 22px; right: 22px;
       display: none; /* shown via JS once amp state is loaded */
       align-items: center;
-      gap: 9px;
-      background: rgba(7, 9, 15, 0.82);
+      gap: 8px;
+      background: rgba(7, 9, 15, 0.75);
       border: 1px solid var(--border);
       border-radius: 26px;
-      padding: 9px 16px 9px 12px;
+      padding: 8px 15px 8px 11px;
       cursor: pointer;
       -webkit-backdrop-filter: blur(10px);
       backdrop-filter: blur(10px);
       transition: border-color 0.25s;
       color: var(--text-dim);
+      z-index: 10;
     }
-    #amp-indicator:hover { border-color: var(--accent); }
-    #amp-indicator svg { width: 22px; height: 22px; flex-shrink: 0; opacity: 0.7; }
-    #amp-power-dot {
-      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-      background: var(--text-faint);
-      transition: background 0.4s;
-    }
-    #amp-power-dot.ps-on  { background: #4cba80; }
-    #amp-power-dot.ps-off { background: #e05e5e; }
-    #amp-indicator-label {
-      font-size: 0.73rem;
-      letter-spacing: 0.05em;
+    .amp-indicator:hover { border-color: rgba(255,255,255,0.2); }
+    .amp-indicator.ps-on  { border-color: #2a5c2a; color: #4cba80; }
+    .amp-indicator.ps-off { border-color: #5c2a2a; color: #e05e5e; }
+    .amp-indicator svg { width: 16px; height: 16px; flex-shrink: 0; }
+    .amp-indicator-label {
+      font-size: 0.76rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
       white-space: nowrap;
     }
 
@@ -630,6 +627,15 @@
     </div>
   </div>
   <div id="idle-label">Oceano Player</div>
+
+  <!-- Amp indicator — idle screen copy -->
+  <button class="amp-indicator" id="amp-indicator-idle" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3v9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    </svg>
+    <span class="amp-indicator-label" id="amp-label-idle">—</span>
+  </button>
 </div>
 
 <div class="power-overlay" id="power-dialog" onclick="if(event.target===this)closePowerDialog()">
@@ -644,25 +650,17 @@
   </div>
 </div>
 
-<!-- Amplifier power state indicator.
-     Shown only when an amplifier is configured. Clicking it will open an
-     input-selector dialog in a future milestone. -->
-<button id="amp-indicator" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
-  <!-- Stylised amplifier icon: front-panel rectangle + speaker cone + knobs -->
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <rect x="2" y="5" width="20" height="14" rx="2.5" stroke="currentColor" stroke-width="1.5"/>
-    <circle cx="8.5" cy="12" r="3.5" stroke="currentColor" stroke-width="1.4"/>
-    <circle cx="8.5" cy="12" r="1.2" fill="currentColor" opacity="0.55"/>
-    <line x1="14.5" y1="9"  x2="20" y2="9"  stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.45"/>
-    <line x1="14.5" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.45"/>
-    <line x1="14.5" y1="15" x2="18" y2="15" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.45"/>
-  </svg>
-  <span id="amp-power-dot"></span>
-  <span id="amp-indicator-label">—</span>
-</button>
-
 <!-- Main playing UI -->
-<div id="app">
+<div id="app" style="position:relative">
+
+  <!-- Amp indicator — playing screen copy -->
+  <button class="amp-indicator" id="amp-indicator-playing" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3v9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    </svg>
+    <span class="amp-indicator-label" id="amp-label-playing">—</span>
+  </button>
 
   <!-- Source bar -->
   <div id="source-bar">
@@ -1275,27 +1273,36 @@ function connect() {
 connect();
 
 // ─── Amplifier power state indicator ─────────────────────────────────────────
+// Two copies exist: one inside #idle-screen, one inside #app.
+// Both are updated together so state is consistent across screens.
+
+function _applyAmpIndicator(el, labelEl, ps, model) {
+  if (!el) return;
+  el.style.display = 'flex';
+  el.className = `amp-indicator${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
+  labelEl.textContent = ps === 'on' ? `⏻ ${model}` : ps === 'off' ? `⏻ ${model}` : model;
+  el.title = `${model} — ${ps === 'on' ? 'On' : ps === 'off' ? 'Off' : 'unknown'}`;
+}
 
 async function loadAmpPowerState() {
   try {
     const r = await fetch('/api/amplifier/state');
-    if (!r.ok) return; // 404 → amp not configured; keep indicator hidden
+    if (!r.ok) return; // 404 → amp not configured; keep indicators hidden
     const s = await r.json();
-
-    const indicator = document.getElementById('amp-indicator');
-    const dot       = document.getElementById('amp-power-dot');
-    const lbl       = document.getElementById('amp-indicator-label');
-    if (!indicator) return;
-
-    indicator.style.display = 'flex';
     const ps    = s.detected_power_state ?? 'unknown';
-    const model = s.model ?? s.maker ?? 'Amp';
+    const model = s.model || s.maker || 'Amp';
 
-    dot.className = ps === 'on' ? 'ps-on' : ps === 'off' ? 'ps-off' : '';
-    lbl.textContent = ps === 'on'  ? `${model} · On`  :
-                      ps === 'off' ? `${model} · Off` : model;
-    indicator.title = `${s.maker} ${s.model} — detected: ${ps}`;
-  } catch { /* network error or amp not available — leave indicator hidden */ }
+    _applyAmpIndicator(
+      document.getElementById('amp-indicator-idle'),
+      document.getElementById('amp-label-idle'),
+      ps, model
+    );
+    _applyAmpIndicator(
+      document.getElementById('amp-indicator-playing'),
+      document.getElementById('amp-label-playing'),
+      ps, model
+    );
+  } catch { /* network error or amp not available — leave indicators hidden */ }
 }
 
 function ampIndicatorClick() {
