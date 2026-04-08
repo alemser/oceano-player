@@ -224,11 +224,14 @@ document.addEventListener('click', e => {
 });
 
 // ── Save config ──────────────────────────────────────────────────────────────
-document.getElementById('cfg-form').addEventListener('submit', async e => {
+const cfgForm = document.getElementById('cfg-form');
+if (cfgForm) cfgForm.addEventListener('submit', async e => {
   e.preventDefault();
   const btn = document.getElementById('btn-save');
-  btn.disabled = true;
-  btn.textContent = 'Saving…';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+  }
 
   const cfg = {
     audio_input: {
@@ -306,8 +309,10 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
     toast('Save failed: ' + err.message, true);
   }
 
-  btn.disabled = false;
-  btn.textContent = 'Save & Restart Services';
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = 'Save & Restart Services';
+  }
 });
 
 function val(id) { return (document.getElementById(id)?.value || '').trim(); }
@@ -419,3 +424,31 @@ function closeConfig() {
 
 
 // ── Power dialog ──────────────────────────────────────────────────────────────
+function openPowerDialog() {
+  document.getElementById('power-dialog')?.classList.add('open');
+}
+
+function closePowerDialog() {
+  document.getElementById('power-dialog')?.classList.remove('open');
+}
+
+function showPowerActionToast(message) {
+  toast(message, true);
+}
+
+async function sendPowerAction(action) {
+  closePowerDialog();
+  try {
+    const response = await fetch('/api/power', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    if (!response.ok) {
+      const errorText = (await response.text()).trim();
+      throw new Error(errorText || `Power action failed (${response.status})`);
+    }
+  } catch (error) {
+    showPowerActionToast(error?.message || 'Failed to send power action');
+  }
+}
