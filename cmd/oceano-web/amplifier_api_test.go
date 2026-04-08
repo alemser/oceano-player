@@ -38,6 +38,7 @@ var apiCDIRCodes = map[string]string{
 	"stop":      "IR_STOP",
 	"next":      "IR_NEXT_T",
 	"previous":  "IR_PREV_T",
+	"eject":     "IR_EJECT",
 }
 
 func newTestAmp(t *testing.T) (*amplifier.BroadlinkAmplifier, *amplifier.MockBroadlinkClient) {
@@ -334,6 +335,7 @@ func TestCDPlayerTransport_AllActions(t *testing.T) {
 		{"stop", "IR_STOP"},
 		{"next", "IR_NEXT_T"},
 		{"prev", "IR_PREV_T"},
+		{"eject", "IR_EJECT"},
 	}
 	for _, tc := range cases {
 		cd, mock := newTestCDPlayer()
@@ -353,7 +355,7 @@ func TestCDPlayerTransport_AllActions(t *testing.T) {
 func TestCDPlayerTransport_InvalidAction(t *testing.T) {
 	cd, _ := newTestCDPlayer()
 	s := newTestServer(t, nil, cd)
-	w := do(t, s.handleCDPlayerTransport, http.MethodPost, "/api/cdplayer/transport", `{"action":"eject"}`)
+	w := do(t, s.handleCDPlayerTransport, http.MethodPost, "/api/cdplayer/transport", `{"action":"shuffle"}`)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("want 400, got %d", w.Code)
 	}

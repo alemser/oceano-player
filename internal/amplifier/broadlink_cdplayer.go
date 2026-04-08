@@ -11,7 +11,7 @@ type CDPlayerSettings struct {
 	Maker string
 	Model string
 	// IRCodes maps command names to base64-encoded Broadlink IR codes.
-	// Keys: "power_on", "power_off", "play", "pause", "stop", "next", "previous"
+	// Keys: "power_on", "power_off", "play", "pause", "stop", "next", "previous", "eject"
 	IRCodes map[string]string
 }
 
@@ -47,6 +47,7 @@ func (c *BroadlinkCDPlayer) Pause() error    { return c.send("pause") }
 func (c *BroadlinkCDPlayer) Stop() error     { return c.send("stop") }
 func (c *BroadlinkCDPlayer) Next() error     { return c.send("next") }
 func (c *BroadlinkCDPlayer) Previous() error { return c.send("previous") }
+func (c *BroadlinkCDPlayer) Eject() error    { return c.send("eject") }
 
 // VolumeUp and VolumeDown are not applicable to CD players.
 func (c *BroadlinkCDPlayer) VolumeUp() error   { return ErrNotSupported }

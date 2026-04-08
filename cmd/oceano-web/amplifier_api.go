@@ -325,8 +325,10 @@ func (s *amplifierServer) handleCDPlayerTransport(w http.ResponseWriter, r *http
 		err = s.cdPlayer.Next()
 	case "prev":
 		err = s.cdPlayer.Previous()
+	case "eject":
+		err = s.cdPlayer.Eject()
 	default:
-		jsonError(w, `action must be "play", "pause", "stop", "next", or "prev"`, http.StatusBadRequest)
+		jsonError(w, `action must be "play", "pause", "stop", "next", "prev", or "eject"`, http.StatusBadRequest)
 		return
 	}
 

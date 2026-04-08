@@ -691,6 +691,44 @@
       text-transform: uppercase;
       color: var(--text-faint);
     }
+    .cd-controls-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .cd-btn {
+      width: 46px;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(24,24,24,0.75), rgba(12,12,12,0.75));
+      color: #d7dce8;
+      cursor: pointer;
+      transition: border-color 0.18s, color 0.18s, transform 0.08s;
+    }
+    .cd-btn:hover {
+      border-color: #5f7097;
+      color: #f2f5ff;
+    }
+    .cd-btn:active { transform: translateY(1px); }
+    .cd-btn svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .cd-btn.eject {
+      margin-left: auto;
+      width: 52px;
+      color: #d9dde8;
+    }
 
     /* ── Inputs editor ── */
     .amp-inputs-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
@@ -825,12 +863,25 @@
         <div class="cd-inline-head">
           <span class="cd-inline-title" id="cd-widget-title">CD Player</span>
         </div>
-        <div class="amp-controls">
-          <button class="btn-amp" onclick="cdTransport('prev')"  title="Previous">⏮</button>
-          <button class="btn-amp" onclick="cdTransport('stop')"  title="Stop">⏹</button>
-          <button class="btn-amp" onclick="cdTransport('play')"  title="Play">▶</button>
-          <button class="btn-amp" onclick="cdTransport('pause')" title="Pause">⏸</button>
-          <button class="btn-amp" onclick="cdTransport('next')"  title="Next">⏭</button>
+        <div class="cd-controls-row">
+          <button class="cd-btn" onclick="cdTransport('prev')" aria-label="Previous track" title="Previous track">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 6l-8 6 8 6V6zM6 6v12"/></svg>
+          </button>
+          <button class="cd-btn" onclick="cdTransport('stop')" aria-label="Stop" title="Stop">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
+          </button>
+          <button class="cd-btn" onclick="cdTransport('play')" aria-label="Play" title="Play">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6l10 6-10 6V6z"/></svg>
+          </button>
+          <button class="cd-btn" onclick="cdTransport('pause')" aria-label="Pause" title="Pause">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12"/></svg>
+          </button>
+          <button class="cd-btn" onclick="cdTransport('next')" aria-label="Next track" title="Next track">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6l8 6-8 6V6zM18 6v12"/></svg>
+          </button>
+          <button class="cd-btn eject" onclick="cdTransport('eject')" aria-label="Eject" title="Eject">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16h12M7 12l5-6 5 6"/></svg>
+          </button>
         </div>
       </div>
     </div>

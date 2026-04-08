@@ -115,4 +115,6 @@ type CDPlayer interface {
 	CurrentTimeSeconds() (int, error)
 	// TotalTimeSeconds returns the total disc duration in seconds.
 	TotalTimeSeconds() (int, error)
+	// Eject opens/closes the tray when supported by the IR profile.
+	Eject() error
 }
