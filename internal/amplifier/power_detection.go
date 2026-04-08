@@ -17,11 +17,6 @@ import (
 // Derived from Magnat MR 780 measurements: "on and silent" ≈ 0.0145.
 const noiseFloorOnThreshold = 0.010
 
-// noiseFloorOffThreshold is the RMS level below which the REC-OUT has no
-// meaningful signal — amp is off/standby or capture card is disconnected.
-// Derived from Magnat MR 780 measurements: "off" ≈ 0.0074.
-const noiseFloorOffThreshold = 0.002
-
 // vuSampleDuration is how long checkNoiseFloor reads frames before computing
 // the average. Long enough for ~64 frames at the ~21.5 Hz VU frame rate.
 const vuSampleDuration = 3 * time.Second
@@ -101,10 +96,9 @@ func classifyNoiseFloor(rms float64) PowerState {
 	if rms >= noiseFloorOnThreshold {
 		return PowerStateOn
 	}
-	if rms >= noiseFloorOffThreshold {
-		return PowerStateOff
-	}
-	// Below noiseFloorOffThreshold: no signal at all — capture card may be
-	// disconnected; cannot distinguish from amp-off.
+	// Conservative classification: below the "on" threshold is inconclusive.
+	// This avoids false "off" when the amplifier is on but routed to an input
+	// that does not expose USB DAC presence (e.g. CD/Phono), or when the
+	// currently selected source is silent.
 	return PowerStateUnknown
 }

@@ -31,21 +31,12 @@ func TestClassifyNoiseFloor_On(t *testing.T) {
 	}
 }
 
-func TestClassifyNoiseFloor_Off(t *testing.T) {
+func TestClassifyNoiseFloor_Unknown(t *testing.T) {
 	cases := []float64{
-		noiseFloorOffThreshold,
-		noiseFloorOffThreshold + 0.001,
+		0.0,
+		0.0001,
 		noiseFloorOnThreshold - 0.001,
 	}
-	for _, rms := range cases {
-		if got := classifyNoiseFloor(rms); got != PowerStateOff {
-			t.Errorf("classifyNoiseFloor(%.4f) = %q, want %q", rms, got, PowerStateOff)
-		}
-	}
-}
-
-func TestClassifyNoiseFloor_Unknown(t *testing.T) {
-	cases := []float64{0.0, noiseFloorOffThreshold - 0.001, 0.0001}
 	for _, rms := range cases {
 		if got := classifyNoiseFloor(rms); got != PowerStateUnknown {
 			t.Errorf("classifyNoiseFloor(%.4f) = %q, want %q", rms, got, PowerStateUnknown)
@@ -161,9 +152,9 @@ func TestDetectPowerState_OnViaNoiseFloor(t *testing.T) {
 	}
 }
 
-func TestDetectPowerState_OffViaNoiseFloor(t *testing.T) {
-	// RMS between offThreshold and onThreshold → amp is off/standby.
-	rms := float32((noiseFloorOffThreshold + noiseFloorOnThreshold) / 2)
+func TestDetectPowerState_UnknownViaNoiseFloor(t *testing.T) {
+	// RMS below on-threshold is intentionally inconclusive.
+	rms := float32(noiseFloorOnThreshold - 0.002)
 	sockPath := startMockVUSocket(t, rms)
 	amp := newAmpWithVUSocket(t, sockPath)
 
@@ -174,8 +165,8 @@ func TestDetectPowerState_OffViaNoiseFloor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DetectPowerState: %v", err)
 	}
-	if state != PowerStateOff {
-		t.Errorf("DetectPowerState = %q, want %q", state, PowerStateOff)
+	if state != PowerStateUnknown {
+		t.Errorf("DetectPowerState = %q, want %q", state, PowerStateUnknown)
 	}
 }
 
