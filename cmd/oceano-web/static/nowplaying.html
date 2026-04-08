@@ -392,6 +392,7 @@
       position: absolute;
       top: 20px;
       right: 22px;
+      z-index: 22;
       width: 40px;
       height: 40px;
       display: inline-flex;
@@ -734,18 +735,6 @@
     .amp-indicator:hover { border-color: rgba(255,255,255,0.2); }
     .amp-indicator.ps-on  { border-color: #2a5c2a; color: #4cba80; }
     .amp-indicator.ps-off { border-color: #5c2a2a; color: #e05e5e; }
-    .amp-indicator-icon {
-      width: 18px;
-      height: 18px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid rgba(120, 138, 176, 0.35);
-      border-radius: 50%;
-      color: #93a4ca;
-      flex-shrink: 0;
-    }
-    .amp-indicator-icon svg { width: 11px; height: 11px; display: block; }
     .amp-indicator-label {
       font-size: 0.76rem;
       font-weight: 500;
@@ -800,14 +789,15 @@
 </head>
 <body>
 
+<button id="idle-power-btn" type="button" aria-label="Power options" title="Power options" onclick="openPowerDialog()">
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</button>
+
 <!-- Idle screen (shown when no source is active) -->
 <div id="idle-screen" class="visible">
-  <button id="idle-power-btn" type="button" aria-label="Power options" title="Power options" onclick="openPowerDialog()">
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-  </button>
   <div id="idle-logo">
     <!-- Oceano waveform icon -->
     <svg viewBox="0 0 52 52" fill="currentColor" aria-hidden="true">
@@ -843,12 +833,6 @@
 
 <!-- Amp indicator (appears above all screens) -->
 <button class="amp-indicator" id="amp-indicator" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
-  <span class="amp-indicator-icon" aria-hidden="true">
-    <svg viewBox="0 0 24 24" fill="none">
-      <path d="M12 3v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      <path d="M7.76 6.76a7 7 0 1 0 8.48 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-  </span>
   <span class="amp-indicator-label" id="amp-label">—</span>
   <span class="amp-indicator-state" id="amp-state">--</span>
 </button>
