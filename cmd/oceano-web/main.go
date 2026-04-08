@@ -310,15 +310,31 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	}
 
 	var results []string
+	hadError := false
+
+	detectorChanged := old.AudioInput != cfg.AudioInput ||
+		old.Advanced.SourceFile != cfg.Advanced.SourceFile ||
+		old.Advanced.VUSocket != cfg.Advanced.VUSocket ||
+		old.Advanced.PCMSocket != cfg.Advanced.PCMSocket
+
+	managerChanged := old.Recognition != cfg.Recognition ||
+		old.Advanced.MetadataPipe != cfg.Advanced.MetadataPipe ||
+		old.Advanced.SourceFile != cfg.Advanced.SourceFile ||
+		old.Advanced.StateFile != cfg.Advanced.StateFile ||
+		old.Advanced.ArtworkDir != cfg.Advanced.ArtworkDir ||
+		old.Advanced.VUSocket != cfg.Advanced.VUSocket ||
+		old.Advanced.PCMSocket != cfg.Advanced.PCMSocket
 
 	// Restart source detector only when audio input settings or shared socket
 	// paths changed — recognition-only edits leave the detector untouched.
-	if old.AudioInput != cfg.AudioInput || old.Advanced != cfg.Advanced {
+	if detectorChanged {
 		if _, err := os.Stat(detectorSvc); err == nil {
 			if err := writeDetectorService(cfg); err != nil {
 				results = append(results, "detector service write: "+err.Error())
+				hadError = true
 			} else if err := restartService(detectorUnit); err != nil {
 				results = append(results, "detector restart: "+err.Error())
+				hadError = true
 			} else {
 				results = append(results, "oceano-source-detector restarted")
 			}
@@ -327,12 +343,14 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 
 	// Restart state manager only when recognition settings or shared socket
 	// paths changed — audio input edits leave the manager untouched.
-	if old.Recognition != cfg.Recognition || old.Advanced != cfg.Advanced {
+	if managerChanged {
 		if _, err := os.Stat(managerSvc); err == nil {
 			if err := writeManagerService(cfg); err != nil {
 				results = append(results, "manager service write: "+err.Error())
+				hadError = true
 			} else if err := restartService(managerUnit); err != nil {
 				results = append(results, "manager restart: "+err.Error())
+				hadError = true
 			} else {
 				results = append(results, "oceano-state-manager restarted")
 			}
@@ -343,6 +361,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	if old.AudioOutput.AirPlayName != cfg.AudioOutput.AirPlayName && cfg.AudioOutput.AirPlayName != "" {
 		if err := updateShairportName(cfg.AudioOutput.AirPlayName); err != nil {
 			results = append(results, "shairport-sync name update: "+err.Error())
+			hadError = true
 		} else {
 			results = append(results, "shairport-sync restarted (new AirPlay name)")
 		}
@@ -352,11 +371,13 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	if old.Display != cfg.Display {
 		if err := saveSPIDisplayEnv(displayEnvPath, cfg.Display); err != nil {
 			results = append(results, "display env write: "+err.Error())
+			hadError = true
 		} else {
 			displaySvc := "/etc/systemd/system/" + displayUnit
 			if _, err := os.Stat(displaySvc); err == nil {
 				if err := restartService(displayUnit); err != nil {
 					results = append(results, "display restart: "+err.Error())
+					hadError = true
 				} else {
 					results = append(results, "oceano-now-playing restarted")
 				}
@@ -371,7 +392,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"ok":      true,
+		"ok":      !hadError,
 		"results": results,
 	})
 }

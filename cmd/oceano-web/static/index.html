@@ -898,7 +898,7 @@
     <button type="button" class="config-drawer-close" onclick="closeConfig()" aria-label="Close configuration">✕</button>
   </div>
   <div class="config-drawer-body">
-<form id="cfg-form">
+<form id="cfg-form" onsubmit="event.preventDefault(); return false;">
   <div class="sections">
 
     <!-- Audio Input -->
@@ -1655,8 +1655,12 @@ document.getElementById('cfg-form').addEventListener('submit', async e => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cfg),
     });
-    const res = await r.json();
-    toast(res.results?.join(' · ') || 'Saved', !r.ok);
+    const res = await r.json().catch(() => ({}));
+    const isError = !r.ok || res.ok === false;
+    toast(res.results?.join(' · ') || (isError ? 'Save failed' : 'Saved'), isError);
+    if (!isError && window.history?.replaceState) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   } catch (err) {
     toast('Save failed: ' + err.message, true);
   }
