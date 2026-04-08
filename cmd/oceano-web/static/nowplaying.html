@@ -1045,9 +1045,10 @@ function updateArtwork(artworkPath) {
       $artDefault.style.opacity = '0';
     };
     img.onerror = () => showDefaultArtwork();
-    // Bust cache between track changes by appending the path as a cache-busting
-    // parameter — the server serves the same bytes but the URL is new.
-    img.src = '/api/artwork?' + encodeURIComponent(artworkPath);
+    // Bust cache between track changes with a timestamp parameter.
+    // The server reads the artwork path directly from the state file;
+    // the ?t parameter is ignored by the server but forces browser cache refresh.
+    img.src = '/api/artwork?t=' + Date.now();
   } else {
     showDefaultArtwork();
   }

@@ -253,6 +253,10 @@ func (m *mgr) saveArtwork(data []byte) string {
 	if _, err := os.Stat(path); err == nil {
 		return path
 	}
+	if err := os.MkdirAll(m.cfg.ArtworkDir, 0o755); err != nil {
+		log.Printf("failed to create artwork dir: %v", err)
+		return ""
+	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		log.Printf("failed to save artwork: %v", err)
 		return ""
