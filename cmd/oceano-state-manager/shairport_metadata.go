@@ -159,6 +159,10 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 			if m.cfg.Verbose {
 				log.Printf("AirPlay: %s = %q", code, strVal)
 			}
+			// Try fetching artwork from iTunes if we have artist+album but no artwork yet
+			if code == "asal" && m.artworkPath == "" {
+				go m.tryFetchAirPlayArtwork()
+			}
 			m.markDirty()
 		}
 		return
@@ -193,6 +197,7 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		m.mu.Lock()
 		wasPlaying := m.airplayPlaying
 		m.airplayPlaying = false
+		m.artworkPath = "" // clear artwork when stopping
 		m.mu.Unlock()
 		if wasPlaying {
 			m.markDirty()
@@ -246,6 +251,47 @@ func ticksDiff(start, end int64) int64 {
 		return end - start
 	}
 	return (1 << 32) - start + end
+}
+
+// tryFetchAirPlayArtwork attempts to fetch artwork from iTunes API for the current AirPlay track.
+// This is a fallback for when PICT (embedded artwork) is not provided by the AirPlay client.
+// It waits briefly for PICT to arrive, then falls back to iTunes search if not received.
+func (m *mgr) tryFetchAirPlayArtwork() {
+	// Wait a short time to see if PICT arrives
+	time.Sleep(2 * time.Second)
+
+	m.mu.Lock()
+	// Check if PICT arrived in the meantime
+	if m.artworkPath != "" {
+		m.mu.Unlock()
+		log.Printf("AirPlay: artwork already set (PICT arrived)")
+		return
+	}
+	artist := m.artist
+	album := m.album
+	m.mu.Unlock()
+
+	if artist == "" || album == "" {
+		log.Printf("AirPlay: insufficient metadata for iTunes fallback (artist=%q, album=%q)", artist, album)
+		return
+	}
+
+	// Use the same artwork fetching logic as Physical tracks
+	path, err := fetchArtwork(artist, album, m.cfg.ArtworkDir)
+	if err != nil {
+		log.Printf("AirPlay: artwork fetch failed: %v", err)
+		return
+	}
+	if path == "" {
+		log.Printf("AirPlay: no artwork found for %q / %q", artist, album)
+		return
+	}
+
+	m.mu.Lock()
+	m.artworkPath = path
+	m.mu.Unlock()
+	m.markDirty()
+	log.Printf("AirPlay: artwork fetched from iTunes → %s", path)
 }
 
 // saveArtwork writes raw image bytes to a content-addressed file and returns the path.
