@@ -594,39 +594,69 @@
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 14px 18px;
+      overflow: hidden;
     }
     #amp-panel { margin-bottom: var(--gap); }
     #cd-widget { margin-top: 10px; }
+
+    /* Clickable header row — acts as collapse toggle */
     .amp-header {
-      display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 18px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s;
     }
+    .amp-header:hover { background: rgba(255,255,255,0.03); }
+
     .amp-title {
       font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em;
       text-transform: uppercase; color: var(--text-dim);
     }
-    .amp-status-chip {
+
+    /* Power state pill — always visible in header */
+    .amp-power-pill {
       display: flex; align-items: center; gap: 6px;
-      font-size: 0.75rem; color: var(--text-dim); margin-left: auto;
-    }
-    .amp-detected-chip {
-      display: flex; align-items: center; gap: 5px;
-      font-size: 0.72rem; color: var(--text-dim);
       border: 1px solid var(--border); border-radius: 20px;
-      padding: 2px 9px 2px 7px; margin-left: 6px;
+      padding: 3px 10px 3px 8px;
+      font-size: 0.72rem; color: var(--text-dim);
+      transition: border-color 0.25s;
     }
-    .amp-detected-dot {
-      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    .amp-power-pill.ps-on  { border-color: #2a5c2a; color: #4cba80; }
+    .amp-power-pill.ps-off { border-color: #5c2a2a; color: #e05e5e; }
+    .amp-power-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
       background: var(--muted); transition: background 0.3s;
     }
-    .amp-detected-dot.ps-on  { background: #4cba80; }
-    .amp-detected-dot.ps-off { background: #e05e5e; }
+    .amp-power-dot.ps-on  { background: #4cba80; }
+    .amp-power-dot.ps-off { background: #e05e5e; }
+
+    /* Ready chip — shown next to power pill */
+    .amp-status-chip {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 0.75rem; color: var(--text-dim);
+    }
     .amp-ready-dot {
       width: 6px; height: 6px; border-radius: 50%;
       background: var(--muted); flex-shrink: 0;
       transition: background 0.3s;
     }
     .amp-ready-dot.ready { background: var(--ok-text); }
+
+    /* Chevron collapse indicator */
+    .amp-chevron {
+      margin-left: auto; width: 14px; height: 14px; flex-shrink: 0;
+      color: var(--text-faint); transition: transform 0.2s;
+    }
+    .amp-widget.expanded .amp-chevron { transform: rotate(180deg); }
+
+    /* Collapsible body */
+    .amp-body {
+      padding: 0 18px 14px;
+      display: none;
+    }
+    .amp-widget.expanded .amp-body { display: block; }
+
     .amp-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .btn-amp {
       background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
@@ -696,39 +726,55 @@
 
 <!-- Amplifier / CD player control widget -->
 <div id="amp-panel" style="display:none">
-  <div class="amp-widget">
-    <div class="amp-header">
+  <!-- Amplifier widget -->
+  <div class="amp-widget" id="amp-widget">
+    <div class="amp-header" onclick="toggleAmpWidget('amp-widget')" role="button" aria-expanded="false">
       <span class="amp-title" id="amp-widget-title">Amplifier</span>
-      <span class="amp-status-chip">
+      <!-- Hardware-detected power state pill — always visible -->
+      <span class="amp-power-pill" id="amp-power-pill" title="Hardware-detected power state">
+        <span class="amp-power-dot" id="amp-power-dot"></span>
+        <span id="amp-power-label">—</span>
+      </span>
+      <!-- Software ready state chip -->
+      <span class="amp-status-chip" id="amp-ready-chip">
         <span class="amp-ready-dot" id="amp-ready-dot"></span>
-        <span id="amp-ready-label">—</span>
+        <span id="amp-ready-label"></span>
       </span>
-      <span class="amp-detected-chip" id="amp-detected-chip" style="display:none" title="Hardware-detected power state">
-        <span class="amp-detected-dot" id="amp-detected-dot"></span>
-        <span id="amp-detected-label">—</span>
-      </span>
+      <!-- Collapse chevron -->
+      <svg class="amp-chevron" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M2 4.5 L7 9.5 L12 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
     </div>
-    <div class="amp-controls">
-      <button class="btn-amp btn-amp-on"  onclick="ampPower('on')"     title="Power On">⏻ On</button>
-      <button class="btn-amp btn-amp-off" onclick="ampPower('off')"    title="Power Off">⏻ Off</button>
-      <div class="amp-divider"></div>
-      <button class="btn-amp" onclick="ampVolume('down')" title="Volume Down">− Vol</button>
-      <button class="btn-amp" onclick="ampVolume('up')"   title="Volume Up">+ Vol</button>
-      <div class="amp-divider"></div>
-      <select class="amp-input-select" id="amp-input-select" onchange="ampSetInput(this.value)" title="Select input"></select>
+    <div class="amp-body">
+      <div class="amp-controls">
+        <button class="btn-amp btn-amp-on"  onclick="ampPower('on')"     title="Power On">⏻ On</button>
+        <button class="btn-amp btn-amp-off" onclick="ampPower('off')"    title="Power Off">⏻ Off</button>
+        <div class="amp-divider"></div>
+        <button class="btn-amp" onclick="ampVolume('down')" title="Volume Down">− Vol</button>
+        <button class="btn-amp" onclick="ampVolume('up')"   title="Volume Up">+ Vol</button>
+        <div class="amp-divider"></div>
+        <select class="amp-input-select" id="amp-input-select" onchange="ampSetInput(this.value)" title="Select input"></select>
+      </div>
     </div>
   </div>
-  <div id="cd-widget" style="display:none">
-    <div class="amp-widget">
-      <div class="amp-header">
+
+  <!-- CD Player widget -->
+  <div id="cd-widget" style="display:none; margin-top:10px">
+    <div class="amp-widget" id="cd-amp-widget">
+      <div class="amp-header" onclick="toggleAmpWidget('cd-amp-widget')" role="button" aria-expanded="false">
         <span class="amp-title" id="cd-widget-title">CD Player</span>
+        <svg class="amp-chevron" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M2 4.5 L7 9.5 L12 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
       </div>
-      <div class="amp-controls">
-        <button class="btn-amp" onclick="cdTransport('prev')"  title="Previous">⏮</button>
-        <button class="btn-amp" onclick="cdTransport('stop')"  title="Stop">⏹</button>
-        <button class="btn-amp" onclick="cdTransport('play')"  title="Play">▶</button>
-        <button class="btn-amp" onclick="cdTransport('pause')" title="Pause">⏸</button>
-        <button class="btn-amp" onclick="cdTransport('next')"  title="Next">⏭</button>
+      <div class="amp-body">
+        <div class="amp-controls">
+          <button class="btn-amp" onclick="cdTransport('prev')"  title="Previous">⏮</button>
+          <button class="btn-amp" onclick="cdTransport('stop')"  title="Stop">⏹</button>
+          <button class="btn-amp" onclick="cdTransport('play')"  title="Play">▶</button>
+          <button class="btn-amp" onclick="cdTransport('pause')" title="Pause">⏸</button>
+          <button class="btn-amp" onclick="cdTransport('next')"  title="Next">⏭</button>
+        </div>
       </div>
     </div>
   </div>
@@ -2028,6 +2074,14 @@ async function loadAmplifierState() {
   } catch { /* not configured */ }
 }
 
+function toggleAmpWidget(widgetId) {
+  const widget = document.getElementById(widgetId);
+  if (!widget) return;
+  const isExpanded = widget.classList.toggle('expanded');
+  const header = widget.querySelector('.amp-header');
+  if (header) header.setAttribute('aria-expanded', isExpanded);
+}
+
 function renderAmpWidget(state) {
   const panel = document.getElementById('amp-panel');
   if (!state || !panel) return;
@@ -2036,12 +2090,25 @@ function renderAmpWidget(state) {
   const title = document.getElementById('amp-widget-title');
   if (title) title.textContent = `${state.maker} ${state.model}`;
 
+  // Hardware-detected power pill (always visible in collapsed header)
+  const pill  = document.getElementById('amp-power-pill');
+  const pdot  = document.getElementById('amp-power-dot');
+  const plbl  = document.getElementById('amp-power-label');
+  if (pill && pdot && plbl) {
+    const ps = state.detected_power_state ?? 'unknown';
+    pill.className  = `amp-power-pill${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
+    pdot.className  = `amp-power-dot${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
+    plbl.textContent = ps === 'on' ? 'On' : ps === 'off' ? 'Off' : '—';
+    pill.title = `Hardware-detected: ${ps}`;
+  }
+
+  // Software ready state chip (visible next to pill)
   const dot   = document.getElementById('amp-ready-dot');
   const label = document.getElementById('amp-ready-label');
   if (dot && label) {
     if (!state.power_on) {
       dot.className = 'amp-ready-dot';
-      label.textContent = 'Off';
+      label.textContent = '';
     } else if (state.audio_ready) {
       dot.className = 'amp-ready-dot ready';
       label.textContent = state.current_input?.label ?? 'Ready';
@@ -2057,18 +2124,6 @@ function renderAmpWidget(state) {
     sel.innerHTML = state.input_list.map(inp =>
       `<option value="${esc(inp.id)}"${inp.id === curId ? ' selected' : ''}>${esc(inp.label)}</option>`
     ).join('');
-  }
-
-  const detectedChip  = document.getElementById('amp-detected-chip');
-  const detectedDot   = document.getElementById('amp-detected-dot');
-  const detectedLabel = document.getElementById('amp-detected-label');
-  if (detectedChip && detectedDot && detectedLabel) {
-    const ps = state.detected_power_state ?? 'unknown';
-    detectedChip.style.display = 'flex';
-    detectedDot.className = `amp-detected-dot${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
-    detectedLabel.textContent = ps === 'on' ? 'Detected: On' :
-                                ps === 'off' ? 'Detected: Off' : 'Detected: —';
-    detectedChip.title = `Hardware-detected power state: ${ps}`;
   }
 }
 
