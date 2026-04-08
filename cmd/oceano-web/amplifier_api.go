@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -13,11 +14,11 @@ import (
 // amplifierServer holds the in-memory state for amplifier and CD player control.
 // amp and cdPlayer are nil when the respective device is not configured or enabled.
 type amplifierServer struct {
-	configPath  string
-	ampConfig   AmplifierConfig // kept for input visibility filtering
-	amp         *amplifier.BroadlinkAmplifier
-	cdPlayer    *amplifier.BroadlinkCDPlayer
-	monitor     *amplifier.PowerStateMonitor // nil when amp is not configured
+	configPath string
+	ampConfig  AmplifierConfig // kept for input visibility filtering
+	amp        *amplifier.BroadlinkAmplifier
+	cdPlayer   *amplifier.BroadlinkCDPlayer
+	monitor    *amplifier.PowerStateMonitor // nil when amp is not configured
 
 	pairMu    sync.Mutex
 	pairState *pairingAttempt
@@ -25,7 +26,8 @@ type amplifierServer struct {
 
 type pairingAttempt struct {
 	ID       string `json:"pairing_id"`
-	Status   string `json:"status"`           // "waiting", "success", "failure"
+	Host     string `json:"host,omitempty"`
+	Status   string `json:"status"` // "waiting", "success", "failure"
 	Token    string `json:"token,omitempty"`
 	DeviceID string `json:"device_id,omitempty"`
 	Message  string `json:"message,omitempty"`
@@ -72,32 +74,32 @@ func (s *amplifierServer) visibleInputList() []amplifier.Input {
 // --- response types ---
 
 type amplifierStateResponse struct {
-	Maker                   string                `json:"maker"`
-	Model                   string                `json:"model"`
-	PowerOn                 bool                  `json:"power_on"`
-	CurrentInput            amplifier.Input       `json:"current_input"`
-	InputList               []amplifier.Input     `json:"input_list"`
-	DefaultInput            amplifier.Input       `json:"default_input"`
-	AudioReady              bool                  `json:"audio_ready"`
-	AudioReadyAt            *time.Time            `json:"audio_ready_at,omitempty"`
-	WarmupSeconds           int                   `json:"warmup_seconds"`
-	InputSwitchDelaySeconds int                   `json:"input_switch_delay_seconds"`
+	Maker                   string            `json:"maker"`
+	Model                   string            `json:"model"`
+	PowerOn                 bool              `json:"power_on"`
+	CurrentInput            amplifier.Input   `json:"current_input"`
+	InputList               []amplifier.Input `json:"input_list"`
+	DefaultInput            amplifier.Input   `json:"default_input"`
+	AudioReady              bool              `json:"audio_ready"`
+	AudioReadyAt            *time.Time        `json:"audio_ready_at,omitempty"`
+	WarmupSeconds           int               `json:"warmup_seconds"`
+	InputSwitchDelaySeconds int               `json:"input_switch_delay_seconds"`
 	// DetectedPowerState is the hardware-detected state from the last monitor poll.
 	// "on" | "off" | "unknown" — see internal/amplifier for detection strategy.
-	DetectedPowerState      amplifier.PowerState  `json:"detected_power_state"`
-	DetectedAt              *time.Time            `json:"detected_at,omitempty"`
-	LastUpdated             time.Time             `json:"last_updated"`
+	DetectedPowerState amplifier.PowerState `json:"detected_power_state"`
+	DetectedAt         *time.Time           `json:"detected_at,omitempty"`
+	LastUpdated        time.Time            `json:"last_updated"`
 }
 
 type cdPlayerStateResponse struct {
-	Maker              string     `json:"maker"`
-	Model              string     `json:"model"`
-	Track              *int       `json:"track"`
-	TotalTracks        *int       `json:"total_tracks"`
-	IsPlaying          *bool      `json:"is_playing"`
-	CurrentTimeSeconds *int       `json:"current_time_seconds"`
-	TotalTimeSeconds   *int       `json:"total_time_seconds"`
-	LastUpdated        time.Time  `json:"last_updated"`
+	Maker              string    `json:"maker"`
+	Model              string    `json:"model"`
+	Track              *int      `json:"track"`
+	TotalTracks        *int      `json:"total_tracks"`
+	IsPlaying          *bool     `json:"is_playing"`
+	CurrentTimeSeconds *int      `json:"current_time_seconds"`
+	TotalTimeSeconds   *int      `json:"total_time_seconds"`
+	LastUpdated        time.Time `json:"last_updated"`
 }
 
 // --- amplifier handlers ---
@@ -121,14 +123,14 @@ func (s *amplifierServer) handleAmplifierState(w http.ResponseWriter, r *http.Re
 	if s.amp != nil {
 		powerOn, _ := s.amp.CurrentState()
 		currentInput, _ := s.amp.CurrentInput()
-		resp.Maker                   = s.amp.Maker()
-		resp.Model                   = s.amp.Model()
-		resp.PowerOn                 = powerOn
-		resp.CurrentInput            = currentInput
-		resp.InputList               = s.visibleInputList()
-		resp.DefaultInput            = s.amp.DefaultInput()
-		resp.AudioReady              = s.amp.AudioReady()
-		resp.WarmupSeconds           = s.amp.WarmupTimeSeconds()
+		resp.Maker = s.amp.Maker()
+		resp.Model = s.amp.Model()
+		resp.PowerOn = powerOn
+		resp.CurrentInput = currentInput
+		resp.InputList = s.visibleInputList()
+		resp.DefaultInput = s.amp.DefaultInput()
+		resp.AudioReady = s.amp.AudioReady()
+		resp.WarmupSeconds = s.amp.WarmupTimeSeconds()
 		resp.InputSwitchDelaySeconds = s.amp.InputSwitchDelaySeconds()
 		if at := s.amp.AudioReadyAt(); !at.IsZero() {
 			resp.AudioReadyAt = &at
@@ -247,7 +249,7 @@ func (s *amplifierServer) handleAmplifierInput(w http.ResponseWriter, r *http.Re
 
 	if err := s.amp.SetInput(req.ID); err != nil {
 		status := http.StatusServiceUnavailable
-		if err.Error() != "" && len(err.Error()) > 7 && err.Error()[:7] == "unknown" {
+		if errors.Is(err, amplifier.ErrUnknownInputID) {
 			status = http.StatusBadRequest
 		}
 		jsonError(w, err.Error(), status)
@@ -357,6 +359,7 @@ func (s *amplifierServer) handlePairStart(w http.ResponseWriter, r *http.Request
 
 	attempt := &pairingAttempt{
 		ID:     fmt.Sprintf("pair-%d", time.Now().UnixMilli()),
+		Host:   req.Host,
 		Status: "waiting",
 	}
 
@@ -420,10 +423,26 @@ func (s *amplifierServer) handlePairComplete(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	s.pairMu.Lock()
+	active := s.pairState
+	s.pairMu.Unlock()
+	if active == nil {
+		jsonError(w, "no pairing in progress", http.StatusNotFound)
+		return
+	}
+	if req.PairingID == "" || req.PairingID != active.ID {
+		jsonError(w, "invalid pairing_id", http.StatusBadRequest)
+		return
+	}
+
 	cfg, err := loadConfig(s.configPath)
 	if err != nil {
 		jsonError(w, "failed to load config: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	cfg.Amplifier.Broadlink.Host = active.Host
+	if cfg.Amplifier.Broadlink.Port == 0 {
+		cfg.Amplifier.Broadlink.Port = 80
 	}
 	cfg.Amplifier.Broadlink.Token = req.Token
 	cfg.Amplifier.Broadlink.DeviceID = req.DeviceID
@@ -431,6 +450,12 @@ func (s *amplifierServer) handlePairComplete(w http.ResponseWriter, r *http.Requ
 		jsonError(w, "failed to save config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	s.pairMu.Lock()
+	if s.pairState != nil && s.pairState.ID == active.ID {
+		s.pairState = nil
+	}
+	s.pairMu.Unlock()
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -460,7 +485,7 @@ func buildAmplifierFromConfig(cfg AmplifierConfig, vuSocketPath string) (*amplif
 	}
 
 	return amplifier.NewBroadlinkAmplifier(
-		&amplifier.MockBroadlinkClient{}, // replaced by RealBroadlinkClient in Milestone 5
+		&amplifier.NotImplementedBroadlinkClient{}, // replaced by RealBroadlinkClient in Milestone 5
 		amplifier.AmplifierSettings{
 			Maker:           cfg.Maker,
 			Model:           cfg.Model,
@@ -496,7 +521,7 @@ func buildCDPlayerFromConfig(cfg CDPlayerConfig) *amplifier.BroadlinkCDPlayer {
 		return nil
 	}
 	return amplifier.NewBroadlinkCDPlayer(
-		&amplifier.MockBroadlinkClient{}, // replaced by RealBroadlinkClient in Milestone 5
+		&amplifier.NotImplementedBroadlinkClient{}, // replaced by RealBroadlinkClient in Milestone 5
 		amplifier.CDPlayerSettings{
 			Maker:   cfg.Maker,
 			Model:   cfg.Model,

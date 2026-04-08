@@ -60,6 +60,7 @@ type BroadlinkAmplifier struct {
 	audioReady   bool
 	audioReadyAt time.Time
 	cancelReady  context.CancelFunc
+	readyGen     uint64
 }
 
 // NewBroadlinkAmplifier constructs a BroadlinkAmplifier ready for use.
@@ -130,6 +131,7 @@ func (a *BroadlinkAmplifier) PowerOff() error {
 	defer a.mu.Unlock()
 	a.powerOn = false
 	a.audioReady = false
+	a.readyGen++
 	if a.cancelReady != nil {
 		a.cancelReady()
 		a.cancelReady = nil
@@ -284,7 +286,7 @@ func (a *BroadlinkAmplifier) CurrentState() (bool, error) {
 //  3. Blind IR probe — stub; requires Broadlink RM4 Mini (Milestone 5).
 func (a *BroadlinkAmplifier) DetectPowerState(ctx context.Context) (PowerState, error) {
 	// Check 1: USB DAC presence.
-	if checkUSBDAC(a.settings.Model) {
+	if usbDACProbe(ctx, a.settings.Model) {
 		return PowerStateOn, nil
 	}
 
@@ -346,7 +348,7 @@ func (a *BroadlinkAmplifier) findInputIndicesLocked(targetID string) (targetIdx,
 		}
 	}
 	if targetIdx == -1 {
-		return 0, 0, fmt.Errorf("unknown input ID %q", targetID)
+		return 0, 0, fmt.Errorf("%w %q", ErrUnknownInputID, targetID)
 	}
 	return targetIdx, currentIdx, nil
 }
@@ -359,7 +361,7 @@ func (a *BroadlinkAmplifier) findInputLocked(id string) (Input, error) {
 			return inp, nil
 		}
 	}
-	return Input{}, fmt.Errorf("unknown input ID %q", id)
+	return Input{}, fmt.Errorf("%w %q", ErrUnknownInputID, id)
 }
 
 // inputByIDLocked returns the Input for a known id (call after findInputLocked).
@@ -376,6 +378,8 @@ func (a *BroadlinkAmplifier) inputByIDLocked(id string) Input {
 // startReadyTimerLocked starts (or restarts) the audio-ready countdown.
 // Must be called with a.mu held.
 func (a *BroadlinkAmplifier) startReadyTimerLocked(d time.Duration) {
+	a.readyGen++
+	gen := a.readyGen
 	if a.cancelReady != nil {
 		a.cancelReady()
 	}
@@ -386,9 +390,13 @@ func (a *BroadlinkAmplifier) startReadyTimerLocked(d time.Duration) {
 		select {
 		case <-time.After(d):
 			a.mu.Lock()
+			defer a.mu.Unlock()
+			if gen != a.readyGen || !a.powerOn {
+				return
+			}
 			a.audioReady = true
 			a.audioReadyAt = time.Time{}
-			a.mu.Unlock()
+			a.cancelReady = nil
 		case <-ctx.Done():
 		}
 	}()

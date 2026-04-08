@@ -326,8 +326,8 @@ func TestCDPlayerTransport_Play(t *testing.T) {
 
 func TestCDPlayerTransport_AllActions(t *testing.T) {
 	cases := []struct {
-		action  string
-		wantIR  string
+		action string
+		wantIR string
 	}{
 		{"play", "IR_PLAY"},
 		{"pause", "IR_PAUSE"},
@@ -415,8 +415,20 @@ func TestPairStatus_NoPairingInProgress(t *testing.T) {
 
 func TestPairComplete_WritesTokenToConfig(t *testing.T) {
 	s := newTestServer(t, nil, nil)
+	start := do(t, s.handlePairStart, http.MethodPost, "/api/amplifier/pair-start", `{"host":"192.168.1.100"}`)
+	if start.Code != http.StatusOK {
+		t.Fatalf("pair-start want 200, got %d: %s", start.Code, start.Body)
+	}
+	var startResp map[string]string
+	if err := json.NewDecoder(start.Body).Decode(&startResp); err != nil {
+		t.Fatalf("decode pair-start response: %v", err)
+	}
+	pairID := startResp["pairing_id"]
+	if pairID == "" {
+		t.Fatal("expected pairing_id in pair-start response")
+	}
 
-	body := `{"pairing_id":"pair-1","token":"abc123","device_id":"dev456"}`
+	body := `{"pairing_id":"` + pairID + `","token":"abc123","device_id":"dev456"}`
 	w := do(t, s.handlePairComplete, http.MethodPost, "/api/amplifier/pair-complete", body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
@@ -432,11 +444,24 @@ func TestPairComplete_WritesTokenToConfig(t *testing.T) {
 	if cfg.Amplifier.Broadlink.DeviceID != "dev456" {
 		t.Errorf("device_id not persisted: got %q", cfg.Amplifier.Broadlink.DeviceID)
 	}
+	if cfg.Amplifier.Broadlink.Host != "192.168.1.100" {
+		t.Errorf("host not persisted: got %q", cfg.Amplifier.Broadlink.Host)
+	}
 }
 
 func TestPairComplete_MissingToken(t *testing.T) {
 	s := newTestServer(t, nil, nil)
 	w := do(t, s.handlePairComplete, http.MethodPost, "/api/amplifier/pair-complete", `{"pairing_id":"pair-1"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("want 400, got %d", w.Code)
+	}
+}
+
+func TestPairComplete_InvalidPairingID(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+	_ = do(t, s.handlePairStart, http.MethodPost, "/api/amplifier/pair-start", `{"host":"192.168.1.100"}`)
+
+	w := do(t, s.handlePairComplete, http.MethodPost, "/api/amplifier/pair-complete", `{"pairing_id":"wrong","token":"abc123","device_id":"dev456"}`)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("want 400, got %d", w.Code)
 	}

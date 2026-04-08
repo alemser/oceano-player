@@ -26,18 +26,31 @@ const noiseFloorOffThreshold = 0.002
 // the average. Long enough for ~64 frames at the ~21.5 Hz VU frame rate.
 const vuSampleDuration = 3 * time.Second
 
+const usbDACProbeTimeout = 2 * time.Second
+
+var usbDACProbe = checkUSBDACWithContext
+
 // checkUSBDAC runs "aplay -l" and returns true if any playback device line
 // contains model as a case-insensitive substring. This confirms the amplifier
 // is powered on with its USB Audio input selected (DAC enumerated by the OS).
-func checkUSBDAC(model string) bool {
+func checkUSBDACWithContext(ctx context.Context, model string) bool {
 	if model == "" {
 		return false
 	}
-	out, err := exec.Command("aplay", "-l").Output()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, usbDACProbeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(probeCtx, "aplay", "-l").Output()
 	if err != nil {
 		return false
 	}
 	return strings.Contains(strings.ToLower(string(out)), strings.ToLower(model))
+}
+
+func checkUSBDAC(model string) bool {
+	return checkUSBDACWithContext(context.Background(), model)
 }
 
 // checkNoiseFloor connects to the VU Unix socket, reads frames for

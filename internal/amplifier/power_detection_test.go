@@ -126,6 +126,10 @@ func TestCheckNoiseFloor_EmptyPath(t *testing.T) {
 
 func newAmpWithVUSocket(t *testing.T, sockPath string) *BroadlinkAmplifier {
 	t.Helper()
+	origProbe := usbDACProbe
+	usbDACProbe = func(context.Context, string) bool { return false }
+	t.Cleanup(func() { usbDACProbe = origProbe })
+
 	amp, err := NewBroadlinkAmplifier(&MockBroadlinkClient{}, AmplifierSettings{
 		Maker:          "Magnat",
 		Model:          "NOMATCH-DEVICE-XYZZY", // ensure Check 1 (USB DAC) always fails
@@ -141,7 +145,7 @@ func newAmpWithVUSocket(t *testing.T, sockPath string) *BroadlinkAmplifier {
 	return amp
 }
 
-func TestDetectPowerState_OnViaNoiseFlorr(t *testing.T) {
+func TestDetectPowerState_OnViaNoiseFloor(t *testing.T) {
 	sockPath := startMockVUSocket(t, float32(noiseFloorOnThreshold+0.005))
 	amp := newAmpWithVUSocket(t, sockPath)
 
@@ -157,7 +161,7 @@ func TestDetectPowerState_OnViaNoiseFlorr(t *testing.T) {
 	}
 }
 
-func TestDetectPowerState_OffViaNoiseFlorr(t *testing.T) {
+func TestDetectPowerState_OffViaNoiseFloor(t *testing.T) {
 	// RMS between offThreshold and onThreshold → amp is off/standby.
 	rms := float32((noiseFloorOffThreshold + noiseFloorOnThreshold) / 2)
 	sockPath := startMockVUSocket(t, rms)

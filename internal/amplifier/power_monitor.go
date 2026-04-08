@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const defaultPowerMonitorInterval = 30 * time.Second
+
 // PowerStateMonitor polls DetectPowerState on a fixed interval and broadcasts
 // state changes to subscribers. It is the single source of truth for detected
 // amp power state within a process — all consumers (REST handlers, SSE stream,
@@ -40,6 +42,9 @@ type PowerStateMonitor struct {
 // The initial state is PowerStateUnknown until the first detection completes.
 // Call Start(ctx) in a goroutine to begin polling.
 func NewPowerStateMonitor(amp Amplifier, interval time.Duration) *PowerStateMonitor {
+	if interval <= 0 {
+		interval = defaultPowerMonitorInterval
+	}
 	return &PowerStateMonitor{
 		amp:      amp,
 		interval: interval,

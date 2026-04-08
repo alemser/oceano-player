@@ -770,7 +770,7 @@
 <div id="amp-panel" style="display:none">
   <!-- Amplifier widget -->
   <div class="amp-widget" id="amp-widget">
-    <div class="amp-header" onclick="toggleAmpWidget('amp-widget')" role="button" aria-expanded="false">
+    <div class="amp-header" onclick="toggleAmpWidget('amp-widget')" onkeydown="handleAmpHeaderKey(event, 'amp-widget')" role="button" tabindex="0" aria-expanded="false">
       <span class="amp-title" id="amp-widget-title">Amplifier</span>
       <!-- Hardware-detected power state: ⏻ Model label, right-aligned -->
       <span class="amp-power-label" id="amp-power-label" title="Hardware-detected power state">
@@ -806,7 +806,7 @@
   <!-- CD Player widget -->
   <div id="cd-widget" style="display:none; margin-top:10px">
     <div class="amp-widget" id="cd-amp-widget">
-      <div class="amp-header" onclick="toggleAmpWidget('cd-amp-widget')" role="button" aria-expanded="false">
+      <div class="amp-header" onclick="toggleAmpWidget('cd-amp-widget')" onkeydown="handleAmpHeaderKey(event, 'cd-amp-widget')" role="button" tabindex="0" aria-expanded="false">
         <span class="amp-title" id="cd-widget-title">CD Player</span>
         <svg class="amp-chevron" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path d="M2 4.5 L7 9.5 L12 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -2222,12 +2222,21 @@ async function loadAmplifierState() {
 
   try {
     const r = await fetch('/api/cdplayer/state');
-    if (!r.ok) { document.getElementById('cd-widget').style.display = 'none'; return; }
+    const ampEnabled = document.getElementById('amp-enabled')?.checked;
+    const cdEnabled = document.getElementById('cd-enabled')?.checked;
+    if (!r.ok || !ampEnabled || !cdEnabled) { document.getElementById('cd-widget').style.display = 'none'; return; }
     const state = await r.json();
     const title = document.getElementById('cd-widget-title');
     if (title) title.textContent = `${state.maker} ${state.model}`;
     document.getElementById('cd-widget').style.display = '';
   } catch { /* not configured */ }
+}
+
+function handleAmpHeaderKey(event, widgetId) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    toggleAmpWidget(widgetId);
+  }
 }
 
 function toggleAmpWidget(widgetId) {
@@ -2241,6 +2250,9 @@ function toggleAmpWidget(widgetId) {
 function renderAmpWidget(state) {
   const panel = document.getElementById('amp-panel');
   if (!state || !panel) return;
+
+  const ampEnabled = document.getElementById('amp-enabled')?.checked;
+  if (ampEnabled === false) return;
   panel.style.display = '';
 
   const title = document.getElementById('amp-widget-title');

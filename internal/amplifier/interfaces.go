@@ -26,6 +26,10 @@ const (
 // on a particular device (e.g. CurrentTrack() on an amplifier).
 var ErrNotSupported = errors.New("operation not supported on this device")
 
+// ErrUnknownInputID indicates that the requested amplifier input ID is not present
+// in the configured input list.
+var ErrUnknownInputID = errors.New("unknown input ID")
+
 // Input represents a selectable source input on an amplifier.
 type Input struct {
 	// Label is the user-facing name shown in the UI (e.g. "USB Audio", "Phono").
