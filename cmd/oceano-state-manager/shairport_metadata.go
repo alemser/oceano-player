@@ -222,11 +222,14 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		m.markDirty()
 
 	case "PICT": // embedded album artwork (JPEG/PNG bytes)
+		log.Printf("AirPlay: PICT received, bytes=%d", len(data))
 		if len(data) == 0 {
+			log.Printf("AirPlay: PICT empty, skipping")
 			return
 		}
 		path := m.saveArtwork(data)
 		if path == "" {
+			log.Printf("AirPlay: saveArtwork returned empty path")
 			return
 		}
 		m.mu.Lock()
