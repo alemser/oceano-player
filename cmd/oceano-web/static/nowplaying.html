@@ -391,11 +391,17 @@
       z-index: -1;
     }
 
-    #idle-power-btn {
+    #top-controls {
       position: absolute;
       top: 20px;
       right: max(22px, calc((100vw - min(100vw, var(--content-max-width))) / 2 + 22px));
       z-index: 22;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #idle-power-btn {
       width: 40px;
       height: 40px;
       display: inline-flex;
@@ -499,11 +505,6 @@
       #stream-progress {
         margin-top: 10px;
       }
-
-      .amp-indicator {
-        top: 16px;
-        right: 72px;
-      }
     }
 
     @media (max-width: 900px) {
@@ -585,6 +586,12 @@
     }
 
     @media (max-width: 640px), (max-height: 460px) {
+      #top-controls {
+        top: 12px;
+        right: 12px;
+        gap: 8px;
+      }
+
       #app {
         grid-template-rows: auto 1fr;
       }
@@ -772,9 +779,6 @@
 
     /* Amplifier power state indicator — shown near Pi power button at top-right. */
     .amp-indicator {
-      position: absolute;
-      top: 20px;
-      right: max(72px, calc((100vw - min(100vw, var(--content-max-width))) / 2 + 72px));
       display: none; /* shown via JS once amp state is loaded */
       align-items: center;
       gap: 8px;
@@ -823,8 +827,6 @@
 
     @media (max-width: 640px), (max-height: 460px) {
       .amp-indicator {
-        top: 12px;
-        right: 60px;
         padding: 6px 9px;
         gap: 6px;
       }
@@ -846,12 +848,20 @@
 </head>
 <body>
 
-<button id="idle-power-btn" type="button" aria-label="Power options" title="Power options" onclick="openPowerDialog()">
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-  </svg>
-</button>
+<div id="top-controls">
+  <!-- Amp indicator (appears above all screens) -->
+  <button class="amp-indicator" id="amp-indicator" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
+    <span class="amp-indicator-label" id="amp-label">—</span>
+    <span class="amp-indicator-state" id="amp-state">--</span>
+  </button>
+
+  <button id="idle-power-btn" type="button" aria-label="Power options" title="Power options" onclick="openPowerDialog()">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
+</div>
 
 <!-- Idle screen (shown when no source is active) -->
 <div id="idle-screen" class="visible">
@@ -887,12 +897,6 @@
     </div>
   </div>
 </div>
-
-<!-- Amp indicator (appears above all screens) -->
-<button class="amp-indicator" id="amp-indicator" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
-  <span class="amp-indicator-label" id="amp-label">—</span>
-  <span class="amp-indicator-state" id="amp-state">--</span>
-</button>
 
 <!-- Main playing UI -->
 <div id="app" style="position:relative">
