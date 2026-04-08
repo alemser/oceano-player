@@ -614,22 +614,23 @@
       text-transform: uppercase; color: var(--text-dim);
     }
 
-    /* Power state pill — always visible in header */
-    .amp-power-pill {
-      display: flex; align-items: center; gap: 6px;
-      border: 1px solid var(--border); border-radius: 20px;
-      padding: 3px 10px 3px 8px;
-      font-size: 0.72rem; color: var(--text-dim);
-      transition: border-color 0.25s;
+    /* Power state icon — always visible in header */
+    .amp-power-icon {
+      display: flex; align-items: center; justify-content: center;
+      width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+      border: 2px solid var(--border);
+      color: var(--text-faint);
+      transition: border-color 0.3s, color 0.3s, box-shadow 0.3s;
     }
-    .amp-power-pill.ps-on  { border-color: #2a5c2a; color: #4cba80; }
-    .amp-power-pill.ps-off { border-color: #5c2a2a; color: #e05e5e; }
-    .amp-power-dot {
-      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-      background: var(--muted); transition: background 0.3s;
+    .amp-power-icon svg { width: 16px; height: 16px; }
+    .amp-power-icon.ps-on  {
+      border-color: #4cba80; color: #4cba80;
+      box-shadow: 0 0 8px rgba(76,186,128,0.35);
     }
-    .amp-power-dot.ps-on  { background: #4cba80; }
-    .amp-power-dot.ps-off { background: #e05e5e; }
+    .amp-power-icon.ps-off {
+      border-color: #e05e5e; color: #e05e5e;
+      box-shadow: 0 0 8px rgba(224,94,94,0.25);
+    }
 
     /* Ready chip — shown next to power pill */
     .amp-status-chip {
@@ -730,10 +731,12 @@
   <div class="amp-widget" id="amp-widget">
     <div class="amp-header" onclick="toggleAmpWidget('amp-widget')" role="button" aria-expanded="false">
       <span class="amp-title" id="amp-widget-title">Amplifier</span>
-      <!-- Hardware-detected power state pill — always visible -->
-      <span class="amp-power-pill" id="amp-power-pill" title="Hardware-detected power state">
-        <span class="amp-power-dot" id="amp-power-dot"></span>
-        <span id="amp-power-label">—</span>
+      <!-- Hardware-detected power state icon — always visible -->
+      <span class="amp-power-icon" id="amp-power-icon" title="Hardware-detected power state">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 3v9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
       </span>
       <!-- Software ready state chip -->
       <span class="amp-status-chip" id="amp-ready-chip">
@@ -2090,16 +2093,12 @@ function renderAmpWidget(state) {
   const title = document.getElementById('amp-widget-title');
   if (title) title.textContent = `${state.maker} ${state.model}`;
 
-  // Hardware-detected power pill (always visible in collapsed header)
-  const pill  = document.getElementById('amp-power-pill');
-  const pdot  = document.getElementById('amp-power-dot');
-  const plbl  = document.getElementById('amp-power-label');
-  if (pill && pdot && plbl) {
+  // Hardware-detected power icon (always visible in collapsed header)
+  const icon = document.getElementById('amp-power-icon');
+  if (icon) {
     const ps = state.detected_power_state ?? 'unknown';
-    pill.className  = `amp-power-pill${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
-    pdot.className  = `amp-power-dot${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
-    plbl.textContent = ps === 'on' ? 'On' : ps === 'off' ? 'Off' : '—';
-    pill.title = `Hardware-detected: ${ps}`;
+    icon.className = `amp-power-icon${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
+    icon.title = ps === 'on' ? 'Amp detected: On' : ps === 'off' ? 'Amp detected: Off' : 'Power state unknown';
   }
 
   // Software ready state chip (visible next to pill)
