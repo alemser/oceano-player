@@ -126,6 +126,8 @@ exec ${chromium_bin} \\
   --password-store=basic \\
   --use-mock-keychain \\
   --window-size=1024,600 \\
+  --touch-events \\
+  --app="http://localhost:8080/nowplaying.html" \\
   "\${NOWPLAYING_URL}"
 SCRIPT
   chmod 0755 "${WRAPPER_SCRIPT}"
