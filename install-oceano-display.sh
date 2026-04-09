@@ -127,6 +127,7 @@ exec ${chromium_bin} \\
   --use-mock-keychain \\
   --window-size=1024,600 \\
   --touch-events \\
+  --hide-cursor \\
   --app="http://localhost:8080/nowplaying.html" \\
   "\${NOWPLAYING_URL}"
 SCRIPT

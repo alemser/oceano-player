@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Oceano — Now Playing</title>
   <link rel="stylesheet" href="/nowplaying.css">
-  </style>
 </head>
 <body>
 
@@ -28,17 +27,16 @@
     <span class="amp-indicator-label" id="amp-label">—</span>
     <span class="amp-indicator-state" id="amp-state">--</span>
   </button>
+</div>
 
+<!-- Idle screen (shown when no source is active) -->
+<div id="idle-screen" class="visible">
   <button id="idle-power-btn" type="button" aria-label="Power options" title="Power options" onclick="openPowerDialog()">
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     </svg>
   </button>
-</div>
-
-<!-- Idle screen (shown when no source is active) -->
-<div id="idle-screen" class="visible">
   <div id="idle-logo">
     <!-- Oceano waveform icon -->
     <svg viewBox="0 0 52 52" fill="currentColor" aria-hidden="true">
