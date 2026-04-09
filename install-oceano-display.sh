@@ -17,7 +17,7 @@ DISPLAY_CHECK_SCRIPT="/usr/local/bin/oceano-display-check"
 WRAPPER_SCRIPT="/usr/local/bin/oceano-display-launch"
 
 DEFAULT_WEB_ADDR="http://localhost:8080"
-DEFAULT_DISPLAY_USER="pi"
+DEFAULT_DISPLAY_USER="alemser"
 
 # ─── Output colors ───────────────────────────
 RED='\033[0;31m'
