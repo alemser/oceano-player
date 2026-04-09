@@ -14,6 +14,10 @@ BINARY_DEST="/usr/local/bin/${BINARY_NAME}"
 SERVICE_NAME="oceano-web.service"
 SERVICE_DEST="/etc/systemd/system/${SERVICE_NAME}"
 CONFIG_DIR="/etc/oceano"
+BRIDGE_SRC="scripts/broadlink_bridge.py"
+BRIDGE_DEST="/usr/local/lib/oceano/broadlink_bridge.py"
+VENV_DIR="/opt/oceano-venv"
+VENV_PYTHON="${VENV_DIR}/bin/python3"
 
 DEFAULT_BRANCH="main"
 DEFAULT_ADDR=":8080"
@@ -156,6 +160,28 @@ main() {
 
   log_section "Build"
   build_binary
+
+  log_section "Broadlink bridge"
+  mkdir -p "$(dirname "${BRIDGE_DEST}")"
+  cp "${SRC_DIR}/${BRIDGE_SRC}" "${BRIDGE_DEST}"
+  chmod 0755 "${BRIDGE_DEST}"
+  log_ok "Bridge script installed at ${BRIDGE_DEST}"
+  if ! command -v python3 >/dev/null 2>&1; then
+    log_warn "python3 not found — skipping python-broadlink install"
+    log_warn "Install Python 3 first: apt install python3 python3-venv"
+  else
+    if [[ ! -d "${VENV_DIR}" ]]; then
+      log_info "Creating Python virtualenv at ${VENV_DIR}..."
+      python3 -m venv "${VENV_DIR}"
+    fi
+    if "${VENV_PYTHON}" -c "import broadlink" 2>/dev/null; then
+      log_ok "python-broadlink already installed in virtualenv"
+    else
+      log_info "Installing python-broadlink into ${VENV_DIR}..."
+      "${VENV_DIR}/bin/pip" install --quiet broadlink
+      log_ok "python-broadlink installed"
+    fi
+  fi
 
   log_section "systemd Service"
   write_service "${addr}" "${config}" "${library_db}"

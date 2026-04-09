@@ -72,6 +72,12 @@ type AmplifierConfig struct {
 	// "cycle"  — sends next_input repeatedly (e.g. Magnat MR 780, no direct IR per input).
 	// "direct" — sends a single input-specific IR code (most modern amplifiers).
 	InputSelectionMode string `json:"input_selection_mode"`
+	// SelectorTimeoutSeconds is the number of seconds the amplifier keeps its
+	// input selector "active" after the last next_input press. When the selector
+	// goes dormant, the first press only highlights the current input without
+	// advancing it (e.g. Magnat MR 780 shows "< CD >" on first press).
+	// Set to 0 to disable the extra activation press. Default 4.
+	SelectorTimeoutSeconds int `json:"selector_timeout_seconds"`
 	// Broadlink holds the pairing credentials for the RM4 Mini controlling this device.
 	Broadlink BroadlinkConfig `json:"broadlink"`
 	// IRCodes maps command names to base64-encoded Broadlink IR codes.

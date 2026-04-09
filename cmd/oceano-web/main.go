@@ -181,7 +181,7 @@ func main() {
 	if err != nil {
 		log.Printf("amplifier config error: %v (amplifier control disabled)", err)
 	}
-	cdPlayer := buildCDPlayerFromConfig(cfg.CDPlayer)
+	cdPlayer := buildCDPlayerFromConfig(cfg.CDPlayer, cfg.Amplifier.Broadlink)
 
 	// Power state monitor: polls hardware every 30 s.
 	// Uses the full amp when inputs are configured; falls back to a detection-only

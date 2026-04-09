@@ -79,6 +79,13 @@ func newTestServer(t *testing.T, amp *amplifier.BroadlinkAmplifier, cd *amplifie
 		configPath: cfgPath,
 		amp:        amp,
 		cdPlayer:   cd,
+		// Stub pairing function: no subprocess, no file system required.
+		pairFn: func(host string) (amplifier.BridgePairResult, error) {
+			return amplifier.BridgePairResult{
+				Token:    "test-token-000000000000000000000000000000",
+				DeviceID: "test-device-id-0000",
+			}, nil
+		},
 	}
 }
 
@@ -501,7 +508,7 @@ func TestBuildAmplifierFromConfig_Enabled(t *testing.T) {
 }
 
 func TestBuildCDPlayerFromConfig_Disabled(t *testing.T) {
-	cd := buildCDPlayerFromConfig(CDPlayerConfig{Enabled: false})
+	cd := buildCDPlayerFromConfig(CDPlayerConfig{Enabled: false}, BroadlinkConfig{})
 	if cd != nil {
 		t.Error("expected nil for disabled CD player")
 	}
@@ -514,7 +521,7 @@ func TestBuildCDPlayerFromConfig_Enabled(t *testing.T) {
 		Model:   "CD-S300",
 		IRCodes: map[string]string{"play": "IR_PLAY"},
 	}
-	cd := buildCDPlayerFromConfig(cfg)
+	cd := buildCDPlayerFromConfig(cfg, BroadlinkConfig{})
 	if cd == nil {
 		t.Fatal("expected non-nil CD player")
 	}

@@ -80,19 +80,29 @@
     </div>
     <div class="amp-body">
       <div class="amp-controls">
-        <button class="btn-amp btn-amp-on"  onclick="ampPower('on')"     title="Power On">⏻ On</button>
-        <button class="btn-amp btn-amp-off" onclick="ampPower('off')"    title="Power Off">⏻ Off</button>
+        <button class="btn-amp btn-amp-power" id="btn-amp-power" onclick="ampTogglePower()" title="Power">⏻</button>
         <div class="amp-divider"></div>
-        <button class="btn-amp" onclick="ampVolume('down')" title="Volume Down">− Vol</button>
-        <button class="btn-amp" onclick="ampVolume('up')"   title="Volume Up">+ Vol</button>
+        <button class="btn-amp btn-amp-repeat"
+                onpointerdown="startRepeat('volume','down')" onpointerup="stopRepeat()" onpointerleave="stopRepeat()"
+                title="Volume Down">− Vol</button>
+        <button class="btn-amp btn-amp-repeat"
+                onpointerdown="startRepeat('volume','up')" onpointerup="stopRepeat()" onpointerleave="stopRepeat()"
+                title="Volume Up">+ Vol</button>
         <div class="amp-divider"></div>
         <select class="amp-input-select" id="amp-input-select" onchange="ampSetInput(this.value)" title="Select input"></select>
+        <button class="btn-amp btn-amp-sync" id="btn-amp-sync" onclick="toggleInputSync()" title="Sync — set assumed input without IR">⟳</button>
       </div>
+      <div id="amp-sync-panel" class="amp-sync-panel" style="display:none"></div>
 
       <!-- CD Player controls (integrated under amplifier) -->
       <div id="cd-widget" style="display:none">
         <div class="cd-inline-head">
           <span class="cd-inline-title" id="cd-widget-title">CD Player</span>
+        </div>
+        <div class="cd-controls-row">
+          <button class="cd-btn eject" onclick="cdTransport('eject')" aria-label="Eject" title="Eject">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16h12M7 12l5-6 5 6"/></svg>
+          </button>
         </div>
         <div class="cd-controls-row">
           <button class="cd-btn" onclick="cdTransport('prev')" aria-label="Previous track" title="Previous track">
@@ -109,9 +119,6 @@
           </button>
           <button class="cd-btn" onclick="cdTransport('next')" aria-label="Next track" title="Next track">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6l8 6-8 6V6zM18 6v12"/></svg>
-          </button>
-          <button class="cd-btn eject" onclick="cdTransport('eject')" aria-label="Eject" title="Eject">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16h12M7 12l5-6 5 6"/></svg>
           </button>
         </div>
       </div>
@@ -417,9 +424,15 @@
 
       <div class="field">
         <label><span>Inputs</span></label>
-        <div class="hint" style="margin-bottom:8px">All physical inputs in cycle order. Hidden inputs still count as steps — include them all. Toggle the eye icon to show/hide in the UI.</div>
+        <div class="hint" style="margin-bottom:8px">All physical inputs in cycle order. Hidden inputs still count as cycle steps. Toggle 👁 to show/hide in the UI.</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <button type="button" class="btn-add-input" onclick="ampAddInput()">+ Add input</button>
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-dim);cursor:pointer">
+            <input type="checkbox" id="amp-show-hidden" checked style="width:auto;accent-color:var(--accent)" onchange="toggleShowHidden()">
+            Show hidden
+          </label>
+        </div>
         <div id="amp-inputs-list" class="amp-inputs-list"></div>
-        <button type="button" class="btn-add-input" onclick="ampAddInput()">+ Add input</button>
       </div>
 
       <div class="field">
@@ -439,6 +452,11 @@
         <input type="number" id="amp-switch-delay" step="1" min="0" max="30" placeholder="2">
         <div class="hint">Settling time after input change before audio resumes.</div>
       </div>
+      <div class="field">
+        <label><span>Selector timeout (seconds)</span></label>
+        <input type="number" id="amp-selector-timeout" step="1" min="0" max="30" placeholder="4">
+        <div class="hint">How long the input selector stays active after a button press. The first press after this timeout only highlights the current input without advancing (e.g. Magnat MR 780). Set 0 to disable.</div>
+      </div>
 
       <div class="config-subsection">
         <div class="config-subtitle">Broadlink RM4 Mini</div>
@@ -457,9 +475,9 @@
       </div>
 
       <div class="config-subsection">
-        <div class="config-subtitle">IR Codes</div>
-        <div class="hint">Codes are learned via the pairing wizard once the RM4 Mini is available.</div>
-        <div id="amp-ir-summary" style="margin-top:8px;font-size:0.75rem;color:var(--text-dim)">No codes configured.</div>
+        <div class="config-subtitle">IR Codes — Amplifier</div>
+        <div class="hint" style="margin-bottom:10px">Point the Magnat remote at the RM4 Mini and click Learn.</div>
+        <div id="amp-ir-table"></div>
       </div>
     </div>
 
@@ -482,7 +500,13 @@
         <label><span>Model</span></label>
         <input type="text" id="cd-model" placeholder="CD-S300">
       </div>
-      <div class="hint">Uses the same RM4 Mini as the amplifier (paired via the Amplifier wizard above).</div>
+      <div class="hint" style="margin-bottom:10px">Uses the same RM4 Mini as the amplifier (paired via the wizard above).</div>
+
+      <div class="config-subsection">
+        <div class="config-subtitle">IR Codes — CD Player</div>
+        <div class="hint" style="margin-bottom:10px">Point the Yamaha remote at the RM4 Mini and click Learn.</div>
+        <div id="cd-ir-table"></div>
+      </div>
     </div>
 
   </div><!-- .sections -->

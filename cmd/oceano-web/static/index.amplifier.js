@@ -2,13 +2,148 @@
 let _ampConfig = {};
 let _cdConfig  = {};
 
+// ── IR Learning ───────────────────────────────────────────────────────────────
+
+const AMP_COMMANDS = [
+  { id: 'power_on',    label: 'Power On' },
+  { id: 'power_off',   label: 'Power Off' },
+  { id: 'volume_up',   label: 'Volume +' },
+  { id: 'volume_down', label: 'Volume −' },
+  { id: 'next_input',  label: 'Next Input' },
+];
+
+const CD_COMMANDS = [
+  { id: 'power_on',  label: 'Power On' },
+  { id: 'power_off', label: 'Power Off' },
+  { id: 'play',      label: 'Play' },
+  { id: 'pause',     label: 'Pause' },
+  { id: 'stop',      label: 'Stop' },
+  { id: 'next',      label: 'Next Track' },
+  { id: 'previous',  label: 'Prev Track' },
+  { id: 'eject',     label: 'Eject' },
+];
+
+let _learnPoll = null; // setInterval handle
+
+function renderIRTable(tableId, commands, device, irCodes) {
+  const el = document.getElementById(tableId);
+  if (!el) return;
+  el.innerHTML = '';
+  commands.forEach(cmd => {
+    const configured = !!(irCodes && irCodes[cmd.id]);
+    const row = document.createElement('div');
+    row.className = 'ir-row';
+    row.id = `ir-row-${device}-${cmd.id}`;
+    row.innerHTML = `
+      <span class="ir-label">${cmd.label}</span>
+      <span class="ir-status ${configured ? 'ir-ok' : 'ir-missing'}" id="ir-status-${device}-${cmd.id}">
+        ${configured ? '✓' : '—'}
+      </span>
+      <button type="button" class="ir-learn-btn" id="ir-btn-${device}-${cmd.id}"
+              onclick="learnCommand('${cmd.id}','${device}')">Learn</button>`;
+    el.appendChild(row);
+  });
+}
+
+async function learnCommand(command, device) {
+  const btn = document.getElementById(`ir-btn-${device}-${command}`);
+  const statusEl = document.getElementById(`ir-status-${device}-${command}`);
+  if (!btn) return;
+
+  // Cancel any previous poll
+  if (_learnPoll) { clearInterval(_learnPoll); _learnPoll = null; }
+
+  btn.disabled = true;
+  btn.textContent = 'Listening…';
+  btn.classList.add('ir-learning');
+  if (statusEl) { statusEl.textContent = '…'; statusEl.className = 'ir-status ir-listening'; }
+
+  try {
+    const r = await fetch('/api/broadlink/learn-start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command, device }),
+    });
+    if (!r.ok) {
+      const err = await r.json();
+      setLearnResult(btn, statusEl, 'error', err.error || 'Failed to start');
+      return;
+    }
+  } catch (e) {
+    setLearnResult(btn, statusEl, 'error', 'Network error');
+    return;
+  }
+
+  // Poll for result
+  _learnPoll = setInterval(async () => {
+    try {
+      const r = await fetch('/api/broadlink/learn-status');
+      if (!r.ok) return;
+      const s = await r.json();
+      if (s.status === 'listening') return; // still waiting
+
+      clearInterval(_learnPoll);
+      _learnPoll = null;
+
+      if (s.status === 'captured') {
+        // Keep local config in sync so Save & Restart includes the new code.
+        if (device === 'amplifier') {
+          if (!_ampConfig.ir_codes) _ampConfig.ir_codes = {};
+          _ampConfig.ir_codes[command] = s.code;
+        } else {
+          if (!_cdConfig.ir_codes) _cdConfig.ir_codes = {};
+          _cdConfig.ir_codes[command] = s.code;
+        }
+        setLearnResult(btn, statusEl, 'ok', null);
+      } else {
+        setLearnResult(btn, statusEl, 'error', s.message || s.status);
+      }
+    } catch { /* network blip — keep polling */ }
+  }, 600);
+
+  // Safety timeout: stop polling after 35 s
+  setTimeout(() => {
+    if (_learnPoll) {
+      clearInterval(_learnPoll);
+      _learnPoll = null;
+      setLearnResult(btn, statusEl, 'error', 'No response');
+    }
+  }, 35000);
+}
+
+function setLearnResult(btn, statusEl, result, msg) {
+  btn.disabled = false;
+  btn.classList.remove('ir-learning');
+  if (result === 'ok') {
+    btn.textContent = 'Learn';
+    if (statusEl) { statusEl.textContent = '✓'; statusEl.className = 'ir-status ir-ok'; }
+  } else {
+    btn.textContent = 'Retry';
+    if (statusEl) { statusEl.textContent = '✗'; statusEl.className = 'ir-status ir-error'; }
+    if (msg) showToast(msg, 'error');
+  }
+}
+
 // ── Inputs editor ─────────────────────────────────────────────────────────────
+
+// labelToId derives a stable ID from a human label.
+// "USB Audio" → "USB_AUDIO", "Phono" → "PHONO"
+function labelToId(label) {
+  return (label ?? '').trim().toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'INPUT';
+}
 
 function renderAmpInputsList(inputs) {
   const list = document.getElementById('amp-inputs-list');
   if (!list) return;
+  const showHidden = document.getElementById('amp-show-hidden')?.checked ?? true;
   list.innerHTML = '';
-  inputs.forEach((inp, i) => list.appendChild(buildInputRow(inp, i)));
+  inputs.forEach((inp, i) => {
+    const row = buildInputRow(inp, i);
+    if (!inp.visible && !showHidden) row.style.display = 'none';
+    list.appendChild(row);
+  });
 }
 
 function buildInputRow(inp, idx) {
@@ -16,15 +151,14 @@ function buildInputRow(inp, idx) {
   row.className = 'amp-input-row';
   row.draggable = true;
   row.dataset.idx = idx;
+  // Store the original id so edits to the label don't silently change the id.
+  // On new rows (empty id) the id will be derived from the label at save time.
+  row.dataset.inputId = inp.id ?? '';
 
   row.innerHTML = `
     <span class="amp-input-drag" title="Drag to reorder">⠿</span>
-    <input class="amp-input-label" type="text" placeholder="Label (e.g. USB Audio)"
+    <input class="amp-input-label" type="text" placeholder="Name (e.g. USB Audio)"
            value="${esc(inp.label ?? '')}" oninput="refreshDefaultInputDropdown()">
-    <span class="amp-input-sep"></span>
-    <input class="amp-input-id" type="text" placeholder="ID (e.g. USB)"
-           value="${esc(inp.id ?? '')}" oninput="refreshDefaultInputDropdown()">
-    <span class="amp-input-sep"></span>
     <button type="button" class="btn-input-visible ${inp.visible ? 'is-visible' : ''}"
             title="${inp.visible ? 'Visible in UI' : 'Hidden in UI'}"
             onclick="toggleInputVisible(this)">
@@ -32,7 +166,6 @@ function buildInputRow(inp, idx) {
     </button>
     <button type="button" class="btn-input-remove" title="Remove" onclick="removeInputRow(this)">✕</button>`;
 
-  // Drag-and-drop reordering
   row.addEventListener('dragstart', e => {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', row.dataset.idx);
@@ -60,9 +193,11 @@ function buildInputRow(inp, idx) {
 function ampAddInput() {
   const inputs = collectAmpInputs();
   inputs.push({ label: '', id: '', visible: true });
+  // Ensure show-hidden is on so the new row is visible
+  const cb = document.getElementById('amp-show-hidden');
+  if (cb) cb.checked = true;
   renderAmpInputsList(inputs);
   refreshDefaultInputDropdown();
-  // Focus the label field of the new row
   const rows = document.querySelectorAll('.amp-input-row');
   if (rows.length) rows[rows.length - 1].querySelector('.amp-input-label')?.focus();
 }
@@ -75,17 +210,32 @@ function removeInputRow(btn) {
 function toggleInputVisible(btn) {
   const isNowVisible = !btn.classList.contains('is-visible');
   btn.classList.toggle('is-visible', isNowVisible);
-  btn.title   = isNowVisible ? 'Visible in UI' : 'Hidden in UI';
+  btn.title = isNowVisible ? 'Visible in UI' : 'Hidden in UI';
   btn.textContent = isNowVisible ? '👁' : '○';
+  // If hiding and show-hidden is off, remove the row from view
+  if (!isNowVisible) {
+    const showHidden = document.getElementById('amp-show-hidden')?.checked ?? true;
+    if (!showHidden) btn.closest('.amp-input-row').style.display = 'none';
+  }
 }
 
-// collectAmpInputs reads current row state from the DOM.
+function toggleShowHidden() {
+  const inputs = collectAmpInputs();
+  renderAmpInputsList(inputs);
+}
+
+// collectAmpInputs reads current row state from the DOM (visible or hidden rows).
 function collectAmpInputs() {
-  return Array.from(document.querySelectorAll('.amp-input-row')).map(row => ({
-    label:   row.querySelector('.amp-input-label')?.value ?? '',
-    id:      row.querySelector('.amp-input-id')?.value ?? '',
-    visible: row.querySelector('.btn-input-visible')?.classList.contains('is-visible') ?? false,
-  }));
+  return Array.from(document.querySelectorAll('.amp-input-row')).map(row => {
+    const label = row.querySelector('.amp-input-label')?.value ?? '';
+    // Use stored id if available (data attr set on load), else derive from label.
+    const id = row.dataset.inputId || labelToId(label);
+    return {
+      label,
+      id,
+      visible: row.querySelector('.btn-input-visible')?.classList.contains('is-visible') ?? false,
+    };
+  });
 }
 
 // refreshDefaultInputDropdown rebuilds the dropdown from current input rows
@@ -111,12 +261,11 @@ function updateAmpPanel() {
 }
 
 function updateAmpIRSummary(irCodes) {
-  const el = document.getElementById('amp-ir-summary');
-  if (!el) return;
-  const configured = Object.entries(irCodes).filter(([,v]) => v).map(([k]) => k);
-  el.textContent = configured.length
-    ? `${configured.length} configured: ${configured.join(', ')}`
-    : 'No codes configured.';
+  renderIRTable('amp-ir-table', AMP_COMMANDS, 'amplifier', irCodes);
+}
+
+function updateCDIRSummary(irCodes) {
+  renderIRTable('cd-ir-table', CD_COMMANDS, 'cdplayer', irCodes);
 }
 
 async function loadAmplifierState() {
@@ -175,6 +324,15 @@ function renderAmpWidget(state) {
     pwrLabel.title = `${model} — Detected: ${ps === 'on' ? 'On' : ps === 'off' ? 'Off' : '—'}`;
   }
 
+  // Power button state
+  _ampPowerOn = state.power_on ?? false;
+  const pwrBtn = document.getElementById('btn-amp-power');
+  if (pwrBtn) {
+    pwrBtn.classList.toggle('pwr-on',  _ampPowerOn);
+    pwrBtn.classList.toggle('pwr-off', !_ampPowerOn);
+    pwrBtn.title = _ampPowerOn ? 'Power off' : 'Power on';
+  }
+
   // Software ready state chip (visible next to pill)
   const dot   = document.getElementById('amp-ready-dot');
   const label = document.getElementById('amp-ready-label');
@@ -191,6 +349,7 @@ function renderAmpWidget(state) {
     }
   }
 
+  // Input dropdown
   const sel = document.getElementById('amp-input-select');
   if (sel && Array.isArray(state.input_list)) {
     const curId = state.current_input?.id ?? '';
@@ -198,6 +357,21 @@ function renderAmpWidget(state) {
       `<option value="${esc(inp.id)}"${inp.id === curId ? ' selected' : ''}>${esc(inp.label)}</option>`
     ).join('');
   }
+
+  // Keep sync panel input list up to date
+  if (Array.isArray(state.input_list)) {
+    _syncInputList = state.input_list;
+    const syncPanel = document.getElementById('amp-sync-panel');
+    if (syncPanel && syncPanel.style.display !== 'none') _renderSyncPanel();
+  }
+}
+
+// ── Power toggle ──────────────────────────────────────────────────────────────
+
+let _ampPowerOn = false;
+
+async function ampTogglePower() {
+  await ampPower(_ampPowerOn ? 'off' : 'on');
 }
 
 async function ampPower(action) {
@@ -208,12 +382,43 @@ async function ampPower(action) {
   setTimeout(loadAmplifierState, 300);
 }
 
+// ── Volume hold-to-repeat ─────────────────────────────────────────────────────
+
+let _repeatTimer  = null;
+let _repeatActive = false;
+
+function startRepeat(type, direction) {
+  stopRepeat();
+  _repeatActive = true;
+  _doRepeat(type, direction); // fire immediately
+  const delay   = 300;
+  const cadence = 150;
+  _repeatTimer = setTimeout(() => {
+    if (!_repeatActive) return;
+    _repeatTimer = setInterval(() => {
+      if (!_repeatActive) { stopRepeat(); return; }
+      _doRepeat(type, direction);
+    }, cadence);
+  }, delay);
+}
+
+function stopRepeat() {
+  _repeatActive = false;
+  if (_repeatTimer !== null) { clearTimeout(_repeatTimer); clearInterval(_repeatTimer); _repeatTimer = null; }
+}
+
+function _doRepeat(type, direction) {
+  if (type === 'volume') ampVolume(direction);
+}
+
 async function ampVolume(direction) {
   await fetch('/api/amplifier/volume', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({direction}),
   });
 }
+
+// ── Input dropdown ────────────────────────────────────────────────────────────
 
 async function ampSetInput(id) {
   if (!id) return;
@@ -222,6 +427,47 @@ async function ampSetInput(id) {
     body: JSON.stringify({id}),
   });
   setTimeout(loadAmplifierState, 300);
+}
+
+// ── Input sync panel ──────────────────────────────────────────────────────────
+
+let _syncInputList = [];
+
+function toggleInputSync() {
+  const panel = document.getElementById('amp-sync-panel');
+  const btn   = document.getElementById('btn-amp-sync');
+  if (!panel) return;
+  const visible = panel.style.display !== 'none';
+  if (visible) {
+    panel.style.display = 'none';
+    if (btn) btn.classList.remove('active');
+  } else {
+    _renderSyncPanel();
+    panel.style.display = '';
+    if (btn) btn.classList.add('active');
+  }
+}
+
+function _renderSyncPanel() {
+  const panel = document.getElementById('amp-sync-panel');
+  if (!panel || !_syncInputList.length) return;
+  panel.innerHTML = '<span class="sync-label">Amp is on:</span>' +
+    _syncInputList.map(inp =>
+      `<button class="btn-sync-input" onclick="applyInputSync('${esc(inp.id)}')">${esc(inp.label)}</button>`
+    ).join('');
+}
+
+async function applyInputSync(id) {
+  await fetch('/api/amplifier/sync-input', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id}),
+  });
+  // Hide panel and refresh state
+  const panel = document.getElementById('amp-sync-panel');
+  const btn   = document.getElementById('btn-amp-sync');
+  if (panel) panel.style.display = 'none';
+  if (btn) btn.classList.remove('active');
+  setTimeout(loadAmplifierState, 150);
 }
 
 async function cdTransport(action) {

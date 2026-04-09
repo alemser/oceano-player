@@ -41,6 +41,13 @@ type AmplifierSettings struct {
 	// DetectPowerState to read the REC-OUT noise floor (Check 2).
 	// Leave empty to skip noise floor analysis.
 	VUSocketPath string
+
+	// SelectorTimeoutSecs is the number of seconds the amplifier's input selector
+	// remains "active" after the last next_input press. When the selector goes
+	// dormant, the very first press only highlights the current input without
+	// advancing it (e.g. Magnat MR 780 shows "< CD >" on first press).
+	// Set to 0 to disable the extra activation press.
+	SelectorTimeoutSecs int
 }
 
 // BroadlinkAmplifier implements Amplifier for any IR-controlled amplifier
@@ -55,12 +62,13 @@ type BroadlinkAmplifier struct {
 	defaultInput Input
 
 	// mutable state — always accessed under mu
-	powerOn      bool
-	currentInput Input
-	audioReady   bool
-	audioReadyAt time.Time
-	cancelReady  context.CancelFunc
-	readyGen     uint64
+	powerOn       bool
+	currentInput  Input
+	audioReady    bool
+	audioReadyAt  time.Time
+	cancelReady   context.CancelFunc
+	readyGen      uint64
+	lastInputSent time.Time // when the last next_input IR code was sent
 }
 
 // NewBroadlinkAmplifier constructs a BroadlinkAmplifier ready for use.
@@ -234,15 +242,18 @@ func (a *BroadlinkAmplifier) setInputCycle(id string) error {
 	if code == "" {
 		return fmt.Errorf("IR code for %q not configured", "next_input")
 	}
+
 	for range steps {
 		if err := a.client.SendIRCode(code); err != nil {
 			return err
 		}
+		time.Sleep(300 * time.Millisecond)
 	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.currentInput = targetInput
+	a.lastInputSent = time.Now()
 	a.audioReady = false
 	a.startReadyTimerLocked(time.Duration(a.settings.SwitchDelaySecs) * time.Second)
 	return nil
@@ -254,6 +265,7 @@ func (a *BroadlinkAmplifier) NextInput() error {
 	if err != nil {
 		return err
 	}
+
 	if err := a.client.SendIRCode(code); err != nil {
 		return err
 	}
@@ -266,8 +278,33 @@ func (a *BroadlinkAmplifier) NextInput() error {
 			break
 		}
 	}
+	a.lastInputSent = time.Now()
 	a.audioReady = false
 	a.startReadyTimerLocked(time.Duration(a.settings.SwitchDelaySecs) * time.Second)
+	return nil
+}
+
+// selectorDormantLocked reports whether the amplifier's input selector has timed
+// out since the last next_input press. Must be called with a.mu held.
+func (a *BroadlinkAmplifier) selectorDormantLocked() bool {
+	if a.settings.SelectorTimeoutSecs <= 0 {
+		return false
+	}
+	timeout := time.Duration(a.settings.SelectorTimeoutSecs) * time.Second
+	return a.lastInputSent.IsZero() || time.Since(a.lastInputSent) > timeout
+}
+
+// SyncInput updates the assumed current input in software without sending any
+// IR command. Use this when the amp was changed manually (physical knob or
+// original remote) and the software state needs to catch up.
+func (a *BroadlinkAmplifier) SyncInput(id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	inp, err := a.findInputLocked(id)
+	if err != nil {
+		return err
+	}
+	a.currentInput = inp
 	return nil
 }
 

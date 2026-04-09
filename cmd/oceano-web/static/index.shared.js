@@ -54,7 +54,8 @@ async function loadConfig() {
   renderAmpInputsList(cfg.amplifier?.inputs ?? []);
   refreshDefaultInputDropdown(cfg.amplifier?.default_input ?? '');
   set('amp-warmup',         cfg.amplifier?.warmup_seconds ?? 30);
-  set('amp-switch-delay',   cfg.amplifier?.input_switch_delay_seconds ?? 2);
+  set('amp-switch-delay',       cfg.amplifier?.input_switch_delay_seconds ?? 2);
+  set('amp-selector-timeout',   cfg.amplifier?.selector_timeout_seconds ?? 4);
   set('amp-broadlink-host', cfg.amplifier?.broadlink?.host ?? '');
   set('amp-token',          cfg.amplifier?.broadlink?.token ?? '');
   updateAmpIRSummary(cfg.amplifier?.ir_codes ?? {});
@@ -64,6 +65,7 @@ async function loadConfig() {
   if (cdEl) cdEl.checked = cfg.cd_player?.enabled ?? false;
   set('cd-maker',  cfg.cd_player?.maker ?? '');
   set('cd-model',  cfg.cd_player?.model ?? '');
+  updateCDIRSummary(cfg.cd_player?.ir_codes ?? {});
   _cdConfig = cfg.cd_player ?? {};
 
   updateAmpPanel();
@@ -283,6 +285,7 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       default_input:             val('amp-default-input'),
       warmup_seconds:            intOr('amp-warmup', 30),
       input_switch_delay_seconds: intOr('amp-switch-delay', 2),
+      selector_timeout_seconds:   intOr('amp-selector-timeout', 4),
       broadlink: { ...(_ampConfig.broadlink ?? {}), host: val('amp-broadlink-host') },
     },
     cd_player: {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -20,8 +22,24 @@ type amplifierServer struct {
 	cdPlayer   *amplifier.BroadlinkCDPlayer
 	monitor    *amplifier.PowerStateMonitor // nil when amp is not configured
 
+	// pairFn is called by handlePairStart to perform the Broadlink auth handshake.
+	// If nil, the real bridge subprocess is used. Injected in tests to avoid I/O.
+	pairFn func(host string) (amplifier.BridgePairResult, error)
+
 	pairMu    sync.Mutex
 	pairState *pairingAttempt
+
+	learnMu    sync.Mutex
+	learnState *learningAttempt
+}
+
+// learningAttempt tracks an in-progress or completed IR learning session.
+type learningAttempt struct {
+	Command string `json:"command"`          // e.g. "power_on"
+	Device  string `json:"device"`           // "amplifier" or "cdplayer"
+	Status  string `json:"status"`           // "listening", "captured", "timeout", "error"
+	Code    string `json:"code,omitempty"`   // base64 IR code on success
+	Message string `json:"message,omitempty"` // error detail
 }
 
 type pairingAttempt struct {
@@ -48,9 +66,12 @@ func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifi
 	mux.HandleFunc("/api/amplifier/volume", s.handleAmplifierVolume)
 	mux.HandleFunc("/api/amplifier/input", s.handleAmplifierInput)
 	mux.HandleFunc("/api/amplifier/next-input", s.handleAmplifierNextInput)
+	mux.HandleFunc("/api/amplifier/sync-input", s.handleAmplifierSyncInput)
 	mux.HandleFunc("/api/amplifier/pair-start", s.handlePairStart)
 	mux.HandleFunc("/api/amplifier/pair-status", s.handlePairStatus)
 	mux.HandleFunc("/api/amplifier/pair-complete", s.handlePairComplete)
+	mux.HandleFunc("/api/broadlink/learn-start", s.handleLearnStart)
+	mux.HandleFunc("/api/broadlink/learn-status", s.handleLearnStatus)
 	mux.HandleFunc("/api/cdplayer/state", s.handleCDPlayerState)
 	mux.HandleFunc("/api/cdplayer/transport", s.handleCDPlayerTransport)
 }
@@ -275,6 +296,41 @@ func (s *amplifierServer) handleAmplifierNextInput(w http.ResponseWriter, r *htt
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleAmplifierSyncInput updates the assumed current input in software without
+// sending any IR command. Use when the amp was changed manually and the UI state
+// needs to catch up.
+//
+// POST /api/amplifier/sync-input
+// Body: {"id": "USB_AUDIO"}
+func (s *amplifierServer) handleAmplifierSyncInput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.amp == nil {
+		jsonError(w, "amplifier not configured", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.ID == "" {
+		jsonError(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.amp.SyncInput(req.ID); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // --- CD player handlers ---
 
 func (s *amplifierServer) handleCDPlayerState(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +395,7 @@ func (s *amplifierServer) handleCDPlayerTransport(w http.ResponseWriter, r *http
 	w.WriteHeader(http.StatusOK)
 }
 
-// --- pairing handlers (stubbed; real implementation in Milestone 5) ---
+// --- pairing handlers ---
 
 func (s *amplifierServer) handlePairStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -359,6 +415,18 @@ func (s *amplifierServer) handlePairStart(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	doPair := s.pairFn
+	if doPair == nil {
+		bridgePath, err := findBridgePath()
+		if err != nil {
+			jsonError(w, "broadlink bridge not found: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		doPair = func(host string) (amplifier.BridgePairResult, error) {
+			return amplifier.BridgePair(bridgePath, host)
+		}
+	}
+
 	attempt := &pairingAttempt{
 		ID:     fmt.Sprintf("pair-%d", time.Now().UnixMilli()),
 		Host:   req.Host,
@@ -369,18 +437,42 @@ func (s *amplifierServer) handlePairStart(w http.ResponseWriter, r *http.Request
 	s.pairState = attempt
 	s.pairMu.Unlock()
 
-	// Stub: resolve to success after a short delay so the UI sees "waiting" first.
 	go func() {
-		time.Sleep(200 * time.Millisecond)
+		result, pairErr := doPair(req.Host)
 		s.pairMu.Lock()
+		defer s.pairMu.Unlock()
+		if pairErr != nil {
+			attempt.Status = "failure"
+			attempt.Message = pairErr.Error()
+			return
+		}
 		attempt.Status = "success"
-		attempt.Token = "stub-token-000000000000000000000000000000"
-		attempt.DeviceID = "stub-device-id-0000"
-		attempt.Message = "stub pairing — real handshake requires Broadlink RM4 Mini (Milestone 5)"
-		s.pairMu.Unlock()
+		attempt.Token = result.Token
+		attempt.DeviceID = result.DeviceID
 	}()
 
 	jsonOK(w, map[string]string{"pairing_id": attempt.ID, "status": "waiting"})
+}
+
+// findBridgePath returns the path to broadlink_bridge.py, searching:
+//  1. /usr/local/lib/oceano/broadlink_bridge.py  (installed)
+//  2. <binary-dir>/broadlink_bridge.py
+//  3. ./scripts/broadlink_bridge.py              (development)
+func findBridgePath() (string, error) {
+	candidates := []string{
+		"/usr/local/lib/oceano/broadlink_bridge.py",
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "broadlink_bridge.py"))
+	}
+	candidates = append(candidates, "scripts/broadlink_bridge.py")
+
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("searched %v — install python-broadlink and run install-oceano-web.sh", candidates)
 }
 
 func (s *amplifierServer) handlePairStatus(w http.ResponseWriter, r *http.Request) {
@@ -462,7 +554,145 @@ func (s *amplifierServer) handlePairComplete(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusOK)
 }
 
+// --- IR learning handlers ---
+
+// handleLearnStart puts the RM4 Mini into IR learning mode for one command.
+// The learning runs in a goroutine; poll /api/broadlink/learn-status for result.
+//
+// POST /api/broadlink/learn-start
+// Body: {"command": "power_on", "device": "amplifier"|"cdplayer"}
+func (s *amplifierServer) handleLearnStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Command string `json:"command"`
+		Device  string `json:"device"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Command == "" || req.Device == "" {
+		jsonError(w, "command and device are required", http.StatusBadRequest)
+		return
+	}
+	if req.Device != "amplifier" && req.Device != "cdplayer" {
+		jsonError(w, `device must be "amplifier" or "cdplayer"`, http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		jsonError(w, "failed to load config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	host := cfg.Amplifier.Broadlink.Host
+	if host == "" {
+		jsonError(w, "Broadlink device not paired — complete pairing first", http.StatusBadRequest)
+		return
+	}
+
+	bridgePath, err := findBridgePath()
+	if err != nil {
+		jsonError(w, "broadlink bridge not found: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	attempt := &learningAttempt{
+		Command: req.Command,
+		Device:  req.Device,
+		Status:  "listening",
+	}
+	s.learnMu.Lock()
+	s.learnState = attempt
+	s.learnMu.Unlock()
+
+	go func() {
+		code, learnErr := amplifier.BridgeLearn(bridgePath, host, 30)
+
+		s.learnMu.Lock()
+		if learnErr != nil {
+			attempt.Status = "error"
+			attempt.Message = learnErr.Error()
+			s.learnMu.Unlock()
+			return
+		}
+		attempt.Status = "captured"
+		attempt.Code = code
+		s.learnMu.Unlock()
+
+		// Persist the code to config immediately.
+		s.saveLearnedCode(req.Device, req.Command, code)
+	}()
+
+	jsonOK(w, attempt)
+}
+
+// handleLearnStatus returns the current state of the active learning session.
+//
+// GET /api/broadlink/learn-status
+func (s *amplifierServer) handleLearnStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.learnMu.Lock()
+	state := s.learnState
+	s.learnMu.Unlock()
+
+	if state == nil {
+		jsonError(w, "no learning session in progress", http.StatusNotFound)
+		return
+	}
+
+	s.learnMu.Lock()
+	copy := *state
+	s.learnMu.Unlock()
+
+	jsonOK(w, copy)
+}
+
+// saveLearnedCode persists a captured IR code to the config file.
+func (s *amplifierServer) saveLearnedCode(device, command, code string) {
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		return
+	}
+	switch device {
+	case "amplifier":
+		if cfg.Amplifier.IRCodes == nil {
+			cfg.Amplifier.IRCodes = make(map[string]string)
+		}
+		cfg.Amplifier.IRCodes[command] = code
+	case "cdplayer":
+		if cfg.CDPlayer.IRCodes == nil {
+			cfg.CDPlayer.IRCodes = make(map[string]string)
+		}
+		cfg.CDPlayer.IRCodes[command] = code
+	}
+	_ = saveConfig(s.configPath, cfg)
+}
+
 // --- config helpers ---
+
+// broadlinkClientFromConfig returns a PythonBroadlinkClient when the Broadlink
+// host is configured and the bridge script can be found. Falls back to
+// NotImplementedBroadlinkClient so the rest of the amp state machine still works
+// (power tracking, input tracking) even without a paired RM4 Mini.
+func broadlinkClientFromConfig(host string) amplifier.BroadlinkClient {
+	if host == "" {
+		return &amplifier.NotImplementedBroadlinkClient{}
+	}
+	bridgePath, err := findBridgePath()
+	if err != nil {
+		return &amplifier.NotImplementedBroadlinkClient{}
+	}
+	return &amplifier.PythonBroadlinkClient{BridgePath: bridgePath, Host: host}
+}
 
 // buildAmplifierFromConfig constructs a full BroadlinkAmplifier (IR commands +
 // detection) from AmplifierConfig. Returns nil, nil when disabled or when
@@ -487,17 +717,18 @@ func buildAmplifierFromConfig(cfg AmplifierConfig, vuSocketPath string) (*amplif
 	}
 
 	return amplifier.NewBroadlinkAmplifier(
-		&amplifier.NotImplementedBroadlinkClient{}, // replaced by RealBroadlinkClient in Milestone 5
+		broadlinkClientFromConfig(cfg.Broadlink.Host),
 		amplifier.AmplifierSettings{
-			Maker:           cfg.Maker,
-			Model:           cfg.Model,
-			Inputs:          inputs,
-			DefaultInputID:  cfg.DefaultInput,
-			WarmupSecs:      cfg.WarmupSeconds,
-			SwitchDelaySecs: cfg.InputSwitchDelaySeconds,
-			InputMode:       mode,
-			IRCodes:         cfg.IRCodes,
-			VUSocketPath:    vuSocketPath,
+			Maker:               cfg.Maker,
+			Model:               cfg.Model,
+			Inputs:              inputs,
+			DefaultInputID:      cfg.DefaultInput,
+			WarmupSecs:          cfg.WarmupSeconds,
+			SwitchDelaySecs:     cfg.InputSwitchDelaySeconds,
+			InputMode:           mode,
+			IRCodes:             cfg.IRCodes,
+			VUSocketPath:        vuSocketPath,
+			SelectorTimeoutSecs: cfg.SelectorTimeoutSeconds,
 		},
 	)
 }
@@ -518,12 +749,17 @@ func buildDetectionAmpFromConfig(cfg AmplifierConfig, vuSocketPath string) *ampl
 
 // buildCDPlayerFromConfig constructs a BroadlinkCDPlayer from CDPlayerConfig.
 // Returns nil when the CD player is disabled.
-func buildCDPlayerFromConfig(cfg CDPlayerConfig) *amplifier.BroadlinkCDPlayer {
+func buildCDPlayerFromConfig(cfg CDPlayerConfig, ampBroadlink BroadlinkConfig) *amplifier.BroadlinkCDPlayer {
 	if !cfg.Enabled {
 		return nil
 	}
+	// CD player shares the amplifier's RM4 Mini (same host).
+	host := cfg.Broadlink.Host
+	if host == "" {
+		host = ampBroadlink.Host
+	}
 	return amplifier.NewBroadlinkCDPlayer(
-		&amplifier.NotImplementedBroadlinkClient{}, // replaced by RealBroadlinkClient in Milestone 5
+		broadlinkClientFromConfig(host),
 		amplifier.CDPlayerSettings{
 			Maker:   cfg.Maker,
 			Model:   cfg.Model,
