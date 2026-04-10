@@ -33,6 +33,8 @@ type AmplifierSettings struct {
 	InputMode       InputSelectionMode
 	// IRCodes maps command names to base64-encoded Broadlink IR codes.
 	// Cycle mode keys: "power_on", "power_off", "volume_up", "volume_down", "next_input"
+	// Optional cycle key: "prev_input" — when present, SetInput chooses the shortest
+	// direction (forward or backward) rather than always going forward.
 	// Direct mode adds: "input_<ID>" for each input (e.g. "input_USB", "input_PHONO")
 	IRCodes map[string]string
 
@@ -46,7 +48,7 @@ type AmplifierSettings struct {
 	// remains "active" after the last next_input press. When the selector goes
 	// dormant, the very first press only highlights the current input without
 	// advancing it (e.g. Magnat MR 780 shows "< CD >" on first press).
-	// Set to 0 to disable the extra activation press.
+	// 0 = use default (5 s). Set to a negative value to disable the activation press.
 	SelectorTimeoutSecs int
 }
 
@@ -231,16 +233,39 @@ func (a *BroadlinkAmplifier) setInputCycle(id string) error {
 		return err
 	}
 	n := len(a.settings.Inputs)
-	steps := (targetIdx - currentIdx + n) % n
+	forwardSteps := (targetIdx - currentIdx + n) % n
+	backwardSteps := (currentIdx - targetIdx + n) % n
+	nextCode := a.settings.IRCodes["next_input"]
+	prevCode := a.settings.IRCodes["prev_input"]
+	needsActivation := a.selectorDormantLocked()
 	targetInput := a.settings.Inputs[targetIdx]
-	code := a.settings.IRCodes["next_input"]
 	a.mu.Unlock()
 
-	if steps == 0 {
+	if forwardSteps == 0 {
 		return nil
 	}
-	if code == "" {
+	if nextCode == "" {
 		return fmt.Errorf("IR code for %q not configured", "next_input")
+	}
+
+	// Choose the shortest path. Use prev_input only if the code is configured
+	// and the backward route is strictly shorter.
+	code := nextCode
+	steps := forwardSteps
+	if prevCode != "" && backwardSteps < forwardSteps {
+		code = prevCode
+		steps = backwardSteps
+	}
+
+	// The Magnat MR 780 (and similar amps) ignore the first press after the
+	// selector has gone dormant — it only highlights the current input without
+	// advancing. Send one extra "wake-up" press (always next_input, which just
+	// highlights in place) before the actual step presses.
+	if needsActivation {
+		if err := a.client.SendIRCode(nextCode); err != nil {
+			return err
+		}
+		time.Sleep(300 * time.Millisecond)
 	}
 
 	for range steps {
@@ -259,11 +284,63 @@ func (a *BroadlinkAmplifier) setInputCycle(id string) error {
 	return nil
 }
 
+// PrevInput cycles to the previous input in InputList order with a single IR command.
+func (a *BroadlinkAmplifier) PrevInput() error {
+	code, err := a.irCode("prev_input")
+	if err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	needsActivation := a.selectorDormantLocked()
+	a.mu.Unlock()
+
+	if needsActivation {
+		// Wake-up press always uses next_input (highlights in place).
+		wakeCode := a.settings.IRCodes["next_input"]
+		if wakeCode != "" {
+			if err := a.client.SendIRCode(wakeCode); err != nil {
+				return err
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+
+	if err := a.client.SendIRCode(code); err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i, inp := range a.settings.Inputs {
+		if inp.ID == a.currentInput.ID {
+			n := len(a.settings.Inputs)
+			a.currentInput = a.settings.Inputs[(i-1+n)%n]
+			break
+		}
+	}
+	a.lastInputSent = time.Now()
+	a.audioReady = false
+	a.startReadyTimerLocked(time.Duration(a.settings.SwitchDelaySecs) * time.Second)
+	return nil
+}
+
 // NextInput cycles to the next input in InputList order with a single IR command.
 func (a *BroadlinkAmplifier) NextInput() error {
 	code, err := a.irCode("next_input")
 	if err != nil {
 		return err
+	}
+
+	a.mu.Lock()
+	needsActivation := a.selectorDormantLocked()
+	a.mu.Unlock()
+
+	if needsActivation {
+		if err := a.client.SendIRCode(code); err != nil {
+			return err
+		}
+		time.Sleep(300 * time.Millisecond)
 	}
 
 	if err := a.client.SendIRCode(code); err != nil {
@@ -286,11 +363,18 @@ func (a *BroadlinkAmplifier) NextInput() error {
 
 // selectorDormantLocked reports whether the amplifier's input selector has timed
 // out since the last next_input press. Must be called with a.mu held.
+//
+// A negative SelectorTimeoutSecs disables the activation press entirely.
+// Zero uses a sensible default of 5 s (covers most amps including Magnat MR 780).
 func (a *BroadlinkAmplifier) selectorDormantLocked() bool {
-	if a.settings.SelectorTimeoutSecs <= 0 {
-		return false
+	if a.settings.SelectorTimeoutSecs < 0 {
+		return false // explicitly disabled
 	}
-	timeout := time.Duration(a.settings.SelectorTimeoutSecs) * time.Second
+	secs := a.settings.SelectorTimeoutSecs
+	if secs == 0 {
+		secs = 5 // default: 5 s covers Magnat MR 780 and similar amps
+	}
+	timeout := time.Duration(secs) * time.Second
 	return a.lastInputSent.IsZero() || time.Since(a.lastInputSent) > timeout
 }
 
@@ -305,6 +389,9 @@ func (a *BroadlinkAmplifier) SyncInput(id string) error {
 		return err
 	}
 	a.currentInput = inp
+	// Mark as synced so selectorDormantLocked uses the timeout from now,
+	// not the "zero = always dormant" path.
+	a.lastInputSent = time.Now()
 	return nil
 }
 
@@ -344,6 +431,16 @@ func (a *BroadlinkAmplifier) DetectPowerState(ctx context.Context) (PowerState, 
 
 func (a *BroadlinkAmplifier) WarmupTimeSeconds() int       { return a.settings.WarmupSecs }
 func (a *BroadlinkAmplifier) InputSwitchDelaySeconds() int { return a.settings.SwitchDelaySecs }
+
+// InputSynced reports whether at least one IR input command has been sent in
+// this session. When false the assumed current input equals the configured
+// default and may not match the physical amplifier — the caller should prompt
+// the user to sync.
+func (a *BroadlinkAmplifier) InputSynced() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return !a.lastInputSent.IsZero()
+}
 
 func (a *BroadlinkAmplifier) AudioReady() bool {
 	a.mu.Lock()

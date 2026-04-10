@@ -66,6 +66,7 @@ func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifi
 	mux.HandleFunc("/api/amplifier/volume", s.handleAmplifierVolume)
 	mux.HandleFunc("/api/amplifier/input", s.handleAmplifierInput)
 	mux.HandleFunc("/api/amplifier/next-input", s.handleAmplifierNextInput)
+	mux.HandleFunc("/api/amplifier/prev-input", s.handleAmplifierPrevInput)
 	mux.HandleFunc("/api/amplifier/sync-input", s.handleAmplifierSyncInput)
 	mux.HandleFunc("/api/amplifier/pair-start", s.handlePairStart)
 	mux.HandleFunc("/api/amplifier/pair-status", s.handlePairStatus)
@@ -105,6 +106,10 @@ type amplifierStateResponse struct {
 	AudioReadyAt            *time.Time        `json:"audio_ready_at,omitempty"`
 	WarmupSeconds           int               `json:"warmup_seconds"`
 	InputSwitchDelaySeconds int               `json:"input_switch_delay_seconds"`
+	// InputSynced is false after startup until at least one IR input command is
+	// sent. When false the assumed CurrentInput equals the configured default and
+	// may not match the physical amplifier state.
+	InputSynced bool `json:"input_synced"`
 	// DetectedPowerState is the hardware-detected state from the last monitor poll.
 	// "on" | "off" | "unknown" — see internal/amplifier for detection strategy.
 	DetectedPowerState amplifier.PowerState `json:"detected_power_state"`
@@ -151,6 +156,7 @@ func (s *amplifierServer) handleAmplifierState(w http.ResponseWriter, r *http.Re
 		resp.InputList = s.visibleInputList()
 		resp.DefaultInput = s.amp.DefaultInput()
 		resp.AudioReady = s.amp.AudioReady()
+		resp.InputSynced = s.amp.InputSynced()
 		resp.WarmupSeconds = s.amp.WarmupTimeSeconds()
 		resp.InputSwitchDelaySeconds = s.amp.InputSwitchDelaySeconds()
 		if at := s.amp.AudioReadyAt(); !at.IsZero() {
@@ -290,6 +296,23 @@ func (s *amplifierServer) handleAmplifierNextInput(w http.ResponseWriter, r *htt
 	}
 
 	if err := s.amp.NextInput(); err != nil {
+		jsonError(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *amplifierServer) handleAmplifierPrevInput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.amp == nil {
+		jsonError(w, "amplifier not configured", http.StatusNotFound)
+		return
+	}
+
+	if err := s.amp.PrevInput(); err != nil {
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}

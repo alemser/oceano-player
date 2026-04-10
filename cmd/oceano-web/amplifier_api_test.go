@@ -45,14 +45,15 @@ func newTestAmp(t *testing.T) (*amplifier.BroadlinkAmplifier, *amplifier.MockBro
 	t.Helper()
 	mock := &amplifier.MockBroadlinkClient{}
 	amp, err := amplifier.NewBroadlinkAmplifier(mock, amplifier.AmplifierSettings{
-		Maker:           "Magnat",
-		Model:           "MR 780",
-		Inputs:          apiTestInputs,
-		DefaultInputID:  "USB",
-		WarmupSecs:      0,
-		SwitchDelaySecs: 0,
-		InputMode:       amplifier.InputSelectionCycle,
-		IRCodes:         apiCycleIRCodes,
+		Maker:               "Magnat",
+		Model:               "MR 780",
+		Inputs:              apiTestInputs,
+		DefaultInputID:      "USB",
+		WarmupSecs:          0,
+		SwitchDelaySecs:     0,
+		InputMode:           amplifier.InputSelectionCycle,
+		IRCodes:             apiCycleIRCodes,
+		SelectorTimeoutSecs: -1, // disabled: API tests exercise pure cycling
 	})
 	if err != nil {
 		t.Fatalf("NewBroadlinkAmplifier: %v", err)

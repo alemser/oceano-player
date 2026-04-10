@@ -79,49 +79,97 @@
       </svg>
     </div>
     <div class="amp-body">
-      <div class="amp-controls">
-        <button class="btn-amp btn-amp-power" id="btn-amp-power" onclick="ampTogglePower()" title="Power">⏻</button>
-        <div class="amp-divider"></div>
-        <button class="btn-amp btn-amp-repeat"
-                onpointerdown="startRepeat('volume','down')" onpointerup="stopRepeat()" onpointerleave="stopRepeat()"
-                title="Volume Down">− Vol</button>
-        <button class="btn-amp btn-amp-repeat"
-                onpointerdown="startRepeat('volume','up')" onpointerup="stopRepeat()" onpointerleave="stopRepeat()"
-                title="Volume Up">+ Vol</button>
-        <div class="amp-divider"></div>
-        <select class="amp-input-select" id="amp-input-select" onchange="ampSetInput(this.value)" title="Select input"></select>
-        <button class="btn-amp btn-amp-sync" id="btn-amp-sync" onclick="toggleInputSync()" title="Sync — set assumed input without IR">⟳</button>
+
+      <!-- Row 1: Power -->
+      <div class="amp-row">
+        <button class="btn-amp btn-amp-power btn-amp-full" id="btn-amp-power" onclick="ampTogglePower()" title="Power">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 3v9"/><path d="M6.34 6.34A9 9 0 1 0 17.66 6.34"/>
+          </svg>
+          <span id="btn-amp-power-label">Power</span>
+        </button>
+      </div>
+
+      <!-- Row 2: Input navigation -->
+      <div class="amp-row">
+        <button class="btn-amp btn-amp-input btn-amp-nav" onclick="ampPrevInput()" title="Previous input">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15,18 9,12 15,6"/>
+          </svg>
+        </button>
+        <span class="amp-input-label" id="amp-input-label">—</span>
+        <button class="btn-amp btn-amp-input btn-amp-nav" onclick="ampNextInput()" title="Next input">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="9,6 15,12 9,18"/>
+          </svg>
+        </button>
+        <button class="btn-amp btn-amp-sync" id="btn-amp-sync" onclick="toggleInputSync()" title="Sync — set assumed input without IR">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+        </button>
       </div>
       <div id="amp-sync-panel" class="amp-sync-panel" style="display:none"></div>
 
-      <!-- CD Player controls (integrated under amplifier) -->
+      <!-- Row 3: Volume -->
+      <div class="amp-row">
+        <button class="btn-amp btn-amp-vol btn-amp-repeat"
+                onpointerdown="startRepeat('volume','down')" onpointerup="stopRepeat()" onpointerleave="stopRepeat()"
+                title="Volume Down">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <path d="M11 5L6 9H2v6h4l5 4V5z"/>
+            <line x1="23" y1="12" x2="17" y2="12"/>
+          </svg>
+          <span>Vol −</span>
+        </button>
+        <button class="btn-amp btn-amp-vol btn-amp-repeat"
+                onpointerdown="startRepeat('volume','up')" onpointerup="stopRepeat()" onpointerleave="stopRepeat()"
+                title="Volume Up">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <path d="M11 5L6 9H2v6h4l5 4V5z"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+          </svg>
+          <span>Vol +</span>
+        </button>
+      </div>
+
+      <!-- CD Player controls -->
       <div id="cd-widget" style="display:none">
-        <div class="cd-inline-head">
+        <div class="cd-section-divider">
           <span class="cd-inline-title" id="cd-widget-title">CD Player</span>
         </div>
-        <div class="cd-controls-row">
-          <button class="cd-btn eject" onclick="cdTransport('eject')" aria-label="Eject" title="Eject">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16h12M7 12l5-6 5 6"/></svg>
+
+        <!-- CD Row 1: Eject -->
+        <div class="amp-row">
+          <button class="btn-amp btn-amp-full cd-btn-eject" onclick="cdTransport('eject')" title="Eject">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 17h12"/><path d="M7 13l5-6 5 6"/>
+            </svg>
+            <span>Eject</span>
           </button>
         </div>
-        <div class="cd-controls-row">
-          <button class="cd-btn" onclick="cdTransport('prev')" aria-label="Previous track" title="Previous track">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 6l-8 6 8 6V6zM6 6v12"/></svg>
+
+        <!-- CD Row 2: Transport -->
+        <div class="amp-row">
+          <button class="btn-amp btn-amp-transport" onclick="cdTransport('prev')" title="Previous track">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 6l-8 6 8 6V6zM6 6v12"/></svg>
           </button>
-          <button class="cd-btn" onclick="cdTransport('stop')" aria-label="Stop" title="Stop">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
+          <button class="btn-amp btn-amp-transport" onclick="cdTransport('stop')" title="Stop">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
           </button>
-          <button class="cd-btn" onclick="cdTransport('play')" aria-label="Play" title="Play">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6l10 6-10 6V6z"/></svg>
+          <button class="btn-amp btn-amp-transport btn-transport-play" onclick="cdTransport('play')" title="Play">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 6l10 6-10 6V6z"/></svg>
           </button>
-          <button class="cd-btn" onclick="cdTransport('pause')" aria-label="Pause" title="Pause">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12"/></svg>
+          <button class="btn-amp btn-amp-transport" onclick="cdTransport('pause')" title="Pause">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M9 6v12M15 6v12"/></svg>
           </button>
-          <button class="cd-btn" onclick="cdTransport('next')" aria-label="Next track" title="Next track">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6l8 6-8 6V6zM18 6v12"/></svg>
+          <button class="btn-amp btn-amp-transport" onclick="cdTransport('next')" title="Next track">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 6l8 6-8 6V6zM18 6v12"/></svg>
           </button>
         </div>
       </div>
+
     </div>
   </div>
 </div>

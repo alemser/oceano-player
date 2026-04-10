@@ -687,36 +687,62 @@
     }
     .amp-widget.expanded .amp-body { display: block; }
 
-    .amp-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    /* ── Amp rows layout ── */
+    .amp-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 8px;
+    }
+    .amp-row:last-child { margin-bottom: 0; }
+
+    /* Base button */
     .btn-amp {
-      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-      color: var(--text); font-size: 0.82rem; padding: 6px 13px;
-      cursor: pointer; transition: border-color 0.15s, color 0.15s; white-space: nowrap;
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-size: 0.82rem; font-weight: 500;
+      padding: 9px 14px; cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      white-space: nowrap; user-select: none;
     }
     .btn-amp:hover { border-color: var(--accent); color: var(--accent); }
-    .btn-amp-power      { border-color: #333; color: #888; }
-    .btn-amp-power.pwr-on  { border-color: #1a3a1a !important; color: var(--ok-text) !important; }
-    .btn-amp-power.pwr-off { border-color: #333; color: #555; }
-    .btn-amp-repeat { touch-action: none; user-select: none; }
-    .amp-input-select {
-      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-      color: var(--text); font-size: 0.82rem; padding: 6px 10px;
-      cursor: pointer; outline: none; transition: border-color 0.15s;
+    .btn-amp:active { background: rgba(74,158,255,0.06); }
+    .btn-amp svg { width: 17px; height: 17px; flex-shrink: 0; }
+
+    /* Full-width button (power, eject) */
+    .btn-amp-full { flex: 1; width: 100%; }
+
+    /* Power */
+    .btn-amp-power { color: #777; border-color: #2e2e2e; }
+    .btn-amp-power.pwr-on  { border-color: #1e3d1e !important; color: var(--ok-text) !important; background: rgba(30,80,30,0.12) !important; }
+    .btn-amp-power.pwr-off { border-color: #2e2e2e; color: #555; }
+
+    /* Input nav: chevron buttons + label */
+    .btn-amp-nav { padding: 9px 12px; color: var(--text-dim); }
+    .btn-amp-nav:hover { color: var(--text); border-color: var(--border); }
+    .amp-input-label {
+      flex: 1; text-align: center;
+      font-size: 0.85rem; font-weight: 600; letter-spacing: 0.02em;
+      color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      padding: 0 4px; min-width: 0;
     }
-    .amp-input-select:focus { border-color: var(--accent); }
-    .btn-amp-sync { color: var(--text-dim); padding: 6px 10px; }
+
+    /* Sync button — icon only, right of input row */
+    .btn-amp-sync {
+      padding: 9px 10px; color: var(--text-faint); flex-shrink: 0;
+    }
+    .btn-amp-sync:hover { color: var(--text-dim); border-color: var(--border); }
     .btn-amp-sync.active { color: var(--accent); border-color: var(--accent); }
-    .amp-divider { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
+
+    /* Volume buttons */
+    .btn-amp-vol { flex: 1; }
+    .btn-amp-repeat { touch-action: none; }
 
     /* Sync panel */
     .amp-sync-panel {
       display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-      margin-top: 8px; padding: 8px 10px;
+      margin-bottom: 8px; padding: 8px 10px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
     }
-    .sync-label {
-      font-size: 0.75rem; color: var(--text-dim); margin-right: 4px; white-space: nowrap;
-    }
+    .sync-label { font-size: 0.75rem; color: var(--text-dim); margin-right: 4px; white-space: nowrap; }
     .btn-sync-input {
       background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
       color: var(--text); font-size: 0.80rem; padding: 5px 11px; cursor: pointer;
@@ -724,64 +750,19 @@
     }
     .btn-sync-input:hover { border-color: var(--accent); color: var(--accent); }
 
-    /* CD controls live inside the amplifier accordion */
-    #cd-widget {
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid var(--border);
+    /* CD section */
+    #cd-widget { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .cd-section-divider {
+      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--text-faint);
+      margin-bottom: 10px;
     }
-    .cd-inline-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 8px;
+    .cd-btn-eject { color: var(--text-dim); }
+    .btn-amp-transport {
+      flex: 1; padding: 10px 6px;
     }
-    .cd-inline-title {
-      font-size: 0.68rem;
-      font-weight: 600;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--text-faint);
-    }
-    .cd-controls-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 8px;
-      flex-wrap: wrap;
-    }
-    .cd-btn {
-      width: 46px;
-      height: 40px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(24,24,24,0.75), rgba(12,12,12,0.75));
-      color: #d7dce8;
-      cursor: pointer;
-      transition: border-color 0.18s, color 0.18s, transform 0.08s;
-    }
-    .cd-btn:hover {
-      border-color: #5f7097;
-      color: #f2f5ff;
-    }
-    .cd-btn:active { transform: translateY(1px); }
-    .cd-btn svg {
-      width: 18px;
-      height: 18px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 1.9;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .cd-btn.eject {
-      margin-left: auto;
-      width: 52px;
-      color: #d9dde8;
-    }
+    .btn-transport-play { color: var(--accent); border-color: rgba(74,158,255,0.3); }
+    .btn-transport-play:hover { background: rgba(74,158,255,0.08); }
 
     /* ── Inputs editor ── */
     .amp-inputs-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }

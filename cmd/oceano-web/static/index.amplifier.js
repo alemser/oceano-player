@@ -9,7 +9,8 @@ const AMP_COMMANDS = [
   { id: 'power_off',   label: 'Power Off' },
   { id: 'volume_up',   label: 'Volume +' },
   { id: 'volume_down', label: 'Volume −' },
-  { id: 'next_input',  label: 'Next Input' },
+  { id: 'next_input',  label: 'Input ▲ (next)' },
+  { id: 'prev_input',  label: 'Input ▼ (prev)' },
 ];
 
 const CD_COMMANDS = [
@@ -327,11 +328,13 @@ function renderAmpWidget(state) {
   // Power button state
   _ampPowerOn = state.power_on ?? false;
   const pwrBtn = document.getElementById('btn-amp-power');
+  const pwrBtnLabel = document.getElementById('btn-amp-power-label');
   if (pwrBtn) {
     pwrBtn.classList.toggle('pwr-on',  _ampPowerOn);
     pwrBtn.classList.toggle('pwr-off', !_ampPowerOn);
     pwrBtn.title = _ampPowerOn ? 'Power off' : 'Power on';
   }
+  if (pwrBtnLabel) pwrBtnLabel.textContent = _ampPowerOn ? 'Power Off' : 'Power On';
 
   // Software ready state chip (visible next to pill)
   const dot   = document.getElementById('amp-ready-dot');
@@ -349,13 +352,10 @@ function renderAmpWidget(state) {
     }
   }
 
-  // Input dropdown
-  const sel = document.getElementById('amp-input-select');
-  if (sel && Array.isArray(state.input_list)) {
-    const curId = state.current_input?.id ?? '';
-    sel.innerHTML = state.input_list.map(inp =>
-      `<option value="${esc(inp.id)}"${inp.id === curId ? ' selected' : ''}>${esc(inp.label)}</option>`
-    ).join('');
+  // Input label
+  const inputLabel = document.getElementById('amp-input-label');
+  if (inputLabel) {
+    inputLabel.textContent = state.current_input?.label ?? '—';
   }
 
   // Keep sync panel input list up to date
@@ -363,6 +363,16 @@ function renderAmpWidget(state) {
     _syncInputList = state.input_list;
     const syncPanel = document.getElementById('amp-sync-panel');
     if (syncPanel && syncPanel.style.display !== 'none') _renderSyncPanel();
+  }
+
+  // Warn user to sync when the assumed input may not match the physical amp
+  const syncBtn = document.getElementById('btn-amp-sync');
+  if (syncBtn) {
+    const needsSync = !state.input_synced;
+    syncBtn.classList.toggle('needs-sync', needsSync);
+    syncBtn.title = needsSync
+      ? 'Sync required — set the actual input the amp is on'
+      : 'Sync — set assumed input without IR';
   }
 }
 
@@ -418,14 +428,15 @@ async function ampVolume(direction) {
   });
 }
 
-// ── Input dropdown ────────────────────────────────────────────────────────────
+// ── Input navigation buttons ──────────────────────────────────────────────────
 
-async function ampSetInput(id) {
-  if (!id) return;
-  await fetch('/api/amplifier/input', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({id}),
-  });
+async function ampNextInput() {
+  await fetch('/api/amplifier/next-input', { method: 'POST' });
+  setTimeout(loadAmplifierState, 300);
+}
+
+async function ampPrevInput() {
+  await fetch('/api/amplifier/prev-input', { method: 'POST' });
   setTimeout(loadAmplifierState, 300);
 }
 
