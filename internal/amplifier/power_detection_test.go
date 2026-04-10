@@ -136,13 +136,10 @@ func newAmpWithVUSocket(t *testing.T, sockPath string) *BroadlinkAmplifier {
 	t.Cleanup(func() { usbDACProbe = origProbe })
 
 	amp, err := NewBroadlinkAmplifier(&MockBroadlinkClient{}, AmplifierSettings{
-		Maker:          "Magnat",
-		Model:          "NOMATCH-DEVICE-XYZZY", // ensure Check 1 (USB DAC) always fails
-		Inputs:         testInputs,
-		DefaultInputID: "USB",
-		InputMode:      InputSelectionCycle,
-		IRCodes:        cycleIRCodes,
-		VUSocketPath:   sockPath,
+		Maker:        "Magnat",
+		Model:        "NOMATCH-DEVICE-XYZZY", // ensure Check 1 (USB DAC) always fails
+		IRCodes:      irCodes,
+		VUSocketPath: sockPath,
 	})
 	if err != nil {
 		t.Fatalf("NewBroadlinkAmplifier: %v", err)

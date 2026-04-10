@@ -736,6 +736,12 @@
     .btn-amp-vol { flex: 1; }
     .btn-amp-repeat { touch-action: none; }
 
+    /* Disabled state when amplifier is detected as off */
+    .btn-amp.amp-disabled,
+    .btn-amp:disabled {
+      opacity: 0.35; cursor: not-allowed; pointer-events: none;
+    }
+
     /* Sync panel */
     .amp-sync-panel {
       display: flex; flex-wrap: wrap; gap: 6px; align-items: center;

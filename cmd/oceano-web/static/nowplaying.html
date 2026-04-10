@@ -8,54 +8,40 @@
 </head>
 <body>
 
-<!-- Input selector curtain -->
-<div id="input-selector" role="dialog" aria-label="Select amplifier input" aria-modal="true">
-  <div id="input-selector-header">
-    <span id="input-selector-amp-name">Amplifier</span>
-    <button id="input-selector-close" type="button" aria-label="Close" onclick="closeInputSelector()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <path d="M18 6 6 18M6 6l12 12"/>
-      </svg>
-    </button>
-  </div>
-  <div id="input-selector-inputs"></div>
-</div>
-
 <div id="top-controls">
   <!-- Amp indicator (appears above all screens) -->
-  <button class="amp-indicator" id="amp-indicator" type="button" aria-label="Amplifier power state" onclick="ampIndicatorClick()">
+  <div class="amp-indicator" id="amp-indicator" style="display:none">
     <span class="amp-indicator-label" id="amp-label">—</span>
-    <span class="amp-indicator-state" id="amp-state">--</span>
-  </button>
+  </div>
 </div>
 
 <!-- Idle screen (shown when no source is active) -->
 <div id="idle-screen" class="visible">
+  <!-- Power button — top right corner -->
   <button id="idle-power-btn" type="button" aria-label="Power options" title="Power options" onclick="openPowerDialog()">
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     </svg>
   </button>
-  <div id="idle-logo">
-    <!-- Oceano waveform icon -->
-    <svg viewBox="0 0 52 52" fill="currentColor" aria-hidden="true">
-      <rect x="0"  y="16" width="8" height="20" rx="4"/>
-      <rect x="11" y="9"  width="8" height="34" rx="4"/>
-      <rect x="22" y="3"  width="8" height="46" rx="4"/>
-      <rect x="33" y="12" width="8" height="28" rx="4"/>
-      <rect x="44" y="17" width="8" height="18" rx="4"/>
-    </svg>
-  </div>
-  <div id="idle-top-row">
-    <div id="idle-time"></div>
-    <div id="idle-weather" aria-label="Weather">
-      <span id="idle-weather-icon" aria-hidden="true"></span>
-      <span id="idle-weather-temp">22°C</span>
-      <span id="idle-weather-cond">Dublin · Clear</span>
+
+  <!-- Main content: clock (left) + weather (right) -->
+  <div id="idle-main">
+    <!-- Clock widget -->
+    <div id="idle-clock-widget">
+      <div id="idle-time"></div>
+      <div id="idle-date"></div>
+    </div>
+
+    <!-- Weather widget -->
+    <div id="idle-weather-widget" aria-label="Weather">
+      <div id="idle-weather-icon-wrap">
+        <span id="idle-weather-icon" aria-hidden="true"></span>
+      </div>
+      <div id="idle-weather-temp"></div>
+      <div id="idle-weather-cond"></div>
     </div>
   </div>
-  <div id="idle-label">Oceano Player</div>
 </div>
 
 <div class="power-overlay" id="power-dialog" onclick="if(event.target===this)closePowerDialog()">

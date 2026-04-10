@@ -106,7 +106,10 @@ func (m *PowerStateMonitor) Unsubscribe(ch chan PowerState) {
 // --- internal ---
 
 func (m *PowerStateMonitor) detect(ctx context.Context) {
-	detCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Base timeout covers Check 1 (USB probe 2s) + Check 2 (VU sample 3s)
+	// with margin.
+	timeout := 10 * time.Second
+	detCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	state, err := m.amp.DetectPowerState(detCtx)

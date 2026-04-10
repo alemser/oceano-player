@@ -38,18 +38,6 @@ type BroadlinkConfig struct {
 	DeviceID string `json:"device_id"`
 }
 
-// AmplifierInputConfig declares a single selectable input on the amplifier.
-type AmplifierInputConfig struct {
-	// Label is the user-facing name shown in the UI (e.g. "USB Audio", "Phono").
-	Label string `json:"label"`
-	// ID is the internal identifier used to address IR commands (e.g. "USB", "PHONO").
-	ID string `json:"id"`
-	// Visible controls whether this input appears in the UI input selector and
-	// kiosk display. Hidden inputs are still included in cycle-mode step counting
-	// because the amplifier cycles through all physical inputs regardless.
-	Visible bool `json:"visible"`
-}
-
 // AmplifierConfig controls the IR-controlled amplifier (e.g. Magnat MR 780).
 type AmplifierConfig struct {
 	// Enabled controls whether amplifier control is active.
@@ -58,31 +46,10 @@ type AmplifierConfig struct {
 	Maker string `json:"maker"`
 	// Model is the model name (e.g. "MR 780").
 	Model string `json:"model"`
-	// Inputs is the ordered list of selectable inputs on this amplifier.
-	Inputs []AmplifierInputConfig `json:"inputs"`
-	// DefaultInput is the Input.ID that the amplifier is assumed to start on.
-	// Required because IR cycling (NextInput) needs a known starting point.
-	DefaultInput string `json:"default_input"`
-	// WarmupSeconds is the delay after power-on before audio is available.
-	// Defaults to 30 for tube amplifiers like the Magnat MR 780.
-	WarmupSeconds int `json:"warmup_seconds"`
-	// InputSwitchDelaySeconds is the settling time after an input change.
-	InputSwitchDelaySeconds int `json:"input_switch_delay_seconds"`
-	// InputSelectionMode controls how SetInput sends IR commands.
-	// "cycle"  — sends next_input repeatedly (e.g. Magnat MR 780, no direct IR per input).
-	// "direct" — sends a single input-specific IR code (most modern amplifiers).
-	InputSelectionMode string `json:"input_selection_mode"`
-	// SelectorTimeoutSeconds is the number of seconds the amplifier keeps its
-	// input selector "active" after the last next_input press. When the selector
-	// goes dormant, the first press only highlights the current input without
-	// advancing it (e.g. Magnat MR 780 shows "< CD >" on first press).
-	// Set to 0 to disable the extra activation press. Default 4.
-	SelectorTimeoutSeconds int `json:"selector_timeout_seconds"`
 	// Broadlink holds the pairing credentials for the RM4 Mini controlling this device.
 	Broadlink BroadlinkConfig `json:"broadlink"`
 	// IRCodes maps command names to base64-encoded Broadlink IR codes.
-	// Cycle mode keys:  "power_on", "power_off", "volume_up", "volume_down", "next_input"
-	// Direct mode adds: "input_<ID>" for each input (e.g. "input_USB", "input_PHONO")
+	// Keys: "power_on", "power_off", "volume_up", "volume_down", "next_input", "prev_input"
 	// Values are populated via the IR learning workflow or copied from a
 	// community database. Empty string means the command is not yet configured.
 	IRCodes map[string]string `json:"ir_codes"`

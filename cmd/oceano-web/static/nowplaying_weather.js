@@ -1,5 +1,5 @@
 // ─── DOM refs for weather ──────────────────────────────────────────────────
-const $idleWeather = document.getElementById('idle-weather');
+const $idleWeather = document.getElementById('idle-weather-widget');
 const $idleWeatherIcon = document.getElementById('idle-weather-icon');
 const $idleWeatherTemp = document.getElementById('idle-weather-temp');
 const $idleWeatherCond = document.getElementById('idle-weather-cond');
@@ -89,7 +89,7 @@ function renderWeather(tempC, condition, code) {
 
 function applyWeatherVisibility() {
   if (!$idleWeather) return;
-  $idleWeather.style.display = WEATHER_CONFIG.enabled ? 'inline-flex' : 'none';
+  $idleWeather.style.display = WEATHER_CONFIG.enabled ? 'flex' : 'none';
 }
 
 function normalizeRefreshMS(minutes) {

@@ -60,19 +60,6 @@
   <div class="amp-widget" id="amp-widget">
     <div class="amp-header" onclick="toggleAmpWidget('amp-widget')" onkeydown="handleAmpHeaderKey(event, 'amp-widget')" role="button" tabindex="0" aria-expanded="false">
       <span class="amp-title" id="amp-widget-title">Amplifier</span>
-      <!-- Hardware-detected power state: ⏻ Model label, right-aligned -->
-      <span class="amp-power-label" id="amp-power-label" title="Hardware-detected power state">
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 3v9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-          <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-        </svg>
-        <span id="amp-power-label-text">—</span>
-      </span>
-      <!-- Software ready state chip -->
-      <span class="amp-status-chip" id="amp-ready-chip">
-        <span class="amp-ready-dot" id="amp-ready-dot"></span>
-        <span id="amp-ready-label"></span>
-      </span>
       <!-- Collapse chevron -->
       <svg class="amp-chevron" viewBox="0 0 14 14" fill="none" aria-hidden="true">
         <path d="M2 4.5 L7 9.5 L12 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -82,35 +69,28 @@
 
       <!-- Row 1: Power -->
       <div class="amp-row">
-        <button class="btn-amp btn-amp-power btn-amp-full" id="btn-amp-power" onclick="ampTogglePower()" title="Power">
+        <button class="btn-amp btn-amp-power btn-amp-full pwr-off" onclick="ampPower()" title="Power">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
             <path d="M12 3v9"/><path d="M6.34 6.34A9 9 0 1 0 17.66 6.34"/>
           </svg>
-          <span id="btn-amp-power-label">Power</span>
+          <span>Power</span>
         </button>
       </div>
 
       <!-- Row 2: Input navigation -->
       <div class="amp-row">
-        <button class="btn-amp btn-amp-input btn-amp-nav" onclick="ampPrevInput()" title="Previous input">
+        <button class="btn-amp btn-amp-nav" onclick="ampPrevInput()" title="Previous input">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="15,18 9,12 15,6"/>
           </svg>
         </button>
-        <span class="amp-input-label" id="amp-input-label">—</span>
-        <button class="btn-amp btn-amp-input btn-amp-nav" onclick="ampNextInput()" title="Next input">
+        <span class="amp-input-label">Input</span>
+        <button class="btn-amp btn-amp-nav" onclick="ampNextInput()" title="Next input">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="9,6 15,12 9,18"/>
           </svg>
         </button>
-        <button class="btn-amp btn-amp-sync" id="btn-amp-sync" onclick="toggleInputSync()" title="Sync — set assumed input without IR">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
-        </button>
       </div>
-      <div id="amp-sync-panel" class="amp-sync-panel" style="display:none"></div>
 
       <!-- Row 3: Volume -->
       <div class="amp-row">
@@ -468,42 +448,6 @@
           <option value="direct">Direct (one IR code per input)</option>
         </select>
         <div class="hint">Cycle: steps through inputs in order. Direct: sends a specific IR code per input.</div>
-      </div>
-
-      <div class="field">
-        <label><span>Inputs</span></label>
-        <div class="hint" style="margin-bottom:8px">All physical inputs in cycle order. Hidden inputs still count as cycle steps. Toggle 👁 to show/hide in the UI.</div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <button type="button" class="btn-add-input" onclick="ampAddInput()">+ Add input</button>
-          <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-dim);cursor:pointer">
-            <input type="checkbox" id="amp-show-hidden" checked style="width:auto;accent-color:var(--accent)" onchange="toggleShowHidden()">
-            Show hidden
-          </label>
-        </div>
-        <div id="amp-inputs-list" class="amp-inputs-list"></div>
-      </div>
-
-      <div class="field">
-        <label><span>Default input</span></label>
-        <select id="amp-default-input">
-          <option value="">— select —</option>
-        </select>
-        <div class="hint">The input Oceano assumes the amplifier starts on. Required for cycle mode.</div>
-      </div>
-      <div class="field">
-        <label><span>Warm-up delay (seconds)</span></label>
-        <input type="number" id="amp-warmup" step="1" min="0" max="120" placeholder="30">
-        <div class="hint">Delay after power-on before audio is available (e.g. 30 s for tube amps).</div>
-      </div>
-      <div class="field">
-        <label><span>Input switch delay (seconds)</span></label>
-        <input type="number" id="amp-switch-delay" step="1" min="0" max="30" placeholder="2">
-        <div class="hint">Settling time after input change before audio resumes.</div>
-      </div>
-      <div class="field">
-        <label><span>Selector timeout (seconds)</span></label>
-        <input type="number" id="amp-selector-timeout" step="1" min="0" max="30" placeholder="4">
-        <div class="hint">How long the input selector stays active after a button press. The first press after this timeout only highlights the current input without advancing (e.g. Magnat MR 780). Set 0 to disable.</div>
       </div>
 
       <div class="config-subsection">

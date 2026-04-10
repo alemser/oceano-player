@@ -16,18 +16,13 @@ import (
 
 // --- test fixtures ---
 
-var apiTestInputs = []amplifier.Input{
-	{Label: "USB Audio", ID: "USB"},
-	{Label: "Phono", ID: "PHONO"},
-	{Label: "CD", ID: "CD"},
-}
-
-var apiCycleIRCodes = map[string]string{
+var apiIRCodes = map[string]string{
 	"power_on":    "IR_ON",
 	"power_off":   "IR_OFF",
 	"volume_up":   "IR_VOL_UP",
 	"volume_down": "IR_VOL_DOWN",
 	"next_input":  "IR_NEXT",
+	"prev_input":  "IR_PREV",
 }
 
 var apiCDIRCodes = map[string]string{
@@ -45,15 +40,9 @@ func newTestAmp(t *testing.T) (*amplifier.BroadlinkAmplifier, *amplifier.MockBro
 	t.Helper()
 	mock := &amplifier.MockBroadlinkClient{}
 	amp, err := amplifier.NewBroadlinkAmplifier(mock, amplifier.AmplifierSettings{
-		Maker:               "Magnat",
-		Model:               "MR 780",
-		Inputs:              apiTestInputs,
-		DefaultInputID:      "USB",
-		WarmupSecs:          0,
-		SwitchDelaySecs:     0,
-		InputMode:           amplifier.InputSelectionCycle,
-		IRCodes:             apiCycleIRCodes,
-		SelectorTimeoutSecs: -1, // disabled: API tests exercise pure cycling
+		Maker:   "Magnat",
+		Model:   "MR 780",
+		IRCodes: apiIRCodes,
 	})
 	if err != nil {
 		t.Fatalf("NewBroadlinkAmplifier: %v", err)
@@ -80,7 +69,6 @@ func newTestServer(t *testing.T, amp *amplifier.BroadlinkAmplifier, cd *amplifie
 		configPath: cfgPath,
 		amp:        amp,
 		cdPlayer:   cd,
-		// Stub pairing function: no subprocess, no file system required.
 		pairFn: func(host string) (amplifier.BridgePairResult, error) {
 			return amplifier.BridgePairResult{
 				Token:    "test-token-000000000000000000000000000000",
@@ -133,12 +121,6 @@ func TestAmplifierState_OK(t *testing.T) {
 	if resp.Maker != "Magnat" || resp.Model != "MR 780" {
 		t.Errorf("unexpected identity: %s %s", resp.Maker, resp.Model)
 	}
-	if len(resp.InputList) != 3 {
-		t.Errorf("expected 3 inputs, got %d", len(resp.InputList))
-	}
-	if resp.CurrentInput.ID != "USB" {
-		t.Errorf("expected default input USB, got %q", resp.CurrentInput.ID)
-	}
 }
 
 func TestAmplifierState_WrongMethod(t *testing.T) {
@@ -150,31 +132,13 @@ func TestAmplifierState_WrongMethod(t *testing.T) {
 	}
 }
 
-func TestAmplifierState_ReflectsStateChanges(t *testing.T) {
-	amp, _ := newTestAmp(t)
-	s := newTestServer(t, amp, nil)
-
-	_ = amp.PowerOn()
-	time.Sleep(20 * time.Millisecond) // warmup=0, so audioReady fires quickly
-
-	w := do(t, s.handleAmplifierState, http.MethodGet, "/api/amplifier/state", "")
-	var resp amplifierStateResponse
-	_ = json.NewDecoder(w.Body).Decode(&resp)
-	if !resp.PowerOn {
-		t.Error("expected power_on=true")
-	}
-	if !resp.AudioReady {
-		t.Error("expected audio_ready=true after warmup")
-	}
-}
-
 // --- /api/amplifier/power ---
 
-func TestAmplifierPower_On(t *testing.T) {
+func TestAmplifierPower_SendsIR(t *testing.T) {
 	amp, mock := newTestAmp(t)
 	s := newTestServer(t, amp, nil)
 
-	w := do(t, s.handleAmplifierPower, http.MethodPost, "/api/amplifier/power", `{"action":"on"}`)
+	w := do(t, s.handleAmplifierPower, http.MethodPost, "/api/amplifier/power", "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
 	}
@@ -183,31 +147,9 @@ func TestAmplifierPower_On(t *testing.T) {
 	}
 }
 
-func TestAmplifierPower_Off(t *testing.T) {
-	amp, mock := newTestAmp(t)
-	s := newTestServer(t, amp, nil)
-
-	w := do(t, s.handleAmplifierPower, http.MethodPost, "/api/amplifier/power", `{"action":"off"}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
-	}
-	if len(mock.Sent) != 1 || mock.Sent[0] != "IR_OFF" {
-		t.Errorf("expected [IR_OFF] sent, got %v", mock.Sent)
-	}
-}
-
-func TestAmplifierPower_InvalidAction(t *testing.T) {
-	amp, _ := newTestAmp(t)
-	s := newTestServer(t, amp, nil)
-	w := do(t, s.handleAmplifierPower, http.MethodPost, "/api/amplifier/power", `{"action":"toggle"}`)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("want 400, got %d", w.Code)
-	}
-}
-
 func TestAmplifierPower_NotConfigured(t *testing.T) {
 	s := newTestServer(t, nil, nil)
-	w := do(t, s.handleAmplifierPower, http.MethodPost, "/api/amplifier/power", `{"action":"on"}`)
+	w := do(t, s.handleAmplifierPower, http.MethodPost, "/api/amplifier/power", "")
 	if w.Code != http.StatusNotFound {
 		t.Errorf("want 404, got %d", w.Code)
 	}
@@ -237,41 +179,7 @@ func TestAmplifierVolume_InvalidDirection(t *testing.T) {
 	}
 }
 
-// --- /api/amplifier/input ---
-
-func TestAmplifierInput_ValidID(t *testing.T) {
-	amp, mock := newTestAmp(t)
-	s := newTestServer(t, amp, nil)
-
-	// USB → CD = 2 steps
-	w := do(t, s.handleAmplifierInput, http.MethodPost, "/api/amplifier/input", `{"id":"CD"}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
-	}
-	if len(mock.Sent) != 2 {
-		t.Errorf("expected 2 IR codes for USB→CD, got %d: %v", len(mock.Sent), mock.Sent)
-	}
-}
-
-func TestAmplifierInput_UnknownID(t *testing.T) {
-	amp, _ := newTestAmp(t)
-	s := newTestServer(t, amp, nil)
-	w := do(t, s.handleAmplifierInput, http.MethodPost, "/api/amplifier/input", `{"id":"HDMI"}`)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("want 400, got %d", w.Code)
-	}
-}
-
-func TestAmplifierInput_MissingID(t *testing.T) {
-	amp, _ := newTestAmp(t)
-	s := newTestServer(t, amp, nil)
-	w := do(t, s.handleAmplifierInput, http.MethodPost, "/api/amplifier/input", `{}`)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("want 400, got %d", w.Code)
-	}
-}
-
-// --- /api/amplifier/next-input ---
+// --- /api/amplifier/next-input / prev-input ---
 
 func TestAmplifierNextInput_OK(t *testing.T) {
 	amp, mock := newTestAmp(t)
@@ -283,6 +191,19 @@ func TestAmplifierNextInput_OK(t *testing.T) {
 	}
 	if len(mock.Sent) != 1 || mock.Sent[0] != "IR_NEXT" {
 		t.Errorf("expected [IR_NEXT], got %v", mock.Sent)
+	}
+}
+
+func TestAmplifierPrevInput_OK(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp, nil)
+
+	w := do(t, s.handleAmplifierPrevInput, http.MethodPost, "/api/amplifier/prev-input", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if len(mock.Sent) != 1 || mock.Sent[0] != "IR_PREV" {
+		t.Errorf("expected [IR_PREV], got %v", mock.Sent)
 	}
 }
 
@@ -312,7 +233,6 @@ func TestCDPlayerState_OK(t *testing.T) {
 	if resp.Maker != "Yamaha" || resp.Model != "CD-S300" {
 		t.Errorf("unexpected identity: %s %s", resp.Maker, resp.Model)
 	}
-	// All query fields must be null (IR protocol doesn't support them)
 	if resp.Track != nil || resp.IsPlaying != nil || resp.TotalTracks != nil {
 		t.Error("expected null query fields for IR-only CD player")
 	}
@@ -397,11 +317,8 @@ func TestPairStart_MissingHost(t *testing.T) {
 
 func TestPairStatus_AfterStart_BecomesSuccess(t *testing.T) {
 	s := newTestServer(t, nil, nil)
-
-	// start pairing
 	_ = do(t, s.handlePairStart, http.MethodPost, "/api/amplifier/pair-start", `{"host":"192.168.1.100"}`)
 
-	// poll until success or timeout
 	deadline := time.Now().Add(500 * time.Millisecond)
 	var last map[string]string
 	for time.Now().Before(deadline) {
@@ -470,7 +387,6 @@ func TestPairComplete_MissingToken(t *testing.T) {
 func TestPairComplete_InvalidPairingID(t *testing.T) {
 	s := newTestServer(t, nil, nil)
 	_ = do(t, s.handlePairStart, http.MethodPost, "/api/amplifier/pair-start", `{"host":"192.168.1.100"}`)
-
 	w := do(t, s.handlePairComplete, http.MethodPost, "/api/amplifier/pair-complete", `{"pairing_id":"wrong","token":"abc123","device_id":"dev456"}`)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("want 400, got %d", w.Code)
@@ -488,13 +404,10 @@ func TestBuildAmplifierFromConfig_Disabled(t *testing.T) {
 
 func TestBuildAmplifierFromConfig_Enabled(t *testing.T) {
 	cfg := AmplifierConfig{
-		Enabled:            true,
-		Maker:              "Magnat",
-		Model:              "MR 780",
-		Inputs:             []AmplifierInputConfig{{Label: "USB", ID: "USB"}},
-		DefaultInput:       "USB",
-		InputSelectionMode: "cycle",
-		IRCodes:            map[string]string{"power_on": "IR_ON"},
+		Enabled: true,
+		Maker:   "Magnat",
+		Model:   "MR 780",
+		IRCodes: map[string]string{"power_on": "IR_ON"},
 	}
 	amp, err := buildAmplifierFromConfig(cfg, "")
 	if err != nil {
@@ -531,7 +444,7 @@ func TestBuildCDPlayerFromConfig_Enabled(t *testing.T) {
 	}
 }
 
-// --- content-type response check ---
+// --- content-type / helpers ---
 
 func TestAmplifierState_ContentType(t *testing.T) {
 	amp, _ := newTestAmp(t)
@@ -542,8 +455,6 @@ func TestAmplifierState_ContentType(t *testing.T) {
 		t.Errorf("Content-Type = %q, want application/json", ct)
 	}
 }
-
-// --- jsonError helper ---
 
 func TestJsonError_SetsCodeAndBody(t *testing.T) {
 	w := httptest.NewRecorder()
@@ -558,7 +469,6 @@ func TestJsonError_SetsCodeAndBody(t *testing.T) {
 	}
 }
 
-// Ensure we can write and read a temp config (used by pair-complete test).
 func TestSaveAndLoadConfig_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

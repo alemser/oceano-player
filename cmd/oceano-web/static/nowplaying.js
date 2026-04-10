@@ -322,100 +322,19 @@ async function loadAmpPowerState() {
     const r = await fetch('/api/amplifier/state');
     if (!r.ok) return; // 404 → amp not configured; keep indicator hidden
     const s = await r.json();
-    const ps = String(s.detected_power_state ?? 'unknown').toLowerCase();
     const maker = String(s.maker || '').trim();
     const model = String(s.model || '').trim();
     const ampName = [maker, model].filter(Boolean).join(' ') || 'Amplifier';
-    const stateLabel = ps === 'on' ? 'ON' : ps === 'off' ? 'OFF' : 'UNKNOWN';
-
-    // Store for input selector
-    _ampName = ampName;
-    _ampInputs = Array.isArray(s.input_list) ? s.input_list : [];
-    _ampCurrentInput = s.current_input ?? null;
 
     const el = document.getElementById('amp-indicator');
     const labelEl = document.getElementById('amp-label');
-    const stateEl = document.getElementById('amp-state');
     if (!el) return;
 
     el.style.display = 'flex';
-    el.className = `amp-indicator${ps === 'on' ? ' ps-on' : ps === 'off' ? ' ps-off' : ''}`;
     if (labelEl) labelEl.textContent = ampName;
-    if (stateEl) stateEl.textContent = stateLabel;
-    el.title = `${ampName} — Tap to select input`;
-    el.setAttribute('aria-label', `${ampName} — tap to select input`);
+    el.title = ampName;
+    el.setAttribute('aria-label', ampName);
   } catch { /* network error or amp not available — leave indicator hidden */ }
-}
-
-// ─── Input selector ─────────────────────────────────────────────────────────
-
-function inputIcon(input) {
-  const key = String(input.id || input.label || '').toLowerCase();
-  for (const k of Object.keys(INPUT_ICONS)) {
-    if (k !== 'default' && key.includes(k)) return INPUT_ICONS[k];
-  }
-  // Try label too
-  const label = String(input.label || '').toLowerCase();
-  for (const k of Object.keys(INPUT_ICONS)) {
-    if (k !== 'default' && label.includes(k)) return INPUT_ICONS[k];
-  }
-  return INPUT_ICONS.default;
-}
-
-let _ampInputs = [];
-let _ampCurrentInput = null;
-let _ampName = '';
-
-function openInputSelector() {
-  const panel = document.getElementById('input-selector');
-  if (!panel || _ampInputs.length === 0) return;
-  document.getElementById('input-selector-amp-name').textContent = _ampName;
-  renderInputButtons();
-  panel.classList.add('open');
-  panel.addEventListener('keydown', onInputSelectorKey);
-}
-
-function closeInputSelector() {
-  const panel = document.getElementById('input-selector');
-  if (!panel) return;
-  panel.classList.remove('open');
-  panel.removeEventListener('keydown', onInputSelectorKey);
-}
-
-function onInputSelectorKey(e) {
-  if (e.key === 'Escape') closeInputSelector();
-}
-
-function renderInputButtons() {
-  const container = document.getElementById('input-selector-inputs');
-  if (!container) return;
-  container.innerHTML = '';
-  for (const inp of _ampInputs) {
-    const btn = document.createElement('button');
-    btn.className = 'input-btn' + (_ampCurrentInput && _ampCurrentInput.id === inp.id ? ' active' : '');
-    btn.type = 'button';
-    btn.setAttribute('aria-label', inp.label);
-    btn.innerHTML = inputIcon(inp);
-    btn.addEventListener('click', () => selectInput(inp));
-    container.appendChild(btn);
-  }
-}
-
-function selectInput(inp) {
-  _ampCurrentInput = inp;
-  renderInputButtons();
-  // TODO: wire to /api/amplifier/input when backend is ready
-  console.log('input selected:', inp);
-  setTimeout(closeInputSelector, 180); // brief visual feedback before closing
-}
-
-function ampIndicatorClick() {
-  const panel = document.getElementById('input-selector');
-  if (panel && panel.classList.contains('open')) {
-    closeInputSelector();
-  } else {
-    openInputSelector();
-  }
 }
 
 loadAmpPowerState();

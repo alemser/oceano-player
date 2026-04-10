@@ -9,36 +9,14 @@ import (
 type PowerState string
 
 const (
-	// PowerStateOn indicates the device is powered on and responsive.
-	// Confirmed by USB DAC presence or REC-OUT noise floor above the on-threshold.
-	PowerStateOn PowerState = "on"
-
-	// PowerStateOff indicates the device is powered off or in standby.
-	// Inferred when hardware checks provide explicit negative evidence
-	// (e.g. REC-OUT noise floor at/below calibrated off-threshold).
-	// Ambiguous values are reported as "unknown".
-	PowerStateOff PowerState = "off"
-
-	// PowerStateUnknown means no check could conclusively determine the state.
-	// Either no detection method is available, or all checks were inconclusive.
+	PowerStateOn      PowerState = "on"
+	PowerStateOff     PowerState = "off"
 	PowerStateUnknown PowerState = "unknown"
 )
 
 // ErrNotSupported is returned by RemoteDevice methods that are not available
 // on a particular device (e.g. CurrentTrack() on an amplifier).
 var ErrNotSupported = errors.New("operation not supported on this device")
-
-// ErrUnknownInputID indicates that the requested amplifier input ID is not present
-// in the configured input list.
-var ErrUnknownInputID = errors.New("unknown input ID")
-
-// Input represents a selectable source input on an amplifier.
-type Input struct {
-	// Label is the user-facing name shown in the UI (e.g. "USB Audio", "Phono").
-	Label string `json:"label"`
-	// ID is the internal identifier used to address IR commands (e.g. "USB", "PHONO").
-	ID string `json:"id"`
-}
 
 // RemoteDevice defines common IR remote operations available on various devices.
 // Methods return ErrNotSupported if the operation is not available for this device.
@@ -64,40 +42,19 @@ type RemoteDevice interface {
 	PowerOff() error
 }
 
-// Amplifier extends RemoteDevice with amplifier-specific operations: input
-// management, warm-up timing, and audio readiness signalling.
+// Amplifier extends RemoteDevice with input navigation and hardware power
+// detection.
 type Amplifier interface {
 	RemoteDevice
 
-	// Input management.
-	CurrentInput() (Input, error)
-	InputList() []Input
-	DefaultInput() Input
-	// SetInput switches to the input identified by Input.ID.
-	SetInput(id string) error
-	// NextInput cycles to the next input in InputList order.
+	// NextInput sends a single next_input IR command.
 	NextInput() error
+	// PrevInput sends a single prev_input IR command.
+	PrevInput() error
 
-	// CurrentState returns whether the amplifier is powered on according to
-	// the internal software state machine (based on IR commands sent).
-	CurrentState() (powerOn bool, err error)
-
-	// DetectPowerState probes the hardware to determine the actual power state.
-	// Unlike CurrentState, this performs real I/O: USB device scan, REC-OUT
-	// noise floor analysis, and (in Milestone 5) a blind IR probe.
+	// DetectPowerState probes hardware to determine the actual power state.
 	// The context controls the total detection timeout.
 	DetectPowerState(ctx context.Context) (PowerState, error)
-
-	// WarmupTimeSeconds is the delay (in seconds) after PowerOn before audio
-	// is available (e.g. 30 for the Magnat MR 780 tube pre-amp).
-	WarmupTimeSeconds() int
-	// InputSwitchDelaySeconds is the settling time (in seconds) after SetInput
-	// before audio resumes on the new input.
-	InputSwitchDelaySeconds() int
-
-	// AudioReady returns false immediately after PowerOn or SetInput, and
-	// becomes true once the relevant delay has elapsed.
-	AudioReady() bool
 }
 
 // CDPlayer extends RemoteDevice with CD-specific state queries.

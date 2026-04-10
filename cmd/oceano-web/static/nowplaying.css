@@ -251,21 +251,31 @@ body::after {
 .chip svg { width: 12px; height: 12px; flex-shrink: 0; }
 
 /* ─── Idle screen ──────────────────────────────────────────── */
-#idle-screen { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; opacity: 0; pointer-events: none; transition: opacity 0.8s; z-index: 10; }
-#idle-screen::before { content: ""; position: absolute; inset: -20% -10% auto; height: 55%; background: radial-gradient(50% 80% at 40% 30%, rgba(74, 158, 255, 0.14), transparent 70%), radial-gradient(40% 70% at 70% 40%, rgba(116, 168, 255, 0.1), transparent 72%); pointer-events: none; z-index: -1; }
+#idle-screen { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.8s; z-index: 10; }
+#idle-screen::before { content: ""; position: absolute; inset: -20% -10% auto; height: 55%; background: radial-gradient(50% 80% at 30% 40%, rgba(74, 158, 255, 0.13), transparent 70%), radial-gradient(40% 70% at 72% 38%, rgba(116, 168, 255, 0.09), transparent 72%); pointer-events: none; z-index: -1; }
 #idle-screen.visible { opacity: 1; pointer-events: auto; }
+
+/* Power button — top-right corner of idle screen */
+#idle-power-btn { position: absolute; top: 20px; right: 22px; width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 1px solid rgba(90, 108, 148, 0.32); background: rgba(14, 20, 34, 0.44); color: #6b7899; cursor: pointer; transition: all 0.2s ease; z-index: 2; }
+#idle-power-btn:hover { color: #a6b5dc; border-color: rgba(112, 130, 170, 0.5); background: rgba(20, 28, 47, 0.66); }
+#idle-power-btn svg { width: 17px; height: 17px; display: block; }
 
 #top-controls { position: absolute; top: 20px; right: max(22px, calc((100vw - min(100vw, var(--content-max-width))) / 2 + 22px)); z-index: 22; display: flex; align-items: center; gap: 10px; }
 
-#idle-power-btn { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 1px solid rgba(90, 108, 148, 0.36); background: rgba(14, 20, 34, 0.48); color: #7f8db1; cursor: pointer; transition: all 0.2s ease; }
-#idle-power-btn:hover { color: #a6b5dc; border-color: rgba(112, 130, 170, 0.5); background: rgba(20, 28, 47, 0.66); }
-#idle-power-btn svg { width: 18px; height: 18px; display: block; }
+/* Main two-widget layout */
+#idle-main { display: flex; align-items: center; justify-content: center; gap: clamp(24px, 6vw, 72px); padding: 0 clamp(24px, 6vw, 80px); width: 100%; box-sizing: border-box; }
 
-#idle-logo { color: #5b6686; }
-#idle-logo svg { width: 48px; height: 48px; display: block; }
-#idle-top-row { display: flex; align-items: flex-end; gap: 16px; }
-#idle-label { font-size: 0.84rem; font-weight: 550; letter-spacing: 0.18em; text-transform: uppercase; color: #4b5678; }
-#idle-time { font-size: clamp(3.25rem, 10vw, 5.2rem); font-weight: 240; letter-spacing: 0.04em; color: #404d70; font-variant-numeric: tabular-nums; line-height: 0.9; }
+/* Clock widget — left */
+#idle-clock-widget { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; }
+#idle-time { font-size: clamp(5rem, 16vw, 11rem); font-weight: 200; letter-spacing: -0.01em; color: #c8d3ef; font-variant-numeric: tabular-nums; line-height: 0.88; white-space: nowrap; }
+#idle-date { font-size: clamp(0.9rem, 2.2vw, 1.4rem); font-weight: 400; letter-spacing: 0.1em; text-transform: uppercase; color: #4b5a7a; white-space: nowrap; }
+
+/* Weather widget — right */
+#idle-weather-widget { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(8px, 2vh, 18px); flex-shrink: 0; padding: clamp(20px, 4vw, 40px) clamp(24px, 5vw, 52px); border-radius: 20px; border: 1px solid rgba(84, 106, 156, 0.30); background: rgba(14, 20, 36, 0.55); box-shadow: inset 0 0 0 1px rgba(22, 33, 55, 0.32); }
+#idle-weather-icon-wrap { line-height: 1; }
+#idle-weather-icon-wrap svg, #idle-weather-icon { font-size: clamp(3rem, 8vw, 5.5rem); display: block; line-height: 1; }
+#idle-weather-temp { font-size: clamp(2.4rem, 6vw, 4.2rem); font-weight: 300; letter-spacing: -0.01em; color: #d0dbf5; font-variant-numeric: tabular-nums; line-height: 1; }
+#idle-weather-cond { font-size: clamp(0.72rem, 1.6vw, 1rem); letter-spacing: 0.1em; text-transform: uppercase; color: #6a78a0; white-space: nowrap; text-align: center; }
 
 /* Media Queries */
 @media (max-width: 900px) {
@@ -335,21 +345,12 @@ body::after {
   #track-album { margin-bottom: 14px; }
   #meta-chips { gap: 8px; }
   .chip { font-size: 0.72rem; padding: 4px 9px; }
-  #idle-top-row { flex-direction: column; align-items: center; gap: 10px; }
-  #idle-weather { margin-bottom: 0; }
-  #input-selector-header { height: 50px; }
-  .input-btn { min-width: 64px; min-height: 64px; padding: 8px 8px; }
-  .input-btn svg { width: 36px; height: 36px; }
-  .input-btn-label { display: none; }
+  #idle-main { flex-direction: column; gap: 24px; }
+  #idle-clock-widget { align-items: center; }
   .amp-indicator { padding: 6px 9px; gap: 6px; }
   .amp-indicator-label { max-width: 112px; overflow: hidden; text-overflow: ellipsis; }
-  .amp-indicator-state { font-size: 0.62rem; padding: 2px 6px; }
 }
 
-#idle-weather { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 9px 14px; border-radius: 999px; border: 1px solid rgba(84, 106, 156, 0.42); background: rgba(17, 24, 40, 0.52); box-shadow: inset 0 0 0 1px rgba(22, 33, 55, 0.38); color: #8d98bb; }
-#idle-weather svg { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.9; }
-#idle-weather-temp { font-size: 0.98rem; font-weight: 650; letter-spacing: 0.05em; text-transform: uppercase; color: #bec9e7; font-variant-numeric: tabular-nums; }
-#idle-weather-cond { font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: #8f9bc2; white-space: nowrap; }
 
 .power-overlay { display: none; position: fixed; inset: 0; background: rgba(5, 8, 14, 0.72); z-index: 30; align-items: center; justify-content: center; padding: 20px; }
 .power-overlay.open { display: flex; }

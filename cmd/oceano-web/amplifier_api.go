@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,10 +16,8 @@ import (
 // amp and cdPlayer are nil when the respective device is not configured or enabled.
 type amplifierServer struct {
 	configPath string
-	ampConfig  AmplifierConfig // kept for input visibility filtering
 	amp        *amplifier.BroadlinkAmplifier
 	cdPlayer   *amplifier.BroadlinkCDPlayer
-	monitor    *amplifier.PowerStateMonitor // nil when amp is not configured
 
 	// pairFn is called by handlePairStart to perform the Broadlink auth handshake.
 	// If nil, the real bridge subprocess is used. Injected in tests to avoid I/O.
@@ -52,22 +49,19 @@ type pairingAttempt struct {
 }
 
 // registerAmplifierRoutes wires all /api/amplifier/* and /api/cdplayer/* endpoints.
-// amp, cdPlayer, and monitor may be nil; affected endpoints return 404 in that case.
-func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifier, cdPlayer *amplifier.BroadlinkCDPlayer, monitor *amplifier.PowerStateMonitor, ampConfig AmplifierConfig, configPath string) {
+// amp and cdPlayer may be nil; affected endpoints return 404 in that case.
+func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifier, cdPlayer *amplifier.BroadlinkCDPlayer, configPath string) {
 	s := &amplifierServer{
 		configPath: configPath,
-		ampConfig:  ampConfig,
 		amp:        amp,
 		cdPlayer:   cdPlayer,
-		monitor:    monitor,
 	}
+
 	mux.HandleFunc("/api/amplifier/state", s.handleAmplifierState)
 	mux.HandleFunc("/api/amplifier/power", s.handleAmplifierPower)
 	mux.HandleFunc("/api/amplifier/volume", s.handleAmplifierVolume)
-	mux.HandleFunc("/api/amplifier/input", s.handleAmplifierInput)
 	mux.HandleFunc("/api/amplifier/next-input", s.handleAmplifierNextInput)
 	mux.HandleFunc("/api/amplifier/prev-input", s.handleAmplifierPrevInput)
-	mux.HandleFunc("/api/amplifier/sync-input", s.handleAmplifierSyncInput)
 	mux.HandleFunc("/api/amplifier/pair-start", s.handlePairStart)
 	mux.HandleFunc("/api/amplifier/pair-status", s.handlePairStatus)
 	mux.HandleFunc("/api/amplifier/pair-complete", s.handlePairComplete)
@@ -77,44 +71,12 @@ func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifi
 	mux.HandleFunc("/api/cdplayer/transport", s.handleCDPlayerTransport)
 }
 
-// visibleInputList returns only the inputs marked visible:true in config.
-// Falls back to the full amp list if no config inputs exist (e.g. all visible).
-func (s *amplifierServer) visibleInputList() []amplifier.Input {
-	var visible []amplifier.Input
-	for _, inp := range s.ampConfig.Inputs {
-		if inp.Visible {
-			visible = append(visible, amplifier.Input{Label: inp.Label, ID: inp.ID})
-		}
-	}
-	// If no input is marked visible (e.g. old config without the field), show all.
-	if len(visible) == 0 {
-		return s.amp.InputList()
-	}
-	return visible
-}
-
 // --- response types ---
 
 type amplifierStateResponse struct {
-	Maker                   string            `json:"maker"`
-	Model                   string            `json:"model"`
-	PowerOn                 bool              `json:"power_on"`
-	CurrentInput            amplifier.Input   `json:"current_input"`
-	InputList               []amplifier.Input `json:"input_list"`
-	DefaultInput            amplifier.Input   `json:"default_input"`
-	AudioReady              bool              `json:"audio_ready"`
-	AudioReadyAt            *time.Time        `json:"audio_ready_at,omitempty"`
-	WarmupSeconds           int               `json:"warmup_seconds"`
-	InputSwitchDelaySeconds int               `json:"input_switch_delay_seconds"`
-	// InputSynced is false after startup until at least one IR input command is
-	// sent. When false the assumed CurrentInput equals the configured default and
-	// may not match the physical amplifier state.
-	InputSynced bool `json:"input_synced"`
-	// DetectedPowerState is the hardware-detected state from the last monitor poll.
-	// "on" | "off" | "unknown" — see internal/amplifier for detection strategy.
-	DetectedPowerState amplifier.PowerState `json:"detected_power_state"`
-	DetectedAt         *time.Time           `json:"detected_at,omitempty"`
-	LastUpdated        time.Time            `json:"last_updated"`
+	Maker       string    `json:"maker"`
+	Model       string    `json:"model"`
+	LastUpdated time.Time `json:"last_updated"`
 }
 
 type cdPlayerStateResponse struct {
@@ -135,51 +97,19 @@ func (s *amplifierServer) handleAmplifierState(w http.ResponseWriter, r *http.Re
 		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	// Return 404 only when neither the full amp nor the monitor is available.
-	if s.amp == nil && s.monitor == nil {
+	if s.amp == nil {
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
 		return
 	}
-
-	resp := amplifierStateResponse{
-		DetectedPowerState: amplifier.PowerStateUnknown,
-		LastUpdated:        time.Now(),
-	}
-
-	if s.amp != nil {
-		powerOn, _ := s.amp.CurrentState()
-		currentInput, _ := s.amp.CurrentInput()
-		resp.Maker = s.amp.Maker()
-		resp.Model = s.amp.Model()
-		resp.PowerOn = powerOn
-		resp.CurrentInput = currentInput
-		resp.InputList = s.visibleInputList()
-		resp.DefaultInput = s.amp.DefaultInput()
-		resp.AudioReady = s.amp.AudioReady()
-		resp.InputSynced = s.amp.InputSynced()
-		resp.WarmupSeconds = s.amp.WarmupTimeSeconds()
-		resp.InputSwitchDelaySeconds = s.amp.InputSwitchDelaySeconds()
-		if at := s.amp.AudioReadyAt(); !at.IsZero() {
-			resp.AudioReadyAt = &at
-		}
-	} else {
-		// Detection-only mode: identity from monitor's amp; IR fields stay zero.
-		a := s.monitor.Amp()
-		resp.Maker = a.Maker()
-		resp.Model = a.Model()
-	}
-
-	if s.monitor != nil {
-		detected, detAt := s.monitor.Current()
-		resp.DetectedPowerState = detected
-		if !detAt.IsZero() {
-			resp.DetectedAt = &detAt
-		}
-	}
-
-	jsonOK(w, resp)
+	jsonOK(w, amplifierStateResponse{
+		Maker:       s.amp.Maker(),
+		Model:       s.amp.Model(),
+		LastUpdated: time.Now(),
+	})
 }
 
+// handleAmplifierPower sends the power IR command. No state is tracked —
+// the button behaves like a physical remote toggle.
 func (s *amplifierServer) handleAmplifierPower(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -189,27 +119,7 @@ func (s *amplifierServer) handleAmplifierPower(w http.ResponseWriter, r *http.Re
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
 		return
 	}
-
-	var req struct {
-		Action string `json:"action"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	var err error
-	switch req.Action {
-	case "on":
-		err = s.amp.PowerOn()
-	case "off":
-		err = s.amp.PowerOff()
-	default:
-		jsonError(w, `action must be "on" or "off"`, http.StatusBadRequest)
-		return
-	}
-
-	if err != nil {
+	if err := s.amp.PowerOn(); err != nil {
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -252,39 +162,6 @@ func (s *amplifierServer) handleAmplifierVolume(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *amplifierServer) handleAmplifierInput(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if s.amp == nil {
-		jsonError(w, "amplifier not configured", http.StatusNotFound)
-		return
-	}
-
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.ID == "" {
-		jsonError(w, "id is required", http.StatusBadRequest)
-		return
-	}
-
-	if err := s.amp.SetInput(req.ID); err != nil {
-		status := http.StatusServiceUnavailable
-		if errors.Is(err, amplifier.ErrUnknownInputID) {
-			status = http.StatusBadRequest
-		}
-		jsonError(w, err.Error(), status)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
 func (s *amplifierServer) handleAmplifierNextInput(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -294,7 +171,6 @@ func (s *amplifierServer) handleAmplifierNextInput(w http.ResponseWriter, r *htt
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
 		return
 	}
-
 	if err := s.amp.NextInput(); err != nil {
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -311,44 +187,8 @@ func (s *amplifierServer) handleAmplifierPrevInput(w http.ResponseWriter, r *htt
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
 		return
 	}
-
 	if err := s.amp.PrevInput(); err != nil {
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
-// handleAmplifierSyncInput updates the assumed current input in software without
-// sending any IR command. Use when the amp was changed manually and the UI state
-// needs to catch up.
-//
-// POST /api/amplifier/sync-input
-// Body: {"id": "USB_AUDIO"}
-func (s *amplifierServer) handleAmplifierSyncInput(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if s.amp == nil {
-		jsonError(w, "amplifier not configured", http.StatusNotFound)
-		return
-	}
-
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.ID == "" {
-		jsonError(w, "id is required", http.StatusBadRequest)
-		return
-	}
-
-	if err := s.amp.SyncInput(req.ID); err != nil {
-		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -717,57 +557,21 @@ func broadlinkClientFromConfig(host string) amplifier.BroadlinkClient {
 	return &amplifier.PythonBroadlinkClient{BridgePath: bridgePath, Host: host}
 }
 
-// buildAmplifierFromConfig constructs a full BroadlinkAmplifier (IR commands +
-// detection) from AmplifierConfig. Returns nil, nil when disabled or when
-// inputs are not yet configured (detection-only monitor is used instead).
+// buildAmplifierFromConfig constructs a BroadlinkAmplifier from AmplifierConfig.
+// Returns nil, nil when the amplifier is disabled or not yet configured.
 func buildAmplifierFromConfig(cfg AmplifierConfig, vuSocketPath string) (*amplifier.BroadlinkAmplifier, error) {
-	if !cfg.Enabled {
+	if !cfg.Enabled || cfg.Maker == "" || cfg.Model == "" {
 		return nil, nil
 	}
-	if len(cfg.Inputs) == 0 {
-		// Inputs not configured yet — IR commands unavailable; use detection-only amp.
-		return nil, nil
-	}
-
-	inputs := make([]amplifier.Input, len(cfg.Inputs))
-	for i, inp := range cfg.Inputs {
-		inputs[i] = amplifier.Input{Label: inp.Label, ID: inp.ID}
-	}
-
-	mode := amplifier.InputSelectionCycle
-	if cfg.InputSelectionMode == string(amplifier.InputSelectionDirect) {
-		mode = amplifier.InputSelectionDirect
-	}
-
 	return amplifier.NewBroadlinkAmplifier(
 		broadlinkClientFromConfig(cfg.Broadlink.Host),
 		amplifier.AmplifierSettings{
-			Maker:               cfg.Maker,
-			Model:               cfg.Model,
-			Inputs:              inputs,
-			DefaultInputID:      cfg.DefaultInput,
-			WarmupSecs:          cfg.WarmupSeconds,
-			SwitchDelaySecs:     cfg.InputSwitchDelaySeconds,
-			InputMode:           mode,
-			IRCodes:             cfg.IRCodes,
-			VUSocketPath:        vuSocketPath,
-			SelectorTimeoutSecs: cfg.SelectorTimeoutSeconds,
+			Maker:        cfg.Maker,
+			Model:        cfg.Model,
+			IRCodes:      cfg.IRCodes,
+			VUSocketPath: vuSocketPath,
 		},
 	)
-}
-
-// buildDetectionAmpFromConfig constructs a detection-only BroadlinkAmplifier
-// used exclusively by PowerStateMonitor when the full amp (inputs) is not yet
-// configured. Requires only Maker, Model, and VUSocketPath.
-func buildDetectionAmpFromConfig(cfg AmplifierConfig, vuSocketPath string) *amplifier.BroadlinkAmplifier {
-	if !cfg.Enabled || cfg.Maker == "" || cfg.Model == "" {
-		return nil
-	}
-	return amplifier.NewBroadlinkAmplifierForDetection(amplifier.AmplifierSettings{
-		Maker:        cfg.Maker,
-		Model:        cfg.Model,
-		VUSocketPath: vuSocketPath,
-	})
 }
 
 // buildCDPlayerFromConfig constructs a BroadlinkCDPlayer from CDPlayerConfig.
