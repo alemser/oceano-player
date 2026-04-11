@@ -631,6 +631,31 @@
     }
     .btn-modal-cancel:hover { color: var(--text); border-color: var(--muted); }
 
+    /* ── Mobile adjustments ── */
+    @media (max-width: 480px) {
+      .modal { padding: 20px; }
+      .modal-row { grid-template-columns: 1fr; }
+      .modal-actions {
+        flex-direction: column;
+        gap: 12px;
+        align-items: stretch;
+      }
+      .actions-left, .actions-center, .actions-right {
+        width: 100%;
+        flex-direction: column;
+      }
+      .actions-right {
+        order: -1; /* Move Save/Cancel to top on mobile */
+        margin-bottom: 8px;
+      }
+      .btn-modal-save, .btn-modal-cancel, .btn-modal-delete, .btn-modal-resolve, .btn-modal-prev {
+        width: 100%;
+        padding: 12px;
+        justify-content: center;
+        font-size: 0.85rem;
+      }
+    }
+
     .resolve-wrap {
       margin-top: 14px;
       padding: 12px;
