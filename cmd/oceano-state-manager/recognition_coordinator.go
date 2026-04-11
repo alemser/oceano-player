@@ -235,7 +235,7 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 		return
 	}
 
-	log.Printf("recognizer [%s]: no match — retrying em %s", c.rec.Name(), noMatchBackoff)
+	log.Printf("recognizer [%s]: no match — retrying in %s", c.rec.Name(), noMatchBackoff)
 	storeStubOnNoMatch := isBoundaryTrigger || c.mgr.cfg.RecognizerChain == "fingerprint_only"
 	if len(capturedFPs) > 0 && c.lib != nil && storeStubOnNoMatch {
 		c.mgr.mu.Lock()

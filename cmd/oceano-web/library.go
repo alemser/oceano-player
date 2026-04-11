@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -118,6 +119,15 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		return nil, fmt.Errorf("library: ensure shazam_id index: %w", err)
 	}
 	return l, nil
+}
+
+// isConstraintError reports whether err is a SQLite unique/primary-key constraint violation.
+func isConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint") || strings.Contains(msg, "constraint failed")
 }
 
 // getRecognitionStats returns a map of provider -> event -> count.
@@ -299,16 +309,20 @@ func (l *LibraryDB) resolveFingerprintStub(stubID, targetID int64) (*LibraryEntr
 		return nil, err
 	}
 
-	// Update target with stub's metadata if target's fields are empty
+	// Update target with stub's provider IDs if target's fields are empty.
+	// Unique constraint violations are expected when another track already holds that ID — skip silently.
 	if target.ACRID == "" && stubACRID != "" {
 		if _, err := tx.Exec(`UPDATE collection SET acrid = ? WHERE id = ?`, stubACRID, targetID); err != nil {
-			// Ignore unique constraint error if ACRID already exists for another track
-			// This shouldn't happen often but if it does, we just don't link the ACRID.
+			if !isConstraintError(err) {
+				log.Printf("library: resolveFingerprintStub: set acrid on target %d: %v", targetID, err)
+			}
 		}
 	}
 	if target.ShazamID == "" && stubShazamID != "" {
 		if _, err := tx.Exec(`UPDATE collection SET shazam_id = ? WHERE id = ?`, stubShazamID, targetID); err != nil {
-			// Ignore unique constraint error
+			if !isConstraintError(err) {
+				log.Printf("library: resolveFingerprintStub: set shazam_id on target %d: %v", targetID, err)
+			}
 		}
 	}
 
@@ -687,7 +701,9 @@ func patchStateFile(path, title, artist, album, format, artworkPath string) {
 	track["artist"] = artist
 	track["album"] = album
 	track["format"] = format
-	track["artwork_path"] = artworkPath
+	if artworkPath != "" {
+		track["artwork_path"] = artworkPath
+	}
 
 	tb, err := json.Marshal(track)
 	if err != nil {
