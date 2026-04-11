@@ -584,10 +584,40 @@
     .modal-field select option { background: #1a1a1a; }
     .modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .modal-actions {
-      display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 32px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      position: relative;
+    }
+    .actions-left, .actions-center, .actions-right {
+      display: flex;
+      gap: 8px;
       align-items: center;
     }
-    .modal-actions .btn-modal-prev { margin-right: auto; }
+    .btn-modal-delete {
+      background: none; border: 1px solid #3a1a1a; border-radius: 6px;
+      color: #a06060; font-size: 0.75rem; padding: 7px 12px; cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+      transition: all 0.15s;
+    }
+    .btn-modal-delete:hover { background: #2a1010; color: #e08080; border-color: #5a2020; }
+    
+    .btn-modal-resolve, .btn-modal-prev {
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text-dim); font-size: 0.75rem; padding: 7px 12px; cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+      transition: all 0.15s;
+    }
+    .btn-modal-resolve:hover, .btn-modal-prev:hover { 
+      background: rgba(255,255,255,0.06); color: var(--text); border-color: var(--muted); 
+    }
+    .btn-modal-resolve svg { color: var(--accent); opacity: 0.8; }
+    .btn-modal-prev svg { color: var(--text-dim); opacity: 0.6; }
+    .btn-modal-prev:disabled { opacity: 0.3; cursor: not-allowed; filter: grayscale(1); }
+
     .btn-modal-save {
       background: var(--accent); border: none; border-radius: 6px; color: #fff;
       font-size: 0.85rem; font-weight: 600; padding: 9px 22px; cursor: pointer;
@@ -597,29 +627,9 @@
     .btn-modal-cancel {
       background: none; border: 1px solid var(--border); border-radius: 6px;
       color: var(--text-dim); font-size: 0.85rem; padding: 9px 18px; cursor: pointer;
-      transition: border-color 0.15s;
+      transition: all 0.15s;
     }
-    .btn-modal-cancel:hover { border-color: var(--text-dim); color: var(--text); }
-    .btn-modal-prev {
-      background: none; border: 1px solid var(--border); border-radius: 6px;
-      color: var(--accent); font-size: 0.85rem; padding: 9px 18px; cursor: pointer;
-      margin-right: auto; transition: border-color 0.15s;
-    }
-    .btn-modal-prev:hover { border-color: var(--accent); }
-    .btn-modal-prev:disabled { opacity: 0.35; cursor: default; }
-    .btn-modal-delete {
-      background: none; border: 1px solid #5a1a1a; border-radius: 6px;
-      color: #e06060; font-size: 0.85rem; padding: 9px 18px; cursor: pointer;
-      transition: background 0.15s;
-    }
-    .btn-modal-delete:hover { background: #2a0a0a; }
-
-    .btn-modal-resolve {
-      background: #0f2a17; border: 1px solid #1e5c33; border-radius: 6px;
-      color: #8fe2a8; font-size: 0.85rem; padding: 9px 14px; cursor: pointer;
-      transition: opacity 0.15s;
-    }
-    .btn-modal-resolve:hover { opacity: 0.85; }
+    .btn-modal-cancel:hover { color: var(--text); border-color: var(--muted); }
 
     .resolve-wrap {
       margin-top: 14px;
