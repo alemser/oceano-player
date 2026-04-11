@@ -594,6 +594,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			continue
 		}
 
+		var skip time.Duration
 		if isBoundaryTrigger {
 			skip = time.Duration(c.mgr.cfg.FingerprintBoundaryLeadSkipSecs) * time.Second
 			c.mgr.mu.Lock()
