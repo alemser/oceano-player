@@ -584,20 +584,24 @@
     .modal-field select option { background: #1a1a1a; }
     .modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .modal-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      display: grid;
+      grid-template-areas:
+        "center center center"
+        "left   .      right";
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
       margin-top: 32px;
       padding-top: 24px;
       border-top: 1px solid var(--border);
     }
-    /* Delete stays left; everything else is pushed to the right */
-    .actions-left { margin-right: auto; }
+    .actions-left  { grid-area: left; }
     .actions-center {
+      grid-area: center;
       display: flex;
       gap: 8px;
     }
     .actions-right {
+      grid-area: right;
       display: flex;
       gap: 8px;
     }
@@ -657,17 +661,24 @@
       .modal { padding: 20px; }
       .modal-row { grid-template-columns: 1fr; }
       .modal-actions {
+        display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 10px;
         align-items: stretch;
+      }
+      .actions-right {
+        order: -1; /* Save/Cancel at top on mobile */
+        flex-direction: row;
+        justify-content: stretch;
+      }
+      .actions-center {
+        flex-direction: column;
       }
       .actions-left, .actions-center, .actions-right {
         width: 100%;
-        flex-direction: column;
       }
-      .actions-right {
-        order: -1; /* Move Save/Cancel to top on mobile */
-        margin-bottom: 8px;
+      .btn-modal-save, .btn-modal-cancel {
+        flex: 1;
       }
       .btn-modal-save, .btn-modal-cancel, .btn-modal-delete, .btn-modal-resolve, .btn-modal-prev {
         width: 100%;
