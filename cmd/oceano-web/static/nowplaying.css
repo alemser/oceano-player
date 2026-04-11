@@ -283,19 +283,19 @@ body::after {
 /* Logo */
 #idle-logo { display: flex; align-items: center; gap: 10px; color: #3a6aaa; text-decoration: none; }
 #idle-logo-wave { width: 42px; height: 19px; flex-shrink: 0; }
-#idle-logo-text { font-size: 0.92rem; font-weight: 300; letter-spacing: 0.38em; text-transform: uppercase; color: #4a6a9a; }
+#idle-logo-text { font-size: 1.02rem; font-weight: 300; letter-spacing: 0.38em; text-transform: uppercase; color: #4a6a9a; }
 
 /* Centre: location · condition */
-#idle-location-cond { display: flex; align-items: center; gap: 7px; font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; }
-#idle-location-label { color: #5a6a90; font-weight: 500; }
-.idle-sep { color: #252e42; }
-#idle-weather-cond { color: #3a4660; }
+#idle-location-cond { display: flex; align-items: center; gap: 7px; font-size: 0.88rem; letter-spacing: 0.1em; text-transform: uppercase; }
+#idle-location-label { color: #6070a0; font-weight: 500; }
+.idle-sep { color: #2e3a52; }
+#idle-weather-cond { color: #485878; }
 
 /* Right: stats */
 #idle-meta-stats { display: flex; align-items: center; gap: clamp(18px, 3.5vw, 40px); }
 .idle-stat { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-.idle-stat-lbl { font-size: 0.58rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #252e42; }
-.idle-stat-val { font-size: 0.84rem; font-weight: 400; color: #4a5870; font-variant-numeric: tabular-nums; }
+.idle-stat-lbl { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #2e3a52; }
+.idle-stat-val { font-size: 0.92rem; font-weight: 400; color: #566280; font-variant-numeric: tabular-nums; }
 
 /* ─── Main section ─────────────────────────────────────────── */
 #idle-main {
@@ -309,7 +309,7 @@ body::after {
 /* Clock */
 #idle-clock-widget { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; flex-shrink: 0; }
 #idle-time { font-size: clamp(5rem, 17vw, 11.5rem); font-weight: 100; letter-spacing: -0.025em; color: #b8c6e8; font-variant-numeric: tabular-nums; line-height: 0.86; white-space: nowrap; }
-#idle-date { font-size: clamp(0.78rem, 1.7vw, 1.05rem); font-weight: 400; letter-spacing: 0.14em; text-transform: uppercase; color: #2e3a52; white-space: nowrap; }
+#idle-date { font-size: clamp(0.96rem, 2.1vw, 1.3rem); font-weight: 400; letter-spacing: 0.14em; text-transform: uppercase; color: #5a6e94; white-space: nowrap; }
 
 /* Weather icon (centre) */
 #idle-weather-icon-wrap { flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
@@ -333,12 +333,12 @@ body::after {
   border-right: 1px solid rgba(255, 255, 255, 0.04);
 }
 .idle-fc-day:last-child { border-right: none; }
-.idle-fc-name { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #252e42; }
+.idle-fc-name { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #3a4a68; }
 .idle-fc-name.today { color: #4a7acc; }
-.idle-fc-icon { width: clamp(20px, 3.5vw, 32px); height: clamp(20px, 3.5vw, 32px); color: #2e3c58; }
+.idle-fc-icon { width: clamp(24px, 4vw, 38px); height: clamp(24px, 4vw, 38px); color: #3a4e72; }
 .idle-fc-icon svg { width: 100%; height: 100%; display: block; }
-.idle-fc-max { font-size: clamp(0.78rem, 1.4vw, 0.96rem); font-weight: 500; color: #5a6e94; font-variant-numeric: tabular-nums; }
-.idle-fc-min { font-size: clamp(0.66rem, 1.1vw, 0.78rem); font-weight: 400; color: #2a3348; font-variant-numeric: tabular-nums; }
+.idle-fc-max { font-size: clamp(0.88rem, 1.6vw, 1.08rem); font-weight: 500; color: #6a80a8; font-variant-numeric: tabular-nums; }
+.idle-fc-min { font-size: clamp(0.74rem, 1.2vw, 0.88rem); font-weight: 400; color: #3a4a68; font-variant-numeric: tabular-nums; }
 
 /* Media Queries */
 @media (max-width: 900px) {
@@ -413,7 +413,7 @@ body::after {
   #idle-clock-widget { align-items: center; }
   #idle-forecast { flex-wrap: nowrap; overflow-x: auto; }
   #idle-meta-stats { gap: 16px; }
-  .idle-fc-name { font-size: 0.58rem; }
+  .idle-fc-name { font-size: 0.64rem; }
   .amp-indicator { padding: 6px 9px; gap: 6px; }
   .amp-indicator-label { max-width: 112px; overflow: hidden; text-overflow: ellipsis; }
 }
