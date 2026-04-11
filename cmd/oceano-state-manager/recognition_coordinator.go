@@ -128,14 +128,18 @@ func (c *recognitionCoordinator) tryLocalFingerprintFallback(capturedFPs []Finge
 	if len(capturedFPs) == 0 || c.lib == nil {
 		return false
 	}
+	c.lib.RecordRecognitionEvent("FingerprintFallback", "attempt")
 	localEntry, err := c.lib.FindByFingerprints(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30)
 	if err != nil {
 		log.Printf("recognizer: fingerprint lookup error: %v", err)
+		c.lib.RecordRecognitionEvent("FingerprintFallback", "no_match")
 		return false
 	}
 	if localEntry == nil {
+		c.lib.RecordRecognitionEvent("FingerprintFallback", "no_match")
 		return false
 	}
+	c.lib.RecordRecognitionEvent("FingerprintFallback", "success")
 	log.Printf("recognizer: local fingerprint fallback match (id=%d confirmed=%v %s — %s)",
 		localEntry.ID, localEntry.UserConfirmed, localEntry.Artist, localEntry.Title)
 	c.applyLocalFallbackEntry(localEntry)
@@ -596,7 +600,13 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			c.mgr.mu.Lock()
 			c.mgr.lastBoundaryAt = time.Now()
 			c.mgr.pendingStubID = 0
+			// Clear current track info on boundary so UI shows "Identifying"
+			// and same-track optimization is bypassed for explicit transitions.
+			c.mgr.recognitionResult = nil
+			c.mgr.physicalLibraryEntryID = 0
+			c.mgr.physicalArtworkPath = ""
 			c.mgr.mu.Unlock()
+			c.mgr.markDirty()
 		}
 
 		log.Printf("recognizer [%s]: capturing %s from %s (skip=%s)",
@@ -623,16 +633,22 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			c.mgr.cfg.FingerprintWindows, c.mgr.cfg.FingerprintStrideSec,
 			c.mgr.cfg.FingerprintLengthSec, captureSec)
 
+		c.mgr.mu.Lock()
+		c.mgr.lastCapturedFPs = capturedFPs
+		c.mgr.mu.Unlock()
+
 		// Local-first short-circuit is skipped on boundary triggers: a boundary means
 		// the track changed, so the local fingerprint match may be the previous track
 		// (residual audio or a fingerprint overlap). Always use the remote provider to
 		// confirm what is actually playing after a boundary.
 		if !isBoundaryTrigger {
+			c.lib.RecordRecognitionEvent("Fingerprint", "attempt")
 			if localEntry := c.lookupLocalFingerprintLocalFirst(capturedFPs); localEntry != nil {
 				c.mgr.mu.Lock()
 				currentResult := c.mgr.recognitionResult
 				c.mgr.mu.Unlock()
 				if shouldShortCircuitLocalFirst(currentResult, localEntry) {
+					c.lib.RecordRecognitionEvent("Fingerprint", "success")
 					log.Printf("recognizer: local-first fingerprint match (id=%d %s — %s)",
 						localEntry.ID, localEntry.Artist, localEntry.Title)
 					c.applyLocalFallbackEntry(localEntry)
@@ -644,6 +660,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 					continue
 				}
 				log.Printf("recognizer [%s]: local-first matched current track — continuing provider chain", c.rec.Name())
+			} else {
+				c.lib.RecordRecognitionEvent("Fingerprint", "no_match")
 			}
 		}
 
@@ -673,7 +691,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			c.mgr.mu.Lock()
 			currentResult := c.mgr.recognitionResult
 			c.mgr.mu.Unlock()
-			if currentResult != nil && sameTrackByProviderIDs(currentResult, result) {
+			if !isBoundaryTrigger && currentResult != nil && sameTrackByProviderIDs(currentResult, result) {
 				log.Printf("recognizer [%s]: same track confirmed — no change (%s — %s)", c.rec.Name(), result.Artist, result.Title)
 				shouldMarkDirty := false
 				c.mgr.mu.Lock()

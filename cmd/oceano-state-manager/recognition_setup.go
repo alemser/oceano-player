@@ -1,6 +1,10 @@
 package main
 
-import "log"
+import (
+	"log"
+
+	internallibrary "github.com/alemser/oceano-player/internal/library"
+)
 
 func normalizeRecognizerChain(raw string) string {
 	switch raw {
@@ -39,23 +43,23 @@ func newRecognitionComponents(plan RecognitionPlan, fingerprinter Fingerprinter)
 	}
 }
 
-func buildRecognitionComponents(cfg Config) recognitionComponents {
+func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recognitionComponents {
 	// Always try to create both recognizers so continuity can always use Shazam
 	// regardless of which providers are in the identification chain.
 	var acrRec Recognizer
 	if cfg.ACRCloudHost != "" && cfg.ACRCloudAccessKey != "" && cfg.ACRCloudSecretKey != "" {
-		acrRec = NewACRCloudRecognizer(ACRCloudConfig{
+		acrRec = wrapWithStats(NewACRCloudRecognizer(ACRCloudConfig{
 			Host:      cfg.ACRCloudHost,
 			AccessKey: cfg.ACRCloudAccessKey,
 			SecretKey: cfg.ACRCloudSecretKey,
-		})
+		}), lib)
 		log.Printf("recognizer: ACRCloud enabled (host=%s)", cfg.ACRCloudHost)
 	}
 
 	var shazamRec Recognizer
 	if cfg.ShazamPythonBin != "" {
 		if s := NewShazamRecognizer(cfg.ShazamPythonBin); s != nil {
-			shazamRec = s
+			shazamRec = wrapWithStats(s, lib)
 			log.Printf("recognizer: Shazam enabled (python=%s)", cfg.ShazamPythonBin)
 		} else {
 			log.Printf("recognizer: Shazam unavailable — %s not found or shazamio not installed", cfg.ShazamPythonBin)
@@ -84,7 +88,7 @@ func buildRecognitionComponents(cfg Config) recognitionComponents {
 			ordered = append(ordered, shazamRec)
 		}
 	case "fingerprint_only":
-		ordered = append(ordered, localOnlyRecognizer{})
+		ordered = append(ordered, wrapWithStats(localOnlyRecognizer{}, lib))
 	default: // "acrcloud_first" or unset
 		if acrRec != nil {
 			ordered = append(ordered, acrRec)
@@ -96,7 +100,7 @@ func buildRecognitionComponents(cfg Config) recognitionComponents {
 
 	if len(ordered) == 0 {
 		log.Printf("recognizer: chain policy=%s resolved to no available providers — falling back to local fingerprint-only mode", chain)
-		ordered = append(ordered, localOnlyRecognizer{})
+		ordered = append(ordered, wrapWithStats(localOnlyRecognizer{}, lib))
 	}
 
 	// Confirmer is the secondary provider in the chain — used for cross-provider

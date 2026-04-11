@@ -176,19 +176,19 @@ func defaultConfig() Config {
 		ArtworkDir:                      "/var/lib/oceano/artwork",
 		PCMSocket:                       "/tmp/oceano-pcm.sock",
 		VUSocket:                        "/tmp/oceano-vu.sock",
-		RecognizerCaptureDuration:       7 * time.Second,
+		RecognizerCaptureDuration:       10 * time.Second,
 		RecognizerMaxInterval:           5 * time.Minute,
 		RecognizerRefreshInterval:       2 * time.Minute,
 		NoMatchBackoff:                  15 * time.Second,
 		IdleDelay:                       10 * time.Second,
 		LibraryDB:                       "/var/lib/oceano/library.db",
-		FingerprintWindows:              2,
+		FingerprintWindows:              5,
 		FingerprintStrideSec:            1,
 		FingerprintLengthSec:            6,
 		FingerprintBoundaryLeadSkipSecs: 2,
-		FingerprintThreshold:            0.25,
+		FingerprintThreshold:            0.30,
 		FingerprintLocalFirst:           true,
-		FingerprintLocalFirstThreshold:  0.18,
+		FingerprintLocalFirstThreshold:  0.28,
 		ConfirmationDelay:               0,
 		ConfirmationCaptureDuration:     4 * time.Second,
 		ConfirmationBypassScore:         95,
@@ -245,6 +245,10 @@ type mgr struct {
 	// retry attempts within the same boundary/session. Subsequent no-match
 	// retries append fingerprints to this stub instead of creating new rows.
 	pendingStubID int64
+	// lastCapturedFPs is the most recent fingerprint capture. Used by the library
+	// sync to find tracks that were manually associated by the user while
+	// the state manager was in "Identifying" state.
+	lastCapturedFPs []Fingerprint
 	// lastRecognizedAt is the time of the most recent successful recognition.
 	// Used by the fallback timer to allow periodic re-checks when no VU boundary
 	// trigger fires (e.g. gapless albums with no audible silence between tracks).
@@ -505,7 +509,7 @@ func main() {
 			log.Printf("library: opened at %s", cfg.LibraryDB)
 		}
 	}
-	components := buildRecognitionComponents(cfg)
+	components := buildRecognitionComponents(cfg, lib)
 	rec := components.chain
 	confirmRec := components.confirmer
 	shazamRec := components.continuity
@@ -537,5 +541,34 @@ func main() {
 	go m.runRecognizer(ctx, rec, confirmRec, shazamRec, fpr, lib)
 	go m.runShazamContinuityMonitor(ctx, shazamRec)
 	go m.runLibrarySync(ctx, lib)
+	go m.runStatsLogger(ctx, lib)
 	m.runWriter(ctx)
+}
+
+func (m *mgr) runStatsLogger(ctx context.Context, lib *internallibrary.Library) {
+	if lib == nil {
+		return
+	}
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			stats, err := lib.GetRecognitionStats()
+			if err != nil {
+				log.Printf("stats: failed to get recognition stats: %v", err)
+				continue
+			}
+			if len(stats) == 0 {
+				continue
+			}
+			log.Printf("--- Recognition Stats Summary ---")
+			for p, evs := range stats {
+				log.Printf("  [%s]: attempts=%d successes=%d no_match=%d errors=%d",
+					p, evs["attempt"], evs["success"], evs["no_match"], evs["error"])
+			}
+		}
+	}
 }

@@ -26,6 +26,7 @@ func createResolveTestDB(t *testing.T) string {
 		`CREATE TABLE collection (
 			id             INTEGER PRIMARY KEY AUTOINCREMENT,
 			acrid          TEXT UNIQUE,
+			shazam_id      TEXT,
 			title          TEXT NOT NULL,
 			artist         TEXT NOT NULL,
 			album          TEXT,

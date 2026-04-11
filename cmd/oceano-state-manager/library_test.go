@@ -91,8 +91,8 @@ func TestRecordPlay_InsertsNewTrack(t *testing.T) {
 	if entry.PlayCount != 1 {
 		t.Errorf("play_count = %d, want 1", entry.PlayCount)
 	}
-	if !entry.UserConfirmed {
-		t.Error("user_confirmed should be true after ACRCloud recognition")
+	if entry.UserConfirmed {
+		t.Error("user_confirmed should be false for new tracks (allow manual association)")
 	}
 }
 

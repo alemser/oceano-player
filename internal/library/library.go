@@ -57,6 +57,12 @@ var migrations = []string{
 	`CREATE INDEX fingerprints_entry_id ON fingerprints(entry_id)`,
 	`ALTER TABLE collection ADD COLUMN shazam_id TEXT`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS collection_shazam_id_uq ON collection(shazam_id) WHERE shazam_id IS NOT NULL AND shazam_id != ''`,
+	`CREATE TABLE recognition_summary (
+		provider TEXT,
+		event    TEXT,
+		count    INTEGER DEFAULT 0,
+		PRIMARY KEY(provider, event)
+	)`,
 }
 
 type Library struct {
@@ -160,7 +166,7 @@ func canonicalTracksEquivalent(aTitle, aArtist, bTitle, bArtist string) bool {
 	return aT == bT && canonicalArtistsEquivalent(aArtist, bArtist)
 }
 
-func (l *Library) lookupConfirmedByEquivalentMetadata(title, artist string) (*CollectionEntry, error) {
+func (l *Library) lookupByEquivalentMetadata(title, artist string) (*CollectionEntry, error) {
 	if strings.TrimSpace(title) == "" || strings.TrimSpace(artist) == "" {
 		return nil, nil
 	}
@@ -172,7 +178,7 @@ func (l *Library) lookupConfirmedByEquivalentMetadata(title, artist string) (*Co
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed
 		FROM collection
-		WHERE user_confirmed = 1 AND title != '' AND artist != ''`)
+		WHERE title != '' AND artist != ''`)
 	if err != nil {
 		return nil, fmt.Errorf("library: equivalent metadata lookup query: %w", err)
 	}
@@ -287,6 +293,47 @@ func (l *Library) Lookup(acrid string) (*CollectionEntry, error) {
 	return l.lookupByColumn("acrid", acrid)
 }
 
+// RecordRecognitionEvent increments a counter in recognition_summary.
+func (l *Library) RecordRecognitionEvent(provider, event string) {
+	if l == nil || l.db == nil {
+		return
+	}
+	_, err := l.db.Exec(`
+		INSERT INTO recognition_summary (provider, event, count)
+		VALUES (?, ?, 1)
+		ON CONFLICT(provider, event) DO UPDATE SET count = count + 1`,
+		provider, event)
+	if err != nil {
+		log.Printf("library: RecordRecognitionEvent: %v", err)
+	}
+}
+
+// GetRecognitionStats returns a map of provider -> event -> count.
+func (l *Library) GetRecognitionStats() (map[string]map[string]int, error) {
+	if l == nil || l.db == nil {
+		return nil, nil
+	}
+	rows, err := l.db.Query(`SELECT provider, event, count FROM recognition_summary`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := make(map[string]map[string]int)
+	for rows.Next() {
+		var p, e string
+		var c int
+		if err := rows.Scan(&p, &e, &c); err != nil {
+			return nil, err
+		}
+		if _, ok := stats[p]; !ok {
+			stats[p] = make(map[string]int)
+		}
+		stats[p][e] = c
+	}
+	return stats, nil
+}
+
 func (l *Library) GetByID(id int64) (*CollectionEntry, error) {
 	if id <= 0 {
 		return nil, nil
@@ -327,6 +374,10 @@ func (l *Library) LookupByIDs(acrid, shazamID string) (*CollectionEntry, error) 
 	return l.LookupByShazamID(shazamID)
 }
 
+// RecordPlay logs a track playback in the collection.
+// It handles identifying existing tracks by ACRID, ShazamID, or Title/Artist.
+// If it's a new track, it's created as unconfirmed (user_confirmed = 0) so the
+// user can associate it with existing entries if it's a duplicate.
 func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
@@ -337,14 +388,13 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 	allowEquivalentMerge := result.ShazamID != "" ||
 		(result.ACRID != "" && strings.TrimSpace(result.Title) != "" && strings.TrimSpace(result.Artist) != "")
 	if allowEquivalentMerge {
-		if existing, err := l.lookupConfirmedByEquivalentMetadata(result.Title, result.Artist); err != nil {
+		if existing, err := l.lookupByEquivalentMetadata(result.Title, result.Artist); err != nil {
 			return 0, err
 		} else if existing != nil {
 			_, err := l.db.Exec(`
 				UPDATE collection SET
 					play_count     = play_count + 1,
 					last_played    = ?,
-					user_confirmed = 1,
 					shazam_id      = CASE WHEN (COALESCE(shazam_id,'') = '') AND ? != '' THEN ? ELSE shazam_id END,
 					title          = CASE WHEN ? > score THEN ? ELSE title END,
 					artist         = CASE WHEN ? > score THEN ? ELSE artist END,
@@ -375,11 +425,10 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 			INSERT INTO collection
 				(acrid, shazam_id, title, artist, album, label, released, score,
 				 artwork_path, play_count, first_played, last_played, user_confirmed)
-			VALUES (?,?,?,?,?,?,?,?,?,1,?,?,1)
+			VALUES (?,?,?,?,?,?,?,?,?,1,?,?,0)
 			ON CONFLICT(acrid) DO UPDATE SET
 				play_count     = play_count + 1,
 				last_played    = excluded.last_played,
-				user_confirmed = 1,
 				shazam_id      = CASE WHEN (COALESCE(shazam_id,'') = '') AND excluded.shazam_id != '' THEN excluded.shazam_id ELSE shazam_id END,
 				title          = CASE WHEN excluded.score > score THEN excluded.title ELSE title END,
 				artist         = CASE WHEN excluded.score > score THEN excluded.artist ELSE artist END,
@@ -400,11 +449,10 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 			INSERT INTO collection
 				(shazam_id, title, artist, album, label, released, score,
 				 artwork_path, play_count, first_played, last_played, user_confirmed)
-			VALUES (?,?,?,?,?,?,?, ?,1,?,?,1)
+			VALUES (?,?,?,?,?,?,?, ?,1,?,?,0)
 			ON CONFLICT(shazam_id) WHERE shazam_id IS NOT NULL AND shazam_id != '' DO UPDATE SET
 				play_count     = play_count + 1,
 				last_played    = excluded.last_played,
-				user_confirmed = 1,
 				title          = CASE WHEN excluded.score > score THEN excluded.title ELSE title END,
 				artist         = CASE WHEN excluded.score > score THEN excluded.artist ELSE artist END,
 				album          = CASE WHEN excluded.score > score THEN excluded.album ELSE album END,
@@ -425,7 +473,7 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 			INSERT INTO collection
 				(title, artist, album, label, released, score,
 				 artwork_path, play_count, first_played, last_played, user_confirmed)
-			VALUES (?,?,?,?,?,?,?,1,?,?,1)
+			VALUES (?,?,?,?,?,?,?,1,?,?,0)
 			RETURNING id`,
 			result.Title, result.Artist, result.Album,
 			result.Label, result.Released, result.Score, artworkPath, now, now,
@@ -435,10 +483,12 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 	if err != nil {
 		return 0, fmt.Errorf("library: fallback lookup: %w", err)
 	}
-	_, err = l.db.Exec(`UPDATE collection SET play_count = play_count + 1, last_played = ?, user_confirmed = 1 WHERE id = ?`, now, id)
+	_, err = l.db.Exec(`UPDATE collection SET play_count = play_count + 1, last_played = ? WHERE id = ?`, now, id)
 	return id, err
 }
 
+// UpsertStub creates or updates an unconfirmed "stub" entry in the collection.
+// Stubs are used when a track is captured but not yet fully identified or confirmed.
 func (l *Library) UpsertStub(fps []recognition.Fingerprint, threshold float64, maxShift int) (*CollectionEntry, error) {
 	if len(fps) == 0 {
 		return nil, fmt.Errorf("library: UpsertStub: no fingerprints provided")

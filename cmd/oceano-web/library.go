@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +19,8 @@ import (
 // LibraryEntry is the JSON representation of a collection row.
 type LibraryEntry struct {
 	ID          int64  `json:"id"`
+	ACRID       string `json:"acrid"`
+	ShazamID    string `json:"shazam_id"`
 	Title       string `json:"title"`
 	Artist      string `json:"artist"`
 	Album       string `json:"album"`
@@ -29,8 +32,8 @@ type LibraryEntry struct {
 	PlayCount   int    `json:"play_count"`
 	FirstPlayed string `json:"first_played"`
 	LastPlayed  string `json:"last_played"`
-	// IsFingerprintStub is true only for unresolved stub rows created from
-	// local fingerprint no-match captures (empty metadata + fingerprint rows).
+	// IsFingerprintStub is true for unresolved stub rows (user_confirmed = 0)
+	// that have fingerprints attached.
 	IsFingerprintStub bool `json:"is_fingerprint_stub"`
 }
 
@@ -87,14 +90,67 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 	}
 	// Ensure columns added by state-manager migrations are present.
 	// ALTER TABLE returns an error if the column already exists; that is safe to ignore.
-	if _, err := l.db.Exec(`ALTER TABLE collection ADD COLUMN user_confirmed INTEGER NOT NULL DEFAULT 0`); err != nil {
-		errText := strings.ToLower(err.Error())
-		if !strings.Contains(errText, "duplicate column name") && !strings.Contains(errText, "already exists") {
-			_ = l.db.Close()
-			return nil, fmt.Errorf("library: ensure collection.user_confirmed column exists: %w", err)
+	ensureCols := []string{
+		`ALTER TABLE collection ADD COLUMN acrid TEXT`,
+		`ALTER TABLE collection ADD COLUMN shazam_id TEXT`,
+		`ALTER TABLE collection ADD COLUMN user_confirmed INTEGER NOT NULL DEFAULT 0`,
+		`CREATE TABLE IF NOT EXISTS recognition_summary (
+			provider TEXT,
+			event    TEXT,
+			count    INTEGER DEFAULT 0,
+			PRIMARY KEY(provider, event)
+		)`,
+	}
+	for _, stmt := range ensureCols {
+		if _, err := l.db.Exec(stmt); err != nil {
+			errText := strings.ToLower(err.Error())
+			if !strings.Contains(errText, "duplicate column name") && !strings.Contains(errText, "already exists") {
+				_ = l.db.Close()
+				return nil, fmt.Errorf("library: ensure column exists (%s): %w", stmt, err)
+			}
 		}
 	}
+	if _, err := l.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS collection_acrid_uq ON collection(acrid) WHERE acrid IS NOT NULL AND acrid != ''`); err != nil {
+		_ = l.db.Close()
+		return nil, fmt.Errorf("library: ensure acrid index: %w", err)
+	}
+	if _, err := l.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS collection_shazam_id_uq ON collection(shazam_id) WHERE shazam_id IS NOT NULL AND shazam_id != ''`); err != nil {
+		_ = l.db.Close()
+		return nil, fmt.Errorf("library: ensure shazam_id index: %w", err)
+	}
 	return l, nil
+}
+
+// isConstraintError reports whether err is a SQLite unique/primary-key constraint violation.
+func isConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint") || strings.Contains(msg, "constraint failed")
+}
+
+// getRecognitionStats returns a map of provider -> event -> count.
+func (l *LibraryDB) getRecognitionStats() (map[string]map[string]int, error) {
+	rows, err := l.db.Query(`SELECT provider, event, count FROM recognition_summary`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := make(map[string]map[string]int)
+	for rows.Next() {
+		var p, e string
+		var c int
+		if err := rows.Scan(&p, &e, &c); err != nil {
+			return nil, err
+		}
+		if _, ok := stats[p]; !ok {
+			stats[p] = make(map[string]int)
+		}
+		stats[p][e] = c
+	}
+	return stats, nil
 }
 
 func (l *LibraryDB) close() {
@@ -130,11 +186,11 @@ func (l *LibraryDB) recentArtworks() ([]LibraryEntry, error) {
 // list returns all entries ordered by last_played descending.
 func (l *LibraryDB) list() ([]LibraryEntry, error) {
 	rows, err := l.db.Query(`
-		SELECT id, title, artist, COALESCE(album,''), COALESCE(label,''),
+		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist, COALESCE(album,''), COALESCE(label,''),
 		       COALESCE(released,''), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played,
-		       CASE WHEN user_confirmed = 0 AND title = '' AND artist = ''
+		       CASE WHEN user_confirmed = 0
 		                 AND EXISTS (SELECT 1 FROM fingerprints f WHERE f.entry_id = collection.id)
 		            THEN 1 ELSE 0 END AS is_fingerprint_stub
 		FROM collection ORDER BY last_played DESC`)
@@ -147,12 +203,11 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 	for rows.Next() {
 		var e LibraryEntry
 		var stub int
-		if err := rows.Scan(&e.ID, &e.Title, &e.Artist, &e.Album, &e.Label,
-			&e.Released, &e.Format, &e.TrackNumber, &e.ArtworkPath,
-			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &stub); err != nil {
+		if err := rows.Scan(&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist, &e.Album, &e.Label, &e.Released, &e.Format,
+			&e.TrackNumber, &e.ArtworkPath, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &stub); err != nil {
 			return nil, err
 		}
-		e.IsFingerprintStub = stub == 1
+		e.IsFingerprintStub = (stub == 1)
 		entries = append(entries, e)
 	}
 	return entries, rows.Err()
@@ -214,12 +269,12 @@ func (l *LibraryDB) resolveFingerprintStub(stubID, targetID int64) (*LibraryEntr
 	defer tx.Rollback() //nolint:errcheck
 
 	var stubPlayCount int
-	var stubLastPlayed string
+	var stubLastPlayed, stubACRID, stubShazamID string
 	err = tx.QueryRow(`
-		SELECT play_count, last_played
+		SELECT play_count, last_played, COALESCE(acrid,''), COALESCE(shazam_id,'')
 		FROM collection
-		WHERE id = ? AND user_confirmed = 0 AND title = '' AND artist = ''`, stubID).
-		Scan(&stubPlayCount, &stubLastPlayed)
+		WHERE id = ? AND user_confirmed = 0`, stubID).
+		Scan(&stubPlayCount, &stubLastPlayed, &stubACRID, &stubShazamID)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("entry %d is not an unresolved fingerprint stub", stubID)
 	}
@@ -237,11 +292,11 @@ func (l *LibraryDB) resolveFingerprintStub(stubID, targetID int64) (*LibraryEntr
 
 	target := &LibraryEntry{}
 	err = tx.QueryRow(`
-		SELECT id, title, artist, COALESCE(album,''), COALESCE(format,'Unknown'),
+		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist, COALESCE(album,''), COALESCE(format,'Unknown'),
 		       COALESCE(artwork_path,''), play_count, last_played
 		FROM collection
 		WHERE id = ? AND title != '' AND artist != ''`, targetID).
-		Scan(&target.ID, &target.Title, &target.Artist, &target.Album, &target.Format,
+		Scan(&target.ID, &target.ACRID, &target.ShazamID, &target.Title, &target.Artist, &target.Album, &target.Format,
 			&target.ArtworkPath, &target.PlayCount, &target.LastPlayed)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("target %d is not a valid identified track", targetID)
@@ -253,6 +308,24 @@ func (l *LibraryDB) resolveFingerprintStub(stubID, targetID int64) (*LibraryEntr
 	if _, err := tx.Exec(`UPDATE fingerprints SET entry_id = ? WHERE entry_id = ?`, targetID, stubID); err != nil {
 		return nil, err
 	}
+
+	// Update target with stub's provider IDs if target's fields are empty.
+	// Unique constraint violations are expected when another track already holds that ID — skip silently.
+	if target.ACRID == "" && stubACRID != "" {
+		if _, err := tx.Exec(`UPDATE collection SET acrid = ? WHERE id = ?`, stubACRID, targetID); err != nil {
+			if !isConstraintError(err) {
+				log.Printf("library: resolveFingerprintStub: set acrid on target %d: %v", targetID, err)
+			}
+		}
+	}
+	if target.ShazamID == "" && stubShazamID != "" {
+		if _, err := tx.Exec(`UPDATE collection SET shazam_id = ? WHERE id = ?`, stubShazamID, targetID); err != nil {
+			if !isConstraintError(err) {
+				log.Printf("library: resolveFingerprintStub: set shazam_id on target %d: %v", targetID, err)
+			}
+		}
+	}
+
 	if _, err := tx.Exec(`
 		UPDATE collection
 		SET play_count = play_count + ?,
@@ -366,6 +439,33 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(entries)
+	})
+
+	// GET /api/recognition/stats — get stats for ACRCloud, Shazam, Fingerprint.
+	mux.HandleFunc("/api/recognition/stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		lib, err := openLibraryDB(libraryDBPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("{}"))
+			return
+		}
+		defer lib.close()
+
+		stats, err := lib.getRecognitionStats()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(stats)
 	})
 
 	// GET /api/library/artworks — recent tracks with artwork, for the picker.
@@ -587,20 +687,24 @@ func patchStateFile(path, title, artist, album, format, artworkPath string) {
 	default:
 		return
 	}
-	if string(state.Track) == "null" || len(state.Track) == 0 {
-		return
+	var track map[string]interface{}
+	if string(state.Track) != "null" && len(state.Track) > 0 {
+		if err := json.Unmarshal(state.Track, &track); err != nil {
+			// If unmarshal fails, we'll just overwrite it.
+			track = make(map[string]interface{})
+		}
+	} else {
+		track = make(map[string]interface{})
 	}
 
-	var track map[string]interface{}
-	if err := json.Unmarshal(state.Track, &track); err != nil {
-		return
-	}
 	track["title"] = title
 	track["artist"] = artist
 	track["album"] = album
+	track["format"] = format
 	if artworkPath != "" {
 		track["artwork_path"] = artworkPath
 	}
+
 	tb, err := json.Marshal(track)
 	if err != nil {
 		return

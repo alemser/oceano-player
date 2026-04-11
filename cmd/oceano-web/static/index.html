@@ -285,6 +285,14 @@
       </div>
 
       <div class="config-subsection">
+        <div class="config-subtitle">Recognition Statistics</div>
+        <div id="rec-stats-container" class="stats-grid">
+          <div class="hint">Loading statistics...</div>
+        </div>
+        <div class="hint" style="margin-top:10px">Lifetime counters for each recognition provider. Local fingerprint hits save API calls.</div>
+      </div>
+
+      <div class="config-subsection">
         <div class="config-subtitle">Timing &amp; Confirmation</div>
 
         <div class="field">
@@ -588,15 +596,30 @@
     <div class="modal-row">
       <div class="modal-field">
         <label>Track №  <span style="color:var(--muted);font-weight:400">(e.g. 1, 2, 1A, 2B)</span></label>
-        <input type="text" id="modal-track-number" placeholder="optional">
+        <input type="text" id="modal-track-number" placeholder="optional" oninput="this.value = this.value.toUpperCase()">
       </div>
     </div>
     <div class="modal-actions">
-      <button type="button" class="btn-modal-delete" onclick="deleteEntry()">Delete</button>
-      <button type="button" class="btn-modal-resolve" id="btn-resolve-stub" onclick="toggleResolvePanel()" style="display:none">Resolve fingerprint</button>
-      <button type="button" class="btn-modal-prev" id="btn-copy-prev" onclick="fillFromPrevious()" title="Copy album, artist, label, year, format and artwork from the previous track">← Previous track</button>
-      <button type="button" class="btn-modal-cancel" onclick="closeModal()">Cancel</button>
-      <button type="button" class="btn-modal-save" onclick="saveEntry()">Save</button>
+      <div class="actions-left">
+        <button type="button" class="btn-modal-delete" onclick="deleteEntry()" title="Delete track">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          <span>Delete</span>
+        </button>
+      </div>
+      <div class="actions-center">
+        <button type="button" class="btn-modal-resolve" id="btn-resolve-stub" onclick="toggleResolvePanel()" style="display:none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          <span>Link Track</span>
+        </button>
+        <button type="button" class="btn-modal-prev" id="btn-copy-prev" onclick="fillFromPrevious()" title="Copy album, artist, label, year, format and artwork from the previous track">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M5 12l6 6M5 12l6-6"/></svg>
+          <span>Copy Previous</span>
+        </button>
+      </div>
+      <div class="actions-right">
+        <button type="button" class="btn-modal-cancel" onclick="closeModal()">Cancel</button>
+        <button type="button" class="btn-modal-save" onclick="saveEntry()">Save</button>
+      </div>
     </div>
   </div>
 </div>

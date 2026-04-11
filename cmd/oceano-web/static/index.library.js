@@ -135,8 +135,9 @@ function openModal(id) {
   const resolveBtn = document.getElementById('btn-resolve-stub');
   const resolveWrap = document.getElementById('resolve-wrap');
   if (resolveBtn && resolveWrap) {
-    const canResolve = !!e.is_fingerprint_stub;
-    resolveBtn.style.display = canResolve ? '' : 'none';
+    // Show "Link Track" button for any track that is not yet user-confirmed.
+    const canResolve = !e.user_confirmed;
+    resolveBtn.style.display = canResolve ? 'flex' : 'none';
     resolveWrap.style.display = 'none';
     document.getElementById('resolve-search').value = '';
     document.getElementById('resolve-results').innerHTML = '';
