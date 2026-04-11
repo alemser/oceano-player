@@ -17,31 +17,56 @@
 
 <!-- Idle screen (shown when no source is active) -->
 <div id="idle-screen" class="visible">
-  <!-- Power button — top right corner -->
-  <button id="idle-power-btn" type="button" aria-label="Power options" title="Power options" onclick="openPowerDialog()">
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 3v9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      <path d="M6.34 6.34A9 9 0 1 0 17.66 6.34" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-  </button>
 
-  <!-- Main content: clock (left) + weather (right) -->
+  <!-- Top bar: logo | location · condition | sunrise / sunset / pressure -->
+  <div id="idle-topbar">
+    <div id="idle-logo" aria-label="Oceano Player">
+      <svg id="idle-logo-wave" viewBox="0 0 48 22" fill="none" aria-hidden="true">
+        <path d="M2 12 C8 2, 15 2, 22 12 C29 22, 36 22, 42 12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M6 18 C11 10, 17 10, 24 18 C31 26, 37 26, 42 18" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"/>
+      </svg>
+      <span id="idle-logo-text">OCEANO</span>
+    </div>
+
+    <div id="idle-location-cond">
+      <span id="idle-location-label"></span>
+      <span class="idle-sep">·</span>
+      <span id="idle-weather-cond">—</span>
+    </div>
+
+    <div id="idle-meta-stats">
+      <div class="idle-stat">
+        <span class="idle-stat-lbl">Sunrise</span>
+        <span class="idle-stat-val" id="idle-sunrise">—</span>
+      </div>
+      <div class="idle-stat">
+        <span class="idle-stat-lbl">Sunset</span>
+        <span class="idle-stat-val" id="idle-sunset">—</span>
+      </div>
+      <div class="idle-stat">
+        <span class="idle-stat-lbl">Pressure</span>
+        <span class="idle-stat-val" id="idle-pressure">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main: clock (left) | weather icon (centre) | temperature (right) -->
   <div id="idle-main">
-    <!-- Clock widget -->
     <div id="idle-clock-widget">
       <div id="idle-time"></div>
       <div id="idle-date"></div>
     </div>
 
-    <!-- Weather widget -->
-    <div id="idle-weather-widget" aria-label="Weather">
-      <div id="idle-weather-icon-wrap">
-        <span id="idle-weather-icon" aria-hidden="true"></span>
-      </div>
-      <div id="idle-weather-temp"></div>
-      <div id="idle-weather-cond"></div>
+    <div id="idle-weather-icon-wrap" aria-hidden="true">
+      <span id="idle-weather-icon"></span>
     </div>
+
+    <div id="idle-weather-temp"></div>
   </div>
+
+  <!-- 7-day forecast strip -->
+  <div id="idle-forecast" aria-label="7-day forecast"></div>
+
 </div>
 
 <div class="power-overlay" id="power-dialog" onclick="if(event.target===this)closePowerDialog()">
