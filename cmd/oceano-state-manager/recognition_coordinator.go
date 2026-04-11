@@ -594,13 +594,18 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			continue
 		}
 
-		var skip time.Duration
 		if isBoundaryTrigger {
 			skip = time.Duration(c.mgr.cfg.FingerprintBoundaryLeadSkipSecs) * time.Second
 			c.mgr.mu.Lock()
 			c.mgr.lastBoundaryAt = time.Now()
 			c.mgr.pendingStubID = 0
+			// Clear current track info on boundary so UI shows "Identifying"
+			// and same-track optimization is bypassed for explicit transitions.
+			c.mgr.recognitionResult = nil
+			c.mgr.physicalLibraryEntryID = 0
+			c.mgr.physicalArtworkPath = ""
 			c.mgr.mu.Unlock()
+			c.mgr.markDirty()
 		}
 
 		log.Printf("recognizer [%s]: capturing %s from %s (skip=%s)",
@@ -685,7 +690,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			c.mgr.mu.Lock()
 			currentResult := c.mgr.recognitionResult
 			c.mgr.mu.Unlock()
-			if currentResult != nil && sameTrackByProviderIDs(currentResult, result) {
+			if !isBoundaryTrigger && currentResult != nil && sameTrackByProviderIDs(currentResult, result) {
 				log.Printf("recognizer [%s]: same track confirmed — no change (%s — %s)", c.rec.Name(), result.Artist, result.Title)
 				shouldMarkDirty := false
 				c.mgr.mu.Lock()
