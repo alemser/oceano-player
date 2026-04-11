@@ -590,20 +590,26 @@
       margin-top: 32px;
       padding-top: 24px;
       border-top: 1px solid var(--border);
+    }
+    .actions-left { flex: 0 0 auto; }
+    .actions-center { 
+      flex: 1; 
+      display: flex; 
+      justify-content: center; 
       gap: 12px;
-      flex-wrap: wrap; /* Safety for medium screens */
     }
-    .actions-left, .actions-center, .actions-right {
-      display: flex;
-      gap: 8px;
-      align-items: center;
+    .actions-right { 
+      flex: 0 0 auto; 
+      display: flex; 
+      gap: 12px;
     }
+    
     .btn-modal-save, .btn-modal-cancel, .btn-modal-delete, .btn-modal-resolve, .btn-modal-prev {
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
-      padding: 8px 12px; /* Slightly tighter padding */
+      padding: 10px 14px;
       font-size: 0.8rem;
       font-weight: 600;
       border-radius: 8px;
