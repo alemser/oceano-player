@@ -623,6 +623,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			c.mgr.cfg.FingerprintWindows, c.mgr.cfg.FingerprintStrideSec,
 			c.mgr.cfg.FingerprintLengthSec, captureSec)
 
+		c.mgr.mu.Lock()
+		c.mgr.lastCapturedFPs = capturedFPs
+		c.mgr.mu.Unlock()
+
 		// Local-first short-circuit is skipped on boundary triggers: a boundary means
 		// the track changed, so the local fingerprint match may be the previous track
 		// (residual audio or a fingerprint overlap). Always use the remote provider to

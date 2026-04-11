@@ -245,6 +245,10 @@ type mgr struct {
 	// retry attempts within the same boundary/session. Subsequent no-match
 	// retries append fingerprints to this stub instead of creating new rows.
 	pendingStubID int64
+	// lastCapturedFPs is the most recent fingerprint capture. Used by the library
+	// sync to find tracks that were manually associated by the user while
+	// the state manager was in "Identifying" state.
+	lastCapturedFPs []Fingerprint
 	// lastRecognizedAt is the time of the most recent successful recognition.
 	// Used by the fallback timer to allow periodic re-checks when no VU boundary
 	// trigger fires (e.g. gapless albums with no audible silence between tracks).

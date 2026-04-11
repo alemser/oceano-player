@@ -142,6 +142,10 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 	}
 	entryID := m.physicalLibraryEntryID
 	pendingStubID := m.pendingStubID
+	var capturedFPs []Fingerprint
+	if m.recognitionResult == nil && pendingStubID > 0 {
+		capturedFPs = m.lastCapturedFPs
+	}
 	m.mu.Unlock()
 
 	var entry *internallibrary.CollectionEntry
@@ -152,8 +156,20 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 		entry, err = lib.GetByID(entryID)
 	} else if pendingStubID > 0 {
 		entry, err = lib.GetByID(pendingStubID)
+		if (err != nil || entry == nil) && len(capturedFPs) > 0 {
+			// Stub is gone! Maybe it was resolved. Try finding by fingerprints.
+			entry, err = lib.FindByFingerprints(capturedFPs, m.cfg.FingerprintThreshold, 30)
+		}
 	}
 	if err != nil || entry == nil {
+		if pendingStubID > 0 && (err != nil || entry == nil) {
+			// Stub no longer exists and no replacement found.
+			m.mu.Lock()
+			if m.pendingStubID == pendingStubID {
+				m.pendingStubID = 0
+			}
+			m.mu.Unlock()
+		}
 		return
 	}
 

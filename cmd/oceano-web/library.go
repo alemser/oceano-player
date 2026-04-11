@@ -617,20 +617,22 @@ func patchStateFile(path, title, artist, album, format, artworkPath string) {
 	default:
 		return
 	}
-	if string(state.Track) == "null" || len(state.Track) == 0 {
-		return
+	var track map[string]interface{}
+	if string(state.Track) != "null" && len(state.Track) > 0 {
+		if err := json.Unmarshal(state.Track, &track); err != nil {
+			// If unmarshal fails, we'll just overwrite it.
+			track = make(map[string]interface{})
+		}
+	} else {
+		track = make(map[string]interface{})
 	}
 
-	var track map[string]interface{}
-	if err := json.Unmarshal(state.Track, &track); err != nil {
-		return
-	}
 	track["title"] = title
 	track["artist"] = artist
 	track["album"] = album
-	if artworkPath != "" {
-		track["artwork_path"] = artworkPath
-	}
+	track["format"] = format
+	track["artwork_path"] = artworkPath
+
 	tb, err := json.Marshal(track)
 	if err != nil {
 		return
