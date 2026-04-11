@@ -439,7 +439,8 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 	return id, err
 }
 
-func (l *Library) UpsertStub(fps []recognition.Fingerprint, threshold float64, maxShift int) (*CollectionEntry, error) {
+// UpsertStubWithMetadata allows creating a stub with optional metadata (for associable stubs from remote recognition)
+func (l *Library) UpsertStub(fps []recognition.Fingerprint, threshold float64, maxShift int, acrid, shazamID, title, artist, album, label, released string, score int, format, trackNumber, artworkPath string) (*CollectionEntry, error) {
 	if len(fps) == 0 {
 		return nil, fmt.Errorf("library: UpsertStub: no fingerprints provided")
 	}
@@ -458,18 +459,33 @@ func (l *Library) UpsertStub(fps []recognition.Fingerprint, threshold float64, m
 		return entry, nil
 	}
 
+	// If all metadata fields are empty, create a classic stub (empty title/artist)
+	isClassicStub := acrid == "" && shazamID == "" && title == "" && artist == "" && album == "" && label == "" && released == "" && score == 0 && format == "" && trackNumber == "" && artworkPath == ""
+
 	var id int64
-	if err := l.db.QueryRow(`
-		INSERT INTO collection (title, artist, play_count, first_played, last_played, user_confirmed)
-		VALUES ('','',1,?,?,0)
-		RETURNING id`, now, now).Scan(&id); err != nil {
-		return nil, fmt.Errorf("library: stub insert: %w", err)
+	if isClassicStub {
+		if err := l.db.QueryRow(`
+		       INSERT INTO collection (title, artist, play_count, first_played, last_played, user_confirmed)
+		       VALUES ('','',1,?,?,0)
+		       RETURNING id`, now, now).Scan(&id); err != nil {
+			return nil, fmt.Errorf("library: stub insert: %w", err)
+		}
+	} else {
+		if err := l.db.QueryRow(`
+		       INSERT INTO collection (acrid, shazam_id, title, artist, album, label, released, score, format, track_number, artwork_path, play_count, first_played, last_played, user_confirmed)
+		       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
+		       RETURNING id`,
+			acrid, shazamID, title, artist, album, label, released, score, format, trackNumber, artworkPath, 1, now, now).Scan(&id); err != nil {
+			return nil, fmt.Errorf("library: stub insert with metadata: %w", err)
+		}
 	}
 	if err := l.SaveFingerprints(id, fps); err != nil {
 		return nil, fmt.Errorf("library: stub save fingerprints: %w", err)
 	}
 
-	return &CollectionEntry{ID: id, FirstPlayed: now, LastPlayed: now, PlayCount: 1}, nil
+	return &CollectionEntry{
+		ID: id, ACRID: acrid, ShazamID: shazamID, Title: title, Artist: artist, Album: album, Label: label, Released: released, Score: score, Format: format, TrackNumber: trackNumber, ArtworkPath: artworkPath, PlayCount: 1, FirstPlayed: now, LastPlayed: now, UserConfirmed: false,
+	}, nil
 }
 
 func (l *Library) HasFingerprints(entryID int64) bool {

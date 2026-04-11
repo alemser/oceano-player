@@ -220,7 +220,7 @@ func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
 	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
 
 	fps := []Fingerprint{{201, 202, 203, 204}}
-	if _, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30); err != nil {
+	if _, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30, "", "", "", "", "", "", "", 0, "", "", ""); err != nil {
 		t.Fatalf("UpsertStub: %v", err)
 	}
 
@@ -288,7 +288,7 @@ func TestApplyRecognizedResult_PromotesPendingStubFingerprints(t *testing.T) {
 	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Fingerprint"}, nil, nil, nil, lib)
 
 	fps := []Fingerprint{{42, 43, 44, 45}}
-	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30)
+	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30, "", "", "", "", "", "", "", 0, "", "", "")
 	if err != nil || stub == nil {
 		t.Fatalf("UpsertStub: err=%v stub=%v", err, stub)
 	}
@@ -599,7 +599,7 @@ func TestTryLocalFingerprintFallback_MatchesConfirmedStub(t *testing.T) {
 	fps := []Fingerprint{{0x12345678, 0x9ABCDEF0, 0x11111111, 0x22222222}}
 
 	// Insert a confirmed entry directly, as the user would after filling details.
-	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30)
+	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30, "", "", "", "", "", "", "", 0, "", "", "")
 	if err != nil || stub == nil {
 		t.Fatalf("UpsertStub: err=%v stub=%v", err, stub)
 	}
@@ -648,7 +648,7 @@ func TestTryLocalFingerprintLocalFirst_MatchesConfirmedOnly(t *testing.T) {
 	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
 
 	fps := []Fingerprint{{0xCAFE1234, 0xBEEF5678, 0x11111111, 0x22222222}}
-	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30)
+	stub, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30, "", "", "", "", "", "", "", 0, "", "", "")
 	if err != nil || stub == nil {
 		t.Fatalf("UpsertStub: err=%v stub=%v", err, stub)
 	}
@@ -682,7 +682,7 @@ func TestTryLocalFingerprintLocalFirst_DoesNotMatchUnconfirmedStub(t *testing.T)
 	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
 
 	fps := []Fingerprint{{0xAAAA0001, 0xAAAA0002, 0xAAAA0003, 0xAAAA0004}}
-	if _, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30); err != nil {
+	if _, err := lib.UpsertStub(fps, m.cfg.FingerprintThreshold, 30, "", "", "", "", "", "", "", 0, "", "", ""); err != nil {
 		t.Fatalf("UpsertStub: %v", err)
 	}
 

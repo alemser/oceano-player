@@ -231,7 +231,7 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 		return
 	}
 
-	log.Printf("recognizer [%s]: no match — retrying in %s", c.rec.Name(), noMatchBackoff)
+	log.Printf("recognizer [%s]: no match — retrying em %s", c.rec.Name(), noMatchBackoff)
 	storeStubOnNoMatch := isBoundaryTrigger || c.mgr.cfg.RecognizerChain == "fingerprint_only"
 	if len(capturedFPs) > 0 && c.lib != nil && storeStubOnNoMatch {
 		c.mgr.mu.Lock()
@@ -240,9 +240,28 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 		stillPhysical := c.mgr.physicalSource == "Physical"
 		hasRecognition := c.mgr.recognitionResult != nil
 		pendingStubID := c.mgr.pendingStubID
+		var recog *RecognitionResult
+		if hasRecognition {
+			recog = c.mgr.recognitionResult
+		}
 		c.mgr.mu.Unlock()
 
-		if c.mgr.cfg.RecognizerChain == "fingerprint_only" {
+		// Se houve reconhecimento remoto mas sem match local, criar stub associável com metadados
+		if recog != nil && (recog.ACRID != "" || recog.ShazamID != "" || recog.Title != "" || recog.Artist != "") {
+			stub, stubErr := c.lib.UpsertStub(
+				capturedFPs, c.mgr.cfg.FingerprintThreshold, 30,
+				recog.ACRID, recog.ShazamID, recog.Title, recog.Artist, recog.Album, recog.Label, recog.Released, recog.Score, recog.Format, recog.TrackNumber, "",
+			)
+			if stubErr != nil {
+				log.Printf("recognizer: associable stub upsert error: %v", stubErr)
+			} else {
+				log.Printf("recognizer: associable no-match stub stored (id=%d)", stub.ID)
+				c.mgr.mu.Lock()
+				c.mgr.lastStubAt = time.Now()
+				c.mgr.pendingStubID = stub.ID
+				c.mgr.mu.Unlock()
+			}
+		} else if c.mgr.cfg.RecognizerChain == "fingerprint_only" {
 			minInterval := c.mgr.cfg.RecognizerMaxInterval
 			if minInterval <= 0 {
 				minInterval = noMatchBackoff
@@ -268,7 +287,7 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 				}
 			} else if !shouldCreateFingerprintOnlyStub(lastStub, lastBoundary, stillPhysical, minInterval) {
 				log.Printf("recognizer: fingerprint-only stub skipped — throttle active (lastStub=%s, minInterval=%s)", lastStub.Format(time.RFC3339), minInterval)
-			} else if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {
+			} else if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30, "", "", "", "", "", "", "", 0, "", "", ""); stubErr != nil {
 				log.Printf("recognizer: stub upsert error: %v", stubErr)
 			} else {
 				log.Printf("recognizer: fingerprint-only no-match stub stored (id=%d)", stub.ID)
@@ -278,7 +297,7 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 				c.mgr.mu.Unlock()
 			}
 		} else if shouldCreateBoundaryStub(lastStub, lastBoundary, stillPhysical) {
-			if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {
+			if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30, "", "", "", "", "", "", "", 0, "", "", ""); stubErr != nil {
 				log.Printf("recognizer: stub upsert error: %v", stubErr)
 			} else {
 				log.Printf("recognizer: fingerprint stub stored (id=%d)", stub.ID)
