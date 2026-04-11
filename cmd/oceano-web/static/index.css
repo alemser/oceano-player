@@ -584,41 +584,41 @@
     .modal-field select option { background: #1a1a1a; }
     .modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .modal-actions {
-      display: grid;
-      grid-template-areas:
-        "center center center"
-        "left   .      right";
-      grid-template-columns: auto 1fr auto;
+      display: flex;
+      flex-direction: column;
       gap: 10px;
       margin-top: 32px;
       padding-top: 24px;
       border-top: 1px solid var(--border);
     }
-    .actions-left  { grid-area: left; }
-    .actions-center {
-      grid-area: center;
-      display: flex;
-      gap: 8px;
-    }
     .actions-right {
-      grid-area: right;
+      order: -2; /* Cancel + Save at top */
       display: flex;
       gap: 8px;
     }
+    .actions-center {
+      order: -1; /* Link Track + Copy Previous second */
+      display: flex;
+      gap: 8px;
+    }
+    .actions-left { /* Delete last */ }
     
     .btn-modal-save, .btn-modal-cancel, .btn-modal-delete, .btn-modal-resolve, .btn-modal-prev {
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
-      padding: 10px 14px;
-      font-size: 0.8rem;
+      padding: 11px 14px;
+      font-size: 0.85rem;
       font-weight: 600;
       border-radius: 8px;
       cursor: pointer;
       transition: all 0.15s ease;
       white-space: nowrap;
+      width: 100%;
     }
+    .actions-right .btn-modal-cancel,
+    .actions-right .btn-modal-save { flex: 1; }
 
     .btn-modal-save {
       background: var(--accent);
@@ -660,31 +660,8 @@
     @media (max-width: 480px) {
       .modal { padding: 20px; }
       .modal-row { grid-template-columns: 1fr; }
-      .modal-actions {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        align-items: stretch;
-      }
-      .actions-right {
-        order: -1; /* Save/Cancel at top on mobile */
-        flex-direction: row;
-        justify-content: stretch;
-      }
-      .actions-center {
-        flex-direction: column;
-      }
-      .actions-left, .actions-center, .actions-right {
-        width: 100%;
-      }
-      .btn-modal-save, .btn-modal-cancel {
-        flex: 1;
-      }
       .btn-modal-save, .btn-modal-cancel, .btn-modal-delete, .btn-modal-resolve, .btn-modal-prev {
-        width: 100%;
-        padding: 12px;
-        justify-content: center;
-        font-size: 0.85rem;
+        padding: 13px 14px;
       }
     }
 
