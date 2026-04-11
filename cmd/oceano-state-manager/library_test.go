@@ -91,8 +91,8 @@ func TestRecordPlay_InsertsNewTrack(t *testing.T) {
 	if entry.PlayCount != 1 {
 		t.Errorf("play_count = %d, want 1", entry.PlayCount)
 	}
-	if !entry.UserConfirmed {
-		t.Error("user_confirmed should be true after ACRCloud recognition")
+	if entry.UserConfirmed {
+		t.Error("user_confirmed should be false for new tracks (allow manual association)")
 	}
 }
 
@@ -589,7 +589,7 @@ func TestFindByFingerprints_PrefersEntryMatchingAllWindows(t *testing.T) {
 func TestUpsertStub_CreatesStub(t *testing.T) {
 	lib := openTestLibrary(t)
 	fps := []Fingerprint{makeFingerprint(0x11223344, 50)}
-	stub, err := lib.UpsertStub(fps, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
+	stub, err := lib.UpsertStub(fps, 0.35, 30)
 	if err != nil {
 		t.Fatalf("UpsertStub: %v", err)
 	}
@@ -609,8 +609,8 @@ func TestUpsertStub_ReusesExistingStubByFingerprint(t *testing.T) {
 	fp := makeFingerprint(0xAABBCCDD, 50)
 	fps := []Fingerprint{fp}
 
-	stub1, _ := lib.UpsertStub(fps, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
-	stub2, _ := lib.UpsertStub(fps, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
+	stub1, _ := lib.UpsertStub(fps, 0.35, 30)
+	stub2, _ := lib.UpsertStub(fps, 0.35, 30)
 
 	if stub1.ID != stub2.ID {
 		t.Errorf("second UpsertStub should reuse id=%d, got id=%d", stub1.ID, stub2.ID)
@@ -629,8 +629,8 @@ func TestUpsertStub_DifferentFingerprintCreatesNewStub(t *testing.T) {
 	fp1 := []Fingerprint{makeFingerprint(0x00000000, 50)}
 	fp2 := []Fingerprint{makeFingerprint(0xFFFFFFFF, 50)}
 
-	stub1, _ := lib.UpsertStub(fp1, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
-	stub2, _ := lib.UpsertStub(fp2, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
+	stub1, _ := lib.UpsertStub(fp1, 0.35, 30)
+	stub2, _ := lib.UpsertStub(fp2, 0.35, 30)
 
 	if stub1.ID == stub2.ID {
 		t.Error("different fingerprints should create distinct stubs")
@@ -639,7 +639,7 @@ func TestUpsertStub_DifferentFingerprintCreatesNewStub(t *testing.T) {
 
 func TestUpsertStub_NoFingerprintsErrors(t *testing.T) {
 	lib := openTestLibrary(t)
-	_, err := lib.UpsertStub(nil, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
+	_, err := lib.UpsertStub(nil, 0.35, 30)
 	if err == nil {
 		t.Error("UpsertStub(nil) should return an error")
 	}
@@ -650,7 +650,7 @@ func TestUpsertStub_NoFingerprintsErrors(t *testing.T) {
 func TestPruneStub_RemovesStub(t *testing.T) {
 	lib := openTestLibrary(t)
 	fps := []Fingerprint{makeFingerprint(0xCAFEBABE, 50)}
-	stub, _ := lib.UpsertStub(fps, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
+	stub, _ := lib.UpsertStub(fps, 0.35, 30)
 
 	if err := lib.PruneStub(stub.ID); err != nil {
 		t.Fatalf("PruneStub: %v", err)
@@ -683,7 +683,7 @@ func TestPruneRecentStubs_DeletesStubsAfterBoundary(t *testing.T) {
 	boundary := time.Now().Add(-5 * time.Second)
 
 	// Stub created after boundary — should be pruned.
-	stub1, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0x11111111, 50)}, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
+	stub1, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0x11111111, 50)}, 0.35, 30)
 
 	// Confirmed entry — must NOT be pruned.
 	result := &RecognitionResult{ACRID: "acr-keep", Title: "Keep", Artist: "Artist"}
@@ -708,7 +708,7 @@ func TestPruneRecentStubs_SparesBoundaryExcludeID(t *testing.T) {
 	lib := openTestLibrary(t)
 
 	boundary := time.Now().Add(-5 * time.Second)
-	stub, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0x22222222, 50)}, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
+	stub, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0x22222222, 50)}, 0.35, 30)
 
 	// excludeID = stub.ID → should NOT be deleted even though it matches the time window.
 	lib.PruneRecentStubs(boundary, stub.ID)
@@ -724,7 +724,7 @@ func TestPruneRecentStubs_SparesStubsBeforeBoundary(t *testing.T) {
 	lib := openTestLibrary(t)
 
 	// Create stub, then set its first_played to before the boundary.
-	stub, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0x33333333, 50)}, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
+	stub, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0x33333333, 50)}, 0.35, 30)
 	pastTime := time.Now().Add(-2 * time.Minute).UTC().Format(time.RFC3339)
 	lib.DB().Exec(`UPDATE collection SET first_played=? WHERE id=?`, pastTime, stub.ID)
 
@@ -745,7 +745,7 @@ func TestPruneMatchingStubs_DeletesMatchingStub(t *testing.T) {
 	lib := openTestLibrary(t)
 
 	fp := makeFingerprint(0x00000001, 50)
-	stub, _ := lib.UpsertStub([]Fingerprint{fp}, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
+	stub, _ := lib.UpsertStub([]Fingerprint{fp}, 0.35, 30)
 
 	// Simulate recognition of the same track — different entry.
 	result := &RecognitionResult{ACRID: "acr-match", Title: "Found", Artist: "Artist"}
@@ -763,7 +763,7 @@ func TestPruneMatchingStubs_DeletesMatchingStub(t *testing.T) {
 func TestPruneMatchingStubs_SparesNonMatchingStub(t *testing.T) {
 	lib := openTestLibrary(t)
 
-	stub, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0xFFFFFFFF, 50)}, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
+	stub, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0xFFFFFFFF, 50)}, 0.35, 30)
 
 	result := &RecognitionResult{ACRID: "acr-other", Title: "Other", Artist: "Artist"}
 	keepID, _ := lib.RecordPlay(result, "")
@@ -781,7 +781,7 @@ func TestPruneMatchingStubs_SparesNonMatchingStub(t *testing.T) {
 func TestPruneMatchingStubs_SparesExcludeID(t *testing.T) {
 	lib := openTestLibrary(t)
 	fp := makeFingerprint(0x12345678, 50)
-	stub, _ := lib.UpsertStub([]Fingerprint{fp}, 0.35, 30, "", "", "", "", "", "", "", 0, "", "", "")
+	stub, _ := lib.UpsertStub([]Fingerprint{fp}, 0.35, 30)
 
 	// excludeID == stub.ID → spared even though fingerprint matches.
 	lib.PruneMatchingStubs([]Fingerprint{fp}, 0.35, 30, stub.ID)
