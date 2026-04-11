@@ -585,23 +585,21 @@
     .modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .modal-actions {
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      gap: 8px;
       margin-top: 32px;
       padding-top: 24px;
       border-top: 1px solid var(--border);
     }
-    .actions-left { flex: 0 0 auto; }
-    .actions-center { 
-      flex: 1; 
-      display: flex; 
-      justify-content: center; 
-      gap: 12px;
+    /* Delete stays left; everything else is pushed to the right */
+    .actions-left { margin-right: auto; }
+    .actions-center {
+      display: flex;
+      gap: 8px;
     }
-    .actions-right { 
-      flex: 0 0 auto; 
-      display: flex; 
-      gap: 12px;
+    .actions-right {
+      display: flex;
+      gap: 8px;
     }
     
     .btn-modal-save, .btn-modal-cancel, .btn-modal-delete, .btn-modal-resolve, .btn-modal-prev {
