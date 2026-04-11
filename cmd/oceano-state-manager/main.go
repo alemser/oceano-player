@@ -509,7 +509,7 @@ func main() {
 			log.Printf("library: opened at %s", cfg.LibraryDB)
 		}
 	}
-	components := buildRecognitionComponents(cfg)
+	components := buildRecognitionComponents(cfg, lib)
 	rec := components.chain
 	confirmRec := components.confirmer
 	shazamRec := components.continuity
@@ -541,5 +541,34 @@ func main() {
 	go m.runRecognizer(ctx, rec, confirmRec, shazamRec, fpr, lib)
 	go m.runShazamContinuityMonitor(ctx, shazamRec)
 	go m.runLibrarySync(ctx, lib)
+	go m.runStatsLogger(ctx, lib)
 	m.runWriter(ctx)
+}
+
+func (m *mgr) runStatsLogger(ctx context.Context, lib *internallibrary.Library) {
+	if lib == nil {
+		return
+	}
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			stats, err := lib.GetRecognitionStats()
+			if err != nil {
+				log.Printf("stats: failed to get recognition stats: %v", err)
+				continue
+			}
+			if len(stats) == 0 {
+				continue
+			}
+			log.Printf("--- Recognition Stats Summary ---")
+			for p, evs := range stats {
+				log.Printf("  [%s]: attempts=%d successes=%d no_match=%d errors=%d",
+					p, evs["attempt"], evs["success"], evs["no_match"], evs["error"])
+			}
+		}
+	}
 }

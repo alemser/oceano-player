@@ -276,7 +276,56 @@
       transition: color 0.15s;
     }
     .config-drawer-close:hover { color: var(--text); }
-    .config-drawer-body { padding: 20px; }
+    .config-drawer-body {
+      padding: 0 24px 32px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+      margin: 12px 0;
+    }
+    .stat-card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .stat-provider {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 0.8rem;
+    }
+    .stat-row .label { color: var(--text-dim); font-size: 0.75rem; }
+    .stat-row .value { color: #fff; font-weight: 500; }
+    .stat-success-rate {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.72rem;
+      display: flex;
+      justify-content: space-between;
+      font-weight: 500;
+    }
+    .rate-ok { color: var(--ok-text); }
+    .rate-none { color: var(--text-dim); }
+
+    /* ── Forms ── */
     .config-drawer .sections { grid-template-columns: 1fr; }
 
 

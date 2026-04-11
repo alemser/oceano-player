@@ -93,6 +93,12 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		`ALTER TABLE collection ADD COLUMN acrid TEXT`,
 		`ALTER TABLE collection ADD COLUMN shazam_id TEXT`,
 		`ALTER TABLE collection ADD COLUMN user_confirmed INTEGER NOT NULL DEFAULT 0`,
+		`CREATE TABLE IF NOT EXISTS recognition_summary (
+			provider TEXT,
+			event    TEXT,
+			count    INTEGER DEFAULT 0,
+			PRIMARY KEY(provider, event)
+		)`,
 	}
 	for _, stmt := range ensureCols {
 		if _, err := l.db.Exec(stmt); err != nil {
@@ -112,6 +118,29 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		return nil, fmt.Errorf("library: ensure shazam_id index: %w", err)
 	}
 	return l, nil
+}
+
+// getRecognitionStats returns a map of provider -> event -> count.
+func (l *LibraryDB) getRecognitionStats() (map[string]map[string]int, error) {
+	rows, err := l.db.Query(`SELECT provider, event, count FROM recognition_summary`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := make(map[string]map[string]int)
+	for rows.Next() {
+		var p, e string
+		var c int
+		if err := rows.Scan(&p, &e, &c); err != nil {
+			return nil, err
+		}
+		if _, ok := stats[p]; !ok {
+			stats[p] = make(map[string]int)
+		}
+		stats[p][e] = c
+	}
+	return stats, nil
 }
 
 func (l *LibraryDB) close() {
@@ -396,6 +425,33 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(entries)
+	})
+
+	// GET /api/recognition/stats — get stats for ACRCloud, Shazam, Fingerprint.
+	mux.HandleFunc("/api/recognition/stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		lib, err := openLibraryDB(libraryDBPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("{}"))
+			return
+		}
+		defer lib.close()
+
+		stats, err := lib.getRecognitionStats()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(stats)
 	})
 
 	// GET /api/library/artworks — recent tracks with artwork, for the picker.

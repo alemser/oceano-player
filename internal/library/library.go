@@ -57,6 +57,12 @@ var migrations = []string{
 	`CREATE INDEX fingerprints_entry_id ON fingerprints(entry_id)`,
 	`ALTER TABLE collection ADD COLUMN shazam_id TEXT`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS collection_shazam_id_uq ON collection(shazam_id) WHERE shazam_id IS NOT NULL AND shazam_id != ''`,
+	`CREATE TABLE recognition_summary (
+		provider TEXT,
+		event    TEXT,
+		count    INTEGER DEFAULT 0,
+		PRIMARY KEY(provider, event)
+	)`,
 }
 
 type Library struct {
@@ -285,6 +291,47 @@ func (l *Library) lookupByColumn(col, value string) (*CollectionEntry, error) {
 
 func (l *Library) Lookup(acrid string) (*CollectionEntry, error) {
 	return l.lookupByColumn("acrid", acrid)
+}
+
+// RecordRecognitionEvent increments a counter in recognition_summary.
+func (l *Library) RecordRecognitionEvent(provider, event string) {
+	if l == nil || l.db == nil {
+		return
+	}
+	_, err := l.db.Exec(`
+		INSERT INTO recognition_summary (provider, event, count)
+		VALUES (?, ?, 1)
+		ON CONFLICT(provider, event) DO UPDATE SET count = count + 1`,
+		provider, event)
+	if err != nil {
+		log.Printf("library: RecordRecognitionEvent: %v", err)
+	}
+}
+
+// GetRecognitionStats returns a map of provider -> event -> count.
+func (l *Library) GetRecognitionStats() (map[string]map[string]int, error) {
+	if l == nil || l.db == nil {
+		return nil, nil
+	}
+	rows, err := l.db.Query(`SELECT provider, event, count FROM recognition_summary`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := make(map[string]map[string]int)
+	for rows.Next() {
+		var p, e string
+		var c int
+		if err := rows.Scan(&p, &e, &c); err != nil {
+			return nil, err
+		}
+		if _, ok := stats[p]; !ok {
+			stats[p] = make(map[string]int)
+		}
+		stats[p][e] = c
+	}
+	return stats, nil
 }
 
 func (l *Library) GetByID(id int64) (*CollectionEntry, error) {

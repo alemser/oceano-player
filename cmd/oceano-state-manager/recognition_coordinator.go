@@ -128,14 +128,18 @@ func (c *recognitionCoordinator) tryLocalFingerprintFallback(capturedFPs []Finge
 	if len(capturedFPs) == 0 || c.lib == nil {
 		return false
 	}
+	c.lib.RecordRecognitionEvent("FingerprintFallback", "attempt")
 	localEntry, err := c.lib.FindByFingerprints(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30)
 	if err != nil {
 		log.Printf("recognizer: fingerprint lookup error: %v", err)
+		c.lib.RecordRecognitionEvent("FingerprintFallback", "no_match")
 		return false
 	}
 	if localEntry == nil {
+		c.lib.RecordRecognitionEvent("FingerprintFallback", "no_match")
 		return false
 	}
+	c.lib.RecordRecognitionEvent("FingerprintFallback", "success")
 	log.Printf("recognizer: local fingerprint fallback match (id=%d confirmed=%v %s — %s)",
 		localEntry.ID, localEntry.UserConfirmed, localEntry.Artist, localEntry.Title)
 	c.applyLocalFallbackEntry(localEntry)
@@ -632,11 +636,13 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		// (residual audio or a fingerprint overlap). Always use the remote provider to
 		// confirm what is actually playing after a boundary.
 		if !isBoundaryTrigger {
+			c.lib.RecordRecognitionEvent("Fingerprint", "attempt")
 			if localEntry := c.lookupLocalFingerprintLocalFirst(capturedFPs); localEntry != nil {
 				c.mgr.mu.Lock()
 				currentResult := c.mgr.recognitionResult
 				c.mgr.mu.Unlock()
 				if shouldShortCircuitLocalFirst(currentResult, localEntry) {
+					c.lib.RecordRecognitionEvent("Fingerprint", "success")
 					log.Printf("recognizer: local-first fingerprint match (id=%d %s — %s)",
 						localEntry.ID, localEntry.Artist, localEntry.Title)
 					c.applyLocalFallbackEntry(localEntry)
@@ -648,6 +654,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 					continue
 				}
 				log.Printf("recognizer [%s]: local-first matched current track — continuing provider chain", c.rec.Name())
+			} else {
+				c.lib.RecordRecognitionEvent("Fingerprint", "no_match")
 			}
 		}
 

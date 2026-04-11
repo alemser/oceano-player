@@ -67,6 +67,68 @@ async function loadConfig() {
   // Preserve advanced values as-is from server.
   _advancedConfig = cfg.advanced ?? {};
   updateRecognitionUI();
+  loadRecognitionStats();
+}
+
+async function loadRecognitionStats() {
+  const container = document.getElementById('rec-stats-container');
+  if (!container) return;
+
+  try {
+    const r = await fetch('/api/recognition/stats');
+    const stats = await r.json();
+
+    if (Object.keys(stats).length === 0) {
+      container.innerHTML = '<div class="hint">No statistics available yet. Recognition needs to run at least once.</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    // Sort providers: Fingerprint first, then others.
+    const providers = Object.keys(stats).sort((a, b) => {
+      if (a === 'Fingerprint') return -1;
+      if (b === 'Fingerprint') return 1;
+      return a.localeCompare(b);
+    });
+
+    for (const p of providers) {
+      const evs = stats[p];
+      const card = document.createElement('div');
+      card.className = 'stat-card';
+
+      const attempts = evs.attempt || 0;
+      const successes = evs.success || 0;
+      const rate = attempts > 0 ? Math.round((successes / attempts) * 100) : 0;
+
+      let html = `<div class="stat-provider">${p}</div>`;
+      html += `<div class="stat-row"><span class="label">Attempts</span><span class="value">${attempts}</span></div>`;
+      html += `<div class="stat-row"><span class="label">Matches</span><span class="value">${successes}</span></div>`;
+
+      if (evs.no_match) {
+        html += `<div class="stat-row"><span class="label">No match</span><span class="value">${evs.no_match}</span></div>`;
+      }
+      if (evs.error) {
+        html += `<div class="stat-row"><span class="label">Errors</span><span class="value">${evs.error}</span></div>`;
+      }
+
+      if (attempts > 0) {
+        html += `<div class="stat-success-rate">
+          <span>Success rate</span>
+          <span class="rate-ok">${rate}%</span>
+        </div>`;
+      } else {
+        html += `<div class="stat-success-rate">
+          <span>Success rate</span>
+          <span class="rate-none">—</span>
+        </div>`;
+      }
+
+      card.innerHTML = html;
+      container.appendChild(card);
+    }
+  } catch (e) {
+    container.innerHTML = `<div class="hint" style="color:var(--warn-text)">Failed to load statistics: ${e.message}</div>`;
+  }
 }
 
 async function loadNowPlayingDisplayCapabilities() {
