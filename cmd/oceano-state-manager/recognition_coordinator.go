@@ -246,7 +246,7 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 		}
 		c.mgr.mu.Unlock()
 
-		// Se houve reconhecimento remoto mas sem match local, criar stub associável com metadados
+		// If there was remote recognition but no local match, create an associable stub with provider metadata
 		if recog != nil && (recog.ACRID != "" || recog.ShazamID != "" || recog.Title != "" || recog.Artist != "") {
 			stub, stubErr := c.lib.UpsertStub(
 				capturedFPs, c.mgr.cfg.FingerprintThreshold, 30,
