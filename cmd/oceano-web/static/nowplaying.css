@@ -251,31 +251,94 @@ body::after {
 .chip svg { width: 12px; height: 12px; flex-shrink: 0; }
 
 /* ─── Idle screen ──────────────────────────────────────────── */
-#idle-screen { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.8s; z-index: 10; }
-#idle-screen::before { content: ""; position: absolute; inset: -20% -10% auto; height: 55%; background: radial-gradient(50% 80% at 30% 40%, rgba(74, 158, 255, 0.13), transparent 70%), radial-gradient(40% 70% at 72% 38%, rgba(116, 168, 255, 0.09), transparent 72%); pointer-events: none; z-index: -1; }
+#idle-screen {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; flex-direction: column;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.8s; z-index: 10;
+}
+#idle-screen::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(55% 45% at 12% 18%, rgba(74, 158, 255, 0.09), transparent 70%),
+    radial-gradient(40% 38% at 82% 72%, rgba(116, 145, 255, 0.06), transparent 70%);
+}
 #idle-screen.visible { opacity: 1; pointer-events: auto; }
 
-/* Power button — top-right corner of idle screen */
-#idle-power-btn { position: absolute; top: 20px; right: 22px; width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 1px solid rgba(90, 108, 148, 0.32); background: rgba(14, 20, 34, 0.44); color: #6b7899; cursor: pointer; transition: all 0.2s ease; z-index: 2; }
-#idle-power-btn:hover { color: #a6b5dc; border-color: rgba(112, 130, 170, 0.5); background: rgba(20, 28, 47, 0.66); }
-#idle-power-btn svg { width: 17px; height: 17px; display: block; }
+/* Power button */
+#idle-power-btn { position: absolute; top: 18px; right: 20px; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 1px solid rgba(90, 108, 148, 0.22); background: rgba(10, 14, 26, 0.38); color: #3a4660; cursor: pointer; transition: all 0.2s; z-index: 2; }
+#idle-power-btn:hover { color: #7a8cb0; border-color: rgba(100, 120, 160, 0.40); }
+#idle-power-btn svg { width: 15px; height: 15px; display: block; }
 
 #top-controls { position: absolute; top: 20px; right: max(22px, calc((100vw - min(100vw, var(--content-max-width))) / 2 + 22px)); z-index: 22; display: flex; align-items: center; gap: 10px; }
 
-/* Main two-widget layout */
-#idle-main { display: flex; align-items: center; justify-content: center; gap: clamp(24px, 6vw, 72px); padding: 0 clamp(24px, 6vw, 80px); width: 100%; box-sizing: border-box; }
+/* ─── Top bar ──────────────────────────────────────────────── */
+#idle-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: clamp(14px, 2.8vh, 26px) clamp(24px, 5vw, 60px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  flex-shrink: 0; position: relative; z-index: 1;
+}
 
-/* Clock widget — left */
-#idle-clock-widget { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; }
-#idle-time { font-size: clamp(5rem, 16vw, 11rem); font-weight: 200; letter-spacing: -0.01em; color: #c8d3ef; font-variant-numeric: tabular-nums; line-height: 0.88; white-space: nowrap; }
-#idle-date { font-size: clamp(0.9rem, 2.2vw, 1.4rem); font-weight: 400; letter-spacing: 0.1em; text-transform: uppercase; color: #4b5a7a; white-space: nowrap; }
+/* Logo */
+#idle-logo { display: flex; align-items: center; gap: 10px; color: #3a6aaa; text-decoration: none; }
+#idle-logo-wave { width: 42px; height: 19px; flex-shrink: 0; }
+#idle-logo-text { font-size: 0.92rem; font-weight: 300; letter-spacing: 0.38em; text-transform: uppercase; color: #4a6a9a; }
 
-/* Weather widget — right */
-#idle-weather-widget { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(8px, 2vh, 18px); flex-shrink: 0; padding: clamp(20px, 4vw, 40px) clamp(24px, 5vw, 52px); border-radius: 20px; border: 1px solid rgba(84, 106, 156, 0.30); background: rgba(14, 20, 36, 0.55); box-shadow: inset 0 0 0 1px rgba(22, 33, 55, 0.32); }
-#idle-weather-icon-wrap { line-height: 1; }
-#idle-weather-icon-wrap svg, #idle-weather-icon { font-size: clamp(3rem, 8vw, 5.5rem); display: block; line-height: 1; }
-#idle-weather-temp { font-size: clamp(2.4rem, 6vw, 4.2rem); font-weight: 300; letter-spacing: -0.01em; color: #d0dbf5; font-variant-numeric: tabular-nums; line-height: 1; }
-#idle-weather-cond { font-size: clamp(0.72rem, 1.6vw, 1rem); letter-spacing: 0.1em; text-transform: uppercase; color: #6a78a0; white-space: nowrap; text-align: center; }
+/* Centre: location · condition */
+#idle-location-cond { display: flex; align-items: center; gap: 7px; font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; }
+#idle-location-label { color: #5a6a90; font-weight: 500; }
+.idle-sep { color: #252e42; }
+#idle-weather-cond { color: #3a4660; }
+
+/* Right: stats */
+#idle-meta-stats { display: flex; align-items: center; gap: clamp(18px, 3.5vw, 40px); }
+.idle-stat { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.idle-stat-lbl { font-size: 0.58rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #252e42; }
+.idle-stat-val { font-size: 0.84rem; font-weight: 400; color: #4a5870; font-variant-numeric: tabular-nums; }
+
+/* ─── Main section ─────────────────────────────────────────── */
+#idle-main {
+  flex: 1; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  gap: clamp(28px, 7vw, 96px);
+  padding: clamp(12px, 3vh, 32px) clamp(32px, 8vw, 100px);
+  position: relative; z-index: 1;
+}
+
+/* Clock */
+#idle-clock-widget { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; flex-shrink: 0; }
+#idle-time { font-size: clamp(5rem, 17vw, 11.5rem); font-weight: 100; letter-spacing: -0.025em; color: #b8c6e8; font-variant-numeric: tabular-nums; line-height: 0.86; white-space: nowrap; }
+#idle-date { font-size: clamp(0.78rem, 1.7vw, 1.05rem); font-weight: 400; letter-spacing: 0.14em; text-transform: uppercase; color: #2e3a52; white-space: nowrap; }
+
+/* Weather icon (centre) */
+#idle-weather-icon-wrap { flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+#idle-weather-icon-wrap svg, #idle-weather-icon { display: block; line-height: 1; }
+#idle-weather-icon-wrap svg { width: clamp(72px, 14vw, 140px); height: clamp(72px, 14vw, 140px); color: #3a5278; }
+#idle-weather-icon { font-size: clamp(72px, 14vw, 140px); }
+
+/* Temperature */
+#idle-weather-temp { font-size: clamp(3.2rem, 9vw, 6.5rem); font-weight: 200; letter-spacing: -0.02em; color: #7a90bc; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; flex-shrink: 0; }
+
+/* ─── 7-day forecast strip ─────────────────────────────────── */
+#idle-forecast {
+  display: flex; align-items: stretch; justify-content: stretch;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  padding: clamp(8px, 1.8vh, 18px) clamp(24px, 5vw, 60px);
+  flex-shrink: 0; position: relative; z-index: 1; gap: 0;
+}
+.idle-fc-day {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 6px 4px;
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+}
+.idle-fc-day:last-child { border-right: none; }
+.idle-fc-name { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #252e42; }
+.idle-fc-name.today { color: #4a7acc; }
+.idle-fc-icon { width: clamp(20px, 3.5vw, 32px); height: clamp(20px, 3.5vw, 32px); color: #2e3c58; }
+.idle-fc-icon svg { width: 100%; height: 100%; display: block; }
+.idle-fc-max { font-size: clamp(0.78rem, 1.4vw, 0.96rem); font-weight: 500; color: #5a6e94; font-variant-numeric: tabular-nums; }
+.idle-fc-min { font-size: clamp(0.66rem, 1.1vw, 0.78rem); font-weight: 400; color: #2a3348; font-variant-numeric: tabular-nums; }
 
 /* Media Queries */
 @media (max-width: 900px) {
@@ -345,8 +408,12 @@ body::after {
   #track-album { margin-bottom: 14px; }
   #meta-chips { gap: 8px; }
   .chip { font-size: 0.72rem; padding: 4px 9px; }
-  #idle-main { flex-direction: column; gap: 24px; }
+  #idle-topbar { flex-wrap: wrap; gap: 10px; }
+  #idle-main { flex-direction: column; gap: 20px; }
   #idle-clock-widget { align-items: center; }
+  #idle-forecast { flex-wrap: nowrap; overflow-x: auto; }
+  #idle-meta-stats { gap: 16px; }
+  .idle-fc-name { font-size: 0.58rem; }
   .amp-indicator { padding: 6px 9px; gap: 6px; }
   .amp-indicator-label { max-width: 112px; overflow: hidden; text-overflow: ellipsis; }
 }
