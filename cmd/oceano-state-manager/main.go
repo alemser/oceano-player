@@ -18,6 +18,7 @@ import (
 // File map for this service:
 // - main.go: config/types and process wiring
 // - shairport_metadata.go: shairport metadata pipe parsing + AirPlay state updates
+// - bluetooth_monitor.go: dbus-monitor subprocess + BlueZ AVRCP event parsing
 // - source_vu_monitor.go: physical source polling + VU boundary detection
 // - recognition_setup.go: recognizer composition (order + roles)
 // - recognition_coordinator.go: recognition workflow and persistence policies
@@ -228,6 +229,12 @@ type mgr struct {
 	seekMS         int64
 	seekUpdatedAt  time.Time
 	artworkPath    string
+
+	// Bluetooth state (updated by runBluetoothMonitor goroutine)
+	bluetoothPlaying bool
+	bluetoothTitle   string
+	bluetoothArtist  string
+	bluetoothAlbum   string
 
 	// Physical source (updated by source watcher goroutine)
 	physicalSource      string             // "Physical" or "None"
@@ -553,6 +560,7 @@ func main() {
 	}
 
 	go m.runShairportReader(ctx)
+	go m.runBluetoothMonitor(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
 	go m.runRecognizer(ctx, rec, confirmRec, shazamRec, fpr, lib)

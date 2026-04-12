@@ -516,6 +516,75 @@ disable_direct_watchdog() {
   systemctl reset-failed oceano-direct-watchdog.service >/dev/null 2>&1 || true
 }
 
+# ─── Bluetooth ───────────────────────────────
+
+# setup_bluetooth configures the built-in Bluetooth adapter so the Pi is
+# permanently discoverable and paired devices can stream audio to it.
+# The device name is set to match the AirPlay name for consistency.
+# Audio codec negotiation (SBC / AAC / Opus) is handled by PipeWire automatically
+# when libspa-0.2-bluetooth is present (pre-installed on Raspberry Pi OS Bookworm).
+setup_bluetooth() {
+  local device_name="$1"
+  local bt_conf="/etc/bluetooth/main.conf"
+
+  # Enable the Bluetooth service if not already running.
+  systemctl enable bluetooth.service >/dev/null 2>&1 || true
+  systemctl start  bluetooth.service 2>/dev/null || true
+
+  if [[ -f "${bt_conf}" ]]; then
+    # Set device name — used for both discoverability and BLE advertising.
+    if grep -qE '^\s*Name\s*=' "${bt_conf}"; then
+      sed -i "s|^\s*Name\s*=.*|Name = ${device_name}|" "${bt_conf}"
+    else
+      # Add under [General] section if present, otherwise append.
+      if grep -q '^\[General\]' "${bt_conf}"; then
+        sed -i "/^\[General\]/a Name = ${device_name}" "${bt_conf}"
+      else
+        printf '\n[General]\nName = %s\n' "${device_name}" >> "${bt_conf}"
+      fi
+    fi
+
+    # Make the adapter always discoverable (default timeout is 180 s).
+    if grep -qE '^\s*#?\s*DiscoverableTimeout\s*=' "${bt_conf}"; then
+      sed -i "s|^\s*#\?\s*DiscoverableTimeout\s*=.*|DiscoverableTimeout = 0|" "${bt_conf}"
+    else
+      if grep -q '^\[General\]' "${bt_conf}"; then
+        sed -i '/^\[General\]/a DiscoverableTimeout = 0' "${bt_conf}"
+      else
+        printf 'DiscoverableTimeout = 0\n' >> "${bt_conf}"
+      fi
+    fi
+
+    # Auto-enable the adapter on boot (in case it was powered off).
+    if grep -qE '^\s*#?\s*AutoEnable\s*=' "${bt_conf}"; then
+      sed -i "s|^\s*#\?\s*AutoEnable\s*=.*|AutoEnable = true|" "${bt_conf}"
+    else
+      if grep -q '^\[Policy\]' "${bt_conf}"; then
+        sed -i '/^\[Policy\]/a AutoEnable = true' "${bt_conf}"
+      fi
+    fi
+
+    systemctl restart bluetooth.service
+  else
+    log_warn "Bluetooth config not found at ${bt_conf} — skipping name/discoverability setup."
+  fi
+
+  # Activate adapter and enable discoverability for this session.
+  if command -v bluetoothctl >/dev/null 2>&1; then
+    echo -e "power on\ndiscoverable on\npairable on\nquit" | bluetoothctl >/dev/null 2>&1 || true
+  fi
+
+  # Warn if dbus-monitor is missing — the state manager bluetooth monitor needs it.
+  if ! command -v dbus-monitor >/dev/null 2>&1; then
+    log_warn "dbus-monitor not found — Bluetooth metadata monitoring will be disabled."
+    log_warn "Install it with: sudo apt install dbus"
+  fi
+
+  log_ok "Bluetooth configured: device name='${device_name}', always discoverable."
+  log_info "To pair your phone: Settings → Bluetooth → '${device_name}'"
+  log_info "Pair once; the Pi will remember trusted devices across reboots."
+}
+
 # ─── Repository ──────────────────────────────
 
 clone_repo() {
@@ -709,8 +778,12 @@ main() {
   log_section "System Dependencies"
   log_info "Installing system packages..."
   apt-get update -qq
-  apt-get install -y --no-install-recommends shairport-sync alsa-utils libchromaprint-tools ffmpeg
+  apt-get install -y --no-install-recommends shairport-sync alsa-utils libchromaprint-tools ffmpeg bluez dbus
   log_ok "System packages ready."
+
+  # ── Bluetooth ──
+  log_section "Bluetooth"
+  setup_bluetooth "${airplay_name}"
 
   # ── Repository ──
   log_section "Repository"
@@ -842,7 +915,7 @@ DISPLAYENV
   echo -e "
 ${BOLD}Configuration summary:${RESET}
   Branch             : ${branch}
-  AirPlay name       : ${airplay_name}
+  AirPlay / BT name  : ${airplay_name}
   ALSA device        : ${alsa_device}
   Output strategy    : ${output_strategy}
   Preplay wait       : ${preplay_wait_seconds}s

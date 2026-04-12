@@ -371,6 +371,16 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		}
 	}
 
+	// Apply Bluetooth settings when name or enabled flag changed.
+	if old.Bluetooth != cfg.Bluetooth {
+		if err := applyBluetoothConfig(cfg.Bluetooth); err != nil {
+			results = append(results, "bluetooth config: "+err.Error())
+			hadError = true
+		} else {
+			results = append(results, "bluetooth settings applied")
+		}
+	}
+
 	// amplifier, cd_player: managed in-memory by oceano-web — no systemd restart needed.
 	// weather: rendered client-side from /api/config — no restart needed.
 
@@ -411,6 +421,70 @@ func updateShairportName(name string) error {
 		return err
 	}
 	return restartService("shairport-sync.service")
+}
+
+// applyBluetoothConfig applies Bluetooth adapter settings that take effect
+// immediately without restarting any Oceano service.
+// Name changes update /etc/bluetooth/main.conf and restart bluetoothd.
+// Enabling powers on the adapter and makes it discoverable/pairable.
+func applyBluetoothConfig(cfg BluetoothConfig) error {
+	const confPath = "/etc/bluetooth/main.conf"
+
+	if cfg.Name != "" {
+		data, err := os.ReadFile(confPath)
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("read %s: %w", confPath, err)
+		}
+		content := string(data)
+
+		// Replace or insert Name under [General].
+		updated := false
+		lines := strings.Split(content, "\n")
+		for i, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), "Name") && strings.Contains(line, "=") {
+				lines[i] = "Name = " + cfg.Name
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			// Append after [General] header if present, else append at end.
+			inserted := false
+			for i, line := range lines {
+				if strings.TrimSpace(line) == "[General]" {
+					newLines := make([]string, 0, len(lines)+1)
+					newLines = append(newLines, lines[:i+1]...)
+					newLines = append(newLines, "Name = "+cfg.Name)
+					newLines = append(newLines, lines[i+1:]...)
+					lines = newLines
+					inserted = true
+					break
+				}
+			}
+			if !inserted {
+				lines = append(lines, "", "[General]", "Name = "+cfg.Name)
+			}
+		}
+
+		newContent := strings.Join(lines, "\n")
+		tmp := confPath + ".tmp"
+		if err := os.WriteFile(tmp, []byte(newContent), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", confPath, err)
+		}
+		if err := os.Rename(tmp, confPath); err != nil {
+			return fmt.Errorf("rename %s: %w", confPath, err)
+		}
+		// Restart bluetoothd to pick up the new name.
+		_ = exec.Command("systemctl", "restart", "bluetooth.service").Run()
+	}
+
+	if cfg.Enabled {
+		_ = exec.Command("bluetoothctl", "power", "on").Run()
+		_ = exec.Command("bluetoothctl", "discoverable", "on").Run()
+		_ = exec.Command("bluetoothctl", "pairable", "on").Run()
+	}
+
+	return nil
 }
 
 // writeDetectorService rewrites the oceano-source-detector systemd unit.

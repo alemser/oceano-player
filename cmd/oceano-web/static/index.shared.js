@@ -19,6 +19,10 @@ async function loadConfig() {
   set('out-device',        cfg.audio_output?.device ?? '');
   set('out-device-match',  cfg.audio_output?.device_match ?? '');
 
+  const btEnabledEl = document.getElementById('bt-enabled');
+  if (btEnabledEl) btEnabledEl.checked = cfg.bluetooth?.enabled ?? false;
+  set('bt-name', cfg.bluetooth?.name ?? '');
+
   set('rec-host',          cfg.recognition?.acrcloud_host ?? '');
   set('rec-access-key',    cfg.recognition?.acrcloud_access_key ?? '');
   set('rec-secret-key',    cfg.recognition?.acrcloud_secret_key ?? '');
@@ -302,6 +306,10 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       airplay_name:  val('out-airplay-name'),
       device:        val('out-device'),
       device_match:  val('out-device-match'),
+    },
+    bluetooth: {
+      enabled: document.getElementById('bt-enabled')?.checked ?? false,
+      name:    val('bt-name'),
     },
     recognition: {
       ..._recognitionConfig,

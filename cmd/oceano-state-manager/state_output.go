@@ -31,9 +31,10 @@ func (m *mgr) buildState() PlayerState {
 
 	switch {
 	case m.airplayPlaying:
-		// Streaming source takes priority — physical media detection is ignored
-		// when AirPlay (or future Bluetooth/UPnP) is active.
 		source = "AirPlay"
+		state = "playing"
+	case m.bluetoothPlaying:
+		source = "Bluetooth"
 		state = "playing"
 	case physicalActive:
 		source = "Physical"
@@ -72,6 +73,13 @@ func (m *mgr) buildState() PlayerState {
 			SampleRate:    airplaySampleRate,
 			BitDepth:      airplayBitDepth,
 			ArtworkPath:   m.artworkPath,
+			PhysicalMatch: m.streamingPhysicalMatch,
+		}
+	case "Bluetooth":
+		track = &TrackInfo{
+			Title:         m.bluetoothTitle,
+			Artist:        m.bluetoothArtist,
+			Album:         m.bluetoothAlbum,
 			PhysicalMatch: m.streamingPhysicalMatch,
 		}
 	case "Physical":
@@ -133,26 +141,33 @@ func (m *mgr) runLibrarySync(ctx context.Context, lib *internallibrary.Library) 
 // track exists in the local physical library and caches the result in
 // m.streamingPhysicalMatch for display in the now-playing UI.
 func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
-	// --- AirPlay → physical library match ---
+	// --- Streaming → physical library match (AirPlay and Bluetooth) ---
 	m.mu.Lock()
-	airPlaying := m.airplayPlaying
-	airTitle := m.title
-	airArtist := m.artist
+	var streamTitle, streamArtist string
+	streamingActive := false
+	switch {
+	case m.airplayPlaying:
+		streamTitle, streamArtist = m.title, m.artist
+		streamingActive = true
+	case m.bluetoothPlaying:
+		streamTitle, streamArtist = m.bluetoothTitle, m.bluetoothArtist
+		streamingActive = true
+	}
 	currentMatchKey := m.streamingMatchKey
 	m.mu.Unlock()
 
-	if airPlaying {
-		newKey := airTitle + "\x00" + airArtist
+	if streamingActive {
+		newKey := streamTitle + "\x00" + streamArtist
 		if newKey != currentMatchKey {
 			var match *PhysicalMatchInfo
-			if airTitle != "" && airArtist != "" {
-				if entry, err := lib.FindPhysicalMatch(airTitle, airArtist); err == nil && entry != nil {
+			if streamTitle != "" && streamArtist != "" {
+				if entry, err := lib.FindPhysicalMatch(streamTitle, streamArtist); err == nil && entry != nil {
 					match = &PhysicalMatchInfo{
 						Format:      entry.Format,
 						TrackNumber: entry.TrackNumber,
 						Album:       entry.Album,
 					}
-					log.Printf("physical match: streaming track %q by %q found in library — format=%s", airTitle, airArtist, match.Format)
+					log.Printf("physical match: streaming track %q by %q found in library — format=%s", streamTitle, streamArtist, match.Format)
 				}
 			}
 			m.mu.Lock()
