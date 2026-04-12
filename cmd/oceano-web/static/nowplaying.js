@@ -207,13 +207,19 @@ function applyState(state) {
     $artist.textContent = track.artist || '';
     $album.textContent  = track.album  || '';
     updateArtwork(track.artwork_path || null);
-  } else if (playing && source !== 'None') {
-    // Playing but not yet identified (physical source recognizing)
+  } else if (playing && (source === 'Physical' || source === 'CD' || source === 'Vinyl')) {
+    // Playing but not yet identified — only physical sources use ACRCloud recognition.
     $title.textContent  = 'Identifying…';
     $artist.textContent = '';
     $album.textContent  = '';
     $identifying.className = 'pulsing';
     $identifying.textContent = 'Listening for a match';
+    showDefaultArtwork();
+  } else if (playing && source !== 'None') {
+    // Streaming source playing without metadata (e.g. Bluetooth without AVRCP).
+    $title.textContent  = '—';
+    $artist.textContent = '';
+    $album.textContent  = '';
     showDefaultArtwork();
   } else {
     $title.textContent  = '—';
