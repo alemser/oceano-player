@@ -46,6 +46,10 @@ func (m *mgr) runBluetoothMonitor(ctx context.Context) {
 		m.bluetoothCodec = ""
 		m.bluetoothArtworkPath = ""
 		m.bluetoothArtworkKey = ""
+		if m.bluetoothStopTimer != nil {
+			m.bluetoothStopTimer.Stop()
+			m.bluetoothStopTimer = nil
+		}
 		m.mu.Unlock()
 		if wasPlaying {
 			m.markDirty()
@@ -156,10 +160,31 @@ func (m *mgr) applyMediaPlayerUpdate(lines []string) {
 
 	if hasStatus {
 		playing := status == "playing"
-		if m.bluetoothPlaying != playing {
-			m.bluetoothPlaying = playing
-			changed = true
-			log.Printf("bluetooth: status=%s", status)
+		if playing {
+			// Cancel any pending stop debounce and mark as playing immediately.
+			if m.bluetoothStopTimer != nil {
+				m.bluetoothStopTimer.Stop()
+				m.bluetoothStopTimer = nil
+			}
+			if !m.bluetoothPlaying {
+				m.bluetoothPlaying = true
+				changed = true
+				log.Printf("bluetooth: status=playing")
+			}
+		} else {
+			// Debounce stopped: wait 2 s before marking as stopped.
+			// AVRCP often sends playing→stopped during connection setup.
+			if m.bluetoothPlaying && m.bluetoothStopTimer == nil {
+				log.Printf("bluetooth: status=stopped (debouncing)")
+				m.bluetoothStopTimer = time.AfterFunc(2*time.Second, func() {
+					m.mu.Lock()
+					m.bluetoothPlaying = false
+					m.bluetoothStopTimer = nil
+					m.mu.Unlock()
+					log.Printf("bluetooth: status=stopped (confirmed)")
+					m.markDirty()
+				})
+			}
 		}
 	}
 

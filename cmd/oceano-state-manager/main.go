@@ -241,6 +241,7 @@ type mgr struct {
 	bluetoothCodec       string // e.g. "SBC", "AAC", "LDAC", "AptX", "Opus"
 	bluetoothArtworkPath string // fetched via iTunes API when track changes
 	bluetoothArtworkKey  string // "artist\x00album" — avoids re-fetching same track
+	bluetoothStopTimer   *time.Timer // debounce: delays stopped→false by 2 s
 
 	// Physical source (updated by source watcher goroutine)
 	physicalSource      string             // "Physical" or "None"
