@@ -69,7 +69,8 @@ func (m *mgr) runBluetoothMonitor(ctx context.Context) {
 func (m *mgr) readBluetoothDBus(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, "dbus-monitor", "--system",
 		"type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.bluez.MediaPlayer1'",
-		"type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.bluez.MediaTransport1'")
+		"type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.bluez.MediaTransport1'",
+		"type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.bluez.Device1'")
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -80,7 +81,7 @@ func (m *mgr) readBluetoothDBus(ctx context.Context) error {
 	}
 	defer cmd.Wait() //nolint:errcheck
 
-	log.Printf("bluetooth: dbus-monitor connected (MediaPlayer1 + MediaTransport1)")
+	log.Printf("bluetooth: dbus-monitor connected (MediaPlayer1 + MediaTransport1 + Device1)")
 
 	scanner := bufio.NewScanner(stdout)
 	var block []string
@@ -125,6 +126,9 @@ func (m *mgr) applyBluetoothBlock(lines []string) {
 			return
 		case "org.bluez.MediaTransport1":
 			m.applyTransportUpdate(lines)
+			return
+		case "org.bluez.Device1":
+			m.applyDeviceUpdate(lines)
 			return
 		}
 	}
@@ -262,6 +266,75 @@ func (m *mgr) queryBluetoothCodec(transportPath string) string {
 		}
 	}
 	return ""
+}
+
+// applyDeviceUpdate handles org.bluez.Device1 PropertiesChanged signals.
+// Tracks the Connected property to know when a device connects or disconnects,
+// independent of AVRCP playback state.
+func (m *mgr) applyDeviceUpdate(lines []string) {
+	var pendingKey string
+	connected := false
+	found := false
+
+	for _, raw := range lines {
+		t := strings.TrimSpace(raw)
+		strVal, hasStr := extractDBusStringValue(t)
+		if hasStr {
+			if pendingKey == "Connected" {
+				// Connected is a boolean, not a string — skip
+				pendingKey = ""
+				continue
+			}
+			switch strVal {
+			case "Connected":
+				pendingKey = "Connected"
+			default:
+				pendingKey = ""
+			}
+			continue
+		}
+		// Look for boolean value after Connected key.
+		if pendingKey == "Connected" {
+			t2 := strings.TrimSpace(t)
+			if strings.Contains(t2, "boolean true") {
+				connected = true
+				found = true
+				pendingKey = ""
+			} else if strings.Contains(t2, "boolean false") {
+				connected = false
+				found = true
+				pendingKey = ""
+			}
+		}
+	}
+
+	if !found {
+		return
+	}
+
+	m.mu.Lock()
+	changed := m.bluetoothConnected != connected
+	m.bluetoothConnected = connected
+	if !connected {
+		// Device disconnected — clear all Bluetooth state immediately.
+		m.bluetoothPlaying = false
+		m.bluetoothTitle = ""
+		m.bluetoothArtist = ""
+		m.bluetoothAlbum = ""
+		m.bluetoothCodec = ""
+		m.bluetoothArtworkPath = ""
+		m.bluetoothArtworkKey = ""
+		if m.bluetoothStopTimer != nil {
+			m.bluetoothStopTimer.Stop()
+			m.bluetoothStopTimer = nil
+		}
+	}
+	m.mu.Unlock()
+
+	if changed {
+		log.Printf("bluetooth: device connected=%v", connected)
+		m.markDirty()
+	}
 }
 
 // fetchBluetoothArtwork fetches album artwork for a Bluetooth track via the

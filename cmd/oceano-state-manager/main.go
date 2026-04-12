@@ -234,13 +234,14 @@ type mgr struct {
 	artworkPath    string
 
 	// Bluetooth state (updated by runBluetoothMonitor goroutine)
-	bluetoothPlaying     bool
+	bluetoothConnected   bool        // true while a device is Connected=true via Device1
+	bluetoothPlaying     bool        // true while AVRCP status=playing
 	bluetoothTitle       string
 	bluetoothArtist      string
 	bluetoothAlbum       string
-	bluetoothCodec       string // e.g. "SBC", "AAC", "LDAC", "AptX", "Opus"
-	bluetoothArtworkPath string // fetched via iTunes API when track changes
-	bluetoothArtworkKey  string // "artist\x00album" — avoids re-fetching same track
+	bluetoothCodec       string      // e.g. "SBC", "AAC", "LDAC", "AptX", "Opus"
+	bluetoothArtworkPath string      // fetched via iTunes API when track changes
+	bluetoothArtworkKey  string      // "artist\x00album" — avoids re-fetching same track
 	bluetoothStopTimer   *time.Timer // debounce: delays stopped→false by 2 s
 
 	// Physical source (updated by source watcher goroutine)
