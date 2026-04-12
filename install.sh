@@ -564,7 +564,7 @@ setup_bluetooth() {
       fi
     fi
 
-    systemctl restart bluetooth.service
+    systemctl restart bluetooth.service &
   else
     log_warn "Bluetooth config not found at ${bt_conf} — skipping name/discoverability setup."
   fi
