@@ -268,6 +268,29 @@ function applyState(state) {
         ));
       }
     }
+
+    // Physical match chip: shown when a streaming track exists in the local library
+    if (track.physical_match && track.physical_match.format) {
+      const pm = track.physical_match;
+      const fmt = pm.format; // "Vinyl" or "CD"
+      const isVinyl = fmt === 'Vinyl';
+      // Vinyl icon: disc with groove lines; CD icon: disc with centre hole
+      const iconPath = isVinyl
+        ? 'M6 1 A5 5 0 1 1 6 11 A5 5 0 1 1 6 1 M6 3 A3 3 0 1 1 6 9 A3 3 0 1 1 6 3'
+        : 'M6 1 A5 5 0 1 1 6 11 A5 5 0 1 1 6 1 M6 4.5 A1.5 1.5 0 1 1 6 7.5 A1.5 1.5 0 1 1 6 4.5';
+      let label = 'In collection · ' + fmt;
+      if (pm.track_number) {
+        const vinylRef = isVinyl ? parseVinylTrackRef(pm.track_number) : null;
+        if (vinylRef) {
+          label += ' · Side ' + vinylRef.side + ' · ' + vinylRef.track;
+        } else {
+          label += ' · Track ' + pm.track_number;
+        }
+      }
+      const chip = makeChip(chipSVG(iconPath), label);
+      chip.classList.add('chip-physical-match');
+      $chips.appendChild(chip);
+    }
   }
 
   // Store for change detection

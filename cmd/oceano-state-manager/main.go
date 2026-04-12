@@ -57,13 +57,22 @@ type TrackInfo struct {
 	// TrackNumber is the track position on the release. For CD it is a numeric
 	// string ("3"); for vinyl it may encode side and position ("A2"). Empty when
 	// unknown. Set from the library and not populated by recognition providers.
-	TrackNumber   string `json:"track_number,omitempty"`
-	DurationMS    int64  `json:"duration_ms"`
-	SeekMS        int64  `json:"seek_ms"`
-	SeekUpdatedAt string `json:"seek_updated_at"`
-	SampleRate    string `json:"samplerate"`
-	BitDepth      string `json:"bitdepth"`
-	ArtworkPath   string `json:"artwork_path,omitempty"`
+	TrackNumber   string             `json:"track_number,omitempty"`
+	DurationMS    int64              `json:"duration_ms"`
+	SeekMS        int64              `json:"seek_ms"`
+	SeekUpdatedAt string             `json:"seek_updated_at"`
+	SampleRate    string             `json:"samplerate"`
+	BitDepth      string             `json:"bitdepth"`
+	ArtworkPath   string             `json:"artwork_path,omitempty"`
+	PhysicalMatch *PhysicalMatchInfo `json:"physical_match,omitempty"`
+}
+
+// PhysicalMatchInfo describes a physical-media library entry that corresponds
+// to a track currently playing via a streaming source (AirPlay, Bluetooth, etc.).
+type PhysicalMatchInfo struct {
+	Format      string `json:"format"`                 // "Vinyl" | "CD"
+	TrackNumber string `json:"track_number,omitempty"` // e.g. "A2", "3"
+	Album       string `json:"album,omitempty"`
 }
 
 // detectorOutput matches /tmp/oceano-source.json written by oceano-source-detector.
@@ -227,6 +236,14 @@ type mgr struct {
 	physicalArtworkPath     string             // artwork path for current physical track (from library or fetch)
 	physicalFormat          string             // "CD" | "Vinyl" — set on recognition success; cleared only on new session
 	physicalLibraryEntryID  int64              // library DB row ID for the current physical track; 0 when unknown
+
+	// streamingPhysicalMatch is set when a streaming track (AirPlay, etc.) matches
+	// an entry in the local physical library. Cleared when the track changes or
+	// streaming stops. Populated by syncFromLibrary on its 3-second ticker.
+	streamingPhysicalMatch *PhysicalMatchInfo
+	// streamingMatchKey is the "title\x00artist" key of the last lookup so we
+	// avoid re-querying the library on every tick when the track hasn't changed.
+	streamingMatchKey string
 
 	// recognizeTrigger is sent to when a new recognition attempt should start:
 	// on Physical source activation and on track-boundary events from runVUMonitor.

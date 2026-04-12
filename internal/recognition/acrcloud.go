@@ -123,6 +123,7 @@ func (r *ACRCloudRecognizer) Recognize(ctx context.Context, wavPath string) (*Re
 	}
 	return &Result{
 		ACRID:    m.ACRID,
+		ISRC:     m.ExternalIDs.ISRC,
 		Title:    m.Title,
 		Artist:   artist,
 		Album:    m.Album.Name,
@@ -163,13 +164,18 @@ type acrResponse struct {
 }
 
 type acrMusic struct {
-	ACRID       string      `json:"acrid"`
-	Title       string      `json:"title"`
-	Artists     []acrArtist `json:"artists"`
-	Album       acrAlbum    `json:"album"`
-	Label       string      `json:"label"`
-	ReleaseDate string      `json:"release_date"`
-	Score       int         `json:"score"`
+	ACRID       string         `json:"acrid"`
+	Title       string         `json:"title"`
+	Artists     []acrArtist    `json:"artists"`
+	Album       acrAlbum       `json:"album"`
+	Label       string         `json:"label"`
+	ReleaseDate string         `json:"release_date"`
+	Score       int            `json:"score"`
+	ExternalIDs acrExternalIDs `json:"external_ids"`
+}
+
+type acrExternalIDs struct {
+	ISRC string `json:"isrc"`
 }
 
 type acrArtist struct {

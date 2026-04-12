@@ -14,6 +14,7 @@ var ErrRateLimit = errors.New("recognition: rate limit exceeded")
 type Result struct {
 	ACRID    string
 	ShazamID string
+	ISRC     string // International Standard Recording Code; populated by ACRCloud when available
 	Title    string
 	Artist   string
 	Album    string

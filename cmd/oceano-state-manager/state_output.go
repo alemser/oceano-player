@@ -72,6 +72,7 @@ func (m *mgr) buildState() PlayerState {
 			SampleRate:    airplaySampleRate,
 			BitDepth:      airplayBitDepth,
 			ArtworkPath:   m.artworkPath,
+			PhysicalMatch: m.streamingPhysicalMatch,
 		}
 	case "Physical":
 		if r := m.recognitionResult; r != nil {
@@ -127,7 +128,51 @@ func (m *mgr) runLibrarySync(ctx context.Context, lib *internallibrary.Library) 
 // the current track (matched by ACRID or ShazamID) and user-edited fields differ
 // from in-memory values. This makes UI edits visible in state.json without waiting
 // for a new recognition cycle — including Shazam-only tracks (no ACRID).
+//
+// When AirPlay is the active source, it also checks whether the current streaming
+// track exists in the local physical library and caches the result in
+// m.streamingPhysicalMatch for display in the now-playing UI.
 func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
+	// --- AirPlay → physical library match ---
+	m.mu.Lock()
+	airPlaying := m.airplayPlaying
+	airTitle := m.title
+	airArtist := m.artist
+	currentMatchKey := m.streamingMatchKey
+	m.mu.Unlock()
+
+	if airPlaying {
+		newKey := airTitle + "\x00" + airArtist
+		if newKey != currentMatchKey {
+			var match *PhysicalMatchInfo
+			if airTitle != "" && airArtist != "" {
+				if entry, err := lib.FindPhysicalMatch(airTitle, airArtist); err == nil && entry != nil {
+					match = &PhysicalMatchInfo{
+						Format:      entry.Format,
+						TrackNumber: entry.TrackNumber,
+						Album:       entry.Album,
+					}
+					log.Printf("physical match: streaming track %q by %q found in library — format=%s", airTitle, airArtist, match.Format)
+				}
+			}
+			m.mu.Lock()
+			m.streamingMatchKey = newKey
+			m.streamingPhysicalMatch = match
+			m.mu.Unlock()
+			m.markDirty()
+		}
+	} else {
+		m.mu.Lock()
+		hadMatch := m.streamingPhysicalMatch != nil || m.streamingMatchKey != ""
+		m.streamingPhysicalMatch = nil
+		m.streamingMatchKey = ""
+		m.mu.Unlock()
+		if hadMatch {
+			m.markDirty()
+		}
+	}
+
+	// --- Physical source sync (existing logic) ---
 	m.mu.Lock()
 	if m.physicalSource != "Physical" {
 		m.mu.Unlock()
