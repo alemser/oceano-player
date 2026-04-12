@@ -182,9 +182,9 @@ function applyState(state) {
   $idle.classList.toggle('visible', isIdle);
 
   // Source icon + label
-  $sourceIcon.innerHTML  = SOURCE_ICONS[source] || SOURCE_ICONS.None;
+  $sourceIcon.innerHTML  = sourceIcon(source);
   $sourceLabel.textContent = SOURCE_LABELS[source] || source;
-  $metaSourceIcon.innerHTML = SOURCE_ICONS[source] || SOURCE_ICONS.None;
+  $metaSourceIcon.innerHTML = sourceIcon(source);
   $metaSourceLabel.textContent = SOURCE_LABELS[source] || source;
 
   // Option 1 UX: when there is active playback, keep source context in the
