@@ -484,6 +484,20 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 		_ = exec.Command("bluetoothctl", "pairable", "on").Run()
 	}
 
+	// Set adapter alias immediately and persist it via a shairport-sync drop-in so
+	// the alias survives shairport-sync restarts (shairport-sync overwrites it on start).
+	if cfg.Name != "" {
+		_ = exec.Command("bluetoothctl", "system-alias", cfg.Name).Run()
+
+		const dropinDir = "/etc/systemd/system/shairport-sync.service.d"
+		const dropinPath = dropinDir + "/bt-alias.conf"
+		if err := os.MkdirAll(dropinDir, 0o755); err == nil {
+			content := "[Service]\nExecStartPost=/usr/bin/bluetoothctl system-alias " + cfg.Name + "\n"
+			_ = os.WriteFile(dropinPath, []byte(content), 0o644)
+			_ = exec.Command("systemctl", "daemon-reload").Run()
+		}
+	}
+
 	return nil
 }
 

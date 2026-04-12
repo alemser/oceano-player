@@ -576,6 +576,18 @@ setup_bluetooth() {
     bluetoothctl system-alias "${device_name}" >/dev/null 2>&1 || true
   fi
 
+  # shairport-sync overwrites the adapter alias with the AirPlay name on every start.
+  # Install a systemd drop-in with ExecStartPost so our Bluetooth alias is restored
+  # immediately after shairport-sync sets its own.
+  local dropin_dir="/etc/systemd/system/shairport-sync.service.d"
+  mkdir -p "${dropin_dir}"
+  cat > "${dropin_dir}/bt-alias.conf" <<EOF
+[Service]
+ExecStartPost=/usr/bin/bluetoothctl system-alias ${device_name}
+EOF
+  systemctl daemon-reload
+  log_ok "Bluetooth alias '${device_name}' will be restored after shairport-sync starts."
+
   # Restart PipeWire/WirePlumber so the new libspa-0.2-bluetooth codecs are loaded.
   # systemctl --user requires XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS which are
   # only set inside a user session — not available when running as root via SSH.
