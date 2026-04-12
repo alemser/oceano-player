@@ -141,6 +141,8 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		if strVal == "" {
 			return
 		}
+		// Temporary: log all core fields to discover what Apple Music sends via AirPlay
+		log.Printf("AirPlay core field: code=%q val=%q", code, strVal)
 		var changed bool
 		m.mu.Lock()
 		switch code {
