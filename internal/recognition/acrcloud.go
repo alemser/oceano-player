@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -122,7 +121,6 @@ func (r *ACRCloudRecognizer) Recognize(ctx context.Context, wavPath string) (*Re
 	if len(m.Artists) > 0 {
 		artist = m.Artists[0].Name
 	}
-	log.Printf("ACRCloud raw: acrid=%q isrc=%q title=%q artist=%q", m.ACRID, m.ExternalIDs.ISRC, m.Title, artist)
 	return &Result{
 		ACRID:    m.ACRID,
 		ISRC:     m.ExternalIDs.ISRC,
