@@ -234,11 +234,13 @@ type mgr struct {
 	artworkPath    string
 
 	// Bluetooth state (updated by runBluetoothMonitor goroutine)
-	bluetoothPlaying bool
-	bluetoothTitle   string
-	bluetoothArtist  string
-	bluetoothAlbum   string
-	bluetoothCodec   string // e.g. "SBC", "AAC", "LDAC", "AptX", "Opus"
+	bluetoothPlaying     bool
+	bluetoothTitle       string
+	bluetoothArtist      string
+	bluetoothAlbum       string
+	bluetoothCodec       string // e.g. "SBC", "AAC", "LDAC", "AptX", "Opus"
+	bluetoothArtworkPath string // fetched via iTunes API when track changes
+	bluetoothArtworkKey  string // "artist\x00album" — avoids re-fetching same track
 
 	// Physical source (updated by source watcher goroutine)
 	physicalSource      string             // "Physical" or "None"

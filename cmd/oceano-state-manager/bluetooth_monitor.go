@@ -44,6 +44,8 @@ func (m *mgr) runBluetoothMonitor(ctx context.Context) {
 		wasPlaying := m.bluetoothPlaying
 		m.bluetoothPlaying = false
 		m.bluetoothCodec = ""
+		m.bluetoothArtworkPath = ""
+		m.bluetoothArtworkKey = ""
 		m.mu.Unlock()
 		if wasPlaying {
 			m.markDirty()
@@ -145,6 +147,10 @@ func (m *mgr) applyMediaPlayerUpdate(lines []string) {
 			if m.cfg.Verbose {
 				log.Printf("bluetooth: track: artist=%q title=%q album=%q", artist, title, album)
 			}
+			// Fetch artwork in background when track changes.
+			if artist != "" && album != "" {
+				go m.fetchBluetoothArtwork(artist, album)
+			}
 		}
 	}
 
@@ -231,6 +237,40 @@ func (m *mgr) queryBluetoothCodec(transportPath string) string {
 		}
 	}
 	return ""
+}
+
+// fetchBluetoothArtwork fetches album artwork for a Bluetooth track via the
+// iTunes Search API and caches the result in m.bluetoothArtworkPath.
+// Uses a key to avoid re-fetching the same artist+album combination.
+func (m *mgr) fetchBluetoothArtwork(artist, album string) {
+	key := artist + "\x00" + album
+
+	m.mu.Lock()
+	if m.bluetoothArtworkKey == key {
+		m.mu.Unlock()
+		return
+	}
+	artworkDir := m.cfg.ArtworkDir
+	m.mu.Unlock()
+
+	path, err := fetchArtwork(artist, album, artworkDir)
+	if err != nil {
+		log.Printf("bluetooth: artwork fetch error: %v", err)
+		return
+	}
+
+	m.mu.Lock()
+	// Only apply if the track hasn't changed while we were fetching.
+	if m.bluetoothArtist == artist && m.bluetoothAlbum == album {
+		m.bluetoothArtworkPath = path
+		m.bluetoothArtworkKey = key
+	}
+	m.mu.Unlock()
+
+	if path != "" {
+		log.Printf("bluetooth: artwork fetched for %q by %q", album, artist)
+		m.markDirty()
+	}
 }
 
 // parseBluetoothBlock extracts track metadata and status from one dbus-monitor
