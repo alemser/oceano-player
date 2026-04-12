@@ -572,6 +572,24 @@ setup_bluetooth() {
   # Activate adapter and enable discoverability for this session.
   if command -v bluetoothctl >/dev/null 2>&1; then
     echo -e "power on\ndiscoverable on\npairable on\nquit" | bluetoothctl >/dev/null 2>&1 || true
+    # Set the BLE advertising alias — used by macOS/iOS for discovery (different from Name).
+    bluetoothctl system-alias "${device_name}" >/dev/null 2>&1 || true
+  fi
+
+  # Restart PipeWire/WirePlumber so the new libspa-0.2-bluetooth codecs are loaded.
+  # systemctl --user only works in a user session; detect the session owner and
+  # use machinectl (preferred) or su as a fallback when running as root.
+  local session_user
+  session_user="$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3 != "root" {print $3; exit}')"
+  if [[ -n "${session_user}" ]]; then
+    log_info "Restarting PipeWire as user '${session_user}'..."
+    machinectl shell "${session_user}@" /bin/bash -c \
+      "systemctl --user restart pipewire.service wireplumber.service 2>/dev/null" 2>/dev/null \
+      || su -l "${session_user}" -c \
+         "systemctl --user restart pipewire.service wireplumber.service" 2>/dev/null \
+      || log_warn "Could not restart PipeWire — reboot the Pi to activate Bluetooth codecs."
+  else
+    log_warn "No active user session — PipeWire will pick up Bluetooth codecs on next login/reboot."
   fi
 
   # Warn if dbus-monitor is missing — the state manager bluetooth monitor needs it.
@@ -580,8 +598,8 @@ setup_bluetooth() {
     log_warn "Install it with: sudo apt install dbus"
   fi
 
-  log_ok "Bluetooth configured: device name='${device_name}', always discoverable."
-  log_info "To pair your phone: Settings → Bluetooth → '${device_name}'"
+  log_ok "Bluetooth configured: device name='${device_name}', alias='${device_name}', always discoverable."
+  log_info "To pair: Settings → Bluetooth → '${device_name}'"
   log_info "Pair once; the Pi will remember trusted devices across reboots."
 }
 
@@ -778,7 +796,7 @@ main() {
   log_section "System Dependencies"
   log_info "Installing system packages..."
   apt-get update -qq
-  apt-get install -y --no-install-recommends shairport-sync alsa-utils libchromaprint-tools ffmpeg bluez dbus
+  apt-get install -y --no-install-recommends shairport-sync alsa-utils libchromaprint-tools ffmpeg bluez dbus libspa-0.2-bluetooth
   log_ok "System packages ready."
 
   # ── Bluetooth ──
