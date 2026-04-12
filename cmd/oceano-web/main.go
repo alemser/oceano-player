@@ -484,18 +484,25 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 		_ = exec.Command("bluetoothctl", "pairable", "on").Run()
 	}
 
-	// Set adapter alias immediately and persist it via a shairport-sync drop-in so
-	// the alias survives shairport-sync restarts (shairport-sync overwrites it on start).
+	// Set adapter alias immediately via dbus-send and update the persistent
+	// oceano-bt-alias service so the alias survives shairport-sync restarts.
 	if cfg.Name != "" {
-		_ = exec.Command("bluetoothctl", "system-alias", cfg.Name).Run()
+		// Apply immediately to the running adapter.
+		_ = exec.Command("dbus-send", "--system", "--print-reply", "--dest=org.bluez",
+			"/org/bluez/hci0", "org.freedesktop.DBus.Properties.Set",
+			"string:org.bluez.Adapter1", "string:Alias",
+			"variant:string:"+cfg.Name).Run()
 
-		const dropinDir = "/etc/systemd/system/shairport-sync.service.d"
-		const dropinPath = dropinDir + "/bt-alias.conf"
-		if err := os.MkdirAll(dropinDir, 0o755); err == nil {
-			content := "[Service]\nExecStartPost=-/usr/bin/timeout 5 /usr/bin/bluetoothctl system-alias " + cfg.Name + "\n"
-			_ = os.WriteFile(dropinPath, []byte(content), 0o644)
-			_ = exec.Command("systemctl", "daemon-reload").Run()
-		}
+		// Update the oneshot service with the new name.
+		unit := "[Unit]\nDescription=Restore Bluetooth adapter alias to " + cfg.Name + "\n" +
+			"After=shairport-sync.service\nWants=shairport-sync.service\n\n" +
+			"[Service]\nType=oneshot\nExecStartPre=/bin/sleep 2\n" +
+			"ExecStart=/usr/bin/dbus-send --system --print-reply --dest=org.bluez " +
+			"/org/bluez/hci0 org.freedesktop.DBus.Properties.Set " +
+			"string:org.bluez.Adapter1 string:Alias variant:string:" + cfg.Name + "\n" +
+			"RemainAfterExit=no\n\n[Install]\nWantedBy=multi-user.target\n"
+		_ = os.WriteFile("/etc/systemd/system/oceano-bt-alias.service", []byte(unit), 0o644)
+		_ = exec.Command("systemctl", "daemon-reload").Run()
 	}
 
 	return nil

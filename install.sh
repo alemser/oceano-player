@@ -570,15 +570,25 @@ setup_bluetooth() {
   fi
 
   # shairport-sync overwrites the adapter alias with the AirPlay name on every start.
-  # Install a systemd drop-in with ExecStartPost so our Bluetooth alias is restored
-  # immediately after shairport-sync sets its own.
-  local dropin_dir="/etc/systemd/system/shairport-sync.service.d"
-  mkdir -p "${dropin_dir}"
-  cat > "${dropin_dir}/bt-alias.conf" <<EOF
+  # Use dbus-send directly (reliable in non-interactive context) via a dedicated
+  # oneshot service that runs after shairport-sync has finished its own setup.
+  cat > /etc/systemd/system/oceano-bt-alias.service <<EOF
+[Unit]
+Description=Restore Bluetooth adapter alias to ${device_name}
+After=shairport-sync.service
+Wants=shairport-sync.service
+
 [Service]
-ExecStartPost=-/usr/bin/timeout 5 /usr/bin/bluetoothctl system-alias ${device_name}
+Type=oneshot
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/dbus-send --system --print-reply --dest=org.bluez /org/bluez/hci0 org.freedesktop.DBus.Properties.Set string:org.bluez.Adapter1 string:Alias variant:string:${device_name}
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
+  systemctl enable oceano-bt-alias.service
   log_ok "Bluetooth alias '${device_name}' will be restored after shairport-sync starts."
 
   # Install a persistent auto-pairing agent so headless pairing works without
