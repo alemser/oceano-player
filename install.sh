@@ -581,31 +581,6 @@ EOF
   systemctl daemon-reload
   log_ok "Bluetooth alias '${device_name}' will be restored after shairport-sync starts."
 
-  # Restart PipeWire/WirePlumber so the new libspa-0.2-bluetooth codecs are loaded.
-  # systemctl --user requires XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS which are
-  # only set inside a user session — not available when running as root via SSH.
-  # Solution: find the session user, resolve their runtime dir, and pass the env vars
-  # explicitly to su so the user bus is reachable without a login shell.
-  local session_user session_uid runtime_dir
-  session_user="$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3 != "root" {print $3; exit}')"
-  if [[ -n "${session_user}" ]]; then
-    session_uid="$(id -u "${session_user}" 2>/dev/null)" || true
-    runtime_dir="/run/user/${session_uid}"
-    if [[ -n "${session_uid}" && -d "${runtime_dir}" ]]; then
-      log_info "Restarting PipeWire as user '${session_user}'..."
-      XDG_RUNTIME_DIR="${runtime_dir}" \
-      DBUS_SESSION_BUS_ADDRESS="unix:path=${runtime_dir}/bus" \
-        su -s /bin/bash "${session_user}" -c \
-        "systemctl --user restart pipewire.service wireplumber.service" 2>/dev/null \
-        && log_ok "PipeWire restarted — Bluetooth codecs active." \
-        || log_warn "PipeWire restart failed — reboot the Pi to activate Bluetooth codecs."
-    else
-      log_warn "No active session for '${session_user}' (/run/user/${session_uid} not found) — reboot to activate Bluetooth codecs."
-    fi
-  else
-    log_warn "No active user session — reboot the Pi to activate Bluetooth codecs."
-  fi
-
   # Install a persistent auto-pairing agent so headless pairing works without
   # a touchscreen. bt-agent -c NoInputNoOutput accepts all pairing requests automatically.
   if command -v bt-agent >/dev/null 2>&1; then
@@ -626,8 +601,8 @@ StandardError=null
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
-    systemctl enable --now bt-agent.service
-    log_ok "Bluetooth auto-pairing agent enabled."
+    systemctl enable bt-agent.service
+    log_ok "Bluetooth auto-pairing agent enabled (starts on next boot)."
   else
     log_warn "bt-agent not found — manual pairing confirmation required (install bluez-tools to fix)."
   fi
