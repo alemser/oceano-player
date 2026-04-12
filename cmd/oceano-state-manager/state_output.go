@@ -80,6 +80,7 @@ func (m *mgr) buildState() PlayerState {
 			Title:         m.bluetoothTitle,
 			Artist:        m.bluetoothArtist,
 			Album:         m.bluetoothAlbum,
+			Codec:         m.bluetoothCodec,
 			PhysicalMatch: m.streamingPhysicalMatch,
 		}
 	case "Physical":

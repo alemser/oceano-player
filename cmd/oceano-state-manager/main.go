@@ -66,6 +66,9 @@ type TrackInfo struct {
 	BitDepth      string             `json:"bitdepth"`
 	ArtworkPath   string             `json:"artwork_path,omitempty"`
 	PhysicalMatch *PhysicalMatchInfo `json:"physical_match,omitempty"`
+	// Codec is the audio codec in use. Populated for Bluetooth (e.g. "SBC", "AAC",
+	// "LDAC", "AptX") and may be used by other sources in the future.
+	Codec string `json:"codec,omitempty"`
 }
 
 // PhysicalMatchInfo describes a physical-media library entry that corresponds
@@ -235,6 +238,7 @@ type mgr struct {
 	bluetoothTitle   string
 	bluetoothArtist  string
 	bluetoothAlbum   string
+	bluetoothCodec   string // e.g. "SBC", "AAC", "LDAC", "AptX", "Opus"
 
 	// Physical source (updated by source watcher goroutine)
 	physicalSource      string             // "Physical" or "None"

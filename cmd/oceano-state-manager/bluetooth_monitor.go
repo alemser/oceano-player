@@ -9,9 +9,14 @@ import (
 	"time"
 )
 
-// runBluetoothMonitor subscribes to BlueZ AVRCP events via dbus-monitor and
-// updates Bluetooth playback state (title/artist/album/playing) in mgr.
+// runBluetoothMonitor subscribes to BlueZ events via dbus-monitor and updates
+// Bluetooth playback state (title/artist/album/codec/playing) in mgr.
 // It is a no-op when dbus-monitor is not installed.
+//
+// Two event types are monitored:
+//   - org.bluez.MediaPlayer1 PropertiesChanged → track metadata and play/pause status
+//   - org.bluez.MediaTransport1 PropertiesChanged → transport state (active/idle)
+//     used to detect which codec is in use (AAC, SBC, LDAC, etc.)
 func (m *mgr) runBluetoothMonitor(ctx context.Context) {
 	if _, err := exec.LookPath("dbus-monitor"); err != nil {
 		log.Printf("bluetooth: dbus-monitor not found — bluetooth monitoring disabled")
@@ -38,6 +43,7 @@ func (m *mgr) runBluetoothMonitor(ctx context.Context) {
 		m.mu.Lock()
 		wasPlaying := m.bluetoothPlaying
 		m.bluetoothPlaying = false
+		m.bluetoothCodec = ""
 		m.mu.Unlock()
 		if wasPlaying {
 			m.markDirty()
@@ -51,13 +57,13 @@ func (m *mgr) runBluetoothMonitor(ctx context.Context) {
 	}
 }
 
-// readBluetoothDBus starts dbus-monitor filtered to BlueZ MediaPlayer1
-// PropertiesChanged signals, buffers output into per-signal blocks, and
-// applies each block to mgr state. Returns when the subprocess exits or
-// the context is cancelled.
+// readBluetoothDBus starts a single dbus-monitor subprocess that listens to
+// both MediaPlayer1 (track metadata + status) and MediaTransport1 (codec
+// negotiation) PropertiesChanged signals.
 func (m *mgr) readBluetoothDBus(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, "dbus-monitor", "--system",
-		"type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.bluez.MediaPlayer1'")
+		"type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.bluez.MediaPlayer1'",
+		"type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.bluez.MediaTransport1'")
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -68,7 +74,7 @@ func (m *mgr) readBluetoothDBus(ctx context.Context) error {
 	}
 	defer cmd.Wait() //nolint:errcheck
 
-	log.Printf("bluetooth: dbus-monitor connected (listening for BlueZ AVRCP events)")
+	log.Printf("bluetooth: dbus-monitor connected (MediaPlayer1 + MediaTransport1)")
 
 	scanner := bufio.NewScanner(stdout)
 	var block []string
@@ -89,7 +95,6 @@ func (m *mgr) readBluetoothDBus(ctx context.Context) error {
 		}
 	}
 
-	// Process the final block.
 	if len(block) > 0 {
 		m.applyBluetoothBlock(block)
 	}
@@ -97,9 +102,31 @@ func (m *mgr) readBluetoothDBus(ctx context.Context) error {
 	return scanner.Err()
 }
 
-// applyBluetoothBlock parses a single dbus-monitor signal block and updates
-// mgr state when track metadata or playback status has changed.
+// applyBluetoothBlock dispatches a parsed dbus-monitor signal block to the
+// appropriate handler based on which BlueZ interface the signal is for.
 func (m *mgr) applyBluetoothBlock(lines []string) {
+	// The interface name is always the first string literal in a
+	// PropertiesChanged block (it is arg0 of the signal).
+	for _, raw := range lines {
+		t := strings.TrimSpace(raw)
+		strVal, ok := extractDBusStringValue(t)
+		if !ok {
+			continue
+		}
+		switch strVal {
+		case "org.bluez.MediaPlayer1":
+			m.applyMediaPlayerUpdate(lines)
+			return
+		case "org.bluez.MediaTransport1":
+			m.applyTransportUpdate(lines)
+			return
+		}
+	}
+}
+
+// applyMediaPlayerUpdate handles track metadata and play/pause status changes
+// from org.bluez.MediaPlayer1 PropertiesChanged signals.
+func (m *mgr) applyMediaPlayerUpdate(lines []string) {
 	title, artist, album, status, hasTrack, hasStatus := parseBluetoothBlock(lines)
 
 	if !hasTrack && !hasStatus {
@@ -137,14 +164,78 @@ func (m *mgr) applyBluetoothBlock(lines []string) {
 	}
 }
 
-// parseBluetoothBlock extracts track metadata and status from the lines of one
-// dbus-monitor signal block. It uses a simple key-tracking state machine:
-//
-//   - When a string literal matches a known key name (Title/Artist/Album/Status/Track)
-//     it sets pendingKey.
-//   - The next string literal is consumed as the value for pendingKey.
-//   - Structural dbus-monitor lines (array [, dict entry, variant ...) preserve
-//     pendingKey so multi-line variant values are handled correctly.
+// applyTransportUpdate handles org.bluez.MediaTransport1 PropertiesChanged
+// signals. When the transport becomes active it queries the negotiated codec
+// (AAC, SBC, LDAC, etc.) via dbus-send and caches the result.
+func (m *mgr) applyTransportUpdate(lines []string) {
+	state := parseTransportState(lines)
+	if state == "" {
+		return
+	}
+
+	if state == "active" {
+		objectPath := extractSignalPath(lines[0])
+		codec := ""
+		if objectPath != "" {
+			codec = m.queryBluetoothCodec(objectPath)
+		}
+		m.mu.Lock()
+		changed := m.bluetoothCodec != codec
+		m.bluetoothCodec = codec
+		m.mu.Unlock()
+		if changed {
+			log.Printf("bluetooth: transport active, codec=%s", codec)
+			m.markDirty()
+		}
+	} else {
+		// idle or any other state → clear codec
+		m.mu.Lock()
+		changed := m.bluetoothCodec != ""
+		m.bluetoothCodec = ""
+		m.mu.Unlock()
+		if changed {
+			m.markDirty()
+		}
+	}
+}
+
+// queryBluetoothCodec reads the Endpoint property of a MediaTransport1 object
+// via dbus-send and maps the endpoint path to a human-readable codec name.
+// Returns "" when the codec cannot be determined.
+func (m *mgr) queryBluetoothCodec(transportPath string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "dbus-send",
+		"--system", "--print-reply", "--dest=org.bluez",
+		transportPath,
+		"org.freedesktop.DBus.Properties.Get",
+		"string:org.bluez.MediaTransport1",
+		"string:Endpoint")
+
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	// Output contains a line like:
+	//   variant  object path "/MediaEndpoint/A2DPSink/aac"
+	for _, line := range strings.Split(string(out), "\n") {
+		t := strings.TrimSpace(line)
+		if strings.Contains(t, "object path") {
+			start := strings.Index(t, `"`)
+			end := strings.LastIndex(t, `"`)
+			if start >= 0 && end > start {
+				return mapBluetoothCodec(t[start+1 : end])
+			}
+		}
+	}
+	return ""
+}
+
+// parseBluetoothBlock extracts track metadata and status from one dbus-monitor
+// signal block for org.bluez.MediaPlayer1. See bluetooth_monitor.go for the
+// state machine description.
 func parseBluetoothBlock(lines []string) (title, artist, album, status string, hasTrack, hasStatus bool) {
 	var pendingKey string
 
@@ -157,21 +248,18 @@ func parseBluetoothBlock(lines []string) (title, artist, album, status string, h
 		strVal, hasStr := extractDBusStringValue(t)
 
 		if !hasStr {
-			// Non-string line: preserve pendingKey for structural/variant lines.
 			switch {
 			case t == "array [", t == "]", strings.HasPrefix(t, "dict entry"), t == ")":
-				// structural — keep pendingKey
+				// structural — preserve pendingKey
 			case strings.HasPrefix(t, "variant"):
-				// variant header without inline string — keep pendingKey for next line
+				// variant without inline string — preserve pendingKey
 			default:
 				pendingKey = ""
 			}
 			continue
 		}
 
-		// This line contains a string value.
 		if pendingKey != "" && pendingKey != "Track" {
-			// Consume the string as the value for the pending key.
 			switch pendingKey {
 			case "Title":
 				title = strVal
@@ -188,7 +276,6 @@ func parseBluetoothBlock(lines []string) (title, artist, album, status string, h
 			}
 			pendingKey = ""
 		} else {
-			// Treat the string as a key name.
 			switch strVal {
 			case "Title", "Artist", "Album", "Status", "Track":
 				pendingKey = strVal
@@ -198,6 +285,84 @@ func parseBluetoothBlock(lines []string) (title, artist, album, status string, h
 		}
 	}
 	return
+}
+
+// parseTransportState extracts the State value from an org.bluez.MediaTransport1
+// PropertiesChanged block. Returns "" when no State key is found.
+func parseTransportState(lines []string) string {
+	var pendingKey string
+	for _, raw := range lines {
+		t := strings.TrimSpace(raw)
+		if t == "" {
+			continue
+		}
+		strVal, hasStr := extractDBusStringValue(t)
+		if !hasStr {
+			if !strings.HasPrefix(t, "variant") && t != "array [" && t != "]" &&
+				!strings.HasPrefix(t, "dict entry") && t != ")" {
+				pendingKey = ""
+			}
+			continue
+		}
+		if pendingKey == "State" {
+			return strVal
+		}
+		if strVal == "State" {
+			pendingKey = "State"
+		} else {
+			pendingKey = ""
+		}
+	}
+	return ""
+}
+
+// extractSignalPath extracts the D-Bus object path from a dbus-monitor signal
+// header line, e.g.: "signal time=... path=/org/bluez/.../fd0; interface=..."
+func extractSignalPath(headerLine string) string {
+	idx := strings.Index(headerLine, " path=")
+	if idx < 0 {
+		return ""
+	}
+	rest := headerLine[idx+6:]
+	end := strings.IndexByte(rest, ';')
+	if end < 0 {
+		end = strings.IndexByte(rest, ' ')
+	}
+	if end < 0 {
+		return rest
+	}
+	return rest[:end]
+}
+
+// mapBluetoothCodec maps a BlueZ MediaEndpoint object path to a human-readable
+// codec name. The path is typically set by PipeWire and encodes the codec name
+// as the last path component (e.g. "/MediaEndpoint/A2DPSink/aac" → "AAC").
+func mapBluetoothCodec(endpointPath string) string {
+	idx := strings.LastIndex(endpointPath, "/")
+	if idx < 0 {
+		return ""
+	}
+	name := strings.ToLower(endpointPath[idx+1:])
+	switch {
+	case name == "sbc", name == "sbc_xq":
+		return "SBC"
+	case name == "aac":
+		return "AAC"
+	case name == "ldac":
+		return "LDAC"
+	case name == "aptx_hd":
+		return "AptX HD"
+	case strings.HasPrefix(name, "aptx_ll"):
+		return "AptX LL"
+	case strings.HasPrefix(name, "aptx"):
+		return "AptX"
+	case strings.HasPrefix(name, "opus"):
+		return "Opus"
+	case strings.HasPrefix(name, "faststream"):
+		return "FastStream"
+	default:
+		return ""
+	}
 }
 
 // extractDBusStringValue extracts the string value from a dbus-monitor output

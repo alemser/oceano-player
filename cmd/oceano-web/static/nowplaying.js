@@ -240,6 +240,14 @@ function applyState(state) {
       ));
     }
 
+    // Bluetooth codec chip (SBC, AAC, LDAC, AptX, Opus, …)
+    if (track.codec) {
+      $chips.appendChild(makeChip(
+        chipSVG('M6 2 L10 6 L6 10 L6 2 M6 6 L2 2 M6 6 L2 10'),
+        track.codec
+      ));
+    }
+
     // Track/side chips: supports CD and Vinyl representations.
     if (track.track_number) {
       const trackRef = String(track.track_number).trim();
