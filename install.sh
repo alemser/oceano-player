@@ -571,9 +571,9 @@ setup_bluetooth() {
 
   # Activate adapter and enable discoverability for this session.
   if command -v bluetoothctl >/dev/null 2>&1; then
-    echo -e "power on\ndiscoverable on\npairable on\nquit" | bluetoothctl >/dev/null 2>&1 || true
+    timeout 5 bash -c 'echo -e "power on\ndiscoverable on\npairable on\nquit" | bluetoothctl' >/dev/null 2>&1 || true
     # Set the BLE advertising alias — used by macOS/iOS for discovery (different from Name).
-    bluetoothctl system-alias "${device_name}" >/dev/null 2>&1 || true
+    timeout 5 bluetoothctl system-alias "${device_name}" >/dev/null 2>&1 || true
   fi
 
   # shairport-sync overwrites the adapter alias with the AirPlay name on every start.
@@ -583,7 +583,7 @@ setup_bluetooth() {
   mkdir -p "${dropin_dir}"
   cat > "${dropin_dir}/bt-alias.conf" <<EOF
 [Service]
-ExecStartPost=/usr/bin/bluetoothctl system-alias ${device_name}
+ExecStartPost=/usr/bin/timeout 5 /usr/bin/bluetoothctl system-alias ${device_name}
 EOF
   systemctl daemon-reload
   log_ok "Bluetooth alias '${device_name}' will be restored after shairport-sync starts."
