@@ -826,7 +826,15 @@ main() {
 
   # ── Bluetooth ──
   log_section "Bluetooth"
-  setup_bluetooth "${airplay_name}"
+  # Use the Bluetooth name from config if set; otherwise strip " AirPlay" suffix
+  # from the AirPlay name so both stay in sync without the confusing suffix.
+  local bt_name
+  bt_name="$(_cfg "['bluetooth']['name']" 2>/dev/null)" || bt_name=""
+  if [[ -z "${bt_name}" ]]; then
+    bt_name="${airplay_name% AirPlay}"
+    [[ -z "${bt_name}" ]] && bt_name="${airplay_name}"
+  fi
+  setup_bluetooth "${bt_name}"
 
   # ── Repository ──
   log_section "Repository"
