@@ -613,6 +613,30 @@ EOF
     log_warn "No active user session — reboot the Pi to activate Bluetooth codecs."
   fi
 
+  # Install a persistent auto-pairing agent so headless pairing works without
+  # a touchscreen. bt-agent -c NoInputNoOutput accepts all pairing requests automatically.
+  if command -v bt-agent >/dev/null 2>&1; then
+    cat > /etc/systemd/system/bt-agent.service <<'EOF'
+[Unit]
+Description=Bluetooth auto-pairing agent
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+ExecStart=/usr/bin/bt-agent -c NoInputNoOutput
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now bt-agent.service
+    log_ok "Bluetooth auto-pairing agent enabled."
+  else
+    log_warn "bt-agent not found — manual pairing confirmation required (install bluez-tools to fix)."
+  fi
+
   # Warn if dbus-monitor is missing — the state manager bluetooth monitor needs it.
   if ! command -v dbus-monitor >/dev/null 2>&1; then
     log_warn "dbus-monitor not found — Bluetooth metadata monitoring will be disabled."
@@ -817,7 +841,7 @@ main() {
   log_section "System Dependencies"
   log_info "Installing system packages..."
   apt-get update -qq
-  apt-get install -y --no-install-recommends shairport-sync alsa-utils libchromaprint-tools ffmpeg bluez dbus libspa-0.2-bluetooth
+  apt-get install -y --no-install-recommends shairport-sync alsa-utils libchromaprint-tools ffmpeg bluez bluez-tools dbus libspa-0.2-bluetooth
   log_ok "System packages ready."
 
   # ── Bluetooth ──
