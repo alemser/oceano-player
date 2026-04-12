@@ -583,7 +583,7 @@ setup_bluetooth() {
   mkdir -p "${dropin_dir}"
   cat > "${dropin_dir}/bt-alias.conf" <<EOF
 [Service]
-ExecStartPost=/usr/bin/timeout 5 /usr/bin/bluetoothctl system-alias ${device_name}
+ExecStartPost=-/usr/bin/timeout 5 /usr/bin/bluetoothctl system-alias ${device_name}
 EOF
   systemctl daemon-reload
   log_ok "Bluetooth alias '${device_name}' will be restored after shairport-sync starts."
@@ -626,6 +626,8 @@ Requires=bluetooth.service
 ExecStart=/usr/bin/bt-agent -c NoInputNoOutput
 Restart=on-failure
 RestartSec=5
+StandardOutput=null
+StandardError=null
 
 [Install]
 WantedBy=multi-user.target

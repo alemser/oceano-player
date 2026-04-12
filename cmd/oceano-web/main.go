@@ -492,7 +492,7 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 		const dropinDir = "/etc/systemd/system/shairport-sync.service.d"
 		const dropinPath = dropinDir + "/bt-alias.conf"
 		if err := os.MkdirAll(dropinDir, 0o755); err == nil {
-			content := "[Service]\nExecStartPost=/usr/bin/bluetoothctl system-alias " + cfg.Name + "\n"
+			content := "[Service]\nExecStartPost=-/usr/bin/timeout 5 /usr/bin/bluetoothctl system-alias " + cfg.Name + "\n"
 			_ = os.WriteFile(dropinPath, []byte(content), 0o644)
 			_ = exec.Command("systemctl", "daemon-reload").Run()
 		}
