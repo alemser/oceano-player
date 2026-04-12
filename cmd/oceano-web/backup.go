@@ -222,10 +222,12 @@ echo "Restore complete."
 `, shellQuote(dbPath), shellQuote(artworkDir))
 }
 
-// registerBackupRoute wires the /api/library/export/backup endpoint into mux.
+// registerBackupRoute wires the backup download endpoint into mux.
+// Registered at both the canonical path (/api/libraries/physical/export/backup)
+// and the legacy alias (/api/library/export/backup).
 // Each GET request generates a fresh archive and streams it as a download.
 func registerBackupRoute(mux *http.ServeMux, libraryDBPath, artworkDir string) {
-	mux.HandleFunc("/api/library/export/backup", func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -270,5 +272,7 @@ func registerBackupRoute(mux *http.ServeMux, libraryDBPath, artworkDir string) {
 		if _, err := io.Copy(w, bf); err != nil {
 			log.Printf("backup: stream to client: %v", err)
 		}
-	})
+	}
+	mux.HandleFunc("/api/libraries/physical/export/backup", handler)
+	mux.HandleFunc("/api/library/export/backup", handler)
 }

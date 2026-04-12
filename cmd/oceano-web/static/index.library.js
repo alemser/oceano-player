@@ -41,7 +41,7 @@ function stopLibraryAutoRefresh() {
 
 async function loadLibrary() {
   try {
-    const r = await fetch('/api/library');
+    const r = await fetch('/api/libraries/physical');
     const items = await r.json();
     const sig = librarySignature(items);
     if (sig === _librarySignature) return;
@@ -84,7 +84,7 @@ function renderLibrary() {
 
   grid.innerHTML = filtered.map(e => {
     const fmtClass = (e.format||'unknown').toLowerCase();
-    const artUrl   = e.artwork_path ? `/api/library/${e.id}/artwork?t=${_libLoadedAt}` : '';
+    const artUrl   = e.artwork_path ? `/api/libraries/physical/${e.id}/artwork?t=${_libLoadedAt}` : '';
     const title = e.title || (e.is_fingerprint_stub ? `Unresolved fingerprint #${e.id}` : '(Untitled)');
     const artist = e.artist || (e.is_fingerprint_stub ? 'No provider match' : '');
     return `<div class="lib-card" onclick="openModal(${e.id})">
@@ -125,7 +125,7 @@ function openModal(id) {
   const img = document.getElementById('modal-art-img');
   img.classList.remove('loaded');
   if (e.artwork_path) {
-    img.src = `/api/library/${id}/artwork?t=${Date.now()}`;
+    img.src = `/api/libraries/physical/${id}/artwork?t=${Date.now()}`;
     img.onload = () => img.classList.add('loaded');
   } else {
     img.src = '';
@@ -196,7 +196,7 @@ function searchResolveTargets() {
       return;
     }
     try {
-      const r = await fetch(`/api/library/search?q=${encodeURIComponent(q)}&limit=12`);
+      const r = await fetch(`/api/libraries/physical/search?q=${encodeURIComponent(q)}&limit=12`);
       if (requestId !== _resolveSearchRequestId) return;
       if (!r.ok) {
         out.innerHTML = '<div class="resolve-empty">Search failed.</div>';
@@ -229,7 +229,7 @@ async function resolveStubTo(targetId) {
   if (!confirm('Resolve this fingerprint stub to the selected track?')) return;
 
   try {
-    const r = await fetch(`/api/library/${_editingId}/resolve`, {
+    const r = await fetch(`/api/libraries/physical/${_editingId}/resolve`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ target_id: targetId })
@@ -260,7 +260,7 @@ async function saveEntry() {
     artwork_path: (_library.find(x => x.id === _editingId)||{}).artwork_path || '',
   };
   if (!body.title || !body.artist) { toast('Title and artist are required', true); return; }
-  const r = await fetch(`/api/library/${_editingId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const r = await fetch(`/api/libraries/physical/${_editingId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   if (!r.ok) { toast('Save failed', true); return; }
   toast('Saved');
   closeModal();
@@ -270,7 +270,7 @@ async function saveEntry() {
 async function deleteEntry() {
   if (!_editingId) return;
   if (!confirm('Remove this track from your collection?')) return;
-  const r = await fetch(`/api/library/${_editingId}`, { method:'DELETE' });
+  const r = await fetch(`/api/libraries/physical/${_editingId}`, { method:'DELETE' });
   if (!r.ok) { toast('Delete failed', true); return; }
   toast('Removed');
   closeModal();
@@ -285,7 +285,7 @@ async function loadArtworkPicker(excludeId) {
   const wrap    = document.getElementById('artwork-picker-wrap');
   const picker  = document.getElementById('artwork-picker');
   try {
-    const r       = await fetch('/api/library/artworks');
+    const r       = await fetch('/api/libraries/physical/artworks');
     const artworks = await r.json();
     // Exclude the entry being edited
     const others  = artworks.filter(a => a.id !== excludeId);
@@ -293,7 +293,7 @@ async function loadArtworkPicker(excludeId) {
     wrap.style.display = 'block';
     picker.innerHTML = others.map(a => `
       <div class="artwork-picker-thumb" onclick="copyArtworkFrom(${a.id})" title="${esc(a.artist)} — ${esc(a.title)}">
-        <img src="/api/library/${a.id}/artwork?t=${Date.now()}" alt="">
+        <img src="/api/libraries/physical/${a.id}/artwork?t=${Date.now()}" alt="">
         <div class="thumb-label">${esc(a.artist)}</div>
       </div>`).join('');
   } catch(e) {
@@ -319,7 +319,7 @@ async function copyArtworkFrom(sourceId) {
     track_number: document.getElementById('modal-track-number').value.trim(),
     artwork_path: source.artwork_path,
   };
-  const r = await fetch(`/api/library/${_editingId}`, {
+  const r = await fetch(`/api/libraries/physical/${_editingId}`, {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
   });
   if (!r.ok) { toast('Copy failed', true); return; }
@@ -328,7 +328,7 @@ async function copyArtworkFrom(sourceId) {
   entry.artwork_path = source.artwork_path;
   const img = document.getElementById('modal-art-img');
   img.classList.remove('loaded');
-  img.src = `/api/library/${_editingId}/artwork?t=${Date.now()}`;
+  img.src = `/api/libraries/physical/${_editingId}/artwork?t=${Date.now()}`;
   img.onload = () => img.classList.add('loaded');
   toast('Artwork copied');
   await loadLibrary();
@@ -353,7 +353,7 @@ function fillFromPrevious() {
   const img = document.getElementById('modal-art-img');
   if (prev.artwork_path) {
     img.classList.remove('loaded');
-    img.src = `/api/library/${prev.id}/artwork?t=${Date.now()}`;
+    img.src = `/api/libraries/physical/${prev.id}/artwork?t=${Date.now()}`;
     img.onload = () => img.classList.add('loaded');
   } else {
     img.src = '';
@@ -365,7 +365,7 @@ async function uploadArtwork(input) {
   if (!input.files.length || !_editingId) return;
   const form = new FormData();
   form.append('artwork', input.files[0]);
-  const r = await fetch(`/api/library/${_editingId}/artwork`, { method:'POST', body: form });
+  const r = await fetch(`/api/libraries/physical/${_editingId}/artwork`, { method:'POST', body: form });
   if (!r.ok) { toast('Upload failed', true); return; }
   const data = await r.json();
   // Update local cache so save() picks up the new path
@@ -373,7 +373,7 @@ async function uploadArtwork(input) {
   if (entry) entry.artwork_path = data.artwork_path;
   const img = document.getElementById('modal-art-img');
   img.classList.remove('loaded');
-  img.src = `/api/library/${_editingId}/artwork?t=${Date.now()}`;
+  img.src = `/api/libraries/physical/${_editingId}/artwork?t=${Date.now()}`;
   img.onload = () => img.classList.add('loaded');
   toast('Artwork updated');
   input.value = '';

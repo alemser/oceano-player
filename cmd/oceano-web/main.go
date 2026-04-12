@@ -173,6 +173,21 @@ func main() {
 	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir)
 	registerBackupRoute(mux, *libraryDB, cfg.Advanced.ArtworkDir)
 
+	// API: list active library providers.
+	// Returns a stable list that the UI uses to build library tabs/selectors.
+	// New streaming providers (spotify, tidal, …) will appear here once enabled.
+	mux.HandleFunc("/api/libraries", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		providers := []map[string]string{
+			{"name": "physical", "label": "Physical Library"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(providers)
+	})
+
 	// API: amplifier and CD player IR control.
 	amp, err := buildAmplifierFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket)
 	if err != nil {

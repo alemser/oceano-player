@@ -159,6 +159,18 @@ func (l *LibraryDB) close() {
 	}
 }
 
+// LibraryProvider is the common interface for all library backends.
+// Each backend (physical, spotify, tidal, etc.) implements this interface.
+// Provider-specific operations (edit, delete, artwork upload) are handled by
+// the concrete type; this interface covers the common read surface.
+type LibraryProvider interface {
+	ProviderName() string  // stable identifier: "physical", "spotify", …
+	ProviderLabel() string // human-readable: "Physical Library", "Spotify", …
+}
+
+func (l *LibraryDB) ProviderName() string  { return "physical" }
+func (l *LibraryDB) ProviderLabel() string { return "Physical Library" }
+
 // recentArtworks returns the last 8 distinct entries that have artwork,
 // ordered by last_played. Used to populate the artwork picker in the edit modal.
 func (l *LibraryDB) recentArtworks() ([]LibraryEntry, error) {
@@ -368,19 +380,53 @@ func (l *LibraryDB) deleteEntry(id int64) error {
 
 // ── HTTP handlers ──────────────────────────────────────────────────────────
 
-// registerLibraryRoutes wires all /api/library/* endpoints into mux.
-// libraryDBPath is read from the running state-manager service file so the web
-// UI always talks to the same database without extra configuration.
+// registerLibraryRoutes wires all physical library endpoints into mux.
+// Routes are registered at both the canonical path (/api/libraries/physical/...)
+// and the legacy alias (/api/library/...) for backwards compatibility.
 func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string, artworkDir string) {
-	// GET  /api/library        → list all entries
-	// GET  /api/library/search?q=...&limit=20 → search confirmed tracks
-	// PUT  /api/library/{id}   → update entry metadata
-	// DELETE /api/library/{id} → remove entry
-	// POST /api/library/{id}/artwork → upload artwork image
-	// POST /api/library/{id}/resolve → resolve fingerprint stub to existing track
-	// GET  /api/library/{id}/artwork → serve artwork file
+	for _, base := range []string{"/api/libraries/physical", "/api/library"} {
+		registerPhysicalLibraryAt(mux, base, libraryDBPath, stateFilePath, artworkDir)
+	}
+	// Recognition stats are physical-only for now; kept at their own stable path.
+	mux.HandleFunc("/api/recognition/stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		lib, err := openLibraryDB(libraryDBPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("{}"))
+			return
+		}
+		defer lib.close()
 
-	mux.HandleFunc("/api/library", func(w http.ResponseWriter, r *http.Request) {
+		stats, err := lib.getRecognitionStats()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(stats)
+	})
+}
+
+// registerPhysicalLibraryAt wires all physical library handlers under base.
+//
+//	GET  {base}              → list all entries
+//	GET  {base}/search       → search confirmed tracks
+//	GET  {base}/artworks     → recent entries with artwork (artwork picker)
+//	GET  {base}/{id}/artwork → serve artwork file
+//	POST {base}/{id}/artwork → upload artwork image
+//	POST {base}/{id}/resolve → resolve fingerprint stub to existing track
+//	PUT  {base}/{id}         → update entry metadata
+//	DELETE {base}/{id}       → remove entry
+func registerPhysicalLibraryAt(mux *http.ServeMux, base, libraryDBPath, stateFilePath, artworkDir string) {
+	mux.HandleFunc(base, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -409,7 +455,7 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		json.NewEncoder(w).Encode(entries)
 	})
 
-	mux.HandleFunc("/api/library/search", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(base+"/search", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -441,35 +487,7 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		json.NewEncoder(w).Encode(entries)
 	})
 
-	// GET /api/recognition/stats — get stats for ACRCloud, Shazam, Fingerprint.
-	mux.HandleFunc("/api/recognition/stats", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		lib, err := openLibraryDB(libraryDBPath)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if lib == nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte("{}"))
-			return
-		}
-		defer lib.close()
-
-		stats, err := lib.getRecognitionStats()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(stats)
-	})
-
-	// GET /api/library/artworks — recent tracks with artwork, for the picker.
-	mux.HandleFunc("/api/library/artworks", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(base+"/artworks", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -498,9 +516,8 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		json.NewEncoder(w).Encode(entries)
 	})
 
-	mux.HandleFunc("/api/library/", func(w http.ResponseWriter, r *http.Request) {
-		// Path is either /api/library/{id} or /api/library/{id}/artwork
-		path := strings.TrimPrefix(r.URL.Path, "/api/library/")
+	mux.HandleFunc(base+"/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, base+"/")
 		parts := strings.SplitN(path, "/", 2)
 		id, err := strconv.ParseInt(parts[0], 10, 64)
 		if err != nil {
