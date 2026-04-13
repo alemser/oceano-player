@@ -925,9 +925,13 @@ func (m *mgr) applyPipeWireCodec() {
 }
 
 // queryPipeWireBluetoothCodec queries pw-dump for the active Bluetooth A2DP
-// sink node and extracts the codec name, sample rate, and bit depth from its
-// PipeWire node properties. Returns empty strings when pw-dump is not
-// installed or no Bluetooth A2DP sink is active.
+// node and extracts codec name, sample rate, and bit depth.
+// Returns empty strings when pw-dump is not installed or no BT node is active.
+//
+// PipeWire exposes BT A2DP nodes with media.class = "Stream/Output/Audio"
+// (not "Audio/Sink"), so we identify them solely by the presence of the
+// api.bluez5.address property. The sample rate lives in node.rate ("1/44100")
+// or node.latency ("512/44100") rather than audio.rate.
 func queryPipeWireBluetoothCodec() (codec, sampleRate, bitDepth string) {
 	if _, err := exec.LookPath("pw-dump"); err != nil {
 		return "", "", ""
@@ -959,11 +963,9 @@ func queryPipeWireBluetoothCodec() (codec, sampleRate, bitDepth string) {
 		if props == nil {
 			continue
 		}
-		mediaClass, _ := props["media.class"].(string)
-		if mediaClass != "Audio/Sink" {
-			continue
-		}
-		// Only Bluetooth A2DP sinks have api.bluez5.address.
+		// api.bluez5.address is the reliable indicator of a BT A2DP node.
+		// Do NOT filter by media.class: PipeWire uses "Stream/Output/Audio"
+		// for the A2DP source role (phone→Pi), not "Audio/Sink".
 		btAddr, _ := props["api.bluez5.address"].(string)
 		if btAddr == "" {
 			continue
@@ -974,38 +976,65 @@ func queryPipeWireBluetoothCodec() (codec, sampleRate, bitDepth string) {
 		}
 		codec = mapPWBluetoothCodec(rawCodec)
 
-		if rate, ok := props["audio.rate"].(float64); ok {
-			switch int(rate) {
-			case 16000:
-				sampleRate = "16 kHz"
-			case 32000:
-				sampleRate = "32 kHz"
-			case 44100:
-				sampleRate = "44.1 kHz"
-			case 48000:
-				sampleRate = "48 kHz"
-			case 88200:
-				sampleRate = "88.2 kHz"
-			case 96000:
-				sampleRate = "96 kHz"
-			default:
-				sampleRate = strconv.Itoa(int(rate)) + " Hz"
+		// Sample rate: prefer audio.rate (float64), fall back to the
+		// denominator of node.rate ("1/44100") or node.latency ("512/44100").
+		if rate, ok := props["audio.rate"].(float64); ok && rate > 0 {
+			sampleRate = formatPWSampleRate(int(rate))
+		}
+		if sampleRate == "" {
+			for _, key := range []string{"node.rate", "node.latency"} {
+				if s, ok := props[key].(string); ok {
+					if sr := parsePWRateFraction(s); sr != "" {
+						sampleRate = sr
+						break
+					}
+				}
 			}
 		}
 
-		if format, ok := props["audio.format"].(string); ok {
-			switch strings.ToUpper(format) {
-			case "S16LE", "S16BE", "S16":
-				bitDepth = "16 bit"
-			case "S24LE", "S24BE", "S24", "S24_32LE", "S24_32BE":
-				bitDepth = "24 bit"
-			case "S32LE", "S32BE", "S32", "F32LE", "F32BE":
-				bitDepth = "32 bit"
-			}
+		// Bit depth: derive from the codec since audio.format is often absent.
+		_, bitDepth = parseCodecConfig(codec, nil)
+		if bitDepth == "" {
+			bitDepth = "16 bit"
 		}
 		return codec, sampleRate, bitDepth
 	}
 	return "", "", ""
+}
+
+// parsePWRateFraction parses a PipeWire rate fraction string ("num/denom",
+// e.g. "1/44100" or "512/44100") and returns a display string for the
+// denominator, which is the sample rate in Hz.
+func parsePWRateFraction(s string) string {
+	idx := strings.LastIndex(s, "/")
+	if idx < 0 {
+		return ""
+	}
+	rate, err := strconv.Atoi(strings.TrimSpace(s[idx+1:]))
+	if err != nil || rate <= 0 {
+		return ""
+	}
+	return formatPWSampleRate(rate)
+}
+
+// formatPWSampleRate converts a numeric sample rate to a display string.
+func formatPWSampleRate(rate int) string {
+	switch rate {
+	case 16000:
+		return "16 kHz"
+	case 32000:
+		return "32 kHz"
+	case 44100:
+		return "44.1 kHz"
+	case 48000:
+		return "48 kHz"
+	case 88200:
+		return "88.2 kHz"
+	case 96000:
+		return "96 kHz"
+	default:
+		return strconv.Itoa(rate) + " Hz"
+	}
 }
 
 // mapPWBluetoothCodec maps a PipeWire api.bluez5.codec property value to the
