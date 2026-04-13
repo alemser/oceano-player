@@ -234,13 +234,12 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 		noMatchBackoff = 15 * time.Second
 	}
 
-	if c.tryLocalFingerprintFallback(capturedFPs) {
-		drained := c.drainPendingTriggers()
-		log.Printf("recognizer [%s]: local fallback matched; pending triggers drained=%d", c.rec.Name(), drained)
-		*backoffUntil = time.Time{}
-		return
-	}
-
+	// Do NOT use the local fingerprint fallback when cloud providers return an
+	// explicit "no match". The providers checked their database and found nothing;
+	// substituting a local fingerprint match at that point risks showing a
+	// completely wrong track (false positive). The fingerprint fallback is only
+	// appropriate for transient errors (network, rate-limit) — see
+	// handleRecognitionError — not for authoritative "no match" responses.
 	log.Printf("recognizer [%s]: no match — retrying in %s", c.rec.Name(), noMatchBackoff)
 	storeStubOnNoMatch := isBoundaryTrigger || c.mgr.cfg.RecognizerChain == "fingerprint_only"
 	if len(capturedFPs) > 0 && c.lib != nil && storeStubOnNoMatch {

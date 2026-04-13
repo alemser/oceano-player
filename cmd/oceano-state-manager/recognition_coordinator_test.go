@@ -212,7 +212,13 @@ func TestHandleNoMatch_FingerprintOnlyEnrichesPendingStubAcrossRetries(t *testin
 	}
 }
 
-func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
+// TestHandleNoMatch_DoesNotApplyLocalFallback verifies that handleNoMatch never
+// substitutes a local fingerprint match for an explicit cloud "no match".
+// When both ACRCloud and Shazam return no match, that verdict must be respected
+// and the recognition result must remain unset — even if the local library
+// contains a fingerprint that would match.  Applying the local result would risk
+// showing a completely wrong track (false positive).
+func TestHandleNoMatch_DoesNotApplyLocalFallback(t *testing.T) {
 	m := newTestMgr()
 	m.cfg.RecognizerChain = "fingerprint_only"
 	m.mu.Lock()
@@ -227,21 +233,23 @@ func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
 		t.Fatalf("UpsertStub: %v", err)
 	}
 
-	// Simulate an already-queued trigger that would otherwise cause an immediate
-	// redundant capture after fallback match.
+	// Simulate an already-queued trigger; it must remain after handleNoMatch
+	// since no local fallback is applied.
 	m.recognizeTrigger <- recognizeTrigger{isBoundary: false}
 
 	var backoffUntil time.Time
 	backoffRateLimited := false
 	coordinator.handleNoMatch(fps, false, &backoffUntil, &backoffRateLimited)
 
-	if got := len(m.recognizeTrigger); got != 0 {
-		t.Fatalf("pending trigger queue size = %d, want 0 after local fallback", got)
+	// Trigger must still be in the queue — local fallback must not have drained it.
+	if got := len(m.recognizeTrigger); got != 1 {
+		t.Fatalf("pending trigger queue size = %d, want 1 (local fallback must not drain on no-match)", got)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.recognitionResult == nil {
-		t.Fatal("expected recognitionResult to be set by local fallback")
+	// recognitionResult must remain nil — no local result applied on explicit no-match.
+	if m.recognitionResult != nil {
+		t.Fatalf("recognitionResult must be nil after no-match; got %+v", m.recognitionResult)
 	}
 }
 
