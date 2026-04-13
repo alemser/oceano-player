@@ -112,7 +112,7 @@ sudo ./install-oceano-web.sh
 - Source logos (AirPlay, Bluetooth, UPnP, CD, Vinyl, Physical) with smooth transitions
 - Artwork with graceful placeholder for unidentified or artwork-less tracks
 - Large track title, artist, album text
-- Format chips: sample rate + bit depth (AirPlay/streaming), CD track number, vinyl side + track
+- Format chips: sample rate + bit depth (AirPlay/streaming), codec + sample rate + bit depth (Bluetooth, detected via PipeWire within ~6s of playback start), CD track number, vinyl side + track
 - Identifying animation while ACRCloud/Shazam fingerprints a new track
 - Idle clock screen when no source is active
 - Reconnecting SSE client with exponential back-off
