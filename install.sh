@@ -787,7 +787,9 @@ for attempt in \$(seq 1 12); do
       }')"
   if [[ -n "\${node_id}" ]]; then
     wpctl set-default "\${node_id}"
-    echo "oceano-pipewire-default-sink: set default sink to node \${node_id} (\${DAC_DESC}) on attempt \${attempt}"
+    # Set volume to 100% — PipeWire defaults to 40% which is quieter than direct ALSA.
+    wpctl set-volume "\${node_id}" 1.0
+    echo "oceano-pipewire-default-sink: set default sink to node \${node_id} (\${DAC_DESC}), volume=100% on attempt \${attempt}"
     exit 0
   fi
   echo "oceano-pipewire-default-sink: attempt \${attempt} — '\${DAC_DESC}' not yet visible in PipeWire, retrying in 5 s..."
