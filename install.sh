@@ -628,6 +628,93 @@ EOF
   log_info "Pair once; the Pi will remember trusted devices across reboots."
 }
 
+# ─── WirePlumber routing ─────────────────────
+
+# setup_wireplumber_routing writes a WirePlumber priority rule so the USB DAC
+# becomes the default PipeWire sink, routing Bluetooth audio there directly
+# instead of to the ALSA Loopback device (which is only used by shairport-sync).
+#
+# The AirPlay pipeline (shairport-sync → ALSA Loopback → bridge → DAC) is
+# unaffected because it writes to the ALSA device layer directly, bypassing
+# PipeWire entirely.
+setup_wireplumber_routing() {
+  local usb_match="$1"
+
+  # Derive the ALSA card long name (e.g. "MR 780") from the aplay -l output:
+  #   card 1: MR780 [MR 780], device 0: USB Audio [USB Audio]
+  #                             ^^^^^^ this part
+  local card_longname=""
+  local aplay_line
+  aplay_line="$(aplay -l 2>/dev/null | awk -v m="${usb_match}" 'BEGIN{IGNORECASE=1} /card [0-9]+:.*device [0-9]+:/ && index(tolower($0), tolower(m)) {print; exit}')"
+  if [[ -n "${aplay_line}" ]]; then
+    card_longname="$(echo "${aplay_line}" | sed -E 's/.*card [0-9]+: [^ ]+ \[([^]]+)\].*/\1/')"
+  fi
+
+  # Fall back to the raw usb_match string if detection failed.
+  local match_pattern
+  if [[ -n "${card_longname}" && "${card_longname}" != "${aplay_line}" ]]; then
+    match_pattern="*${card_longname}*"
+    log_info "WirePlumber: DAC description detected as '${card_longname}'"
+  else
+    match_pattern="*${usb_match}*"
+    log_warn "WirePlumber: could not detect card long name — using match '*${usb_match}*'"
+  fi
+
+  # Identify the unprivileged user who owns the PipeWire/WirePlumber session.
+  # Prefer the first UID ≥ 1000 with a home directory under /home.
+  local audio_user audio_uid home_dir
+  audio_user="$(getent passwd | awk -F: '$3 >= 1000 && $6 ~ /^\/home/ {print $1; exit}')"
+  if [[ -z "${audio_user}" ]]; then
+    log_warn "WirePlumber: could not determine audio user — skipping Bluetooth DAC routing config."
+    return 0
+  fi
+  audio_uid="$(id -u "${audio_user}")"
+  home_dir="$(getent passwd "${audio_user}" | cut -d: -f6)"
+
+  # Write the priority rule into the user's WirePlumber config directory.
+  local wp_dir="${home_dir}/.config/wireplumber/main.lua.d"
+  mkdir -p "${wp_dir}"
+  cat > "${wp_dir}/90-oceano-default-sink.lua" <<EOF
+-- Oceano Player: boost DAC priority so it is the default PipeWire sink.
+-- All PipeWire streams (including Bluetooth audio) will be routed to the DAC.
+-- AirPlay is unaffected — shairport-sync writes to ALSA directly (bypasses PipeWire).
+table.insert(alsa_monitor.rules, {
+  matches = {
+    {
+      { "node.description", "matches", "${match_pattern}" },
+    },
+  },
+  apply_properties = {
+    ["priority.session"] = 2000,
+  },
+})
+EOF
+  chown -R "${audio_user}:${audio_user}" "${home_dir}/.config/wireplumber"
+  log_info "WirePlumber config written to ${wp_dir}/90-oceano-default-sink.lua"
+
+  # Restart WirePlumber for the user session so the rule takes effect immediately.
+  # Try machinectl (systemd-container) first; fall back to su.
+  local restarted=false
+  if [[ -S "/run/user/${audio_uid}/bus" ]]; then
+    if command -v machinectl >/dev/null 2>&1; then
+      machinectl shell "${audio_user}@" /bin/systemctl --user restart wireplumber.service \
+        >/dev/null 2>&1 && restarted=true || true
+    fi
+    if ! ${restarted}; then
+      su -l "${audio_user}" -s /bin/bash -c \
+        "XDG_RUNTIME_DIR=/run/user/${audio_uid} systemctl --user restart wireplumber.service" \
+        >/dev/null 2>&1 && restarted=true || true
+    fi
+  fi
+
+  if ${restarted}; then
+    log_ok "WirePlumber restarted — Bluetooth audio will now route to the DAC."
+  else
+    log_ok "WirePlumber config written — will take effect on next login."
+    log_info "To apply immediately: systemctl --user restart wireplumber.service"
+  fi
+}
+
 # ─── Repository ──────────────────────────────
 
 clone_repo() {
@@ -835,6 +922,10 @@ main() {
     [[ -z "${bt_name}" ]] && bt_name="${airplay_name}"
   fi
   setup_bluetooth "${bt_name}"
+
+  # ── WirePlumber Bluetooth routing ──
+  log_section "PipeWire Routing"
+  setup_wireplumber_routing "${usb_match}"
 
   # ── Repository ──
   log_section "Repository"
