@@ -1022,6 +1022,11 @@ main() {
     exit 1
   fi
 
+  # ── Audio user — detected early; needed for PipeWire mode and BT routing ──
+  local audio_user audio_uid
+  audio_user="$(getent passwd | awk -F: '$3 >= 1000 && $6 ~ /^\/home/ {print $1; exit}')"
+  audio_uid="$(id -u "${audio_user}" 2>/dev/null || echo "")"
+
   # ── System dependencies ──
   log_section "System Dependencies"
   log_info "Installing system packages..."
@@ -1099,11 +1104,6 @@ ALSA_DEVICE="${alsa_device}"
 PREPLAY_WAIT_SECONDS="${preplay_wait_seconds}"
 OUTPUT_STRATEGY="${output_strategy}"
 EOF
-
-  # ── Audio user (needed for pipewire mode) ──
-  local audio_user audio_uid
-  audio_user="$(getent passwd | awk -F: '$3 >= 1000 && $6 ~ /^\/home/ {print $1; exit}')"
-  audio_uid="$(id -u "${audio_user}" 2>/dev/null || echo "")"
 
   # ── Configuration ──
   log_section "Configuration"
