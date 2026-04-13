@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -947,6 +948,33 @@ func (m *mgr) applyPipeWireCodec() {
 	log.Printf("bluetooth: pipewire codec probe failed after %d attempts — no BT A2DP node found", maxAttempts)
 }
 
+// pipeWireRuntimeDir returns the XDG_RUNTIME_DIR of the first user session
+// that has a live PipeWire socket. When the process runs as root the default
+// XDG_RUNTIME_DIR either does not exist or belongs to root's (empty) session;
+// scanning /run/user/<uid>/pipewire-0 finds the actual audio user's session.
+func pipeWireRuntimeDir() string {
+	// Honour the environment if it already points to a valid session.
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		if _, err := os.Stat(dir + "/pipewire-0"); err == nil {
+			return dir
+		}
+	}
+	entries, err := os.ReadDir("/run/user")
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := "/run/user/" + e.Name()
+		if _, err := os.Stat(dir + "/pipewire-0"); err == nil {
+			return dir
+		}
+	}
+	return ""
+}
+
 // queryPipeWireBluetoothCodec queries pw-dump for the active Bluetooth A2DP
 // node and extracts codec name, sample rate, and bit depth.
 // Returns empty strings when pw-dump is not installed or no BT node is active.
@@ -962,7 +990,16 @@ func queryPipeWireBluetoothCodec() (codec, sampleRate, bitDepth string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, "pw-dump").Output()
+	cmd := exec.CommandContext(ctx, "pw-dump")
+	// pw-dump connects to PipeWire via a Unix socket at
+	// $XDG_RUNTIME_DIR/pipewire-0. When the state manager runs as root,
+	// XDG_RUNTIME_DIR is not set (or points to /run/user/0 which has no
+	// PipeWire socket). Detect the user session by scanning /run/user/<uid>/
+	// for an existing pipewire-0 socket and inject the right variable.
+	if dir := pipeWireRuntimeDir(); dir != "" {
+		cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+dir)
+	}
+	out, err := cmd.Output()
 	if err != nil {
 		return "", "", ""
 	}
