@@ -545,8 +545,10 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 		if err := os.Rename(tmp, confPath); err != nil {
 			return fmt.Errorf("rename %s: %w", confPath, err)
 		}
-		// Restart bluetoothd to pick up the new name.
+		// Restart bluetoothd to pick up the new name from main.conf.
 		_ = exec.Command("systemctl", "restart", "bluetooth.service").Run()
+		// Wait for bluetoothd D-Bus service to be ready before setting the alias.
+		time.Sleep(2 * time.Second)
 	}
 
 	if cfg.Enabled {
@@ -564,7 +566,8 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 			"string:org.bluez.Adapter1", "string:Alias",
 			"variant:string:"+cfg.Name).Run()
 
-		// Update the oneshot service with the new name.
+		// Update the oneshot service with the new name and restart it so the
+		// alias is also re-applied after any future shairport-sync restart.
 		unit := "[Unit]\nDescription=Restore Bluetooth adapter alias to " + cfg.Name + "\n" +
 			"After=shairport-sync.service\nWants=shairport-sync.service\n\n" +
 			"[Service]\nType=oneshot\nExecStartPre=/bin/sleep 2\n" +
@@ -574,6 +577,7 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 			"RemainAfterExit=no\n\n[Install]\nWantedBy=multi-user.target\n"
 		_ = os.WriteFile("/etc/systemd/system/oceano-bt-alias.service", []byte(unit), 0o644)
 		_ = exec.Command("systemctl", "daemon-reload").Run()
+		_ = exec.Command("systemctl", "restart", "oceano-bt-alias.service").Run()
 	}
 
 	return nil
