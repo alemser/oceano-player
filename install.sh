@@ -601,13 +601,8 @@ disable_pipewire_mode() {
     local audio_uid home_dir
     audio_uid="$(id -u "${audio_user}")"
     home_dir="$(getent passwd "${audio_user}" | cut -d: -f6)"
-    if [[ -S "/run/user/${audio_uid}/bus" ]]; then
-      su -l "${audio_user}" -s /bin/bash -c \
-        "XDG_RUNTIME_DIR=/run/user/${audio_uid} \
-         DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${audio_uid}/bus \
-         systemctl --user disable --now oceano-pipewire-default-sink.service" \
-        >/dev/null 2>&1 || true
-    fi
+    systemctl --user -M "${audio_user}@.host" disable --now \
+      oceano-pipewire-default-sink.service >/dev/null 2>&1 || true
     rm -f "${home_dir}/.config/systemd/user/oceano-pipewire-default-sink.service"
   fi
   rm -f /usr/local/bin/oceano-pipewire-default-sink
@@ -834,15 +829,16 @@ EOF
   log_info "Linger enabled for '${audio_user}' — user services will start at boot."
 
   # Enable and start the service as the audio user.
+  # Use --machine=user@.host so systemd connects directly to the user's bus
+  # without needing DBUS_SESSION_BUS_ADDRESS or XDG_RUNTIME_DIR in the root
+  # environment. This is the correct way to manage user services from root.
   local started=false
-  if [[ -S "/run/user/${audio_uid}/bus" ]]; then
-    su -l "${audio_user}" -s /bin/bash -c \
-      "XDG_RUNTIME_DIR=/run/user/${audio_uid} \
-       DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${audio_uid}/bus \
-       systemctl --user daemon-reload && \
-       systemctl --user enable oceano-pipewire-default-sink.service && \
-       systemctl --user restart oceano-pipewire-default-sink.service" \
-      2>&1 && started=true || true
+  if systemctl --user -M "${audio_user}@.host" daemon-reload 2>&1 && \
+     systemctl --user -M "${audio_user}@.host" enable \
+       oceano-pipewire-default-sink.service 2>&1 && \
+     systemctl --user -M "${audio_user}@.host" restart \
+       oceano-pipewire-default-sink.service 2>&1; then
+    started=true
   fi
 
   if ${started}; then
