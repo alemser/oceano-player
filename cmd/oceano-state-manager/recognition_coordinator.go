@@ -615,24 +615,36 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			c.mgr.markDirty()
 		}
 
-		log.Printf("recognizer [%s]: capturing %s from %s (skip=%s)",
-			c.rec.Name(), c.mgr.cfg.RecognizerCaptureDuration, c.mgr.cfg.PCMSocket, skip)
-		c.mgr.mu.Lock()
-		c.mgr.recognizerBusyUntil = time.Now().Add(skip + c.mgr.cfg.RecognizerCaptureDuration + 12*time.Second)
-		c.mgr.mu.Unlock()
 
-		captureCtx, cancel := context.WithTimeout(ctx, skip+c.mgr.cfg.RecognizerCaptureDuration+10*time.Second)
-		wavPath, err := captureFromPCMSocket(captureCtx, c.mgr.cfg.PCMSocket, c.mgr.cfg.RecognizerCaptureDuration, skip, os.TempDir())
-		cancel()
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			log.Printf("recognizer [%s]: capture error: %v", c.rec.Name(), err)
-			backoffUntil = time.Now().Add(errorBackoff)
-			backoffRateLimited = false
-			continue
-		}
+		       // Defensive check: abort if state changed (Bluetooth/AirPlay became active)
+		       c.mgr.mu.Lock()
+		       isPhysicalNow := c.mgr.physicalSource == "Physical"
+		       isAirPlayNow := c.mgr.airplayPlaying
+		       isBluetoothNow := c.mgr.bluetoothPlaying
+		       c.mgr.mu.Unlock()
+		       if !isPhysicalNow || isAirPlayNow || isBluetoothNow {
+			       log.Printf("recognizer [%s]: ABORTING recognition — state changed: isPhysical=%v isAirPlay=%v isBluetooth=%v", c.rec.Name(), isPhysicalNow, isAirPlayNow, isBluetoothNow)
+			       continue
+		       }
+
+		       log.Printf("recognizer [%s]: capturing %s from %s (skip=%s)",
+			       c.rec.Name(), c.mgr.cfg.RecognizerCaptureDuration, c.mgr.cfg.PCMSocket, skip)
+		       c.mgr.mu.Lock()
+		       c.mgr.recognizerBusyUntil = time.Now().Add(skip + c.mgr.cfg.RecognizerCaptureDuration + 12*time.Second)
+		       c.mgr.mu.Unlock()
+
+		       captureCtx, cancel := context.WithTimeout(ctx, skip+c.mgr.cfg.RecognizerCaptureDuration+10*time.Second)
+		       wavPath, err := captureFromPCMSocket(captureCtx, c.mgr.cfg.PCMSocket, c.mgr.cfg.RecognizerCaptureDuration, skip, os.TempDir())
+		       cancel()
+		       if err != nil {
+			       if ctx.Err() != nil {
+				       return
+			       }
+			       log.Printf("recognizer [%s]: capture error: %v", c.rec.Name(), err)
+			       backoffUntil = time.Now().Add(errorBackoff)
+			       backoffRateLimited = false
+			       continue
+		       }
 
 		captureSec := int(c.mgr.cfg.RecognizerCaptureDuration.Seconds())
 		capturedFPs := GenerateFingerprints(c.fpr, wavPath,
