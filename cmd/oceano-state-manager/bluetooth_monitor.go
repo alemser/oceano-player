@@ -178,10 +178,18 @@ func (m *mgr) applyMediaPlayerUpdate(lines []string) {
 				m.bluetoothStopTimer.Stop()
 				m.bluetoothStopTimer = nil
 			}
+			needsCodecProbe := !m.bluetoothPlaying && m.bluetoothCodec == ""
 			if !m.bluetoothPlaying {
 				m.bluetoothPlaying = true
 				changed = true
 				log.Printf("bluetooth: status=playing")
+			}
+			if needsCodecProbe {
+				// BT just started playing and we have no codec info yet — probe
+				// the transport now. This covers the case where the transport
+				// was already active before dbus-monitor connected, so the
+				// State=active event was never received.
+				go m.queryStartupBluetoothState()
 			}
 		} else {
 			// Debounce stopped: wait 2 s before marking as stopped.
