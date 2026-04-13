@@ -61,8 +61,8 @@ func shouldBypassBackoff(isBoundaryTrigger, backoffRateLimited bool) bool {
 	return isBoundaryTrigger && !backoffRateLimited
 }
 
-func shouldSkipRecognitionAttempt(isPhysical, isAirPlay bool) bool {
-	return !isPhysical || isAirPlay
+func shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth bool) bool {
+	return !isPhysical || isAirPlay || isBluetooth
 }
 
 func shouldCreateBoundaryStub(lastStub, lastBoundary time.Time, stillPhysical bool) bool {
@@ -554,8 +554,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			isPhysical := c.mgr.physicalSource == "Physical"
 			hasRecognition := c.mgr.recognitionResult != nil
 			lastRecogAt := c.mgr.lastRecognizedAt
+			fallbackBluetooth := c.mgr.bluetoothPlaying
+			fallbackAirPlay := c.mgr.airplayPlaying
 			c.mgr.mu.Unlock()
-			if !isPhysical {
+			if !isPhysical || fallbackAirPlay || fallbackBluetooth {
 				fallbackTimer.Reset(c.mgr.cfg.RecognizerMaxInterval)
 				continue
 			}
@@ -586,10 +588,14 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		c.mgr.mu.Lock()
 		isPhysical := c.mgr.physicalSource == "Physical"
 		isAirPlay := c.mgr.airplayPlaying
+		isBluetooth := c.mgr.bluetoothPlaying
 		c.mgr.mu.Unlock()
-		if shouldSkipRecognitionAttempt(isPhysical, isAirPlay) {
-			if isAirPlay {
+		if shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth) {
+			switch {
+			case isAirPlay:
 				log.Printf("recognizer [%s]: skipping — AirPlay is active", c.rec.Name())
+			case isBluetooth:
+				log.Printf("recognizer [%s]: skipping — Bluetooth is active", c.rec.Name())
 			}
 			continue
 		}

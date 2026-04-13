@@ -22,20 +22,23 @@ func TestShouldBypassBackoff(t *testing.T) {
 
 func TestShouldSkipRecognitionAttempt(t *testing.T) {
 	tests := []struct {
-		name       string
-		isPhysical bool
-		isAirPlay  bool
-		want       bool
+		name        string
+		isPhysical  bool
+		isAirPlay   bool
+		isBluetooth bool
+		want        bool
 	}{
-		{name: "physical no airplay", isPhysical: true, isAirPlay: false, want: false},
-		{name: "none source", isPhysical: false, isAirPlay: false, want: true},
-		{name: "airplay active", isPhysical: true, isAirPlay: true, want: true},
+		{name: "physical no streaming", isPhysical: true, isAirPlay: false, isBluetooth: false, want: false},
+		{name: "none source", isPhysical: false, isAirPlay: false, isBluetooth: false, want: true},
+		{name: "airplay active", isPhysical: true, isAirPlay: true, isBluetooth: false, want: true},
+		{name: "bluetooth active", isPhysical: true, isAirPlay: false, isBluetooth: true, want: true},
+		{name: "both streaming", isPhysical: true, isAirPlay: true, isBluetooth: true, want: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldSkipRecognitionAttempt(tt.isPhysical, tt.isAirPlay); got != tt.want {
-				t.Fatalf("shouldSkipRecognitionAttempt(%v,%v) = %v, want %v", tt.isPhysical, tt.isAirPlay, got, tt.want)
+			if got := shouldSkipRecognitionAttempt(tt.isPhysical, tt.isAirPlay, tt.isBluetooth); got != tt.want {
+				t.Fatalf("shouldSkipRecognitionAttempt(%v,%v,%v) = %v, want %v", tt.isPhysical, tt.isAirPlay, tt.isBluetooth, got, tt.want)
 			}
 		})
 	}

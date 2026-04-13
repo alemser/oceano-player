@@ -779,21 +779,23 @@ setup_wireplumber_routing() {
 #!/usr/bin/env bash
 # Set the Oceano DAC as the default PipeWire sink.
 # Called by oceano-pipewire-default-sink.service after WirePlumber starts.
+# If the DAC is not found immediately, retries for up to 60 s (boot can be slow).
 set -euo pipefail
 DAC_DESC="${dac_desc}"
-for attempt in 1 2 3 4 5; do
+for attempt in \$(seq 1 12); do
   node_id="\$(wpctl status 2>/dev/null \
     | awk -v desc="\${DAC_DESC}" 'index(\$0, desc) && match(\$0, /[0-9]+\\./) {
         id=substr(\$0, RSTART, RLENGTH-1); if (id+0>0) {print id; exit}
       }')"
   if [[ -n "\${node_id}" ]]; then
     wpctl set-default "\${node_id}"
-    echo "oceano-pipewire-default-sink: set default sink to node \${node_id} (\${DAC_DESC})"
+    echo "oceano-pipewire-default-sink: set default sink to node \${node_id} (\${DAC_DESC}) on attempt \${attempt}"
     exit 0
   fi
-  sleep 2
+  echo "oceano-pipewire-default-sink: attempt \${attempt} — '\${DAC_DESC}' not yet visible in PipeWire, retrying in 5 s..."
+  sleep 5
 done
-echo "oceano-pipewire-default-sink: DAC '\${DAC_DESC}' not found in PipeWire after 5 attempts"
+echo "oceano-pipewire-default-sink: DAC '\${DAC_DESC}' not found in PipeWire after 12 attempts (60 s)"
 exit 1
 EOF
   chmod +x "${script_path}"
@@ -806,16 +808,25 @@ EOF
 Description=Set Oceano DAC as default PipeWire sink
 After=wireplumber.service pipewire.service
 Wants=wireplumber.service pipewire.service
+StartLimitIntervalSec=120
+StartLimitBurst=6
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/oceano-pipewire-default-sink
 RemainAfterExit=no
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=default.target
 EOF
   chown -R "${audio_user}:${audio_user}" "${svc_dir}"
+
+  # Enable lingering so the user's systemd session (and PipeWire) starts on boot
+  # without requiring an active login. Without this, user services never run headlessly.
+  loginctl enable-linger "${audio_user}" 2>/dev/null || true
+  log_info "Linger enabled for '${audio_user}' — user services will start at boot."
 
   # Enable and start the service as the audio user.
   local started=false
@@ -825,14 +836,14 @@ EOF
        DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${audio_uid}/bus \
        systemctl --user daemon-reload && \
        systemctl --user enable oceano-pipewire-default-sink.service && \
-       systemctl --user start oceano-pipewire-default-sink.service" \
-      >/dev/null 2>&1 && started=true || true
+       systemctl --user restart oceano-pipewire-default-sink.service" \
+      2>&1 && started=true || true
   fi
 
   if ${started}; then
     log_ok "PipeWire: DAC set as default sink (Bluetooth audio will route to DAC)."
   else
-    log_ok "PipeWire routing service installed — will activate on next login."
+    log_warn "PipeWire routing service installed — will activate on next boot (linger enabled)."
     log_info "To apply immediately (as ${audio_user}):"
     log_info "  systemctl --user enable --now oceano-pipewire-default-sink.service"
   fi
