@@ -904,24 +904,47 @@ func parseLDACConfig(config []byte) (string, string) {
 
 // ─── PipeWire codec probe ─────────────────────────────────────────────────────
 
-// applyPipeWireCodec queries PipeWire for the active Bluetooth A2DP sink and
+// applyPipeWireCodec queries PipeWire for the active Bluetooth A2DP node and
 // applies the codec, sample rate, and bit depth to the manager state.
 // Called as a goroutine when BT starts playing and no codec is known yet.
+//
+// The PipeWire A2DP node may not be fully registered at the moment status=playing
+// fires via AVRCP, so we retry up to 3 times with a 2 s pause between attempts.
 func (m *mgr) applyPipeWireCodec() {
-	codec, sampleRate, bitDepth := queryPipeWireBluetoothCodec()
-	if codec == "" {
+	const maxAttempts = 3
+	const retryDelay = 2 * time.Second
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(retryDelay)
+		}
+		// Stop retrying if BT is no longer playing.
+		m.mu.Lock()
+		stillPlaying := m.bluetoothPlaying
+		alreadyHasCodec := m.bluetoothCodec != ""
+		m.mu.Unlock()
+		if !stillPlaying || alreadyHasCodec {
+			return
+		}
+
+		codec, sampleRate, bitDepth := queryPipeWireBluetoothCodec()
+		if codec == "" {
+			continue
+		}
+
+		m.mu.Lock()
+		changed := m.bluetoothCodec != codec || m.bluetoothSampleRate != sampleRate || m.bluetoothBitDepth != bitDepth
+		m.bluetoothCodec = codec
+		m.bluetoothSampleRate = sampleRate
+		m.bluetoothBitDepth = bitDepth
+		m.mu.Unlock()
+		if changed {
+			log.Printf("bluetooth: pipewire codec=%s rate=%s depth=%s", codec, sampleRate, bitDepth)
+			m.markDirty()
+		}
 		return
 	}
-	m.mu.Lock()
-	changed := m.bluetoothCodec != codec || m.bluetoothSampleRate != sampleRate || m.bluetoothBitDepth != bitDepth
-	m.bluetoothCodec = codec
-	m.bluetoothSampleRate = sampleRate
-	m.bluetoothBitDepth = bitDepth
-	m.mu.Unlock()
-	if changed {
-		log.Printf("bluetooth: pipewire codec=%s rate=%s depth=%s", codec, sampleRate, bitDepth)
-		m.markDirty()
-	}
+	log.Printf("bluetooth: pipewire codec probe failed after %d attempts — no BT A2DP node found", maxAttempts)
 }
 
 // queryPipeWireBluetoothCodec queries pw-dump for the active Bluetooth A2DP
