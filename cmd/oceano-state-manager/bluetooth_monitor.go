@@ -5,6 +5,7 @@ import (
 	"context"
 	"log"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -44,6 +45,8 @@ func (m *mgr) runBluetoothMonitor(ctx context.Context) {
 		wasPlaying := m.bluetoothPlaying
 		m.bluetoothPlaying = false
 		m.bluetoothCodec = ""
+		m.bluetoothSampleRate = ""
+		m.bluetoothBitDepth = ""
 		m.bluetoothArtworkPath = ""
 		m.bluetoothArtworkKey = ""
 		if m.bluetoothStopTimer != nil {
@@ -200,8 +203,8 @@ func (m *mgr) applyMediaPlayerUpdate(lines []string) {
 }
 
 // applyTransportUpdate handles org.bluez.MediaTransport1 PropertiesChanged
-// signals. When the transport becomes active it queries the negotiated codec
-// (AAC, SBC, LDAC, etc.) via dbus-send and caches the result.
+// signals. When the transport becomes active it queries the negotiated codec,
+// sample rate, and bit depth via dbus-send and caches the result.
 func (m *mgr) applyTransportUpdate(lines []string) {
 	state := parseTransportState(lines)
 	if state == "" {
@@ -210,23 +213,29 @@ func (m *mgr) applyTransportUpdate(lines []string) {
 
 	if state == "active" {
 		objectPath := extractSignalPath(lines[0])
-		codec := ""
+		var codec, sampleRate, bitDepth string
 		if objectPath != "" {
 			codec = m.queryBluetoothCodec(objectPath)
+			config := m.queryTransportConfiguration(objectPath)
+			sampleRate, bitDepth = parseCodecConfig(codec, config)
 		}
 		m.mu.Lock()
-		changed := m.bluetoothCodec != codec
+		changed := m.bluetoothCodec != codec || m.bluetoothSampleRate != sampleRate || m.bluetoothBitDepth != bitDepth
 		m.bluetoothCodec = codec
+		m.bluetoothSampleRate = sampleRate
+		m.bluetoothBitDepth = bitDepth
 		m.mu.Unlock()
 		if changed {
-			log.Printf("bluetooth: transport active, codec=%s", codec)
+			log.Printf("bluetooth: transport active, codec=%s rate=%s depth=%s", codec, sampleRate, bitDepth)
 			m.markDirty()
 		}
 	} else {
-		// idle or any other state → clear codec
+		// idle or any other state → clear codec and format info
 		m.mu.Lock()
-		changed := m.bluetoothCodec != ""
+		changed := m.bluetoothCodec != "" || m.bluetoothSampleRate != "" || m.bluetoothBitDepth != ""
 		m.bluetoothCodec = ""
+		m.bluetoothSampleRate = ""
+		m.bluetoothBitDepth = ""
 		m.mu.Unlock()
 		if changed {
 			m.markDirty()
@@ -312,6 +321,11 @@ func (m *mgr) applyDeviceUpdate(lines []string) {
 		return
 	}
 
+	var devicePath string
+	if connected {
+		devicePath = extractSignalPath(lines[0])
+	}
+
 	m.mu.Lock()
 	changed := m.bluetoothConnected != connected
 	m.bluetoothConnected = connected
@@ -322,6 +336,8 @@ func (m *mgr) applyDeviceUpdate(lines []string) {
 		m.bluetoothArtist = ""
 		m.bluetoothAlbum = ""
 		m.bluetoothCodec = ""
+		m.bluetoothSampleRate = ""
+		m.bluetoothBitDepth = ""
 		m.bluetoothArtworkPath = ""
 		m.bluetoothArtworkKey = ""
 		if m.bluetoothStopTimer != nil {
@@ -334,6 +350,12 @@ func (m *mgr) applyDeviceUpdate(lines []string) {
 	if changed {
 		log.Printf("bluetooth: device connected=%v", connected)
 		m.markDirty()
+		// When a device connects, the transport may already be active (e.g. the
+		// device was playing before the state manager started). Query it directly
+		// so the codec/rate/depth chips appear without waiting for a state change.
+		if connected && devicePath != "" {
+			go m.queryInitialBluetoothTransport(devicePath)
+		}
 	}
 }
 
@@ -501,6 +523,188 @@ func mapBluetoothCodec(endpointPath string) string {
 	default:
 		return ""
 	}
+}
+
+// ─── Transport configuration ─────────────────────────────────────────────────
+
+// queryTransportConfiguration reads the raw Configuration byte array from a
+// BlueZ MediaTransport1 object. Returns nil when the object does not exist or
+// the property is unavailable (e.g. transport is idle).
+func (m *mgr) queryTransportConfiguration(transportPath string) []byte {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "dbus-send",
+		"--system", "--print-reply", "--dest=org.bluez",
+		transportPath,
+		"org.freedesktop.DBus.Properties.Get",
+		"string:org.bluez.MediaTransport1",
+		"string:Configuration")
+
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	return parseDBusByteArray(string(out))
+}
+
+// queryInitialBluetoothTransport looks for an already-active MediaTransport1
+// object under devicePath (e.g. /org/bluez/hci0/dev_XX_XX_XX_XX_XX_XX) and
+// populates codec, sample rate, and bit depth when found. Called when a device
+// connects to catch transports that became active before dbus-monitor started.
+func (m *mgr) queryInitialBluetoothTransport(devicePath string) {
+	// Wait briefly for the A2DP transport to be negotiated.
+	time.Sleep(3 * time.Second)
+
+	for _, fd := range []string{"fd0", "fd1", "fd2", "fd3", "fd4"} {
+		transportPath := devicePath + "/" + fd
+
+		// Check if this object has an active/pending transport state.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		cmd := exec.CommandContext(ctx, "dbus-send",
+			"--system", "--print-reply", "--dest=org.bluez",
+			transportPath,
+			"org.freedesktop.DBus.Properties.Get",
+			"string:org.bluez.MediaTransport1",
+			"string:State")
+		out, err := cmd.Output()
+		cancel()
+		if err != nil {
+			continue
+		}
+		state := ""
+		if strings.Contains(string(out), `string "active"`) {
+			state = "active"
+		} else if strings.Contains(string(out), `string "pending"`) {
+			state = "pending"
+		}
+		if state == "" {
+			continue
+		}
+
+		codec := m.queryBluetoothCodec(transportPath)
+		if codec == "" {
+			continue
+		}
+		config := m.queryTransportConfiguration(transportPath)
+		sampleRate, bitDepth := parseCodecConfig(codec, config)
+
+		m.mu.Lock()
+		changed := m.bluetoothCodec != codec || m.bluetoothSampleRate != sampleRate || m.bluetoothBitDepth != bitDepth
+		m.bluetoothCodec = codec
+		m.bluetoothSampleRate = sampleRate
+		m.bluetoothBitDepth = bitDepth
+		m.mu.Unlock()
+
+		if changed {
+			log.Printf("bluetooth: initial transport %s: codec=%s rate=%s depth=%s", transportPath, codec, sampleRate, bitDepth)
+			m.markDirty()
+		}
+		return
+	}
+}
+
+// parseDBusByteArray extracts decimal byte values from the dbus-send output of
+// a property of type "array of bytes", e.g.:
+//
+//	variant   array of bytes [
+//	    33 2 2 53
+//	]
+func parseDBusByteArray(output string) []byte {
+	start := strings.Index(output, "[")
+	end := strings.LastIndex(output, "]")
+	if start < 0 || end <= start {
+		return nil
+	}
+	var result []byte
+	for _, field := range strings.Fields(output[start+1 : end]) {
+		n, err := strconv.ParseUint(field, 10, 8)
+		if err != nil {
+			continue
+		}
+		result = append(result, byte(n))
+	}
+	return result
+}
+
+// parseCodecConfig derives sample rate and bit depth from the raw A2DP
+// Configuration bytes for the given codec name. Returns ("", "") when the
+// codec is unknown or the configuration is too short to parse.
+func parseCodecConfig(codec string, config []byte) (sampleRate, bitDepth string) {
+	switch codec {
+	case "SBC":
+		return parseSBCConfig(config)
+	case "AAC":
+		return parseAACConfig(config)
+	case "LDAC":
+		return parseLDACConfig(config)
+	case "AptX HD":
+		return "48 kHz", "24 bit"
+	case "AptX", "AptX LL":
+		return "44.1 kHz", "16 bit"
+	case "Opus", "FastStream":
+		return "48 kHz", "16 bit"
+	}
+	return "", ""
+}
+
+// parseSBCConfig decodes the A2DP SBC configuration octet.
+// Octet 0 bits 7-4: one bit set per chosen sampling frequency (16/32/44.1/48 kHz).
+// SBC PCM depth is always 16 bit.
+func parseSBCConfig(config []byte) (string, string) {
+	if len(config) < 1 {
+		return "", "16 bit"
+	}
+	b := config[0]
+	switch {
+	case b&0x80 != 0:
+		return "16 kHz", "16 bit"
+	case b&0x40 != 0:
+		return "32 kHz", "16 bit"
+	case b&0x20 != 0:
+		return "44.1 kHz", "16 bit"
+	case b&0x10 != 0:
+		return "48 kHz", "16 bit"
+	}
+	return "", "16 bit"
+}
+
+// parseAACConfig decodes the A2DP MPEG-2,4 AAC configuration octets.
+// Octet 1 bit 0: 44100 Hz; octet 2 bit 7: 48000 Hz.
+// AAC via Bluetooth A2DP is always 16 bit.
+func parseAACConfig(config []byte) (string, string) {
+	if len(config) < 2 {
+		return "", "16 bit"
+	}
+	switch {
+	case config[1]&0x01 != 0:
+		return "44.1 kHz", "16 bit"
+	case len(config) >= 3 && config[2]&0x80 != 0:
+		return "48 kHz", "16 bit"
+	}
+	return "", "16 bit"
+}
+
+// parseLDACConfig decodes the vendor-specific LDAC A2DP configuration.
+// Layout: 4 bytes vendor ID + 2 bytes codec ID + 1 byte freq + 1 byte channel.
+// Frequency byte bits: 5=44.1 kHz, 4=48 kHz, 2=88.2 kHz, 1=96 kHz.
+// LDAC PCM depth in PipeWire is always 24 bit.
+func parseLDACConfig(config []byte) (string, string) {
+	if len(config) < 7 {
+		return "", "24 bit"
+	}
+	freq := config[6]
+	switch {
+	case freq&(1<<5) != 0:
+		return "44.1 kHz", "24 bit"
+	case freq&(1<<4) != 0:
+		return "48 kHz", "24 bit"
+	case freq&(1<<2) != 0:
+		return "88.2 kHz", "24 bit"
+	case freq&(1<<1) != 0:
+		return "96 kHz", "24 bit"
+	}
+	return "", "24 bit"
 }
 
 // extractDBusStringValue extracts the string value from a dbus-monitor output

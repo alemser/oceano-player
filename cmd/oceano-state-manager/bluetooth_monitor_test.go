@@ -1,6 +1,8 @@
 package main
 
-import "testing"
+import (
+	"testing"
+)
 
 // --- extractDBusStringValue ---
 
@@ -155,6 +157,150 @@ func TestParseTransportState(t *testing.T) {
 			got := parseTransportState(tt.lines)
 			if got != tt.want {
 				t.Errorf("parseTransportState() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// --- codec config parsers ---
+
+func TestParseDBusByteArray(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		want   []byte
+	}{
+		{
+			name:  "SBC 44.1 kHz joint stereo",
+			input: "method return ...\n   variant       array of bytes [\n         33 2 2 53\n      ]\n",
+			want:  []byte{33, 2, 2, 53},
+		},
+		{
+			name:  "single byte",
+			input: "   variant   array of bytes [\n  5\n]\n",
+			want:  []byte{5},
+		},
+		{
+			name:  "no brackets",
+			input: "no data here",
+			want:  nil,
+		},
+		{
+			name:  "empty brackets",
+			input: "array of bytes []",
+			want:  nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseDBusByteArray(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("parseDBusByteArray() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("byte[%d] = %d, want %d", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestParseSBCConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     []byte
+		wantRate   string
+		wantDepth  string
+	}{
+		{"44.1 kHz joint stereo", []byte{0x21, 0x02, 0x02, 0x35}, "44.1 kHz", "16 bit"},
+		{"48 kHz stereo",         []byte{0x12, 0x12, 0x02, 0x35}, "48 kHz", "16 bit"},
+		{"32 kHz mono",           []byte{0x48, 0x11, 0x02, 0x35}, "32 kHz", "16 bit"},
+		{"16 kHz",                []byte{0x88, 0x11, 0x02, 0x35}, "16 kHz", "16 bit"},
+		{"empty config",          []byte{},                        "", "16 bit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rate, depth := parseSBCConfig(tt.config)
+			if rate != tt.wantRate || depth != tt.wantDepth {
+				t.Errorf("parseSBCConfig() = (%q, %q), want (%q, %q)", rate, depth, tt.wantRate, tt.wantDepth)
+			}
+		})
+	}
+}
+
+func TestParseAACConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    []byte
+		wantRate  string
+		wantDepth string
+	}{
+		// Byte 1 bit 0 = 44.1 kHz
+		{"44.1 kHz", []byte{0x80, 0x01, 0x00, 0x00, 0x00}, "44.1 kHz", "16 bit"},
+		// Byte 2 bit 7 = 48 kHz
+		{"48 kHz", []byte{0x80, 0x00, 0x80, 0x00, 0x00}, "48 kHz", "16 bit"},
+		{"too short", []byte{0x80}, "", "16 bit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rate, depth := parseAACConfig(tt.config)
+			if rate != tt.wantRate || depth != tt.wantDepth {
+				t.Errorf("parseAACConfig() = (%q, %q), want (%q, %q)", rate, depth, tt.wantRate, tt.wantDepth)
+			}
+		})
+	}
+}
+
+func TestParseLDACConfig(t *testing.T) {
+	// LDAC config: 4 bytes vendor ID + 2 bytes codec ID + 1 byte freq + 1 byte channel
+	// freq byte: bit5=44.1, bit4=48, bit2=88.2, bit1=96
+	makeConfig := func(freqByte byte) []byte {
+		return []byte{0x2D, 0x01, 0x00, 0x00, 0xAA, 0x00, freqByte, 0x04}
+	}
+	tests := []struct {
+		name      string
+		config    []byte
+		wantRate  string
+		wantDepth string
+	}{
+		{"44.1 kHz", makeConfig(1 << 5), "44.1 kHz", "24 bit"},
+		{"48 kHz",   makeConfig(1 << 4), "48 kHz", "24 bit"},
+		{"88.2 kHz", makeConfig(1 << 2), "88.2 kHz", "24 bit"},
+		{"96 kHz",   makeConfig(1 << 1), "96 kHz", "24 bit"},
+		{"too short", []byte{0x2D, 0x01}, "", "24 bit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rate, depth := parseLDACConfig(tt.config)
+			if rate != tt.wantRate || depth != tt.wantDepth {
+				t.Errorf("parseLDACConfig() = (%q, %q), want (%q, %q)", rate, depth, tt.wantRate, tt.wantDepth)
+			}
+		})
+	}
+}
+
+func TestParseCodecConfig(t *testing.T) {
+	tests := []struct {
+		codec     string
+		config    []byte
+		wantRate  string
+		wantDepth string
+	}{
+		{"SBC", []byte{0x20, 0x02, 0x02, 0x35}, "44.1 kHz", "16 bit"},
+		{"AAC", []byte{0x80, 0x01, 0x00, 0x00, 0x00}, "44.1 kHz", "16 bit"},
+		{"AptX HD", nil, "48 kHz", "24 bit"},
+		{"AptX", nil, "44.1 kHz", "16 bit"},
+		{"AptX LL", nil, "44.1 kHz", "16 bit"},
+		{"Opus", nil, "48 kHz", "16 bit"},
+		{"FastStream", nil, "48 kHz", "16 bit"},
+		{"unknown", nil, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.codec, func(t *testing.T) {
+			rate, depth := parseCodecConfig(tt.codec, tt.config)
+			if rate != tt.wantRate || depth != tt.wantDepth {
+				t.Errorf("parseCodecConfig(%q) = (%q, %q), want (%q, %q)", tt.codec, rate, depth, tt.wantRate, tt.wantDepth)
 			}
 		})
 	}
