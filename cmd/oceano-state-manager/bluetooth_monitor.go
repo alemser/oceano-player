@@ -86,6 +86,11 @@ func (m *mgr) readBluetoothDBus(ctx context.Context) error {
 
 	log.Printf("bluetooth: dbus-monitor connected (MediaPlayer1 + MediaTransport1 + Device1)")
 
+	// Probe for any already-active transport when dbus-monitor first connects.
+	// This handles the case where a device was connected and playing before the
+	// state manager started, so no PropertiesChanged events were fired.
+	go m.queryStartupBluetoothState()
+
 	scanner := bufio.NewScanner(stdout)
 	var block []string
 
@@ -526,6 +531,88 @@ func mapBluetoothCodec(endpointPath string) string {
 }
 
 // ─── Transport configuration ─────────────────────────────────────────────────
+
+// queryStartupBluetoothState enumerates all BlueZ managed objects at startup to
+// find any MediaTransport1 that is already active. This handles the common case
+// where the BT device was connected and playing before the state manager started,
+// so no PropertiesChanged signal was ever fired for the transport state.
+func (m *mgr) queryStartupBluetoothState() {
+	// Brief delay so BlueZ has time to finish A2DP negotiation.
+	time.Sleep(1 * time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Enumerate all managed BlueZ objects to find transport paths.
+	listCmd := exec.CommandContext(ctx, "dbus-send",
+		"--system", "--print-reply", "--dest=org.bluez",
+		"/", "org.freedesktop.DBus.ObjectManager.GetManagedObjects")
+	listOut, err := listCmd.Output()
+	if err != nil {
+		return
+	}
+
+	// Transport objects are named fdN under a device path,
+	// e.g. /org/bluez/hci0/dev_XX_XX_XX_XX_XX_XX/fd0.
+	for _, line := range strings.Split(string(listOut), "\n") {
+		t := strings.TrimSpace(line)
+		if !strings.Contains(t, "object path") {
+			continue
+		}
+		start := strings.Index(t, `"`)
+		end := strings.LastIndex(t, `"`)
+		if start < 0 || end <= start {
+			continue
+		}
+		path := t[start+1 : end]
+		parts := strings.Split(path, "/")
+		if len(parts) == 0 {
+			continue
+		}
+		last := parts[len(parts)-1]
+		if !strings.HasPrefix(last, "fd") {
+			continue
+		}
+		if _, err := strconv.Atoi(strings.TrimPrefix(last, "fd")); err != nil {
+			continue
+		}
+
+		// Query the transport state.
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+		stateCmd := exec.CommandContext(ctx2, "dbus-send",
+			"--system", "--print-reply", "--dest=org.bluez",
+			path,
+			"org.freedesktop.DBus.Properties.Get",
+			"string:org.bluez.MediaTransport1",
+			"string:State")
+		stateOut, err := stateCmd.Output()
+		cancel2()
+		if err != nil {
+			continue
+		}
+		if !strings.Contains(string(stateOut), `string "active"`) {
+			continue
+		}
+
+		// Active transport found — query codec and configuration.
+		codec := m.queryBluetoothCodec(path)
+		config := m.queryTransportConfiguration(path)
+		sampleRate, bitDepth := parseCodecConfig(codec, config)
+
+		m.mu.Lock()
+		changed := m.bluetoothCodec != codec || m.bluetoothSampleRate != sampleRate || m.bluetoothBitDepth != bitDepth
+		m.bluetoothCodec = codec
+		m.bluetoothSampleRate = sampleRate
+		m.bluetoothBitDepth = bitDepth
+		m.mu.Unlock()
+
+		if changed && codec != "" {
+			log.Printf("bluetooth: startup transport %s: codec=%s rate=%s depth=%s", path, codec, sampleRate, bitDepth)
+			m.markDirty()
+		}
+		return // use first active transport found
+	}
+}
 
 // queryTransportConfiguration reads the raw Configuration byte array from a
 // BlueZ MediaTransport1 object. Returns nil when the object does not exist or
