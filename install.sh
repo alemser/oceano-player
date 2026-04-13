@@ -534,6 +534,9 @@ enable_loopback_mode() {
 disable_loopback_mode() {
   systemctl disable --now oceano-airplay-bridge.service >/dev/null 2>&1 || true
   systemctl disable --now oceano-bridge-watchdog.service >/dev/null 2>&1 || true
+  # alsaloop is a child of the bridge bash script; systemd only kills the script,
+  # leaving alsaloop as an orphan that holds the DAC device open. Kill it directly.
+  pkill -x alsaloop >/dev/null 2>&1 || true
   rm -f "${BRIDGE_SERVICE}" "${BRIDGE_WATCHDOG_SERVICE}" "${MODULES_LOAD_FILE}"
   systemctl daemon-reload
   systemctl reset-failed oceano-airplay-bridge.service >/dev/null 2>&1 || true
