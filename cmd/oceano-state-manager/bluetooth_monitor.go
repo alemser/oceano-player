@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"log"
 	"os/exec"
@@ -188,9 +189,10 @@ func (m *mgr) applyMediaPlayerUpdate(lines []string) {
 				log.Printf("bluetooth: status=playing")
 			}
 			if needsCodecProbe {
-				// BT just started playing and we have no codec info yet — probe
-				// the transport. Use the stored device path when available (more
-				// targeted than GetManagedObjects enumeration).
+				// BT just started playing and we have no codec info yet.
+				// Probe via PipeWire immediately (no delay needed), and also
+				// schedule the D-Bus transport probe as a fallback.
+				go m.applyPipeWireCodec()
 				if savedDevicePath != "" {
 					go m.queryInitialBluetoothTransport(savedDevicePath)
 				} else {
@@ -629,6 +631,9 @@ func (m *mgr) queryStartupBluetoothState() {
 		}
 		return // use first active transport found
 	}
+
+	// No active D-Bus transport found — fall back to PipeWire.
+	m.applyPipeWireCodec()
 }
 
 // queryTransportConfiguration reads the raw Configuration byte array from a
@@ -706,6 +711,9 @@ func (m *mgr) queryInitialBluetoothTransport(devicePath string) {
 		}
 		return
 	}
+
+	// No D-Bus transport found for device — fall back to PipeWire.
+	m.applyPipeWireCodec()
 }
 
 // parseDBusByteArray extracts decimal byte values from the dbus-send output of
@@ -809,6 +817,137 @@ func parseLDACConfig(config []byte) (string, string) {
 		return "96 kHz", "24 bit"
 	}
 	return "", "24 bit"
+}
+
+// ─── PipeWire codec probe ─────────────────────────────────────────────────────
+
+// applyPipeWireCodec queries PipeWire for the active Bluetooth A2DP sink and
+// applies the codec, sample rate, and bit depth to the manager state.
+// Called as a goroutine when BT starts playing and no codec is known yet.
+func (m *mgr) applyPipeWireCodec() {
+	codec, sampleRate, bitDepth := queryPipeWireBluetoothCodec()
+	if codec == "" {
+		return
+	}
+	m.mu.Lock()
+	changed := m.bluetoothCodec != codec || m.bluetoothSampleRate != sampleRate || m.bluetoothBitDepth != bitDepth
+	m.bluetoothCodec = codec
+	m.bluetoothSampleRate = sampleRate
+	m.bluetoothBitDepth = bitDepth
+	m.mu.Unlock()
+	if changed {
+		log.Printf("bluetooth: pipewire codec=%s rate=%s depth=%s", codec, sampleRate, bitDepth)
+		m.markDirty()
+	}
+}
+
+// queryPipeWireBluetoothCodec queries pw-dump for the active Bluetooth A2DP
+// sink node and extracts the codec name, sample rate, and bit depth from its
+// PipeWire node properties. Returns empty strings when pw-dump is not
+// installed or no Bluetooth A2DP sink is active.
+func queryPipeWireBluetoothCodec() (codec, sampleRate, bitDepth string) {
+	if _, err := exec.LookPath("pw-dump"); err != nil {
+		return "", "", ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "pw-dump").Output()
+	if err != nil {
+		return "", "", ""
+	}
+
+	// pw-dump emits a JSON array of PipeWire objects.
+	var objects []struct {
+		Type string `json:"type"`
+		Info struct {
+			Props map[string]interface{} `json:"props"`
+		} `json:"info"`
+	}
+	if err := json.Unmarshal(out, &objects); err != nil {
+		return "", "", ""
+	}
+
+	for _, obj := range objects {
+		if obj.Type != "PipeWire:Interface:Node" {
+			continue
+		}
+		props := obj.Info.Props
+		if props == nil {
+			continue
+		}
+		mediaClass, _ := props["media.class"].(string)
+		if mediaClass != "Audio/Sink" {
+			continue
+		}
+		// Only Bluetooth A2DP sinks have api.bluez5.address.
+		btAddr, _ := props["api.bluez5.address"].(string)
+		if btAddr == "" {
+			continue
+		}
+		rawCodec, _ := props["api.bluez5.codec"].(string)
+		if rawCodec == "" {
+			continue
+		}
+		codec = mapPWBluetoothCodec(rawCodec)
+
+		if rate, ok := props["audio.rate"].(float64); ok {
+			switch int(rate) {
+			case 16000:
+				sampleRate = "16 kHz"
+			case 32000:
+				sampleRate = "32 kHz"
+			case 44100:
+				sampleRate = "44.1 kHz"
+			case 48000:
+				sampleRate = "48 kHz"
+			case 88200:
+				sampleRate = "88.2 kHz"
+			case 96000:
+				sampleRate = "96 kHz"
+			default:
+				sampleRate = strconv.Itoa(int(rate)) + " Hz"
+			}
+		}
+
+		if format, ok := props["audio.format"].(string); ok {
+			switch strings.ToUpper(format) {
+			case "S16LE", "S16BE", "S16":
+				bitDepth = "16 bit"
+			case "S24LE", "S24BE", "S24", "S24_32LE", "S24_32BE":
+				bitDepth = "24 bit"
+			case "S32LE", "S32BE", "S32", "F32LE", "F32BE":
+				bitDepth = "32 bit"
+			}
+		}
+		return codec, sampleRate, bitDepth
+	}
+	return "", "", ""
+}
+
+// mapPWBluetoothCodec maps a PipeWire api.bluez5.codec property value to the
+// same display names used by mapBluetoothCodec (from BlueZ endpoint paths).
+func mapPWBluetoothCodec(pwCodec string) string {
+	switch strings.ToLower(pwCodec) {
+	case "sbc", "sbc_xq":
+		return "SBC"
+	case "aac":
+		return "AAC"
+	case "ldac":
+		return "LDAC"
+	case "aptx_hd":
+		return "AptX HD"
+	case "aptx_ll":
+		return "AptX LL"
+	case "aptx":
+		return "AptX"
+	case "opus":
+		return "Opus"
+	case "faststream":
+		return "FastStream"
+	default:
+		return ""
+	}
 }
 
 // extractDBusStringValue extracts the string value from a dbus-monitor output
