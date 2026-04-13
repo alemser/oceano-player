@@ -166,8 +166,14 @@ func shouldShortCircuitLocalFirst(current *RecognitionResult, localEntry *intern
 	if localEntry == nil {
 		return false
 	}
+	// When there is no prior confirmed track (e.g. service just started or the
+	// previous track was cleared), we have no reliable baseline. Do not
+	// short-circuit: always go through the provider chain so the result is
+	// confirmed by ACRCloud/Shazam before being accepted. A local fingerprint
+	// false-positive at startup would otherwise show the wrong track without
+	// any cross-check.
 	if current == nil {
-		return true
+		return false
 	}
 	candidate := &RecognitionResult{
 		ACRID:    localEntry.ACRID,

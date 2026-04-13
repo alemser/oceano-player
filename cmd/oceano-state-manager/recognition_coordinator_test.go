@@ -718,9 +718,12 @@ func TestRecognitionCoordinator_ApplyLocalFallbackEntryLeavesFormatUnsetForNonPh
 }
 
 func TestShouldShortCircuitLocalFirst_NoCurrentTrack(t *testing.T) {
+	// No prior recognised track: must NOT short-circuit so ACRCloud/Shazam can
+	// confirm the result. A local fingerprint false-positive at startup would
+	// otherwise be accepted without any cross-check.
 	entry := &internallibrary.CollectionEntry{ACRID: "acrid-1", Title: "Song", Artist: "Artist"}
-	if !shouldShortCircuitLocalFirst(nil, entry) {
-		t.Fatal("expected short-circuit when there is no current recognition")
+	if shouldShortCircuitLocalFirst(nil, entry) {
+		t.Fatal("must not short-circuit when there is no current recognition (no prior context)")
 	}
 }
 
