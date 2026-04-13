@@ -179,6 +179,7 @@ func (m *mgr) applyMediaPlayerUpdate(lines []string) {
 				m.bluetoothStopTimer = nil
 			}
 			needsCodecProbe := !m.bluetoothPlaying && m.bluetoothCodec == ""
+			savedDevicePath := m.bluetoothDevicePath
 			if !m.bluetoothPlaying {
 				m.bluetoothPlaying = true
 				changed = true
@@ -186,10 +187,13 @@ func (m *mgr) applyMediaPlayerUpdate(lines []string) {
 			}
 			if needsCodecProbe {
 				// BT just started playing and we have no codec info yet — probe
-				// the transport now. This covers the case where the transport
-				// was already active before dbus-monitor connected, so the
-				// State=active event was never received.
-				go m.queryStartupBluetoothState()
+				// the transport. Use the stored device path when available (more
+				// targeted than GetManagedObjects enumeration).
+				if savedDevicePath != "" {
+					go m.queryInitialBluetoothTransport(savedDevicePath)
+				} else {
+					go m.queryStartupBluetoothState()
+				}
 			}
 		} else {
 			// Debounce stopped: wait 2 s before marking as stopped.
@@ -342,8 +346,11 @@ func (m *mgr) applyDeviceUpdate(lines []string) {
 	m.mu.Lock()
 	changed := m.bluetoothConnected != connected
 	m.bluetoothConnected = connected
-	if !connected {
+	if connected {
+		m.bluetoothDevicePath = devicePath
+	} else {
 		// Device disconnected — clear all Bluetooth state immediately.
+		m.bluetoothDevicePath = ""
 		m.bluetoothPlaying = false
 		m.bluetoothTitle = ""
 		m.bluetoothArtist = ""

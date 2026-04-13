@@ -145,9 +145,9 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 		energyFastAlpha      = float32(0.15)  // ~7-frame  / ~0.3 s time constant
 		energyDipRatio       = float32(0.45)  // fast < slow*0.45 → dip in progress
 		energyRecoverRatio   = float32(0.75)  // fast > slow*0.75 after dip → boundary
-		energyDipMinFrames   = 7              // dip must sustain ~0.3 s before committing
+		energyDipMinFrames   = 43             // dip must sustain ~2 s before committing
 		energyWarmupFrames   = 200            // frames before detection is active (~9 s)
-		energyChangeCooldown = 12 * time.Second
+		energyChangeCooldown = 30 * time.Second
 	)
 
 	buf := make([]byte, 8)

@@ -239,6 +239,7 @@ type mgr struct {
 	bluetoothTitle       string
 	bluetoothArtist      string
 	bluetoothAlbum       string
+	bluetoothDevicePath  string      // D-Bus path of the connected device, e.g. /org/bluez/hci0/dev_XX
 	bluetoothCodec       string      // e.g. "SBC", "AAC", "LDAC", "AptX", "Opus"
 	bluetoothSampleRate  string      // e.g. "44.1 kHz", "48 kHz", "96 kHz" — parsed from transport config
 	bluetoothBitDepth    string      // e.g. "16 bit", "24 bit" — parsed from transport config
