@@ -618,16 +618,38 @@ func (m *mgr) queryStartupBluetoothState() {
 		config := m.queryTransportConfiguration(path)
 		sampleRate, bitDepth := parseCodecConfig(codec, config)
 
+		// Derive the device path (strip the /fdN suffix) so we can probe
+		// MediaPlayer1 for the track that was already playing at startup.
+		devicePath := strings.Join(parts[:len(parts)-1], "/")
+
 		m.mu.Lock()
-		changed := m.bluetoothCodec != codec || m.bluetoothSampleRate != sampleRate || m.bluetoothBitDepth != bitDepth
+		changed := !m.bluetoothPlaying ||
+			m.bluetoothCodec != codec ||
+			m.bluetoothSampleRate != sampleRate ||
+			m.bluetoothBitDepth != bitDepth
+		// An active A2DP transport means BT audio IS flowing.
+		// Mark playing and connected so the recognition coordinator skips
+		// physical recognition even if no AVRCP "status=playing" event
+		// was received (e.g. the state manager restarted while BT was
+		// already playing and AVRCP does not re-send the event).
+		m.bluetoothPlaying = true
+		m.bluetoothConnected = true
+		if devicePath != "" {
+			m.bluetoothDevicePath = devicePath
+		}
 		m.bluetoothCodec = codec
 		m.bluetoothSampleRate = sampleRate
 		m.bluetoothBitDepth = bitDepth
 		m.mu.Unlock()
 
-		if changed && codec != "" {
-			log.Printf("bluetooth: startup transport %s: codec=%s rate=%s depth=%s", path, codec, sampleRate, bitDepth)
+		if changed {
+			log.Printf("bluetooth: startup transport %s: playing=true codec=%s rate=%s depth=%s", path, codec, sampleRate, bitDepth)
 			m.markDirty()
+		}
+
+		// Also probe MediaPlayer1 for current track metadata.
+		if devicePath != "" {
+			go m.queryStartupMediaPlayerState(devicePath)
 		}
 		return // use first active transport found
 	}
@@ -699,14 +721,20 @@ func (m *mgr) queryInitialBluetoothTransport(devicePath string) {
 		sampleRate, bitDepth := parseCodecConfig(codec, config)
 
 		m.mu.Lock()
-		changed := m.bluetoothCodec != codec || m.bluetoothSampleRate != sampleRate || m.bluetoothBitDepth != bitDepth
+		changed := !m.bluetoothPlaying ||
+			m.bluetoothCodec != codec ||
+			m.bluetoothSampleRate != sampleRate ||
+			m.bluetoothBitDepth != bitDepth
+		// Active transport ⟹ BT audio is flowing right now.
+		m.bluetoothPlaying = true
+		m.bluetoothConnected = true
 		m.bluetoothCodec = codec
 		m.bluetoothSampleRate = sampleRate
 		m.bluetoothBitDepth = bitDepth
 		m.mu.Unlock()
 
 		if changed {
-			log.Printf("bluetooth: initial transport %s: codec=%s rate=%s depth=%s", transportPath, codec, sampleRate, bitDepth)
+			log.Printf("bluetooth: initial transport %s: playing=true codec=%s rate=%s depth=%s", transportPath, codec, sampleRate, bitDepth)
 			m.markDirty()
 		}
 		return
@@ -714,6 +742,61 @@ func (m *mgr) queryInitialBluetoothTransport(devicePath string) {
 
 	// No D-Bus transport found for device — fall back to PipeWire.
 	m.applyPipeWireCodec()
+}
+
+// queryStartupMediaPlayerState probes the AVRCP MediaPlayer1 object under
+// devicePath and recovers the track title/artist/album and playing status that
+// were in effect before the state manager started. Called when an active A2DP
+// transport is found at startup so the now-playing display shows the correct
+// metadata immediately.
+func (m *mgr) queryStartupMediaPlayerState(devicePath string) {
+	// MediaPlayer1 is typically exposed at <devicePath>/player0.
+	playerPath := devicePath + "/player0"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "dbus-send",
+		"--system", "--print-reply", "--dest=org.bluez",
+		playerPath,
+		"org.freedesktop.DBus.Properties.GetAll",
+		"string:org.bluez.MediaPlayer1")
+	out, err := cmd.Output()
+	if err != nil {
+		return
+	}
+
+	// Parse the GetAll reply for Status and Track sub-properties.
+	lines := strings.Split(string(out), "\n")
+	title, artist, album, status, hasTrack, hasStatus := parseBluetoothBlock(lines)
+
+	if !hasTrack && !hasStatus {
+		return
+	}
+
+	m.mu.Lock()
+	changed := false
+	if hasStatus && status == "playing" && !m.bluetoothPlaying {
+		m.bluetoothPlaying = true
+		changed = true
+	}
+	if hasTrack {
+		if m.bluetoothTitle != title || m.bluetoothArtist != artist || m.bluetoothAlbum != album {
+			m.bluetoothTitle = title
+			m.bluetoothArtist = artist
+			m.bluetoothAlbum = album
+			changed = true
+		}
+	}
+	m.mu.Unlock()
+
+	if changed {
+		log.Printf("bluetooth: startup player state: status=%s artist=%q title=%q", status, artist, title)
+		m.markDirty()
+		if artist != "" && album != "" {
+			go m.fetchBluetoothArtwork(artist, album)
+		}
+	}
 }
 
 // parseDBusByteArray extracts decimal byte values from the dbus-send output of
