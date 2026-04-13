@@ -608,27 +608,37 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		var skip time.Duration
 		if isBoundaryTrigger {
 			skip = time.Duration(c.mgr.cfg.FingerprintBoundaryLeadSkipSecs) * time.Second
+			// Record the boundary time and reset pending stub. Do NOT clear
+			// recognitionResult yet — we do that only after all source checks
+			// pass, so the UI never briefly shows "Identifying" if BT/AirPlay
+			// became active between the first skip check and here.
 			c.mgr.mu.Lock()
 			c.mgr.lastBoundaryAt = time.Now()
 			c.mgr.pendingStubID = 0
-			// Clear current track info on boundary so UI shows "Identifying"
-			// and same-track optimization is bypassed for explicit transitions.
-			c.mgr.recognitionResult = nil
-			c.mgr.physicalLibraryEntryID = 0
-			c.mgr.physicalArtworkPath = ""
 			c.mgr.mu.Unlock()
-			c.mgr.markDirty()
 		}
 
-		// Defensive check: abort if state changed (Bluetooth/AirPlay became active)
+		// Defensive check: abort if BT/AirPlay became active since the first
+		// shouldSkipRecognitionAttempt check.
 		c.mgr.mu.Lock()
 		isPhysicalNow := c.mgr.physicalSource == "Physical"
 		isAirPlayNow := c.mgr.airplayPlaying
 		isBluetoothNow := c.mgr.bluetoothPlaying
 		c.mgr.mu.Unlock()
 		if !isPhysicalNow || isAirPlayNow || isBluetoothNow {
-			log.Printf("recognizer [%s]: ABORTING recognition — state changed: isPhysical=%v isAirPlay=%v isBluetooth=%v", c.rec.Name(), isPhysicalNow, isAirPlayNow, isBluetoothNow)
+			log.Printf("recognizer [%s]: ABORTING recognition — source changed: isPhysical=%v isAirPlay=%v isBluetooth=%v", c.rec.Name(), isPhysicalNow, isAirPlayNow, isBluetoothNow)
 			continue
+		}
+
+		// All pre-capture checks passed — now clear recognition state for boundary
+		// triggers so the UI shows "Identifying" at the right moment.
+		if isBoundaryTrigger {
+			c.mgr.mu.Lock()
+			c.mgr.recognitionResult = nil
+			c.mgr.physicalLibraryEntryID = 0
+			c.mgr.physicalArtworkPath = ""
+			c.mgr.mu.Unlock()
+			c.mgr.markDirty()
 		}
 
 		log.Printf("recognizer [%s]: capturing %s from %s (skip=%s)",
@@ -697,6 +707,20 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			if c.handleRecognitionError(err, capturedFPs, &backoffUntil, &backoffRateLimited) {
 				continue
 			}
+			continue
+		}
+
+		// Final source guard: the capture + recognition window is 10-20 s.
+		// BT or AirPlay may have become active during that window. Discard the
+		// result rather than writing a streaming track into the physical library.
+		c.mgr.mu.Lock()
+		isPhysicalFinal := c.mgr.physicalSource == "Physical"
+		isAirPlayFinal := c.mgr.airplayPlaying
+		isBluetoothFinal := c.mgr.bluetoothPlaying
+		c.mgr.mu.Unlock()
+		if !isPhysicalFinal || isAirPlayFinal || isBluetoothFinal {
+			log.Printf("recognizer [%s]: discarding result — source changed during capture/recognition (isPhysical=%v isAirPlay=%v isBluetooth=%v)",
+				c.rec.Name(), isPhysicalFinal, isAirPlayFinal, isBluetoothFinal)
 			continue
 		}
 
