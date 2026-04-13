@@ -248,10 +248,81 @@ func main() {
 		})
 	})
 
+	mux.HandleFunc("/api/bluetooth/devices", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			apiGetBluetoothDevices(w)
+		case http.MethodDelete:
+			mac := r.URL.Query().Get("mac")
+			if mac == "" {
+				http.Error(w, "missing mac parameter", http.StatusBadRequest)
+				return
+			}
+			apiRemoveBluetoothDevice(w, mac)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	log.Printf("oceano-web listening on %s", *addr)
 	if err := http.ListenAndServe(*addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+// BluetoothDevice is a paired Bluetooth device.
+type BluetoothDevice struct {
+	MAC  string `json:"mac"`
+	Name string `json:"name"`
+}
+
+// apiGetBluetoothDevices lists paired Bluetooth devices via bluetoothctl.
+func apiGetBluetoothDevices(w http.ResponseWriter) {
+	out, err := exec.Command("bluetoothctl", "devices", "Paired").Output()
+	if err != nil {
+		// bluetoothctl not available or no devices — return empty list.
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]BluetoothDevice{})
+		return
+	}
+
+	var devices []BluetoothDevice
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	for scanner.Scan() {
+		// Format: "Device AA:BB:CC:DD:EE:FF Device Name"
+		line := strings.TrimSpace(scanner.Text())
+		parts := strings.SplitN(line, " ", 3)
+		if len(parts) < 2 || parts[0] != "Device" {
+			continue
+		}
+		mac := parts[1]
+		name := mac
+		if len(parts) == 3 {
+			name = parts[2]
+		}
+		devices = append(devices, BluetoothDevice{MAC: mac, Name: name})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(devices)
+}
+
+// apiRemoveBluetoothDevice removes a paired device by MAC address.
+func apiRemoveBluetoothDevice(w http.ResponseWriter, mac string) {
+	// Basic MAC address validation to prevent command injection.
+	for _, c := range mac {
+		if !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f') || c == ':') {
+			http.Error(w, "invalid MAC address", http.StatusBadRequest)
+			return
+		}
+	}
+
+	cmd := exec.Command("bluetoothctl", "remove", mac)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		http.Error(w, strings.TrimSpace(string(out)), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func apiGetConfig(w http.ResponseWriter, configPath string) {

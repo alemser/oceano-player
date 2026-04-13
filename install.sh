@@ -966,7 +966,8 @@ DISPLAYENV
   echo -e "
 ${BOLD}Configuration summary:${RESET}
   Branch             : ${branch}
-  AirPlay / BT name  : ${airplay_name}
+  AirPlay name       : ${airplay_name}
+  Bluetooth name     : ${bt_name}
   ALSA device        : ${alsa_device}
   Output strategy    : ${output_strategy}
   Preplay wait       : ${preplay_wait_seconds}s
