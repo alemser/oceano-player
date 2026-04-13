@@ -246,7 +246,7 @@ func defaultConfig() Config {
 		},
 		Bluetooth: BluetoothConfig{
 			Enabled: false,
-			Name:    "Oceano",
+			Name:    "", // empty → derived from AirPlay name at install time
 		},
 		Weather: WeatherConfig{
 			Enabled:       true,

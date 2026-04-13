@@ -631,9 +631,14 @@ setup_bluetooth() {
   systemctl start  bluetooth.service 2>/dev/null || true
 
   if [[ -f "${bt_conf}" ]]; then
+    # Escape characters that are significant in a sed replacement string
+    # (backslash and ampersand) so the device name is written verbatim.
+    local escaped_device_name
+    escaped_device_name=$(printf '%s\n' "${device_name}" | sed 's/[\\&]/\\&/g')
+
     # Set device name — used for both discoverability and BLE advertising.
     if grep -qE '^\s*Name\s*=' "${bt_conf}"; then
-      sed -i "s|^\s*Name\s*=.*|Name = ${device_name}|" "${bt_conf}"
+      sed -i "s|^\s*Name\s*=.*|Name = ${escaped_device_name}|" "${bt_conf}"
     else
       # Add under [General] section if present, otherwise append.
       if grep -q '^\[General\]' "${bt_conf}"; then
@@ -680,7 +685,7 @@ Wants=shairport-sync.service
 [Service]
 Type=oneshot
 ExecStartPre=/bin/sleep 2
-ExecStart=/usr/bin/dbus-send --system --print-reply --dest=org.bluez /org/bluez/hci0 org.freedesktop.DBus.Properties.Set string:org.bluez.Adapter1 string:Alias variant:string:${device_name}
+ExecStart=/usr/bin/dbus-send --system --print-reply --dest=org.bluez /org/bluez/hci0 org.freedesktop.DBus.Properties.Set string:org.bluez.Adapter1 string:Alias "variant:string:${device_name}"
 RemainAfterExit=no
 
 [Install]
@@ -1065,7 +1070,12 @@ main() {
   # ── WirePlumber default-sink routing (pipewire mode only) ──
   if [[ "${output_strategy}" == "pipewire" && -n "${audio_user}" ]]; then
     log_section "PipeWire Routing"
-    setup_wireplumber_routing "${usb_match}" "${audio_user}" "${audio_uid}"
+    if command -v wpctl >/dev/null 2>&1; then
+      setup_wireplumber_routing "${usb_match}" "${audio_user}" "${audio_uid}"
+    else
+      log_warn "wpctl not found — skipping PipeWire default-sink setup."
+      log_warn "Install wireplumber (apt-get install wireplumber) and re-run the installer."
+    fi
   fi
 
   # ── Repository ──

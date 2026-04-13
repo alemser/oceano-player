@@ -379,8 +379,47 @@ func (l *Library) LookupByIDs(acrid, shazamID string) (*CollectionEntry, error) 
 // that matches the given title and artist using canonical fuzzy matching.
 // Returns nil when no match is found. Used to enrich streaming state with
 // information about a corresponding vinyl or CD in the local collection.
+//
+// Only user-confirmed entries with format Vinyl or CD are considered — unconfirmed
+// rows (auto-created stubs) and Unknown-format entries are excluded to avoid
+// showing a misleading "In collection" chip for unverified data.
 func (l *Library) FindPhysicalMatch(title, artist string) (*CollectionEntry, error) {
-	return l.lookupByEquivalentMetadata(title, artist)
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(artist) == "" {
+		return nil, nil
+	}
+
+	rows, err := l.db.Query(`
+		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist,
+		       COALESCE(album,''), COALESCE(label,''), COALESCE(released,''),
+		       COALESCE(score,0), COALESCE(format,'Unknown'),
+		       COALESCE(track_number,''), COALESCE(artwork_path,''),
+		       play_count, first_played, last_played, user_confirmed
+		FROM collection
+		WHERE title != '' AND artist != ''
+		  AND user_confirmed = 1
+		  AND format IN ('Vinyl','CD')`)
+	if err != nil {
+		return nil, fmt.Errorf("library: physical match query: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var e CollectionEntry
+		var confirmed int
+		if err := rows.Scan(
+			&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist,
+			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
+			&e.TrackNumber, &e.ArtworkPath,
+			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
+		); err != nil {
+			return nil, fmt.Errorf("library: physical match scan: %w", err)
+		}
+		e.UserConfirmed = confirmed == 1
+		if canonicalTracksEquivalent(title, artist, e.Title, e.Artist) {
+			return &e, nil
+		}
+	}
+	return nil, rows.Err()
 }
 
 // RecordPlay logs a track playback in the collection.

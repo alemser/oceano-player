@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -278,7 +279,9 @@ type BluetoothDevice struct {
 
 // apiGetBluetoothDevices lists paired Bluetooth devices via bluetoothctl.
 func apiGetBluetoothDevices(w http.ResponseWriter) {
-	out, err := exec.Command("bluetoothctl", "devices", "Paired").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "bluetoothctl", "devices", "Paired").Output()
 	if err != nil {
 		// bluetoothctl not available or no devices — return empty list.
 		w.Header().Set("Content-Type", "application/json")
@@ -317,7 +320,9 @@ func apiRemoveBluetoothDevice(w http.ResponseWriter, mac string) {
 		}
 	}
 
-	cmd := exec.Command("bluetoothctl", "remove", mac)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bluetoothctl", "remove", mac)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		http.Error(w, strings.TrimSpace(string(out)), http.StatusInternalServerError)
 		return
@@ -560,20 +565,34 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 	// Set adapter alias immediately via dbus-send and update the persistent
 	// oceano-bt-alias service so the alias survives shairport-sync restarts.
 	if cfg.Name != "" {
-		// Apply immediately to the running adapter.
+		// Sanitize: remove control characters (newlines break unit file, CRs corrupt it).
+		safeName := strings.Map(func(r rune) rune {
+			if r < 32 {
+				return -1
+			}
+			return r
+		}, cfg.Name)
+
+		// Apply immediately to the running adapter. exec.Command args are not
+		// shell-parsed, so spaces in safeName are safe here.
 		_ = exec.Command("dbus-send", "--system", "--print-reply", "--dest=org.bluez",
 			"/org/bluez/hci0", "org.freedesktop.DBus.Properties.Set",
 			"string:org.bluez.Adapter1", "string:Alias",
-			"variant:string:"+cfg.Name).Run()
+			"variant:string:"+safeName).Run()
+
+		// Build a quoted ExecStart argument so systemd does not split on spaces.
+		// Escape backslashes and double quotes within the name first.
+		escapedName := strings.ReplaceAll(strings.ReplaceAll(safeName, `\`, `\\`), `"`, `\"`)
+		execArg := `"variant:string:` + escapedName + `"`
 
 		// Update the oneshot service with the new name and restart it so the
 		// alias is also re-applied after any future shairport-sync restart.
-		unit := "[Unit]\nDescription=Restore Bluetooth adapter alias to " + cfg.Name + "\n" +
+		unit := "[Unit]\nDescription=Restore Bluetooth adapter alias to " + safeName + "\n" +
 			"After=shairport-sync.service\nWants=shairport-sync.service\n\n" +
 			"[Service]\nType=oneshot\nExecStartPre=/bin/sleep 2\n" +
 			"ExecStart=/usr/bin/dbus-send --system --print-reply --dest=org.bluez " +
 			"/org/bluez/hci0 org.freedesktop.DBus.Properties.Set " +
-			"string:org.bluez.Adapter1 string:Alias variant:string:" + cfg.Name + "\n" +
+			"string:org.bluez.Adapter1 string:Alias " + execArg + "\n" +
 			"RemainAfterExit=no\n\n[Install]\nWantedBy=multi-user.target\n"
 		_ = os.WriteFile("/etc/systemd/system/oceano-bt-alias.service", []byte(unit), 0o644)
 		_ = exec.Command("systemctl", "daemon-reload").Run()

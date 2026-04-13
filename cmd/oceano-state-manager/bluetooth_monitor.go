@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"io"
 	"log"
 	"os/exec"
 	"strconv"
@@ -75,6 +76,7 @@ func (m *mgr) readBluetoothDBus(ctx context.Context) error {
 		"type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.bluez.MediaTransport1'",
 		"type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.bluez.Device1'")
 
+	cmd.Stderr = io.Discard // prevent stderr pipe buffer from blocking the process
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
