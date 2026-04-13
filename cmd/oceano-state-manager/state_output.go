@@ -31,9 +31,10 @@ func (m *mgr) buildState() PlayerState {
 
 	switch {
 	case m.airplayPlaying:
-		// Streaming source takes priority — physical media detection is ignored
-		// when AirPlay (or future Bluetooth/UPnP) is active.
 		source = "AirPlay"
+		state = "playing"
+	case m.bluetoothPlaying:
+		source = "Bluetooth"
 		state = "playing"
 	case physicalActive:
 		source = "Physical"
@@ -72,6 +73,18 @@ func (m *mgr) buildState() PlayerState {
 			SampleRate:    airplaySampleRate,
 			BitDepth:      airplayBitDepth,
 			ArtworkPath:   m.artworkPath,
+			PhysicalMatch: m.streamingPhysicalMatch,
+		}
+	case "Bluetooth":
+		track = &TrackInfo{
+			Title:         m.bluetoothTitle,
+			Artist:        m.bluetoothArtist,
+			Album:         m.bluetoothAlbum,
+			Codec:         m.bluetoothCodec,
+			SampleRate:    m.bluetoothSampleRate,
+			BitDepth:      m.bluetoothBitDepth,
+			ArtworkPath:   m.bluetoothArtworkPath,
+			PhysicalMatch: m.streamingPhysicalMatch,
 		}
 	case "Physical":
 		if r := m.recognitionResult; r != nil {
@@ -127,7 +140,58 @@ func (m *mgr) runLibrarySync(ctx context.Context, lib *internallibrary.Library) 
 // the current track (matched by ACRID or ShazamID) and user-edited fields differ
 // from in-memory values. This makes UI edits visible in state.json without waiting
 // for a new recognition cycle — including Shazam-only tracks (no ACRID).
+//
+// When AirPlay is the active source, it also checks whether the current streaming
+// track exists in the local physical library and caches the result in
+// m.streamingPhysicalMatch for display in the now-playing UI.
 func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
+	// --- Streaming → physical library match (AirPlay and Bluetooth) ---
+	m.mu.Lock()
+	var streamTitle, streamArtist string
+	streamingActive := false
+	switch {
+	case m.airplayPlaying:
+		streamTitle, streamArtist = m.title, m.artist
+		streamingActive = true
+	case m.bluetoothPlaying:
+		streamTitle, streamArtist = m.bluetoothTitle, m.bluetoothArtist
+		streamingActive = true
+	}
+	currentMatchKey := m.streamingMatchKey
+	m.mu.Unlock()
+
+	if streamingActive {
+		newKey := streamTitle + "\x00" + streamArtist
+		if newKey != currentMatchKey {
+			var match *PhysicalMatchInfo
+			if streamTitle != "" && streamArtist != "" {
+				if entry, err := lib.FindPhysicalMatch(streamTitle, streamArtist); err == nil && entry != nil {
+					match = &PhysicalMatchInfo{
+						Format:      entry.Format,
+						TrackNumber: entry.TrackNumber,
+						Album:       entry.Album,
+					}
+					log.Printf("physical match: streaming track %q by %q found in library — format=%s", streamTitle, streamArtist, match.Format)
+				}
+			}
+			m.mu.Lock()
+			m.streamingMatchKey = newKey
+			m.streamingPhysicalMatch = match
+			m.mu.Unlock()
+			m.markDirty()
+		}
+	} else {
+		m.mu.Lock()
+		hadMatch := m.streamingPhysicalMatch != nil || m.streamingMatchKey != ""
+		m.streamingPhysicalMatch = nil
+		m.streamingMatchKey = ""
+		m.mu.Unlock()
+		if hadMatch {
+			m.markDirty()
+		}
+	}
+
+	// --- Physical source sync (existing logic) ---
 	m.mu.Lock()
 	if m.physicalSource != "Physical" {
 		m.mu.Unlock()

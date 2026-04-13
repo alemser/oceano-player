@@ -207,13 +207,19 @@ function applyState(state) {
     $artist.textContent = track.artist || '';
     $album.textContent  = track.album  || '';
     updateArtwork(track.artwork_path || null);
-  } else if (playing && source !== 'None') {
-    // Playing but not yet identified (physical source recognizing)
+  } else if (playing && (source === 'Physical' || source === 'CD' || source === 'Vinyl')) {
+    // Playing but not yet identified — only physical sources use ACRCloud recognition.
     $title.textContent  = 'Identifying…';
     $artist.textContent = '';
     $album.textContent  = '';
     $identifying.className = 'pulsing';
     $identifying.textContent = 'Listening for a match';
+    showDefaultArtwork();
+  } else if (playing && source !== 'None') {
+    // Streaming source playing without metadata (e.g. Bluetooth without AVRCP).
+    $title.textContent  = '—';
+    $artist.textContent = '';
+    $album.textContent  = '';
     showDefaultArtwork();
   } else {
     $title.textContent  = '—';
@@ -237,6 +243,14 @@ function applyState(state) {
       $chips.appendChild(makeChip(
         chipSVG('M2 9 L2 3 M2 6 L6 3 M6 3 L6 9 M6 6 L10 3 M10 3 L10 9'),
         track.bitdepth
+      ));
+    }
+
+    // Bluetooth codec chip (SBC, AAC, LDAC, AptX, Opus, …)
+    if (track.codec) {
+      $chips.appendChild(makeChip(
+        chipSVG('M6 2 L10 6 L6 10 L6 2 M6 6 L2 2 M6 6 L2 10'),
+        track.codec
       ));
     }
 
@@ -267,6 +281,29 @@ function applyState(state) {
           'Track ' + trackRef
         ));
       }
+    }
+
+    // Physical match chip: shown when a streaming track exists in the local library
+    if (track.physical_match && track.physical_match.format) {
+      const pm = track.physical_match;
+      const fmt = pm.format; // "Vinyl" or "CD"
+      const isVinyl = fmt === 'Vinyl';
+      // Vinyl icon: disc with groove lines; CD icon: disc with centre hole
+      const iconPath = isVinyl
+        ? 'M6 1 A5 5 0 1 1 6 11 A5 5 0 1 1 6 1 M6 3 A3 3 0 1 1 6 9 A3 3 0 1 1 6 3'
+        : 'M6 1 A5 5 0 1 1 6 11 A5 5 0 1 1 6 1 M6 4.5 A1.5 1.5 0 1 1 6 7.5 A1.5 1.5 0 1 1 6 4.5';
+      let label = 'In collection · ' + fmt;
+      if (pm.track_number) {
+        const vinylRef = isVinyl ? parseVinylTrackRef(pm.track_number) : null;
+        if (vinylRef) {
+          label += ' · Side ' + vinylRef.side + ' · ' + vinylRef.track;
+        } else {
+          label += ' · Track ' + pm.track_number;
+        }
+      }
+      const chip = makeChip(chipSVG(iconPath), label);
+      chip.classList.add('chip-physical-match');
+      $chips.appendChild(chip);
     }
   }
 

@@ -22,20 +22,23 @@ func TestShouldBypassBackoff(t *testing.T) {
 
 func TestShouldSkipRecognitionAttempt(t *testing.T) {
 	tests := []struct {
-		name       string
-		isPhysical bool
-		isAirPlay  bool
-		want       bool
+		name        string
+		isPhysical  bool
+		isAirPlay   bool
+		isBluetooth bool
+		want        bool
 	}{
-		{name: "physical no airplay", isPhysical: true, isAirPlay: false, want: false},
-		{name: "none source", isPhysical: false, isAirPlay: false, want: true},
-		{name: "airplay active", isPhysical: true, isAirPlay: true, want: true},
+		{name: "physical no streaming", isPhysical: true, isAirPlay: false, isBluetooth: false, want: false},
+		{name: "none source", isPhysical: false, isAirPlay: false, isBluetooth: false, want: true},
+		{name: "airplay active", isPhysical: true, isAirPlay: true, isBluetooth: false, want: true},
+		{name: "bluetooth active", isPhysical: true, isAirPlay: false, isBluetooth: true, want: true},
+		{name: "both streaming", isPhysical: true, isAirPlay: true, isBluetooth: true, want: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldSkipRecognitionAttempt(tt.isPhysical, tt.isAirPlay); got != tt.want {
-				t.Fatalf("shouldSkipRecognitionAttempt(%v,%v) = %v, want %v", tt.isPhysical, tt.isAirPlay, got, tt.want)
+			if got := shouldSkipRecognitionAttempt(tt.isPhysical, tt.isAirPlay, tt.isBluetooth); got != tt.want {
+				t.Fatalf("shouldSkipRecognitionAttempt(%v,%v,%v) = %v, want %v", tt.isPhysical, tt.isAirPlay, tt.isBluetooth, got, tt.want)
 			}
 		})
 	}
@@ -209,7 +212,13 @@ func TestHandleNoMatch_FingerprintOnlyEnrichesPendingStubAcrossRetries(t *testin
 	}
 }
 
-func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
+// TestHandleNoMatch_DoesNotApplyLocalFallback verifies that handleNoMatch never
+// substitutes a local fingerprint match for an explicit cloud "no match".
+// When both ACRCloud and Shazam return no match, that verdict must be respected
+// and the recognition result must remain unset — even if the local library
+// contains a fingerprint that would match.  Applying the local result would risk
+// showing a completely wrong track (false positive).
+func TestHandleNoMatch_DoesNotApplyLocalFallback(t *testing.T) {
 	m := newTestMgr()
 	m.cfg.RecognizerChain = "fingerprint_only"
 	m.mu.Lock()
@@ -224,21 +233,23 @@ func TestHandleNoMatch_LocalFallbackDrainsPendingTriggers(t *testing.T) {
 		t.Fatalf("UpsertStub: %v", err)
 	}
 
-	// Simulate an already-queued trigger that would otherwise cause an immediate
-	// redundant capture after fallback match.
+	// Simulate an already-queued trigger; it must remain after handleNoMatch
+	// since no local fallback is applied.
 	m.recognizeTrigger <- recognizeTrigger{isBoundary: false}
 
 	var backoffUntil time.Time
 	backoffRateLimited := false
 	coordinator.handleNoMatch(fps, false, &backoffUntil, &backoffRateLimited)
 
-	if got := len(m.recognizeTrigger); got != 0 {
-		t.Fatalf("pending trigger queue size = %d, want 0 after local fallback", got)
+	// Trigger must still be in the queue — local fallback must not have drained it.
+	if got := len(m.recognizeTrigger); got != 1 {
+		t.Fatalf("pending trigger queue size = %d, want 1 (local fallback must not drain on no-match)", got)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.recognitionResult == nil {
-		t.Fatal("expected recognitionResult to be set by local fallback")
+	// recognitionResult must remain nil — no local result applied on explicit no-match.
+	if m.recognitionResult != nil {
+		t.Fatalf("recognitionResult must be nil after no-match; got %+v", m.recognitionResult)
 	}
 }
 
@@ -715,9 +726,12 @@ func TestRecognitionCoordinator_ApplyLocalFallbackEntryLeavesFormatUnsetForNonPh
 }
 
 func TestShouldShortCircuitLocalFirst_NoCurrentTrack(t *testing.T) {
+	// No prior recognised track: must NOT short-circuit so ACRCloud/Shazam can
+	// confirm the result. A local fingerprint false-positive at startup would
+	// otherwise be accepted without any cross-check.
 	entry := &internallibrary.CollectionEntry{ACRID: "acrid-1", Title: "Song", Artist: "Artist"}
-	if !shouldShortCircuitLocalFirst(nil, entry) {
-		t.Fatal("expected short-circuit when there is no current recognition")
+	if shouldShortCircuitLocalFirst(nil, entry) {
+		t.Fatal("must not short-circuit when there is no current recognition (no prior context)")
 	}
 }
 

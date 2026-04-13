@@ -63,6 +63,7 @@ var migrations = []string{
 		count    INTEGER DEFAULT 0,
 		PRIMARY KEY(provider, event)
 	)`,
+	`ALTER TABLE collection ADD COLUMN isrc TEXT`,
 }
 
 type Library struct {
@@ -374,6 +375,53 @@ func (l *Library) LookupByIDs(acrid, shazamID string) (*CollectionEntry, error) 
 	return l.LookupByShazamID(shazamID)
 }
 
+// FindPhysicalMatch searches the library for a confirmed physical-media entry
+// that matches the given title and artist using canonical fuzzy matching.
+// Returns nil when no match is found. Used to enrich streaming state with
+// information about a corresponding vinyl or CD in the local collection.
+//
+// Only user-confirmed entries with format Vinyl or CD are considered — unconfirmed
+// rows (auto-created stubs) and Unknown-format entries are excluded to avoid
+// showing a misleading "In collection" chip for unverified data.
+func (l *Library) FindPhysicalMatch(title, artist string) (*CollectionEntry, error) {
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(artist) == "" {
+		return nil, nil
+	}
+
+	rows, err := l.db.Query(`
+		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist,
+		       COALESCE(album,''), COALESCE(label,''), COALESCE(released,''),
+		       COALESCE(score,0), COALESCE(format,'Unknown'),
+		       COALESCE(track_number,''), COALESCE(artwork_path,''),
+		       play_count, first_played, last_played, user_confirmed
+		FROM collection
+		WHERE title != '' AND artist != ''
+		  AND user_confirmed = 1
+		  AND format IN ('Vinyl','CD')`)
+	if err != nil {
+		return nil, fmt.Errorf("library: physical match query: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var e CollectionEntry
+		var confirmed int
+		if err := rows.Scan(
+			&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist,
+			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
+			&e.TrackNumber, &e.ArtworkPath,
+			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
+		); err != nil {
+			return nil, fmt.Errorf("library: physical match scan: %w", err)
+		}
+		e.UserConfirmed = confirmed == 1
+		if canonicalTracksEquivalent(title, artist, e.Title, e.Artist) {
+			return &e, nil
+		}
+	}
+	return nil, rows.Err()
+}
+
 // RecordPlay logs a track playback in the collection.
 // It handles identifying existing tracks by ACRID, ShazamID, or Title/Artist.
 // If it's a new track, it's created as unconfirmed (user_confirmed = 0) so the
@@ -396,6 +444,7 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 					play_count     = play_count + 1,
 					last_played    = ?,
 					shazam_id      = CASE WHEN (COALESCE(shazam_id,'') = '') AND ? != '' THEN ? ELSE shazam_id END,
+					isrc           = CASE WHEN (COALESCE(isrc,'') = '') AND ? != '' THEN ? ELSE isrc END,
 					title          = CASE WHEN ? > score THEN ? ELSE title END,
 					artist         = CASE WHEN ? > score THEN ? ELSE artist END,
 					album          = CASE WHEN ? > score THEN ? ELSE album END,
@@ -404,6 +453,7 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 				WHERE id = ?`,
 				now,
 				result.ShazamID, result.ShazamID,
+				result.ISRC, result.ISRC,
 				result.Score, result.Title,
 				result.Score, result.Artist,
 				result.Score, result.Album,
@@ -423,13 +473,14 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 		var id int64
 		err := l.db.QueryRow(`
 			INSERT INTO collection
-				(acrid, shazam_id, title, artist, album, label, released, score,
+				(acrid, shazam_id, isrc, title, artist, album, label, released, score,
 				 artwork_path, play_count, first_played, last_played, user_confirmed)
-			VALUES (?,?,?,?,?,?,?,?,?,1,?,?,0)
+			VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?,0)
 			ON CONFLICT(acrid) DO UPDATE SET
 				play_count     = play_count + 1,
 				last_played    = excluded.last_played,
 				shazam_id      = CASE WHEN (COALESCE(shazam_id,'') = '') AND excluded.shazam_id != '' THEN excluded.shazam_id ELSE shazam_id END,
+				isrc           = CASE WHEN (COALESCE(isrc,'') = '') AND excluded.isrc != '' THEN excluded.isrc ELSE isrc END,
 				title          = CASE WHEN excluded.score > score THEN excluded.title ELSE title END,
 				artist         = CASE WHEN excluded.score > score THEN excluded.artist ELSE artist END,
 				album          = CASE WHEN excluded.score > score THEN excluded.album ELSE album END,
@@ -437,7 +488,7 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 				artwork_path   = CASE WHEN (artwork_path IS NULL OR artwork_path = '') AND excluded.artwork_path != ''
 				                 THEN excluded.artwork_path ELSE artwork_path END
 			RETURNING id`,
-			result.ACRID, result.ShazamID, result.Title, result.Artist, result.Album,
+			result.ACRID, result.ShazamID, result.ISRC, result.Title, result.Artist, result.Album,
 			result.Label, result.Released, result.Score, artworkPath, now, now,
 		).Scan(&id)
 		return id, err
@@ -447,12 +498,13 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 		var id int64
 		err := l.db.QueryRow(`
 			INSERT INTO collection
-				(shazam_id, title, artist, album, label, released, score,
+				(shazam_id, isrc, title, artist, album, label, released, score,
 				 artwork_path, play_count, first_played, last_played, user_confirmed)
-			VALUES (?,?,?,?,?,?,?, ?,1,?,?,0)
+			VALUES (?,?,?,?,?,?,?,?,?,1,?,?,0)
 			ON CONFLICT(shazam_id) WHERE shazam_id IS NOT NULL AND shazam_id != '' DO UPDATE SET
 				play_count     = play_count + 1,
 				last_played    = excluded.last_played,
+				isrc           = CASE WHEN (COALESCE(isrc,'') = '') AND excluded.isrc != '' THEN excluded.isrc ELSE isrc END,
 				title          = CASE WHEN excluded.score > score THEN excluded.title ELSE title END,
 				artist         = CASE WHEN excluded.score > score THEN excluded.artist ELSE artist END,
 				album          = CASE WHEN excluded.score > score THEN excluded.album ELSE album END,
@@ -460,7 +512,7 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 				artwork_path   = CASE WHEN (artwork_path IS NULL OR artwork_path = '') AND excluded.artwork_path != ''
 				                 THEN excluded.artwork_path ELSE artwork_path END
 			RETURNING id`,
-			result.ShazamID, result.Title, result.Artist, result.Album,
+			result.ShazamID, result.ISRC, result.Title, result.Artist, result.Album,
 			result.Label, result.Released, result.Score, artworkPath, now, now,
 		).Scan(&id)
 		return id, err
@@ -686,7 +738,12 @@ func (l *Library) PromoteStubFingerprints(stubID, entryID int64) error {
 	if _, err := tx.Exec(`UPDATE fingerprints SET entry_id=? WHERE entry_id=?`, entryID, stubID); err != nil {
 		return fmt.Errorf("library: promote stub fingerprints move: %w", err)
 	}
-	if _, err := tx.Exec(`DELETE FROM collection WHERE id=? AND title='' AND artist='' AND user_confirmed=0`, stubID); err != nil {
+	// Delete the stub unconditionally (only guard: must not be user-confirmed,
+	// to avoid accidentally deleting a real library entry if stubID is wrong).
+	// The previous title='' AND artist='' guard caused fingerprints to be moved
+	// without deleting the stub when a user had edited the stub's metadata,
+	// leaving an orphaned collection entry with no fingerprints.
+	if _, err := tx.Exec(`DELETE FROM collection WHERE id=? AND user_confirmed=0`, stubID); err != nil {
 		return fmt.Errorf("library: promote stub fingerprints prune: %w", err)
 	}
 

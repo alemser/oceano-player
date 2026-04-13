@@ -250,6 +250,12 @@ body::after {
 
 .chip svg { width: 12px; height: 12px; flex-shrink: 0; }
 
+.chip-physical-match {
+  border-color: rgba(139, 168, 220, 0.6);
+  background: rgba(30, 50, 90, 0.45);
+  color: #c8d8f0;
+}
+
 /* ─── Idle screen ──────────────────────────────────────────── */
 #idle-screen {
   position: fixed; inset: 0; background: var(--bg);

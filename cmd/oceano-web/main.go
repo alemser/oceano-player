@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -248,10 +249,85 @@ func main() {
 		})
 	})
 
+	mux.HandleFunc("/api/bluetooth/devices", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			apiGetBluetoothDevices(w)
+		case http.MethodDelete:
+			mac := r.URL.Query().Get("mac")
+			if mac == "" {
+				http.Error(w, "missing mac parameter", http.StatusBadRequest)
+				return
+			}
+			apiRemoveBluetoothDevice(w, mac)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	log.Printf("oceano-web listening on %s", *addr)
 	if err := http.ListenAndServe(*addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+// BluetoothDevice is a paired Bluetooth device.
+type BluetoothDevice struct {
+	MAC  string `json:"mac"`
+	Name string `json:"name"`
+}
+
+// apiGetBluetoothDevices lists paired Bluetooth devices via bluetoothctl.
+func apiGetBluetoothDevices(w http.ResponseWriter) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "bluetoothctl", "devices", "Paired").Output()
+	if err != nil {
+		// bluetoothctl not available or no devices — return empty list.
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]BluetoothDevice{})
+		return
+	}
+
+	var devices []BluetoothDevice
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	for scanner.Scan() {
+		// Format: "Device AA:BB:CC:DD:EE:FF Device Name"
+		line := strings.TrimSpace(scanner.Text())
+		parts := strings.SplitN(line, " ", 3)
+		if len(parts) < 2 || parts[0] != "Device" {
+			continue
+		}
+		mac := parts[1]
+		name := mac
+		if len(parts) == 3 {
+			name = parts[2]
+		}
+		devices = append(devices, BluetoothDevice{MAC: mac, Name: name})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(devices)
+}
+
+// apiRemoveBluetoothDevice removes a paired device by MAC address.
+func apiRemoveBluetoothDevice(w http.ResponseWriter, mac string) {
+	// Basic MAC address validation to prevent command injection.
+	for _, c := range mac {
+		if !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f') || c == ':') {
+			http.Error(w, "invalid MAC address", http.StatusBadRequest)
+			return
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bluetoothctl", "remove", mac)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		http.Error(w, strings.TrimSpace(string(out)), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func apiGetConfig(w http.ResponseWriter, configPath string) {
@@ -371,6 +447,16 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		}
 	}
 
+	// Apply Bluetooth settings when name or enabled flag changed.
+	if old.Bluetooth != cfg.Bluetooth {
+		if err := applyBluetoothConfig(cfg.Bluetooth); err != nil {
+			results = append(results, "bluetooth config: "+err.Error())
+			hadError = true
+		} else {
+			results = append(results, "bluetooth settings applied")
+		}
+	}
+
 	// amplifier, cd_player: managed in-memory by oceano-web — no systemd restart needed.
 	// weather: rendered client-side from /api/config — no restart needed.
 
@@ -411,6 +497,109 @@ func updateShairportName(name string) error {
 		return err
 	}
 	return restartService("shairport-sync.service")
+}
+
+// applyBluetoothConfig applies Bluetooth adapter settings that take effect
+// immediately without restarting any Oceano service.
+// Name changes update /etc/bluetooth/main.conf and restart bluetoothd.
+// Enabling powers on the adapter and makes it discoverable/pairable.
+func applyBluetoothConfig(cfg BluetoothConfig) error {
+	const confPath = "/etc/bluetooth/main.conf"
+
+	if cfg.Name != "" {
+		data, err := os.ReadFile(confPath)
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("read %s: %w", confPath, err)
+		}
+		content := string(data)
+
+		// Replace or insert Name under [General].
+		updated := false
+		lines := strings.Split(content, "\n")
+		for i, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), "Name") && strings.Contains(line, "=") {
+				lines[i] = "Name = " + cfg.Name
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			// Append after [General] header if present, else append at end.
+			inserted := false
+			for i, line := range lines {
+				if strings.TrimSpace(line) == "[General]" {
+					newLines := make([]string, 0, len(lines)+1)
+					newLines = append(newLines, lines[:i+1]...)
+					newLines = append(newLines, "Name = "+cfg.Name)
+					newLines = append(newLines, lines[i+1:]...)
+					lines = newLines
+					inserted = true
+					break
+				}
+			}
+			if !inserted {
+				lines = append(lines, "", "[General]", "Name = "+cfg.Name)
+			}
+		}
+
+		newContent := strings.Join(lines, "\n")
+		tmp := confPath + ".tmp"
+		if err := os.WriteFile(tmp, []byte(newContent), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", confPath, err)
+		}
+		if err := os.Rename(tmp, confPath); err != nil {
+			return fmt.Errorf("rename %s: %w", confPath, err)
+		}
+		// Restart bluetoothd to pick up the new name from main.conf.
+		_ = exec.Command("systemctl", "restart", "bluetooth.service").Run()
+		// Wait for bluetoothd D-Bus service to be ready before setting the alias.
+		time.Sleep(2 * time.Second)
+	}
+
+	if cfg.Enabled {
+		_ = exec.Command("bluetoothctl", "power", "on").Run()
+		_ = exec.Command("bluetoothctl", "discoverable", "on").Run()
+		_ = exec.Command("bluetoothctl", "pairable", "on").Run()
+	}
+
+	// Set adapter alias immediately via dbus-send and update the persistent
+	// oceano-bt-alias service so the alias survives shairport-sync restarts.
+	if cfg.Name != "" {
+		// Sanitize: remove control characters (newlines break unit file, CRs corrupt it).
+		safeName := strings.Map(func(r rune) rune {
+			if r < 32 {
+				return -1
+			}
+			return r
+		}, cfg.Name)
+
+		// Apply immediately to the running adapter. exec.Command args are not
+		// shell-parsed, so spaces in safeName are safe here.
+		_ = exec.Command("dbus-send", "--system", "--print-reply", "--dest=org.bluez",
+			"/org/bluez/hci0", "org.freedesktop.DBus.Properties.Set",
+			"string:org.bluez.Adapter1", "string:Alias",
+			"variant:string:"+safeName).Run()
+
+		// Build a quoted ExecStart argument so systemd does not split on spaces.
+		// Escape backslashes and double quotes within the name first.
+		escapedName := strings.ReplaceAll(strings.ReplaceAll(safeName, `\`, `\\`), `"`, `\"`)
+		execArg := `"variant:string:` + escapedName + `"`
+
+		// Update the oneshot service with the new name and restart it so the
+		// alias is also re-applied after any future shairport-sync restart.
+		unit := "[Unit]\nDescription=Restore Bluetooth adapter alias to " + safeName + "\n" +
+			"After=shairport-sync.service\nWants=shairport-sync.service\n\n" +
+			"[Service]\nType=oneshot\nExecStartPre=/bin/sleep 2\n" +
+			"ExecStart=/usr/bin/dbus-send --system --print-reply --dest=org.bluez " +
+			"/org/bluez/hci0 org.freedesktop.DBus.Properties.Set " +
+			"string:org.bluez.Adapter1 string:Alias " + execArg + "\n" +
+			"RemainAfterExit=no\n\n[Install]\nWantedBy=multi-user.target\n"
+		_ = os.WriteFile("/etc/systemd/system/oceano-bt-alias.service", []byte(unit), 0o644)
+		_ = exec.Command("systemctl", "daemon-reload").Run()
+		_ = exec.Command("systemctl", "restart", "oceano-bt-alias.service").Run()
+	}
+
+	return nil
 }
 
 // writeDetectorService rewrites the oceano-source-detector systemd unit.

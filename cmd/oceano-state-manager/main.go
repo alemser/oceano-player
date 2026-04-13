@@ -18,6 +18,7 @@ import (
 // File map for this service:
 // - main.go: config/types and process wiring
 // - shairport_metadata.go: shairport metadata pipe parsing + AirPlay state updates
+// - bluetooth_monitor.go: dbus-monitor subprocess + BlueZ AVRCP event parsing
 // - source_vu_monitor.go: physical source polling + VU boundary detection
 // - recognition_setup.go: recognizer composition (order + roles)
 // - recognition_coordinator.go: recognition workflow and persistence policies
@@ -57,13 +58,25 @@ type TrackInfo struct {
 	// TrackNumber is the track position on the release. For CD it is a numeric
 	// string ("3"); for vinyl it may encode side and position ("A2"). Empty when
 	// unknown. Set from the library and not populated by recognition providers.
-	TrackNumber   string `json:"track_number,omitempty"`
-	DurationMS    int64  `json:"duration_ms"`
-	SeekMS        int64  `json:"seek_ms"`
-	SeekUpdatedAt string `json:"seek_updated_at"`
-	SampleRate    string `json:"samplerate"`
-	BitDepth      string `json:"bitdepth"`
-	ArtworkPath   string `json:"artwork_path,omitempty"`
+	TrackNumber   string             `json:"track_number,omitempty"`
+	DurationMS    int64              `json:"duration_ms"`
+	SeekMS        int64              `json:"seek_ms"`
+	SeekUpdatedAt string             `json:"seek_updated_at"`
+	SampleRate    string             `json:"samplerate"`
+	BitDepth      string             `json:"bitdepth"`
+	ArtworkPath   string             `json:"artwork_path,omitempty"`
+	PhysicalMatch *PhysicalMatchInfo `json:"physical_match,omitempty"`
+	// Codec is the audio codec in use. Populated for Bluetooth (e.g. "SBC", "AAC",
+	// "LDAC", "AptX") and may be used by other sources in the future.
+	Codec string `json:"codec,omitempty"`
+}
+
+// PhysicalMatchInfo describes a physical-media library entry that corresponds
+// to a track currently playing via a streaming source (AirPlay, Bluetooth, etc.).
+type PhysicalMatchInfo struct {
+	Format      string `json:"format"`                 // "Vinyl" | "CD"
+	TrackNumber string `json:"track_number,omitempty"` // e.g. "A2", "3"
+	Album       string `json:"album,omitempty"`
 }
 
 // detectorOutput matches /tmp/oceano-source.json written by oceano-source-detector.
@@ -220,6 +233,20 @@ type mgr struct {
 	seekUpdatedAt  time.Time
 	artworkPath    string
 
+	// Bluetooth state (updated by runBluetoothMonitor goroutine)
+	bluetoothConnected   bool        // true while a device is Connected=true via Device1
+	bluetoothPlaying     bool        // true while AVRCP status=playing
+	bluetoothTitle       string
+	bluetoothArtist      string
+	bluetoothAlbum       string
+	bluetoothDevicePath  string      // D-Bus path of the connected device, e.g. /org/bluez/hci0/dev_XX
+	bluetoothCodec       string      // e.g. "SBC", "AAC", "LDAC", "AptX", "Opus"
+	bluetoothSampleRate  string      // e.g. "44.1 kHz", "48 kHz", "96 kHz" — parsed from transport config
+	bluetoothBitDepth    string      // e.g. "16 bit", "24 bit" — parsed from transport config
+	bluetoothArtworkPath string      // fetched via iTunes API when track changes
+	bluetoothArtworkKey  string      // "artist\x00album" — avoids re-fetching same track
+	bluetoothStopTimer   *time.Timer // debounce: delays stopped→false by 2 s
+
 	// Physical source (updated by source watcher goroutine)
 	physicalSource      string             // "Physical" or "None"
 	lastPhysicalAt      time.Time          // last time physicalSource was "Physical"
@@ -227,6 +254,14 @@ type mgr struct {
 	physicalArtworkPath     string             // artwork path for current physical track (from library or fetch)
 	physicalFormat          string             // "CD" | "Vinyl" — set on recognition success; cleared only on new session
 	physicalLibraryEntryID  int64              // library DB row ID for the current physical track; 0 when unknown
+
+	// streamingPhysicalMatch is set when a streaming track (AirPlay, etc.) matches
+	// an entry in the local physical library. Cleared when the track changes or
+	// streaming stops. Populated by syncFromLibrary on its 3-second ticker.
+	streamingPhysicalMatch *PhysicalMatchInfo
+	// streamingMatchKey is the "title\x00artist" key of the last lookup so we
+	// avoid re-querying the library on every tick when the track hasn't changed.
+	streamingMatchKey string
 
 	// recognizeTrigger is sent to when a new recognition attempt should start:
 	// on Physical source activation and on track-boundary events from runVUMonitor.
@@ -536,6 +571,7 @@ func main() {
 	}
 
 	go m.runShairportReader(ctx)
+	go m.runBluetoothMonitor(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
 	go m.runRecognizer(ctx, rec, confirmRec, shazamRec, fpr, lib)

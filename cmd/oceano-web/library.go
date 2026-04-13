@@ -286,9 +286,11 @@ func (l *LibraryDB) resolveFingerprintStub(stubID, targetID int64) (*LibraryEntr
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id = ?`, stubID).Scan(&fpCount); err != nil {
 		return nil, err
 	}
-	if fpCount == 0 {
-		return nil, fmt.Errorf("stub %d has no fingerprints", stubID)
-	}
+	// fpCount == 0 is allowed: a stub can lose its fingerprints if a prior
+	// PromoteStubFingerprints call moved them to a recognised entry but failed
+	// to delete the stub row (e.g. title/artist had been edited). We still
+	// allow linking so the orphaned stub can be cleaned up; we just skip the
+	// fingerprint move step below.
 
 	target := &LibraryEntry{}
 	err = tx.QueryRow(`
@@ -305,8 +307,10 @@ func (l *LibraryDB) resolveFingerprintStub(stubID, targetID int64) (*LibraryEntr
 		return nil, err
 	}
 
-	if _, err := tx.Exec(`UPDATE fingerprints SET entry_id = ? WHERE entry_id = ?`, targetID, stubID); err != nil {
-		return nil, err
+	if fpCount > 0 {
+		if _, err := tx.Exec(`UPDATE fingerprints SET entry_id = ? WHERE entry_id = ?`, targetID, stubID); err != nil {
+			return nil, err
+		}
 	}
 
 	// Update target with stub's provider IDs if target's fields are empty.

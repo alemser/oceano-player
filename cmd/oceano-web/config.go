@@ -73,6 +73,17 @@ type CDPlayerConfig struct {
 	IRCodes map[string]string `json:"ir_codes"`
 }
 
+// BluetoothConfig controls the built-in Bluetooth adapter.
+type BluetoothConfig struct {
+	// Enabled controls whether Bluetooth is powered on and the adapter is
+	// discoverable. When false, the adapter is left in its current state
+	// (not explicitly powered off to avoid disconnecting paired devices).
+	Enabled bool `json:"enabled"`
+	// Name is the device name advertised in Bluetooth device lists.
+	// Defaults to the AirPlay name when empty.
+	Name string `json:"name"`
+}
+
 // Config is the central configuration for all Oceano services.
 // It is stored at /etc/oceano/config.json and managed exclusively
 // through the web UI. Each service reads its section on startup.
@@ -87,6 +98,7 @@ type CDPlayerConfig struct {
 type Config struct {
 	AudioInput  AudioInputConfig  `json:"audio_input"`
 	AudioOutput AudioOutputConfig `json:"audio_output"`
+	Bluetooth   BluetoothConfig   `json:"bluetooth"`
 	Recognition RecognitionConfig `json:"recognition"`
 	Advanced    AdvancedConfig    `json:"advanced"`
 	Display     SPIDisplayConfig  `json:"display"`
@@ -231,6 +243,10 @@ func defaultConfig() Config {
 			CycleTime:              30,
 			StandbyTimeout:         600,
 			ExternalArtworkEnabled: true,
+		},
+		Bluetooth: BluetoothConfig{
+			Enabled: false,
+			Name:    "", // empty → derived from AirPlay name at install time
 		},
 		Weather: WeatherConfig{
 			Enabled:       true,

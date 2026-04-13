@@ -239,6 +239,32 @@
       </div>
     </div>
 
+    <!-- Bluetooth -->
+    <div class="section">
+      <div class="section-title">Bluetooth</div>
+      <p class="hint" style="margin-bottom:14px">Receive audio from phones and computers via A2DP. Track metadata (title, artist, album) is shown in the now-playing display via AVRCP.</p>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="bt-enabled" style="width:auto;accent-color:var(--accent)">
+          <span>Enable Bluetooth audio sink</span>
+        </label>
+        <div class="hint">Powers on the adapter and keeps it discoverable. Pair your phone once from its Bluetooth settings — the Pi remembers trusted devices across reboots.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Device name</span></label>
+        <input type="text" id="bt-name" name="bt-name" placeholder="Oceano">
+        <div class="hint">Name shown in Bluetooth device lists. Leave empty to use the AirPlay name.</div>
+      </div>
+
+      <div class="field">
+        <label><span>Paired devices</span></label>
+        <div id="bt-devices-list" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
+        <div class="hint">Devices that have been paired with this Pi. Remove a device to force re-pairing.</div>
+      </div>
+    </div>
+
     <!-- Track Recognition -->
     <div class="section">
       <div class="section-title">Track Recognition</div>

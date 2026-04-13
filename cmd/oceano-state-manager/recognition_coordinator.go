@@ -61,8 +61,8 @@ func shouldBypassBackoff(isBoundaryTrigger, backoffRateLimited bool) bool {
 	return isBoundaryTrigger && !backoffRateLimited
 }
 
-func shouldSkipRecognitionAttempt(isPhysical, isAirPlay bool) bool {
-	return !isPhysical || isAirPlay
+func shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth bool) bool {
+	return !isPhysical || isAirPlay || isBluetooth
 }
 
 func shouldCreateBoundaryStub(lastStub, lastBoundary time.Time, stillPhysical bool) bool {
@@ -166,8 +166,14 @@ func shouldShortCircuitLocalFirst(current *RecognitionResult, localEntry *intern
 	if localEntry == nil {
 		return false
 	}
+	// When there is no prior confirmed track (e.g. service just started or the
+	// previous track was cleared), we have no reliable baseline. Do not
+	// short-circuit: always go through the provider chain so the result is
+	// confirmed by ACRCloud/Shazam before being accepted. A local fingerprint
+	// false-positive at startup would otherwise show the wrong track without
+	// any cross-check.
 	if current == nil {
-		return true
+		return false
 	}
 	candidate := &RecognitionResult{
 		ACRID:    localEntry.ACRID,
@@ -228,13 +234,12 @@ func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoun
 		noMatchBackoff = 15 * time.Second
 	}
 
-	if c.tryLocalFingerprintFallback(capturedFPs) {
-		drained := c.drainPendingTriggers()
-		log.Printf("recognizer [%s]: local fallback matched; pending triggers drained=%d", c.rec.Name(), drained)
-		*backoffUntil = time.Time{}
-		return
-	}
-
+	// Do NOT use the local fingerprint fallback when cloud providers return an
+	// explicit "no match". The providers checked their database and found nothing;
+	// substituting a local fingerprint match at that point risks showing a
+	// completely wrong track (false positive). The fingerprint fallback is only
+	// appropriate for transient errors (network, rate-limit) — see
+	// handleRecognitionError — not for authoritative "no match" responses.
 	log.Printf("recognizer [%s]: no match — retrying in %s", c.rec.Name(), noMatchBackoff)
 	storeStubOnNoMatch := isBoundaryTrigger || c.mgr.cfg.RecognizerChain == "fingerprint_only"
 	if len(capturedFPs) > 0 && c.lib != nil && storeStubOnNoMatch {
@@ -554,8 +559,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			isPhysical := c.mgr.physicalSource == "Physical"
 			hasRecognition := c.mgr.recognitionResult != nil
 			lastRecogAt := c.mgr.lastRecognizedAt
+			fallbackBluetooth := c.mgr.bluetoothPlaying
+			fallbackAirPlay := c.mgr.airplayPlaying
 			c.mgr.mu.Unlock()
-			if !isPhysical {
+			if !isPhysical || fallbackAirPlay || fallbackBluetooth {
 				fallbackTimer.Reset(c.mgr.cfg.RecognizerMaxInterval)
 				continue
 			}
@@ -586,10 +593,14 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		c.mgr.mu.Lock()
 		isPhysical := c.mgr.physicalSource == "Physical"
 		isAirPlay := c.mgr.airplayPlaying
+		isBluetooth := c.mgr.bluetoothPlaying
 		c.mgr.mu.Unlock()
-		if shouldSkipRecognitionAttempt(isPhysical, isAirPlay) {
-			if isAirPlay {
+		if shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth) {
+			switch {
+			case isAirPlay:
 				log.Printf("recognizer [%s]: skipping — AirPlay is active", c.rec.Name())
+			case isBluetooth:
+				log.Printf("recognizer [%s]: skipping — Bluetooth is active", c.rec.Name())
 			}
 			continue
 		}
@@ -597,11 +608,32 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		var skip time.Duration
 		if isBoundaryTrigger {
 			skip = time.Duration(c.mgr.cfg.FingerprintBoundaryLeadSkipSecs) * time.Second
+			// Record the boundary time and reset pending stub. Do NOT clear
+			// recognitionResult yet — we do that only after all source checks
+			// pass, so the UI never briefly shows "Identifying" if BT/AirPlay
+			// became active between the first skip check and here.
 			c.mgr.mu.Lock()
 			c.mgr.lastBoundaryAt = time.Now()
 			c.mgr.pendingStubID = 0
-			// Clear current track info on boundary so UI shows "Identifying"
-			// and same-track optimization is bypassed for explicit transitions.
+			c.mgr.mu.Unlock()
+		}
+
+		// Defensive check: abort if BT/AirPlay became active since the first
+		// shouldSkipRecognitionAttempt check.
+		c.mgr.mu.Lock()
+		isPhysicalNow := c.mgr.physicalSource == "Physical"
+		isAirPlayNow := c.mgr.airplayPlaying
+		isBluetoothNow := c.mgr.bluetoothPlaying
+		c.mgr.mu.Unlock()
+		if !isPhysicalNow || isAirPlayNow || isBluetoothNow {
+			log.Printf("recognizer [%s]: ABORTING recognition — source changed: isPhysical=%v isAirPlay=%v isBluetooth=%v", c.rec.Name(), isPhysicalNow, isAirPlayNow, isBluetoothNow)
+			continue
+		}
+
+		// All pre-capture checks passed — now clear recognition state for boundary
+		// triggers so the UI shows "Identifying" at the right moment.
+		if isBoundaryTrigger {
+			c.mgr.mu.Lock()
 			c.mgr.recognitionResult = nil
 			c.mgr.physicalLibraryEntryID = 0
 			c.mgr.physicalArtworkPath = ""
@@ -675,6 +707,20 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			if c.handleRecognitionError(err, capturedFPs, &backoffUntil, &backoffRateLimited) {
 				continue
 			}
+			continue
+		}
+
+		// Final source guard: the capture + recognition window is 10-20 s.
+		// BT or AirPlay may have become active during that window. Discard the
+		// result rather than writing a streaming track into the physical library.
+		c.mgr.mu.Lock()
+		isPhysicalFinal := c.mgr.physicalSource == "Physical"
+		isAirPlayFinal := c.mgr.airplayPlaying
+		isBluetoothFinal := c.mgr.bluetoothPlaying
+		c.mgr.mu.Unlock()
+		if !isPhysicalFinal || isAirPlayFinal || isBluetoothFinal {
+			log.Printf("recognizer [%s]: discarding result — source changed during capture/recognition (isPhysical=%v isAirPlay=%v isBluetooth=%v)",
+				c.rec.Name(), isPhysicalFinal, isAirPlayFinal, isBluetoothFinal)
 			continue
 		}
 

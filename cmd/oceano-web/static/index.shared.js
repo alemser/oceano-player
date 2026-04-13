@@ -19,6 +19,11 @@ async function loadConfig() {
   set('out-device',        cfg.audio_output?.device ?? '');
   set('out-device-match',  cfg.audio_output?.device_match ?? '');
 
+  const btEnabledEl = document.getElementById('bt-enabled');
+  if (btEnabledEl) btEnabledEl.checked = cfg.bluetooth?.enabled ?? false;
+  set('bt-name', cfg.bluetooth?.name ?? '');
+  loadBluetoothDevices();
+
   set('rec-host',          cfg.recognition?.acrcloud_host ?? '');
   set('rec-access-key',    cfg.recognition?.acrcloud_access_key ?? '');
   set('rec-secret-key',    cfg.recognition?.acrcloud_secret_key ?? '');
@@ -303,6 +308,10 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       device:        val('out-device'),
       device_match:  val('out-device-match'),
     },
+    bluetooth: {
+      enabled: document.getElementById('bt-enabled')?.checked ?? false,
+      name:    val('bt-name'),
+    },
     recognition: {
       ..._recognitionConfig,
       acrcloud_host:        val('rec-host'),
@@ -503,5 +512,59 @@ async function sendPowerAction(action) {
     }
   } catch (error) {
     showPowerActionToast(error?.message || 'Failed to send power action');
+  }
+}
+
+// ── Bluetooth paired devices ──────────────────────────────────────────────────
+
+async function loadBluetoothDevices() {
+  const container = document.getElementById('bt-devices-list');
+  if (!container) return;
+
+  try {
+    const r = await fetch('/api/bluetooth/devices');
+    const devices = await r.json();
+
+    container.textContent = '';
+
+    if (!devices || devices.length === 0) {
+      const empty = document.createElement('span');
+      empty.style.cssText = 'color:var(--muted);font-size:13px';
+      empty.textContent = 'No paired devices.';
+      container.appendChild(empty);
+      return;
+    }
+
+    for (const dev of devices) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;background:var(--surface2,#1e1e1e);border-radius:6px;border:1px solid var(--border,#333)';
+
+      const label = document.createElement('span');
+      label.style.cssText = 'font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      label.textContent = dev.name + ' · ' + dev.mac;
+      row.appendChild(label);
+
+      const btn = document.createElement('button');
+      btn.textContent = 'Remove';
+      btn.style.cssText = 'flex-shrink:0;padding:4px 10px;font-size:12px;background:transparent;border:1px solid var(--danger,#7a1a1a);color:var(--danger-text,#f5b5b5);border-radius:4px;cursor:pointer';
+      btn.onclick = async () => {
+        btn.disabled = true;
+        btn.textContent = 'Removing…';
+        try {
+          const res = await fetch('/api/bluetooth/devices?mac=' + encodeURIComponent(dev.mac), { method: 'DELETE' });
+          if (!res.ok) throw new Error(await res.text());
+          row.remove();
+          if (container.children.length === 0) loadBluetoothDevices();
+        } catch (e) {
+          btn.disabled = false;
+          btn.textContent = 'Remove';
+          toast(e.message || 'Failed to remove device', true);
+        }
+      };
+      row.appendChild(btn);
+      container.appendChild(row);
+    }
+  } catch {
+    // API not available (e.g. development) — hide the field silently.
   }
 }

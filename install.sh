@@ -18,7 +18,7 @@ DEFAULT_AIRPLAY_NAME="Oceano"
 DEFAULT_USB_MATCH="M780"
 CONFIG_JSON="/etc/oceano/config.json"
 DEFAULT_PREPLAY_WAIT_SECONDS="8"
-DEFAULT_OUTPUT_STRATEGY="loopback"
+DEFAULT_OUTPUT_STRATEGY="pipewire"
 
 SHAIRPORT_CONF="/etc/shairport-sync.conf"
 PREPLAY_WAIT_SCRIPT="/usr/local/bin/oceano-airplay-preplay-wait.sh"
@@ -188,6 +188,50 @@ write_shairport_config() {
   local alsa_device="$2"
   local preplay_wait_seconds="$3"
   local output_strategy="$4"
+
+  if [[ -f "${SHAIRPORT_CONF}" && ! -f "${SHAIRPORT_CONF}.oceano.bak" ]]; then
+    cp "${SHAIRPORT_CONF}" "${SHAIRPORT_CONF}.oceano.bak"
+    log_info "Original shairport-sync.conf backed up to ${SHAIRPORT_CONF}.oceano.bak"
+  fi
+
+  # PipeWire mode: use the pa (PulseAudio-compatible) backend.
+  # On Raspberry Pi OS Bookworm, pa routes through pipewire-pulse automatically.
+  # No ALSA bridge or preplay-wait needed — PipeWire manages device availability.
+  if [[ "${output_strategy}" == "pipewire" ]]; then
+    # output_backend must live inside the general {} block — shairport-sync ignores
+    # a standalone output {} block and silently falls back to the compiled-in default (alsa).
+    cat > "${SHAIRPORT_CONF}" <<EOF
+general =
+{
+  name = "${airplay_name}";
+  output_backend = "pa";
+  interpolation = "soxr";
+};
+
+pa =
+{
+  application_name = "Shairport Sync";
+  sink = "";
+};
+
+metadata =
+{
+  enabled = "yes";
+  include_cover_art = "yes";
+  pipe_name = "/tmp/shairport-sync-metadata";
+  pipe_timeout = 5000;
+  cover_art_cache_directory = "/tmp/shairport-sync/.cache/coverart";
+};
+
+sessioncontrol =
+{
+  wait_for_completion = "yes";
+};
+EOF
+    return
+  fi
+
+  # ALSA-based modes (loopback / direct).
   local mixer_device="none"
   local shairport_output_device="${alsa_device}"
 
@@ -200,11 +244,6 @@ write_shairport_config() {
     elif [[ "${alsa_device}" =~ ^plughw:([0-9]+),([0-9]+)$ ]]; then
       mixer_device="hw:${BASH_REMATCH[1]}"
     fi
-  fi
-
-  if [[ -f "${SHAIRPORT_CONF}" && ! -f "${SHAIRPORT_CONF}.oceano.bak" ]]; then
-    cp "${SHAIRPORT_CONF}" "${SHAIRPORT_CONF}.oceano.bak"
-    log_info "Original shairport-sync.conf backed up to ${SHAIRPORT_CONF}.oceano.bak"
   fi
 
   # In loopback mode shairport_output_device is the always-present Loopback
@@ -493,6 +532,11 @@ enable_loopback_mode() {
 disable_loopback_mode() {
   systemctl disable --now oceano-airplay-bridge.service >/dev/null 2>&1 || true
   systemctl disable --now oceano-bridge-watchdog.service >/dev/null 2>&1 || true
+  # Systemd only kills the top-level bash scripts; their child processes (alsaloop)
+  # and any orphaned script instances survive. Kill them all explicitly.
+  pkill -f oceano-bridge-watchdog.sh >/dev/null 2>&1 || true
+  pkill -f oceano-airplay-bridge.sh  >/dev/null 2>&1 || true
+  pkill -x alsaloop                  >/dev/null 2>&1 || true
   rm -f "${BRIDGE_SERVICE}" "${BRIDGE_WATCHDOG_SERVICE}" "${MODULES_LOAD_FILE}"
   systemctl daemon-reload
   systemctl reset-failed oceano-airplay-bridge.service >/dev/null 2>&1 || true
@@ -514,6 +558,296 @@ disable_direct_watchdog() {
   rm -f "${DIRECT_WATCHDOG_SERVICE}"
   systemctl daemon-reload
   systemctl reset-failed oceano-direct-watchdog.service >/dev/null 2>&1 || true
+}
+
+# ─── PipeWire mode ───────────────────────────
+
+# enable_pipewire_mode switches shairport-sync to the pa backend (PipeWire-pulse)
+# and sets up the oceano-pipewire-default-sink user service to make the DAC the
+# default PipeWire sink. This allows both AirPlay and Bluetooth to route through
+# PipeWire to the DAC without ALSA exclusive-access conflicts.
+enable_pipewire_mode() {
+  local audio_user="$1"
+  local audio_uid="$2"
+
+  # Clean up ALSA bridge modes — they conflict with PipeWire DAC ownership.
+  disable_loopback_mode
+  disable_direct_watchdog
+
+  # Drop-in: run shairport-sync as the audio user so it can reach the
+  # per-user PipeWire-pulse socket at /run/user/<uid>/pulse/native.
+  local dropin_dir="/etc/systemd/system/shairport-sync.service.d"
+  mkdir -p "${dropin_dir}"
+  cat > "${dropin_dir}/oceano-pipewire.conf" <<EOF
+[Service]
+User=${audio_user}
+Environment=PULSE_SERVER=unix:/run/user/${audio_uid}/pulse/native
+Environment=XDG_RUNTIME_DIR=/run/user/${audio_uid}
+EOF
+  log_info "shairport-sync will run as '${audio_user}' and connect to PipeWire-pulse."
+
+  systemctl daemon-reload
+}
+
+disable_pipewire_mode() {
+  # Remove the shairport-sync PipeWire drop-in (reverts to system user).
+  rm -f /etc/systemd/system/shairport-sync.service.d/oceano-pipewire.conf
+  rmdir /etc/systemd/system/shairport-sync.service.d 2>/dev/null || true
+
+  # Disable the default-sink user service and remove its files.
+  local audio_user
+  audio_user="$(getent passwd | awk -F: '$3 >= 1000 && $6 ~ /^\/home/ {print $1; exit}')"
+  if [[ -n "${audio_user}" ]]; then
+    local audio_uid home_dir
+    audio_uid="$(id -u "${audio_user}")"
+    home_dir="$(getent passwd "${audio_user}" | cut -d: -f6)"
+    systemctl --user -M "${audio_user}@.host" disable --now \
+      oceano-pipewire-default-sink.service >/dev/null 2>&1 || true
+    rm -f "${home_dir}/.config/systemd/user/oceano-pipewire-default-sink.service"
+  fi
+  rm -f /usr/local/bin/oceano-pipewire-default-sink
+
+  systemctl daemon-reload
+}
+
+# ─── Bluetooth ───────────────────────────────
+
+# setup_bluetooth configures the built-in Bluetooth adapter so the Pi is
+# permanently discoverable and paired devices can stream audio to it.
+# The device name is set to match the AirPlay name for consistency.
+# Audio codec negotiation (SBC / AAC / Opus) is handled by PipeWire automatically
+# when libspa-0.2-bluetooth is present (pre-installed on Raspberry Pi OS Bookworm).
+setup_bluetooth() {
+  local device_name="$1"
+  local bt_conf="/etc/bluetooth/main.conf"
+
+  # Enable the Bluetooth service if not already running.
+  systemctl enable bluetooth.service >/dev/null 2>&1 || true
+  systemctl start  bluetooth.service 2>/dev/null || true
+
+  if [[ -f "${bt_conf}" ]]; then
+    # Escape characters that are significant in a sed replacement string
+    # (backslash and ampersand) so the device name is written verbatim.
+    local escaped_device_name
+    escaped_device_name=$(printf '%s\n' "${device_name}" | sed 's/[\\&]/\\&/g')
+
+    # Set device name — used for both discoverability and BLE advertising.
+    if grep -qE '^\s*Name\s*=' "${bt_conf}"; then
+      sed -i "s|^\s*Name\s*=.*|Name = ${escaped_device_name}|" "${bt_conf}"
+    else
+      # Add under [General] section if present, otherwise append.
+      if grep -q '^\[General\]' "${bt_conf}"; then
+        sed -i "/^\[General\]/a Name = ${device_name}" "${bt_conf}"
+      else
+        printf '\n[General]\nName = %s\n' "${device_name}" >> "${bt_conf}"
+      fi
+    fi
+
+    # Make the adapter always discoverable (default timeout is 180 s).
+    if grep -qE '^\s*#?\s*DiscoverableTimeout\s*=' "${bt_conf}"; then
+      sed -i "s|^\s*#\?\s*DiscoverableTimeout\s*=.*|DiscoverableTimeout = 0|" "${bt_conf}"
+    else
+      if grep -q '^\[General\]' "${bt_conf}"; then
+        sed -i '/^\[General\]/a DiscoverableTimeout = 0' "${bt_conf}"
+      else
+        printf 'DiscoverableTimeout = 0\n' >> "${bt_conf}"
+      fi
+    fi
+
+    # Auto-enable the adapter on boot (in case it was powered off).
+    if grep -qE '^\s*#?\s*AutoEnable\s*=' "${bt_conf}"; then
+      sed -i "s|^\s*#\?\s*AutoEnable\s*=.*|AutoEnable = true|" "${bt_conf}"
+    else
+      if grep -q '^\[Policy\]' "${bt_conf}"; then
+        sed -i '/^\[Policy\]/a AutoEnable = true' "${bt_conf}"
+      fi
+    fi
+
+    systemctl restart bluetooth.service &
+  else
+    log_warn "Bluetooth config not found at ${bt_conf} — skipping name/discoverability setup."
+  fi
+
+  # shairport-sync overwrites the adapter alias with the AirPlay name on every start.
+  # Use dbus-send directly (reliable in non-interactive context) via a dedicated
+  # oneshot service that runs after shairport-sync has finished its own setup.
+  cat > /etc/systemd/system/oceano-bt-alias.service <<EOF
+[Unit]
+Description=Restore Bluetooth adapter alias to ${device_name}
+After=shairport-sync.service
+Wants=shairport-sync.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/dbus-send --system --print-reply --dest=org.bluez /org/bluez/hci0 org.freedesktop.DBus.Properties.Set string:org.bluez.Adapter1 string:Alias "variant:string:${device_name}"
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable oceano-bt-alias.service
+  log_ok "Bluetooth alias '${device_name}' will be restored after shairport-sync starts."
+
+  # Install a persistent auto-pairing agent so headless pairing works without
+  # a touchscreen. bt-agent -c NoInputNoOutput accepts all pairing requests automatically.
+  if command -v bt-agent >/dev/null 2>&1; then
+    cat > /etc/systemd/system/bt-agent.service <<'EOF'
+[Unit]
+Description=Bluetooth auto-pairing agent
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+ExecStart=/usr/bin/bt-agent -c NoInputNoOutput
+Restart=on-failure
+RestartSec=5
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable bt-agent.service
+    log_ok "Bluetooth auto-pairing agent enabled (starts on next boot)."
+  else
+    log_warn "bt-agent not found — manual pairing confirmation required (install bluez-tools to fix)."
+  fi
+
+  # Warn if dbus-monitor is missing — the state manager bluetooth monitor needs it.
+  if ! command -v dbus-monitor >/dev/null 2>&1; then
+    log_warn "dbus-monitor not found — Bluetooth metadata monitoring will be disabled."
+    log_warn "Install it with: sudo apt install dbus"
+  fi
+
+  log_ok "Bluetooth configured: device name='${device_name}', alias='${device_name}', always discoverable."
+  log_info "To pair: Settings → Bluetooth → '${device_name}'"
+  log_info "Pair once; the Pi will remember trusted devices across reboots."
+}
+
+# ─── WirePlumber routing ─────────────────────
+
+# setup_wireplumber_routing installs a user systemd service that sets the USB
+# DAC as the default PipeWire sink after WirePlumber starts, routing Bluetooth
+# audio to the DAC instead of whatever PipeWire picks as the default.
+#
+# Uses wpctl set-default (matching by description) instead of WirePlumber Lua
+# rules, which vary across WirePlumber versions and can break the ALSA monitor.
+#
+# The AirPlay pipeline (shairport-sync → ALSA Loopback → bridge → DAC) is
+# unaffected because it writes to the ALSA device layer directly, bypassing
+# PipeWire entirely.
+setup_wireplumber_routing() {
+  local usb_match="$1"
+  local audio_user="$2"
+  local audio_uid="$3"
+
+  # Derive the ALSA card long name (e.g. "MR 780") from the aplay -l output:
+  #   card 4: M780 [MR 780], device 0: USB Audio [USB Audio]
+  #                  ^^^^^^ this part, inside the brackets
+  local card_longname=""
+  local aplay_line
+  aplay_line="$(aplay -l 2>/dev/null | awk -v m="${usb_match}" \
+    'BEGIN{IGNORECASE=1} /card [0-9]+:.*device [0-9]+:/ && index(tolower($0), tolower(m)) {print; exit}')"
+  if [[ -n "${aplay_line}" ]]; then
+    card_longname="$(echo "${aplay_line}" | sed -E 's/.*card [0-9]+: [^ ]+ \[([^]]+)\].*/\1/')"
+    [[ "${card_longname}" == "${aplay_line}" ]] && card_longname=""
+  fi
+
+  local dac_desc="${card_longname:-${usb_match}}"
+  if [[ -n "${card_longname}" ]]; then
+    log_info "PipeWire routing: DAC description detected as '${dac_desc}'"
+  else
+    log_warn "PipeWire routing: could not detect card long name — using '${dac_desc}'"
+  fi
+
+  local home_dir
+  home_dir="$(getent passwd "${audio_user}" | cut -d: -f6)"
+
+  # Remove any stale Lua config that may have broken the ALSA monitor.
+  rm -f "${home_dir}/.config/wireplumber/main.lua.d/90-oceano-default-sink.lua"
+
+  # Write a small helper script: finds the DAC in wpctl by description and
+  # calls wpctl set-default. Runs after WirePlumber to survive device numbering
+  # changes across reboots.
+  local script_path="/usr/local/bin/oceano-pipewire-default-sink"
+  cat > "${script_path}" <<EOF
+#!/usr/bin/env bash
+# Set the Oceano DAC as the default PipeWire sink.
+# Called by oceano-pipewire-default-sink.service after WirePlumber starts.
+# If the DAC is not found immediately, retries for up to 60 s (boot can be slow).
+set -euo pipefail
+DAC_DESC="${dac_desc}"
+for attempt in \$(seq 1 12); do
+  node_id="\$(wpctl status 2>/dev/null \
+    | awk -v desc="\${DAC_DESC}" 'index(\$0, desc) && match(\$0, /[0-9]+\\./) {
+        id=substr(\$0, RSTART, RLENGTH-1); if (id+0>0) {print id; exit}
+      }')"
+  if [[ -n "\${node_id}" ]]; then
+    wpctl set-default "\${node_id}"
+    # Set volume to 100% — PipeWire defaults to 40% which is quieter than direct ALSA.
+    wpctl set-volume "\${node_id}" 1.0
+    echo "oceano-pipewire-default-sink: set default sink to node \${node_id} (\${DAC_DESC}), volume=100% on attempt \${attempt}"
+    exit 0
+  fi
+  echo "oceano-pipewire-default-sink: attempt \${attempt} — '\${DAC_DESC}' not yet visible in PipeWire, retrying in 5 s..."
+  sleep 5
+done
+echo "oceano-pipewire-default-sink: DAC '\${DAC_DESC}' not found in PipeWire after 12 attempts (60 s)"
+exit 1
+EOF
+  chmod +x "${script_path}"
+
+  # Install as a user systemd service so it runs in the user's PipeWire session.
+  local svc_dir="${home_dir}/.config/systemd/user"
+  mkdir -p "${svc_dir}"
+  cat > "${svc_dir}/oceano-pipewire-default-sink.service" <<'EOF'
+[Unit]
+Description=Set Oceano DAC as default PipeWire sink
+After=wireplumber.service pipewire.service
+Wants=wireplumber.service pipewire.service
+StartLimitIntervalSec=120
+StartLimitBurst=6
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/oceano-pipewire-default-sink
+RemainAfterExit=no
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+  chown -R "${audio_user}:${audio_user}" "${svc_dir}"
+
+  # Enable lingering so the user's systemd session (and PipeWire) starts on boot
+  # without requiring an active login. Without this, user services never run headlessly.
+  loginctl enable-linger "${audio_user}" 2>/dev/null || true
+  log_info "Linger enabled for '${audio_user}' — user services will start at boot."
+
+  # Enable and start the service as the audio user.
+  # Use --machine=user@.host so systemd connects directly to the user's bus
+  # without needing DBUS_SESSION_BUS_ADDRESS or XDG_RUNTIME_DIR in the root
+  # environment. This is the correct way to manage user services from root.
+  local started=false
+  if systemctl --user -M "${audio_user}@.host" daemon-reload 2>&1 && \
+     systemctl --user -M "${audio_user}@.host" enable \
+       oceano-pipewire-default-sink.service 2>&1 && \
+     systemctl --user -M "${audio_user}@.host" restart \
+       oceano-pipewire-default-sink.service 2>&1; then
+    started=true
+  fi
+
+  if ${started}; then
+    log_ok "PipeWire: DAC set as default sink (Bluetooth audio will route to DAC)."
+  else
+    log_warn "PipeWire routing service installed — will activate on next boot (linger enabled)."
+    log_info "To apply immediately (as ${audio_user}):"
+    log_info "  systemctl --user enable --now oceano-pipewire-default-sink.service"
+  fi
 }
 
 # ─── Repository ──────────────────────────────
@@ -645,7 +979,7 @@ main() {
         echo "  --usb-match <text>             Text to match USB DAC (default: '${DEFAULT_USB_MATCH}')"
         echo "  --alsa-device <plughw:...>     Explicit ALSA device"
         echo "  --preplay-wait-seconds <0-60>  Seconds to wait before playback (default: ${DEFAULT_PREPLAY_WAIT_SECONDS})"
-        echo "  --output-strategy <direct|loopback>  Output strategy (default: ${DEFAULT_OUTPUT_STRATEGY})"
+        echo "  --output-strategy <pipewire|loopback|direct>  Output strategy (default: ${DEFAULT_OUTPUT_STRATEGY})"
         exit 0
         ;;
       *) log_error "Unknown argument: $1"; exit 1 ;;
@@ -700,17 +1034,45 @@ main() {
     log_error "--preplay-wait-seconds must be an integer between 0 and 60"
     exit 1
   fi
-  if [[ "${output_strategy}" != "direct" && "${output_strategy}" != "loopback" ]]; then
-    log_error "--output-strategy must be one of: direct, loopback"
+  if [[ "${output_strategy}" != "pipewire" && "${output_strategy}" != "direct" && "${output_strategy}" != "loopback" ]]; then
+    log_error "--output-strategy must be one of: pipewire, loopback, direct"
     exit 1
   fi
+
+  # ── Audio user — detected early; needed for PipeWire mode and BT routing ──
+  local audio_user audio_uid
+  audio_user="$(getent passwd | awk -F: '$3 >= 1000 && $6 ~ /^\/home/ {print $1; exit}')"
+  audio_uid="$(id -u "${audio_user}" 2>/dev/null || echo "")"
 
   # ── System dependencies ──
   log_section "System Dependencies"
   log_info "Installing system packages..."
   apt-get update -qq
-  apt-get install -y --no-install-recommends shairport-sync alsa-utils libchromaprint-tools ffmpeg
+  apt-get install -y --no-install-recommends shairport-sync alsa-utils libchromaprint-tools ffmpeg bluez bluez-tools dbus libspa-0.2-bluetooth
   log_ok "System packages ready."
+
+  # ── Bluetooth ──
+  log_section "Bluetooth"
+  # Use the Bluetooth name from config if set; otherwise strip " AirPlay" suffix
+  # from the AirPlay name so both stay in sync without the confusing suffix.
+  local bt_name
+  bt_name="$(_cfg "['bluetooth']['name']" 2>/dev/null)" || bt_name=""
+  if [[ -z "${bt_name}" ]]; then
+    bt_name="${airplay_name% AirPlay}"
+    [[ -z "${bt_name}" ]] && bt_name="${airplay_name}"
+  fi
+  setup_bluetooth "${bt_name}"
+
+  # ── WirePlumber default-sink routing (pipewire mode only) ──
+  if [[ "${output_strategy}" == "pipewire" && -n "${audio_user}" ]]; then
+    log_section "PipeWire Routing"
+    if command -v wpctl >/dev/null 2>&1; then
+      setup_wireplumber_routing "${usb_match}" "${audio_user}" "${audio_uid}"
+    else
+      log_warn "wpctl not found — skipping PipeWire default-sink setup."
+      log_warn "Install wireplumber (apt-get install wireplumber) and re-run the installer."
+    fi
+  fi
 
   # ── Repository ──
   log_section "Repository"
@@ -772,15 +1134,25 @@ EOF
   log_info "Applying shairport-sync configuration..."
   write_shairport_config "${airplay_name}" "${alsa_device}" "${preplay_wait_seconds}" "${output_strategy}"
 
-  if [[ "${output_strategy}" == "loopback" ]]; then
+  if [[ "${output_strategy}" == "pipewire" ]]; then
+    if [[ -z "${audio_user}" ]]; then
+      log_error "PipeWire mode requires a non-root user with UID ≥ 1000 and a /home directory."
+      exit 1
+    fi
+    log_info "Enabling PipeWire mode (audio user: ${audio_user})..."
+    disable_pipewire_mode  # clean up any previous state
+    enable_pipewire_mode "${audio_user}" "${audio_uid}"
+    log_ok "PipeWire mode active — shairport-sync and Bluetooth both route through PipeWire."
+  elif [[ "${output_strategy}" == "loopback" ]]; then
     log_info "Enabling loopback mode..."
+    disable_pipewire_mode
     disable_direct_watchdog
     enable_loopback_mode "${alsa_device}"
     log_ok "Loopback mode active."
   else
-    log_info "Disabling loopback mode (direct output)..."
+    log_info "Enabling direct mode..."
+    disable_pipewire_mode
     disable_loopback_mode
-    log_info "Enabling direct DAC watchdog..."
     enable_direct_watchdog
     log_ok "Direct mode active."
   fi
@@ -843,9 +1215,10 @@ DISPLAYENV
 ${BOLD}Configuration summary:${RESET}
   Branch             : ${branch}
   AirPlay name       : ${airplay_name}
+  Bluetooth name     : ${bt_name}
   ALSA device        : ${alsa_device}
-  Output strategy    : ${output_strategy}
-  Preplay wait       : ${preplay_wait_seconds}s
+  Output strategy    : ${output_strategy}$( [[ "${output_strategy}" == "pipewire" ]] && echo " (shairport-sync + BT → PipeWire → DAC)" )
+  Preplay wait       : ${preplay_wait_seconds}s$( [[ "${output_strategy}" == "pipewire" ]] && echo " (unused in PipeWire mode)" )
   Config saved to    : ${CONFIG_FILE}
   Version            : $(get_installed_version)
 
