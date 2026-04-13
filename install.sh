@@ -198,16 +198,14 @@ write_shairport_config() {
   # On Raspberry Pi OS Bookworm, pa routes through pipewire-pulse automatically.
   # No ALSA bridge or preplay-wait needed — PipeWire manages device availability.
   if [[ "${output_strategy}" == "pipewire" ]]; then
+    # output_backend must live inside the general {} block — shairport-sync ignores
+    # a standalone output {} block and silently falls back to the compiled-in default (alsa).
     cat > "${SHAIRPORT_CONF}" <<EOF
 general =
 {
   name = "${airplay_name}";
-  interpolation = "soxr";
-};
-
-output =
-{
   output_backend = "pa";
+  interpolation = "soxr";
 };
 
 pa =
