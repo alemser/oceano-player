@@ -738,7 +738,12 @@ func (l *Library) PromoteStubFingerprints(stubID, entryID int64) error {
 	if _, err := tx.Exec(`UPDATE fingerprints SET entry_id=? WHERE entry_id=?`, entryID, stubID); err != nil {
 		return fmt.Errorf("library: promote stub fingerprints move: %w", err)
 	}
-	if _, err := tx.Exec(`DELETE FROM collection WHERE id=? AND title='' AND artist='' AND user_confirmed=0`, stubID); err != nil {
+	// Delete the stub unconditionally (only guard: must not be user-confirmed,
+	// to avoid accidentally deleting a real library entry if stubID is wrong).
+	// The previous title='' AND artist='' guard caused fingerprints to be moved
+	// without deleting the stub when a user had edited the stub's metadata,
+	// leaving an orphaned collection entry with no fingerprints.
+	if _, err := tx.Exec(`DELETE FROM collection WHERE id=? AND user_confirmed=0`, stubID); err != nil {
 		return fmt.Errorf("library: promote stub fingerprints prune: %w", err)
 	}
 
