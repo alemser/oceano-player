@@ -36,7 +36,8 @@
   </button>
 </header>
 
-<div id="status-bar">
+<div id="status-row">
+<div id="status-bar" role="button" tabindex="0" title="Open Now Playing display" onclick="window.open('/nowplaying.html','_blank')" onkeydown="if(event.key==='Enter'||event.key===' ')window.open('/nowplaying.html','_blank')" style="cursor:pointer">
   <div id="status-art-wrap">
     <svg id="status-art-placeholder" width="22" height="22" viewBox="0 0 24 24" fill="none">
       <path d="M9 18V5l12-2v13M9 18c0 1.657-1.343 3-3 3s-3-1.343-3-3 1.343-3 3-3 3 1.343 3 3zm12-2c0 1.657-1.343 3-3 3s-3-1.343-3-3 1.343-3 3-3 3 1.343 3 3z"
@@ -52,6 +53,16 @@
     <span id="status-badge" class="source-badge" style="display:none"></span>
     <div class="dot"></div>
   </div>
+</div>
+<button id="status-recognize-btn" style="display:none" onclick="forceRecognize(this)" title="Force track recognition">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+    <!-- fingerprint -->
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+    <path d="M9.5 12 C9.5 10.6 10.6 9.5 12 9.5 C13.4 9.5 14.5 10.6 14.5 12 C14.5 13.2 13.8 14.2 12.7 14.7"/>
+    <path d="M7 12 C7 9 9.2 6.5 12 6.5 C14.8 6.5 17 9 17 12 C17 14.5 15.8 16.7 13.8 17.9"/>
+    <path d="M4.5 12 C4.5 7.3 7.8 3.5 12 3.5 C16.2 3.5 19.5 7.3 19.5 12 C19.5 16 17.4 19.4 14.2 21"/>
+  </svg>
+</button>
 </div>
 
 <!-- Amplifier / CD player control widget -->
@@ -167,108 +178,111 @@
 <form id="cfg-form" onsubmit="event.preventDefault(); return false;">
   <div class="sections">
 
-    <!-- Audio Input -->
+    <!-- Streaming Sources -->
     <div class="section">
-      <div class="section-title">Audio Input</div>
-      <p class="hint" style="margin-bottom:14px">Capture card connected to amplifier REC OUT</p>
+      <div class="section-title">Streaming Sources</div>
+      <p class="hint" style="margin-bottom:14px">Wireless audio sources: AirPlay from Apple devices and Bluetooth from phones or computers.</p>
 
-      <div class="field">
-        <label><span>Device</span></label>
-        <div class="device-picker-wrap">
-          <div class="device-row">
-            <input type="text" id="inp-device" name="inp-device"
-                   placeholder="auto — USB Microphone">
-            <button type="button" class="detect-btn" onclick="detectDevices('inp')">Detect</button>
-          </div>
-          <div class="device-picker" id="picker-inp"></div>
+      <div class="config-subsection">
+        <div class="config-subtitle">AirPlay</div>
+        <p class="hint" style="margin-bottom:10px">Receives audio via AirPlay 2 (shairport-sync). The USB DAC below is the output device used during playback.</p>
+
+        <div class="field">
+          <label><span>AirPlay name</span></label>
+          <input type="text" id="out-airplay-name" name="out-airplay-name"
+                 placeholder="Oceano">
+          <div class="hint">Name shown in AirPlay device lists.</div>
         </div>
-        <div class="hint">Leave empty to auto-detect by name. Or enter an explicit device (e.g. <code>plughw:3,0</code>).</div>
-      </div>
 
-      <div class="field">
-        <label><span>Auto-detect name</span></label>
-        <input type="text" id="inp-device-match" name="inp-device-match"
-               placeholder="USB Microphone">
-        <div class="hint">Substring matched in /proc/asound/cards when device is empty.</div>
-      </div>
-
-      <div class="field">
-        <label><span>Silence threshold</span></label>
-        <input type="number" id="inp-silence" name="inp-silence"
-               step="0.001" min="0.001" max="0.5" placeholder="0.025">
-        <div class="hint">RMS below this = silence. Raise if phono hum causes source oscillation (calibrated: 0.025).</div>
-      </div>
-
-      <div class="field">
-        <label><span>Debounce windows</span></label>
-        <input type="number" id="inp-debounce" name="inp-debounce"
-               step="1" min="1" max="50" placeholder="10">
-        <div class="hint">Majority-vote window. Higher = slower but more stable transitions.</div>
-      </div>
-    </div>
-
-    <!-- Audio Output -->
-    <div class="section">
-      <div class="section-title">Audio Output</div>
-      <p class="hint" style="margin-bottom:14px">USB DAC used by AirPlay (shairport-sync)</p>
-
-      <div class="field">
-        <label><span>AirPlay name</span></label>
-        <input type="text" id="out-airplay-name" name="out-airplay-name"
-               placeholder="Oceano">
-        <div class="hint">Name shown in AirPlay device lists.</div>
-      </div>
-
-      <div class="field">
-        <label><span>Device</span></label>
-        <div class="device-picker-wrap">
-          <div class="device-row">
-            <input type="text" id="out-device" name="out-device"
-                   placeholder="auto-detect or e.g. plughw:1,0">
-            <button type="button" class="detect-btn" onclick="detectDevices('out')">Detect</button>
+        <div class="field">
+          <label><span>Output device</span></label>
+          <div class="device-picker-wrap">
+            <div class="device-row">
+              <input type="text" id="out-device" name="out-device"
+                     placeholder="auto-detect or e.g. plughw:1,0">
+              <button type="button" class="detect-btn" onclick="detectDevices('out')">Detect</button>
+            </div>
+            <div class="device-picker" id="picker-out"></div>
           </div>
-          <div class="device-picker" id="picker-out"></div>
+          <div class="hint">Leave empty to auto-detect by name. Or enter an explicit device (e.g. <code>plughw:1,0</code>).</div>
         </div>
-        <div class="hint">Leave empty to auto-detect by name. Or enter an explicit device (e.g. <code>plughw:1,0</code>).</div>
+
+        <div class="field">
+          <label><span>Auto-detect name</span></label>
+          <input type="text" id="out-device-match" name="out-device-match"
+                 placeholder="MR 780">
+        </div>
       </div>
 
-      <div class="field">
-        <label><span>Auto-detect name</span></label>
-        <input type="text" id="out-device-match" name="out-device-match"
-               placeholder="MR 780">
-      </div>
-    </div>
+      <div class="config-subsection">
+        <div class="config-subtitle">Bluetooth</div>
+        <p class="hint" style="margin-bottom:10px">Receives audio via A2DP. Track metadata (title, artist, album) is shown in the now-playing display via AVRCP.</p>
 
-    <!-- Bluetooth -->
-    <div class="section">
-      <div class="section-title">Bluetooth</div>
-      <p class="hint" style="margin-bottom:14px">Receive audio from phones and computers via A2DP. Track metadata (title, artist, album) is shown in the now-playing display via AVRCP.</p>
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" id="bt-enabled" style="width:auto;accent-color:var(--accent)">
+            <span>Enable Bluetooth audio sink</span>
+          </label>
+          <div class="hint">Powers on the adapter and keeps it discoverable. Pair your phone once from its Bluetooth settings — the Pi remembers trusted devices across reboots.</div>
+        </div>
 
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-          <input type="checkbox" id="bt-enabled" style="width:auto;accent-color:var(--accent)">
-          <span>Enable Bluetooth audio sink</span>
-        </label>
-        <div class="hint">Powers on the adapter and keeps it discoverable. Pair your phone once from its Bluetooth settings — the Pi remembers trusted devices across reboots.</div>
-      </div>
+        <div class="field">
+          <label><span>Device name</span></label>
+          <input type="text" id="bt-name" name="bt-name" placeholder="Oceano">
+          <div class="hint">Name shown in Bluetooth device lists. Leave empty to use the AirPlay name.</div>
+        </div>
 
-      <div class="field">
-        <label><span>Device name</span></label>
-        <input type="text" id="bt-name" name="bt-name" placeholder="Oceano">
-        <div class="hint">Name shown in Bluetooth device lists. Leave empty to use the AirPlay name.</div>
-      </div>
-
-      <div class="field">
-        <label><span>Paired devices</span></label>
-        <div id="bt-devices-list" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
-        <div class="hint">Devices that have been paired with this Pi. Remove a device to force re-pairing.</div>
+        <div class="field">
+          <label><span>Paired devices</span></label>
+          <div id="bt-devices-list" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
+          <div class="hint">Devices that have been paired with this Pi. Remove a device to force re-pairing.</div>
+        </div>
       </div>
     </div>
 
-    <!-- Track Recognition -->
+    <!-- Track Recognition (includes capture device — Audio Input feeds exclusively into recognition) -->
     <div class="section">
       <div class="section-title">Track Recognition</div>
-      <p class="hint" style="margin-bottom:14px">Physical media track identification with selectable provider order and automatic local fingerprint fallback.</p>
+      <p class="hint" style="margin-bottom:14px">Physical media identification: capture device, provider chain, fingerprinting, and timing.</p>
+
+      <div class="config-subsection">
+        <div class="config-subtitle">Capture Device</div>
+        <p class="hint" style="margin-bottom:10px">ALSA capture card connected to amplifier REC OUT. Audio from this device is used for source detection and track identification.</p>
+
+        <div class="field">
+          <label><span>Device</span></label>
+          <div class="device-picker-wrap">
+            <div class="device-row">
+              <input type="text" id="inp-device" name="inp-device"
+                     placeholder="auto — USB Microphone">
+              <button type="button" class="detect-btn" onclick="detectDevices('inp')">Detect</button>
+            </div>
+            <div class="device-picker" id="picker-inp"></div>
+          </div>
+          <div class="hint">Leave empty to auto-detect by name. Or enter an explicit device (e.g. <code>plughw:3,0</code>).</div>
+        </div>
+
+        <div class="field">
+          <label><span>Auto-detect name</span></label>
+          <input type="text" id="inp-device-match" name="inp-device-match"
+                 placeholder="USB Microphone">
+          <div class="hint">Substring matched in /proc/asound/cards when device is empty.</div>
+        </div>
+
+        <div class="field">
+          <label><span>Silence threshold</span></label>
+          <input type="number" id="inp-silence" name="inp-silence"
+                 step="0.001" min="0.001" max="0.5" placeholder="0.025">
+          <div class="hint">RMS below this = silence. Raise if phono hum causes source oscillation (calibrated: 0.025).</div>
+        </div>
+
+        <div class="field">
+          <label><span>Debounce windows</span></label>
+          <input type="number" id="inp-debounce" name="inp-debounce"
+                 step="1" min="1" max="50" placeholder="10">
+          <div class="hint">Majority-vote window for source transitions. Higher = slower but more stable.</div>
+        </div>
+      </div>
 
       <div class="config-subsection">
         <div class="config-subtitle">Providers</div>
@@ -282,7 +296,7 @@
             <option value="shazam_only">Shazam only</option>
             <option value="fingerprint_only">Fingerprint only</option>
           </select>
-          <div class="hint">Local fingerprint cache is always the final fallback and does not need configuration here. If the selected provider policy has no available API provider at runtime, recognition automatically falls back to fingerprint-only mode.</div>
+          <div class="hint">Local fingerprint cache is always the final fallback. If the selected chain has no available API provider at runtime, recognition falls back to fingerprint-only mode automatically.</div>
         </div>
 
         <div id="acrcloud-config-group">
@@ -307,7 +321,14 @@
           <div class="hint" id="acrcloud-config-hint">Stored and used whenever the selected chain includes ACRCloud.</div>
         </div>
 
-        <div class="hint" style="margin-top:12px">Continuity monitoring is always performed by Shazam when available, independent of the selected chain.</div>
+        <div class="field">
+          <label><span>Shazam Python binary</span></label>
+          <input type="text" id="rec-shazam-python" name="rec-shazam-python"
+                 placeholder="/opt/shazam-env/bin/python">
+          <div class="hint">Path to Python binary with shazamio installed. Leave empty to disable Shazam in all roles (chain and continuity monitor).</div>
+        </div>
+
+        <div class="hint" style="margin-top:12px">Continuity monitoring always uses Shazam when available, independent of the selected chain.</div>
       </div>
 
       <div class="config-subsection">
@@ -325,35 +346,42 @@
           <label><span>Capture duration (seconds)</span></label>
           <input type="number" id="rec-duration" name="rec-duration"
                  step="1" min="5" max="30" placeholder="7">
-          <div class="hint">Audio sent per attempt. Recommended 6-8s for lower latency.</div>
+          <div class="hint">Audio sent per recognition attempt. Recommended 6–8 s.</div>
         </div>
 
         <div class="field">
           <label><span>Max re-recognition interval (seconds)</span></label>
           <input type="number" id="rec-interval" name="rec-interval"
                  step="30" min="60" placeholder="300">
-          <div class="hint">Fallback interval when no track boundary is detected.</div>
+          <div class="hint">Fallback re-check interval when no track boundary is detected and no result is held.</div>
+        </div>
+
+        <div class="field">
+          <label><span>Refresh interval (seconds)</span></label>
+          <input type="number" id="rec-refresh-interval" name="rec-refresh-interval"
+                 step="10" min="0" placeholder="120">
+          <div class="hint">How soon to re-check after a successful recognition to catch gapless track changes. 0 disables periodic refresh (rely on Shazam continuity instead).</div>
         </div>
 
         <div class="field">
           <label><span>No-match retry delay (seconds)</span></label>
           <input type="number" id="rec-no-match-backoff" name="rec-no-match-backoff"
                  step="5" min="5" max="300" placeholder="15">
-          <div class="hint">How long to wait before retrying after the provider returns no result. Lower values identify tracks faster at the cost of more API calls.</div>
+          <div class="hint">Wait before retrying after the provider returns no result. Lower values identify tracks faster at the cost of more API calls.</div>
         </div>
 
         <div class="field">
           <label><span>Boundary lead skip (seconds)</span></label>
           <input type="number" id="rec-fp-boundary-skip" name="rec-fp-boundary-skip"
                  step="1" min="0" max="10" placeholder="2">
-          <div class="hint">Seconds discarded at the start of a track-boundary capture. Increasing this skips vinyl stylus drop crackle so the stored fingerprint contains clean music. Set 0 to disable.</div>
+          <div class="hint">Seconds discarded at the start of a track-boundary capture to skip vinyl stylus drop crackle. Set 0 to disable.</div>
         </div>
 
         <div class="field">
           <label><span>Confirmation delay (seconds)</span></label>
           <input type="number" id="rec-confirm-delay" name="rec-confirm-delay"
-                 step="1" min="0" max="30" placeholder="2">
-          <div class="hint">Wait before the confirmation capture. 0 disables confirmation.</div>
+                 step="1" min="0" max="30" placeholder="0">
+          <div class="hint">Wait before the confirmation capture. 0 disables two-pass confirmation.</div>
         </div>
 
         <div class="field">
@@ -367,7 +395,74 @@
           <label><span>Confirmation bypass score</span></label>
           <input type="number" id="rec-confirm-bypass" name="rec-confirm-bypass"
                  step="1" min="0" max="100" placeholder="95">
-          <div class="hint">Skip confirmation when initial score is at or above this value. 0 = always confirm.</div>
+          <div class="hint">Skip confirmation when the initial provider score is at or above this value. 0 = always confirm.</div>
+        </div>
+      </div>
+
+      <div class="config-subsection">
+        <div class="config-subtitle">Shazam Continuity</div>
+        <p class="hint" style="margin-bottom:10px">Periodic Shazam checks that detect track changes missed by the silence/energy detector (e.g. gapless albums, very short inter-track silence).</p>
+
+        <div class="field">
+          <label><span>Check interval (seconds)</span></label>
+          <input type="number" id="rec-continuity-interval" name="rec-continuity-interval"
+                 step="1" min="4" max="60" placeholder="8">
+          <div class="hint">How often Shazam polls the current physical track. Lower values detect changes faster at the cost of more API calls.</div>
+        </div>
+
+        <div class="field">
+          <label><span>Capture duration (seconds)</span></label>
+          <input type="number" id="rec-continuity-capture" name="rec-continuity-capture"
+                 step="1" min="2" max="10" placeholder="4">
+          <div class="hint">Audio captured per continuity check. 4 s is usually enough for a confident Shazam match.</div>
+        </div>
+      </div>
+
+      <div class="config-subsection">
+        <div class="config-subtitle">Local Fingerprinting</div>
+        <p class="hint" style="margin-bottom:10px">AcoustID/Chromaprint fingerprints stored in the local library to identify tracks offline or when the API is unavailable.</p>
+
+        <div class="field">
+          <label><span>Windows per capture</span></label>
+          <input type="number" id="rec-fp-windows" name="rec-fp-windows"
+                 step="1" min="1" max="20" placeholder="5">
+          <div class="hint">Number of overlapping fingerprint windows generated per capture. More windows improve recall at the cost of more fpcalc calls.</div>
+        </div>
+
+        <div class="field">
+          <label><span>Window stride (seconds)</span></label>
+          <input type="number" id="rec-fp-stride" name="rec-fp-stride"
+                 step="1" min="1" max="10" placeholder="1">
+          <div class="hint">Offset in seconds between consecutive windows.</div>
+        </div>
+
+        <div class="field">
+          <label><span>Window length (seconds)</span></label>
+          <input type="number" id="rec-fp-length" name="rec-fp-length"
+                 step="1" min="2" max="15" placeholder="6">
+          <div class="hint">Duration of each fingerprint window. Constraint: (windows−1)×stride + length ≤ capture duration.</div>
+        </div>
+
+        <div class="field">
+          <label><span>Match threshold (BER)</span></label>
+          <input type="number" id="rec-fp-threshold" name="rec-fp-threshold"
+                 step="0.01" min="0.1" max="0.5" placeholder="0.30">
+          <div class="hint">Maximum Bit Error Rate for a fingerprint match. AcoustID default is 0.35; lower = stricter.</div>
+        </div>
+
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" id="rec-fp-local-first" style="width:auto;accent-color:var(--accent)">
+            <span>Local-first lookup</span>
+          </label>
+          <div class="hint">Attempt a conservative fingerprint lookup against confirmed library entries before calling online providers. Saves API calls for well-known tracks.</div>
+        </div>
+
+        <div class="field">
+          <label><span>Local-first threshold (BER)</span></label>
+          <input type="number" id="rec-fp-local-first-threshold" name="rec-fp-local-first-threshold"
+                 step="0.01" min="0.1" max="0.5" placeholder="0.28">
+          <div class="hint">Stricter BER threshold used only for local-first lookups. Keep lower than the main match threshold to reduce false positives.</div>
         </div>
       </div>
     </div>
@@ -532,6 +627,70 @@
         <div class="config-subtitle">IR Codes — CD Player</div>
         <div class="hint" style="margin-bottom:10px">Point the Yamaha remote at the RM4 Mini and click Learn.</div>
         <div id="cd-ir-table"></div>
+      </div>
+    </div>
+
+    <!-- Advanced -->
+    <div class="section">
+      <div class="section-title">Advanced</div>
+      <p class="hint" style="margin-bottom:14px">Internal paths and timing settings. Only change these if you know what you're doing.</p>
+
+      <div class="config-subsection">
+        <div class="config-subtitle">Library &amp; Idle</div>
+
+        <div class="field">
+          <label><span>Library database path</span></label>
+          <input type="text" id="adv-library-db" name="adv-library-db"
+                 placeholder="/var/lib/oceano/library.db">
+          <div class="hint">SQLite database for physical-media plays and fingerprint cache. Leave empty to disable library features.</div>
+        </div>
+
+        <div class="field">
+          <label><span>Idle delay (seconds)</span></label>
+          <input type="number" id="adv-idle-delay" name="adv-idle-delay"
+                 step="1" min="0" max="120" placeholder="10">
+          <div class="hint">How long to keep showing the last physical track after audio stops before switching to the idle screen.</div>
+        </div>
+      </div>
+
+      <div class="config-subsection">
+        <div class="config-subtitle">Socket &amp; File Paths</div>
+
+        <div class="field">
+          <label><span>VU socket</span></label>
+          <input type="text" id="adv-vu-socket" name="adv-vu-socket"
+                 placeholder="/tmp/oceano-vu.sock">
+        </div>
+
+        <div class="field">
+          <label><span>PCM socket</span></label>
+          <input type="text" id="adv-pcm-socket" name="adv-pcm-socket"
+                 placeholder="/tmp/oceano-pcm.sock">
+        </div>
+
+        <div class="field">
+          <label><span>Source file</span></label>
+          <input type="text" id="adv-source-file" name="adv-source-file"
+                 placeholder="/tmp/oceano-source.json">
+        </div>
+
+        <div class="field">
+          <label><span>State file</span></label>
+          <input type="text" id="adv-state-file" name="adv-state-file"
+                 placeholder="/tmp/oceano-state.json">
+        </div>
+
+        <div class="field">
+          <label><span>Artwork directory</span></label>
+          <input type="text" id="adv-artwork-dir" name="adv-artwork-dir"
+                 placeholder="/var/lib/oceano/artwork">
+        </div>
+
+        <div class="field">
+          <label><span>shairport-sync metadata pipe</span></label>
+          <input type="text" id="adv-metadata-pipe" name="adv-metadata-pipe"
+                 placeholder="/tmp/shairport-sync-metadata">
+        </div>
       </div>
     </div>
 

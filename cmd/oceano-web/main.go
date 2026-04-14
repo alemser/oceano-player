@@ -233,6 +233,22 @@ func main() {
 		go exec.Command("systemctl", args...).Run()
 	})
 
+	// API: force immediate recognition of the current physical source track.
+	// Sends SIGUSR1 to oceano-state-manager, which fires a boundary-type
+	// recognition trigger. Only meaningful while physical media is playing;
+	// the state manager will skip the attempt if source is not Physical.
+	mux.HandleFunc("/api/recognize", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := exec.Command("systemctl", "kill", "--kill-who=main", "--signal=SIGUSR1", managerUnit).Run(); err != nil {
+			http.Error(w, "failed to signal state manager", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// API: scan ALSA capture and playback devices
 	mux.HandleFunc("/api/devices", func(w http.ResponseWriter, r *http.Request) {
 		devices := scanALSADevices()

@@ -192,6 +192,25 @@ type RecognitionConfig struct {
 	// avoids capturing vinyl crackle/transients before the music settles.
 	// Default 2; set 0 to disable.
 	FingerprintBoundaryLeadSkipSecs int `json:"fingerprint_boundary_lead_skip_secs"`
+	// FingerprintWindows is the number of overlapping windows generated per capture.
+	// More windows increase recall at the cost of more fpcalc calls.
+	FingerprintWindows int `json:"fingerprint_windows"`
+	// FingerprintStrideSec is the offset in seconds between consecutive windows.
+	FingerprintStrideSec int `json:"fingerprint_stride_secs"`
+	// FingerprintLengthSec is the duration in seconds of each fingerprint window.
+	FingerprintLengthSec int `json:"fingerprint_length_secs"`
+	// FingerprintThreshold is the maximum Bit Error Rate for a fingerprint match.
+	// AcoustID default is 0.35; lower values require stricter matches.
+	FingerprintThreshold float64 `json:"fingerprint_threshold"`
+	// FingerprintLocalFirst enables a conservative local fingerprint lookup
+	// before calling online providers. Only confirmed entries are checked.
+	FingerprintLocalFirst bool `json:"fingerprint_local_first"`
+	// FingerprintLocalFirstThreshold is the BER threshold for local-first matches.
+	// Keep this lower (stricter) than FingerprintThreshold to reduce false positives.
+	FingerprintLocalFirstThreshold float64 `json:"fingerprint_local_first_threshold"`
+	// ShazamPythonBin is the path to the Python binary with shazamio installed.
+	// Empty string disables Shazam in the recognition chain and continuity monitor.
+	ShazamPythonBin string `json:"shazam_python_bin"`
 }
 
 // AdvancedConfig holds paths and internal settings that rarely need
@@ -203,6 +222,12 @@ type AdvancedConfig struct {
 	StateFile    string `json:"state_file"`
 	ArtworkDir   string `json:"artwork_dir"`
 	MetadataPipe string `json:"metadata_pipe"`
+	// IdleDelaySecs is how long to keep showing the last physical track after
+	// audio stops before switching to the idle screen.
+	IdleDelaySecs int `json:"idle_delay_secs"`
+	// LibraryDB is the path to the SQLite database used to record physical-media
+	// plays and cache fingerprints. Empty string disables library features.
+	LibraryDB string `json:"library_db"`
 }
 
 func defaultConfig() Config {
@@ -229,14 +254,23 @@ func defaultConfig() Config {
 			ShazamContinuityCaptureDurationSecs: 4,
 			RecognizerChain:                     "acrcloud_first",
 			FingerprintBoundaryLeadSkipSecs:     2,
+			FingerprintWindows:                  5,
+			FingerprintStrideSec:                1,
+			FingerprintLengthSec:                6,
+			FingerprintThreshold:                0.30,
+			FingerprintLocalFirst:               true,
+			FingerprintLocalFirstThreshold:      0.28,
+			ShazamPythonBin:                     "/opt/shazam-env/bin/python",
 		},
 		Advanced: AdvancedConfig{
-			VUSocket:     "/tmp/oceano-vu.sock",
-			PCMSocket:    "/tmp/oceano-pcm.sock",
-			SourceFile:   "/tmp/oceano-source.json",
-			StateFile:    "/tmp/oceano-state.json",
-			ArtworkDir:   "/var/lib/oceano/artwork",
-			MetadataPipe: "/tmp/shairport-sync-metadata",
+			VUSocket:      "/tmp/oceano-vu.sock",
+			PCMSocket:     "/tmp/oceano-pcm.sock",
+			SourceFile:    "/tmp/oceano-source.json",
+			StateFile:     "/tmp/oceano-state.json",
+			ArtworkDir:    "/var/lib/oceano/artwork",
+			MetadataPipe:  "/tmp/shairport-sync-metadata",
+			IdleDelaySecs: 10,
+			LibraryDB:     "/var/lib/oceano/library.db",
 		},
 		Display: SPIDisplayConfig{
 			UIPreset:               "high_contrast_rotate",
@@ -329,6 +363,17 @@ func managerArgs(cfg Config) []string {
 		"--shazam-continuity-interval", fmt.Sprintf("%ds", rec.ShazamContinuityIntervalSecs),
 		"--shazam-continuity-capture-duration", fmt.Sprintf("%ds", rec.ShazamContinuityCaptureDurationSecs),
 		"--recognizer-chain", rec.RecognizerChain,
+		"--fingerprint-windows", fmt.Sprintf("%d", rec.FingerprintWindows),
+		"--fingerprint-stride", fmt.Sprintf("%d", rec.FingerprintStrideSec),
+		"--fingerprint-length", fmt.Sprintf("%d", rec.FingerprintLengthSec),
+		"--fingerprint-threshold", fmt.Sprintf("%.3f", rec.FingerprintThreshold),
+		"--fingerprint-local-first-threshold", fmt.Sprintf("%.3f", rec.FingerprintLocalFirstThreshold),
+	}
+	if adv.IdleDelaySecs > 0 {
+		args = append(args, "--idle-delay", fmt.Sprintf("%ds", adv.IdleDelaySecs))
+	}
+	if adv.LibraryDB != "" {
+		args = append(args, "--library-db", adv.LibraryDB)
 	}
 	if rec.FingerprintBoundaryLeadSkipSecs > 0 {
 		args = append(args, "--fingerprint-boundary-lead-skip", fmt.Sprintf("%d", rec.FingerprintBoundaryLeadSkipSecs))
@@ -340,8 +385,11 @@ func managerArgs(cfg Config) []string {
 			"--acrcloud-secret-key", rec.ACRCloudSecretKey,
 		)
 	}
-	// --verbose is a boolean flag with no value — must be last so formatExecStart
-	// does not pair it with the next argument.
+	if rec.ShazamPythonBin != "" {
+		args = append(args, "--shazam-python", rec.ShazamPythonBin)
+	}
+	// Boolean flags and --verbose must be last (no paired value).
+	args = append(args, "--fingerprint-local-first", fmt.Sprintf("%v", rec.FingerprintLocalFirst))
 	args = append(args, "--verbose")
 	return args
 }

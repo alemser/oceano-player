@@ -106,13 +106,25 @@
     }
     .btn-power-cancel:hover { color: var(--text-dim); }
 
+    /* ── Status row (status bar + identify button) ── */
+    #status-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: var(--gap);
+    }
+    #status-row #status-bar {
+      flex: 1;
+      min-width: 0;
+      margin-bottom: 0;
+    }
+
     /* ── Status bar ── */
     #status-bar {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 14px 18px;
-      margin-bottom: var(--gap);
       display: flex;
       align-items: center;
       gap: 16px;
@@ -120,6 +132,7 @@
       transition: border-color 0.4s;
     }
     #status-bar.playing { border-color: #2a2a2a; }
+    #status-bar:hover { border-color: #3a3a3a; background: #1a1a1a; }
 
     #status-art-wrap {
       flex-shrink: 0;
@@ -151,6 +164,10 @@
     }
 
     #status-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    #status-recognize-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0 18px; align-self: stretch; color: var(--text-dim); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s, opacity 0.15s; flex-shrink: 0; }
+    #status-recognize-btn:hover { color: var(--text); border-color: #3a3a3a; background: #1a1a1a; }
+    #status-recognize-btn:disabled { opacity: 0.35; cursor: default; }
+    #status-recognize-btn svg { width: 22px; height: 22px; }
     .source-badge {
       font-size: 0.67rem; font-weight: 600; letter-spacing: 0.1em;
       text-transform: uppercase; padding: 3px 9px; border-radius: 20px;

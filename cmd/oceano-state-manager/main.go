@@ -426,9 +426,16 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 		}
 		current := *m.recognitionResult
 		ready := m.shazamContinuityReady
+		lastRecognizedAt := m.lastRecognizedAt
 		m.mu.Unlock()
 
-		if !ready {
+		// Allow continuity checks after a 30 s grace period even when Shazam
+		// alignment was never confirmed (e.g. transient error in tryEnableShazamContinuity,
+		// or Shazam simply couldn't identify the current track). Without this, a failed
+		// alignment silently disables the entire continuity monitor for the lifetime of
+		// the track, causing missed track-change detection.
+		const continuityGracePeriod = 30 * time.Second
+		if !ready && time.Since(lastRecognizedAt) < continuityGracePeriod {
 			continue
 		}
 
@@ -455,6 +462,10 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 				if m.recognitionResult.ShazamID == "" && shRes.ShazamID != "" {
 					m.recognitionResult.ShazamID = shRes.ShazamID
 				}
+				// Opportunistically confirm alignment: Shazam agrees with the current
+				// track, so the continuity monitor is now calibrated even if
+				// tryEnableShazamContinuity previously failed.
+				m.shazamContinuityReady = true
 			}
 			m.mu.Unlock()
 			continue
@@ -572,6 +583,26 @@ func main() {
 	} else {
 		log.Printf("recognizer: fpcalc not found — local fingerprint cache disabled")
 	}
+
+	// SIGUSR1 forces an immediate boundary-type recognition attempt — useful when
+	// the VU monitor misses a track change (e.g. very short inter-track silence).
+	// oceano-web sends this via: systemctl kill --kill-who=main --signal=SIGUSR1 oceano-state-manager.service
+	usr1Ch := make(chan os.Signal, 1)
+	signal.Notify(usr1Ch, syscall.SIGUSR1)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-usr1Ch:
+				log.Printf("recognizer: SIGUSR1 received — forcing immediate recognition")
+				select {
+				case m.recognizeTrigger <- recognizeTrigger{isBoundary: true}:
+				default:
+				}
+			}
+		}
+	}()
 
 	go m.runShairportReader(ctx)
 	go m.runBluetoothMonitor(ctx)
