@@ -243,9 +243,12 @@ type mgr struct {
 	bluetoothCodec       string      // e.g. "SBC", "AAC", "LDAC", "AptX", "Opus"
 	bluetoothSampleRate  string      // e.g. "44.1 kHz", "48 kHz", "96 kHz" — parsed from transport config
 	bluetoothBitDepth    string      // e.g. "16 bit", "24 bit" — parsed from transport config
-	bluetoothArtworkPath string      // fetched via iTunes API when track changes
-	bluetoothArtworkKey  string      // "artist\x00album" — avoids re-fetching same track
-	bluetoothStopTimer   *time.Timer // debounce: delays stopped→false by 2 s
+	bluetoothArtworkPath    string      // fetched via iTunes API when track changes
+	bluetoothArtworkKey     string      // "artist\x00album" — avoids re-fetching same track
+	bluetoothStopTimer      *time.Timer // debounce: delays stopped→false by 2 s
+	bluetoothDurationMS     int64       // track duration from AVRCP (0 = unknown)
+	bluetoothSeekMS         int64       // last known position from AVRCP Position property
+	bluetoothSeekUpdatedAt  time.Time   // wall-clock time when bluetoothSeekMS was last set
 
 	// Physical source (updated by source watcher goroutine)
 	physicalSource      string             // "Physical" or "None"

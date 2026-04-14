@@ -85,6 +85,9 @@ func (m *mgr) buildState() PlayerState {
 			BitDepth:      m.bluetoothBitDepth,
 			ArtworkPath:   m.bluetoothArtworkPath,
 			PhysicalMatch: m.streamingPhysicalMatch,
+			DurationMS:    m.bluetoothDurationMS,
+			SeekMS:        m.bluetoothSeekMS,
+			SeekUpdatedAt: m.bluetoothSeekUpdatedAt.UTC().Format(time.RFC3339),
 		}
 	case "Physical":
 		if r := m.recognitionResult; r != nil {

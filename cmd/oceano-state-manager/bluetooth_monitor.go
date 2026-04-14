@@ -52,6 +52,9 @@ func (m *mgr) runBluetoothMonitor(ctx context.Context) {
 		m.bluetoothBitDepth = ""
 		m.bluetoothArtworkPath = ""
 		m.bluetoothArtworkKey = ""
+		m.bluetoothDurationMS = 0
+		m.bluetoothSeekMS = 0
+		m.bluetoothSeekUpdatedAt = time.Time{}
 		if m.bluetoothStopTimer != nil {
 			m.bluetoothStopTimer.Stop()
 			m.bluetoothStopTimer = nil
@@ -149,33 +152,44 @@ func (m *mgr) applyBluetoothBlock(lines []string) {
 // applyMediaPlayerUpdate handles track metadata and play/pause status changes
 // from org.bluez.MediaPlayer1 PropertiesChanged signals.
 func (m *mgr) applyMediaPlayerUpdate(lines []string) {
-	title, artist, album, status, hasTrack, hasStatus := parseBluetoothBlock(lines)
+	b := parseBluetoothBlock(lines)
 
-	if !hasTrack && !hasStatus {
+	if !b.hasTrack && !b.hasStatus && !b.hasPosition && !b.hasDuration {
 		return
 	}
 
 	m.mu.Lock()
 	changed := false
 
-	if hasTrack {
-		if m.bluetoothTitle != title || m.bluetoothArtist != artist || m.bluetoothAlbum != album {
-			m.bluetoothTitle = title
-			m.bluetoothArtist = artist
-			m.bluetoothAlbum = album
+	if b.hasTrack {
+		if m.bluetoothTitle != b.title || m.bluetoothArtist != b.artist || m.bluetoothAlbum != b.album {
+			m.bluetoothTitle = b.title
+			m.bluetoothArtist = b.artist
+			m.bluetoothAlbum = b.album
 			changed = true
 			if m.cfg.Verbose {
-				log.Printf("bluetooth: track: artist=%q title=%q album=%q", artist, title, album)
+				log.Printf("bluetooth: track: artist=%q title=%q album=%q", b.artist, b.title, b.album)
 			}
 			// Fetch artwork in background when track changes.
-			if artist != "" && album != "" {
-				go m.fetchBluetoothArtwork(artist, album)
+			if b.artist != "" && b.album != "" {
+				go m.fetchBluetoothArtwork(b.artist, b.album)
 			}
 		}
 	}
 
-	if hasStatus {
-		playing := status == "playing"
+	if b.hasDuration && m.bluetoothDurationMS != b.durationMS {
+		m.bluetoothDurationMS = b.durationMS
+		changed = true
+	}
+
+	if b.hasPosition {
+		m.bluetoothSeekMS = b.positionMS
+		m.bluetoothSeekUpdatedAt = time.Now()
+		changed = true
+	}
+
+	if b.hasStatus {
+		playing := b.status == "playing"
 		if playing {
 			// Cancel any pending stop debounce and mark as playing immediately.
 			if m.bluetoothStopTimer != nil {
@@ -370,6 +384,9 @@ func (m *mgr) applyDeviceUpdate(lines []string) {
 		m.bluetoothBitDepth = ""
 		m.bluetoothArtworkPath = ""
 		m.bluetoothArtworkKey = ""
+		m.bluetoothDurationMS = 0
+		m.bluetoothSeekMS = 0
+		m.bluetoothSeekUpdatedAt = time.Time{}
 		if m.bluetoothStopTimer != nil {
 			m.bluetoothStopTimer.Stop()
 			m.bluetoothStopTimer = nil
@@ -423,10 +440,25 @@ func (m *mgr) fetchBluetoothArtwork(artist, album string) {
 	}
 }
 
-// parseBluetoothBlock extracts track metadata and status from one dbus-monitor
-// signal block for org.bluez.MediaPlayer1. See bluetooth_monitor.go for the
-// state machine description.
-func parseBluetoothBlock(lines []string) (title, artist, album, status string, hasTrack, hasStatus bool) {
+// btPlayerBlock holds data extracted from a dbus-monitor signal block for
+// org.bluez.MediaPlayer1 PropertiesChanged or Properties.GetAll replies.
+type btPlayerBlock struct {
+	title, artist, album string
+	status               string
+	durationMS           int64 // 0 when absent
+	positionMS           int64 // 0 when absent
+	hasTrack             bool
+	hasStatus            bool
+	hasDuration          bool
+	hasPosition          bool
+}
+
+// parseBluetoothBlock extracts track metadata, status, duration, and position
+// from one dbus-monitor signal block for org.bluez.MediaPlayer1.
+// Duration (uint32 ms) lives inside the Track dict; Position (uint32 ms) is a
+// top-level MediaPlayer1 property emitted on track start and seek events.
+func parseBluetoothBlock(lines []string) btPlayerBlock {
+	var b btPlayerBlock
 	var pendingKey string
 
 	for _, raw := range lines {
@@ -438,11 +470,30 @@ func parseBluetoothBlock(lines []string) (title, artist, album, status string, h
 		strVal, hasStr := extractDBusStringValue(t)
 
 		if !hasStr {
+			// Check for a uint32 value — handles both inline ("variant  uint32 N")
+			// and standalone ("uint32 N") forms that dbus-monitor may produce.
+			stripped := t
+			if strings.HasPrefix(stripped, "variant") {
+				stripped = strings.TrimSpace(stripped[len("variant"):])
+			}
+			if n, ok := parseUint32Token(stripped); ok {
+				switch pendingKey {
+				case "Duration":
+					b.durationMS = int64(n)
+					b.hasDuration = true
+				case "Position":
+					b.positionMS = int64(n)
+					b.hasPosition = true
+				}
+				pendingKey = ""
+				continue
+			}
+			// Non-value line: structural elements preserve pendingKey; others clear it.
 			switch {
 			case t == "array [", t == "]", strings.HasPrefix(t, "dict entry"), t == ")":
-				// structural — preserve pendingKey
+				// preserve pendingKey
 			case strings.HasPrefix(t, "variant"):
-				// variant without inline string — preserve pendingKey
+				// variant line with no inline value — preserve pendingKey
 			default:
 				pendingKey = ""
 			}
@@ -452,29 +503,41 @@ func parseBluetoothBlock(lines []string) (title, artist, album, status string, h
 		if pendingKey != "" && pendingKey != "Track" {
 			switch pendingKey {
 			case "Title":
-				title = strVal
-				hasTrack = true
+				b.title = strVal
+				b.hasTrack = true
 			case "Artist":
-				artist = strVal
-				hasTrack = true
+				b.artist = strVal
+				b.hasTrack = true
 			case "Album":
-				album = strVal
-				hasTrack = true
+				b.album = strVal
+				b.hasTrack = true
 			case "Status":
-				status = strVal
-				hasStatus = true
+				b.status = strVal
+				b.hasStatus = true
 			}
 			pendingKey = ""
 		} else {
 			switch strVal {
-			case "Title", "Artist", "Album", "Status", "Track":
+			case "Title", "Artist", "Album", "Status", "Track", "Duration", "Position":
 				pendingKey = strVal
 			default:
 				pendingKey = ""
 			}
 		}
 	}
-	return
+	return b
+}
+
+// parseUint32Token parses a "uint32 N" token and returns the numeric value.
+func parseUint32Token(s string) (uint32, bool) {
+	if !strings.HasPrefix(s, "uint32 ") {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(strings.TrimSpace(s[7:]), 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return uint32(n), true
 }
 
 // parseTransportState extracts the State value from an org.bluez.MediaTransport1
@@ -779,33 +842,42 @@ func (m *mgr) queryStartupMediaPlayerState(devicePath string) {
 
 	// Parse the GetAll reply for Status and Track sub-properties.
 	lines := strings.Split(string(out), "\n")
-	title, artist, album, status, hasTrack, hasStatus := parseBluetoothBlock(lines)
+	b := parseBluetoothBlock(lines)
 
-	if !hasTrack && !hasStatus {
+	if !b.hasTrack && !b.hasStatus {
 		return
 	}
 
 	m.mu.Lock()
 	changed := false
-	if hasStatus && status == "playing" && !m.bluetoothPlaying {
+	if b.hasStatus && b.status == "playing" && !m.bluetoothPlaying {
 		m.bluetoothPlaying = true
 		changed = true
 	}
-	if hasTrack {
-		if m.bluetoothTitle != title || m.bluetoothArtist != artist || m.bluetoothAlbum != album {
-			m.bluetoothTitle = title
-			m.bluetoothArtist = artist
-			m.bluetoothAlbum = album
+	if b.hasTrack {
+		if m.bluetoothTitle != b.title || m.bluetoothArtist != b.artist || m.bluetoothAlbum != b.album {
+			m.bluetoothTitle = b.title
+			m.bluetoothArtist = b.artist
+			m.bluetoothAlbum = b.album
 			changed = true
 		}
+	}
+	if b.hasDuration && m.bluetoothDurationMS != b.durationMS {
+		m.bluetoothDurationMS = b.durationMS
+		changed = true
+	}
+	if b.hasPosition {
+		m.bluetoothSeekMS = b.positionMS
+		m.bluetoothSeekUpdatedAt = time.Now()
+		changed = true
 	}
 	m.mu.Unlock()
 
 	if changed {
-		log.Printf("bluetooth: startup player state: status=%s artist=%q title=%q", status, artist, title)
+		log.Printf("bluetooth: startup player state: status=%s artist=%q title=%q duration_ms=%d", b.status, b.artist, b.title, b.durationMS)
 		m.markDirty()
-		if artist != "" && album != "" {
-			go m.fetchBluetoothArtwork(artist, album)
+		if b.artist != "" && b.album != "" {
+			go m.fetchBluetoothArtwork(b.artist, b.album)
 		}
 	}
 }

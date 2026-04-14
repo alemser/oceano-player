@@ -381,25 +381,45 @@ func TestParseBluetoothBlock(t *testing.T) {
 		`   ]`,
 	}
 
+	// Position-only update (sent as a separate top-level property change).
+	positionBlock := []string{
+		`signal time=1237.0 sender=:1.42 serial=13 path=/org/bluez/hci0/dev_AA/player0; interface=org.freedesktop.DBus.Properties; member=PropertiesChanged`,
+		`   string "org.bluez.MediaPlayer1"`,
+		`   array [`,
+		`      dict entry(`,
+		`         string "Position"`,
+		`         variant             uint32 120000`,
+		`      )`,
+		`   ]`,
+		`   array [`,
+		`   ]`,
+	}
+
 	tests := []struct {
-		name      string
-		lines     []string
-		wantTitle  string
-		wantArtist string
-		wantAlbum  string
-		wantStatus string
-		wantTrack  bool
-		wantStat   bool
+		name           string
+		lines          []string
+		wantTitle      string
+		wantArtist     string
+		wantAlbum      string
+		wantStatus     string
+		wantTrack      bool
+		wantStat       bool
+		wantDurationMS int64
+		wantHasDuration bool
+		wantPositionMS int64
+		wantHasPosition bool
 	}{
 		{
-			name:       "full block",
-			lines:      fullBlock,
-			wantTitle:  "So What",
-			wantArtist: "Miles Davis",
-			wantAlbum:  "Kind Of Blue",
-			wantStatus: "playing",
-			wantTrack:  true,
-			wantStat:   true,
+			name:            "full block",
+			lines:           fullBlock,
+			wantTitle:       "So What",
+			wantArtist:      "Miles Davis",
+			wantAlbum:       "Kind Of Blue",
+			wantStatus:      "playing",
+			wantTrack:       true,
+			wantStat:        true,
+			wantDurationMS:  564000,
+			wantHasDuration: true,
 		},
 		{
 			name:       "pause only",
@@ -417,6 +437,12 @@ func TestParseBluetoothBlock(t *testing.T) {
 			wantStat:   false,
 		},
 		{
+			name:            "position only",
+			lines:           positionBlock,
+			wantHasPosition: true,
+			wantPositionMS:  120000,
+		},
+		{
 			name:  "empty",
 			lines: []string{},
 		},
@@ -424,24 +450,36 @@ func TestParseBluetoothBlock(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			title, artist, album, status, hasTrack, hasStatus := parseBluetoothBlock(tt.lines)
-			if title != tt.wantTitle {
-				t.Errorf("title = %q, want %q", title, tt.wantTitle)
+			b := parseBluetoothBlock(tt.lines)
+			if b.title != tt.wantTitle {
+				t.Errorf("title = %q, want %q", b.title, tt.wantTitle)
 			}
-			if artist != tt.wantArtist {
-				t.Errorf("artist = %q, want %q", artist, tt.wantArtist)
+			if b.artist != tt.wantArtist {
+				t.Errorf("artist = %q, want %q", b.artist, tt.wantArtist)
 			}
-			if album != tt.wantAlbum {
-				t.Errorf("album = %q, want %q", album, tt.wantAlbum)
+			if b.album != tt.wantAlbum {
+				t.Errorf("album = %q, want %q", b.album, tt.wantAlbum)
 			}
-			if status != tt.wantStatus {
-				t.Errorf("status = %q, want %q", status, tt.wantStatus)
+			if b.status != tt.wantStatus {
+				t.Errorf("status = %q, want %q", b.status, tt.wantStatus)
 			}
-			if hasTrack != tt.wantTrack {
-				t.Errorf("hasTrack = %v, want %v", hasTrack, tt.wantTrack)
+			if b.hasTrack != tt.wantTrack {
+				t.Errorf("hasTrack = %v, want %v", b.hasTrack, tt.wantTrack)
 			}
-			if hasStatus != tt.wantStat {
-				t.Errorf("hasStatus = %v, want %v", hasStatus, tt.wantStat)
+			if b.hasStatus != tt.wantStat {
+				t.Errorf("hasStatus = %v, want %v", b.hasStatus, tt.wantStat)
+			}
+			if b.hasDuration != tt.wantHasDuration {
+				t.Errorf("hasDuration = %v, want %v", b.hasDuration, tt.wantHasDuration)
+			}
+			if b.durationMS != tt.wantDurationMS {
+				t.Errorf("durationMS = %d, want %d", b.durationMS, tt.wantDurationMS)
+			}
+			if b.hasPosition != tt.wantHasPosition {
+				t.Errorf("hasPosition = %v, want %v", b.hasPosition, tt.wantHasPosition)
+			}
+			if b.positionMS != tt.wantPositionMS {
+				t.Errorf("positionMS = %d, want %d", b.positionMS, tt.wantPositionMS)
 			}
 		})
 	}
