@@ -383,3 +383,185 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Backups ───────────────────────────────────────────────────────────────────
+
+async function loadBackups() {
+  const el = document.getElementById('backup-list');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/backups');
+    const backups = await r.json();
+    renderBackups(backups);
+  } catch {
+    el.innerHTML = '<div class="backup-empty">Could not load backup list.</div>';
+  }
+}
+
+function renderBackups(backups) {
+  const el = document.getElementById('backup-list');
+  if (!el) return;
+  if (!backups || backups.length === 0) {
+    el.innerHTML = '<div class="backup-empty">No backups yet — the first automatic backup runs shortly after startup.</div>';
+    return;
+  }
+  el.innerHTML = backups.map((b, i) => {
+    const date = new Date(b.created_at).toLocaleString();
+    const size = formatBytes(b.size_bytes);
+    const isLatest = i === 0;
+    return `<div class="backup-row">
+      <div class="backup-row-info">
+        <span class="backup-date">${date}</span>
+        ${isLatest ? '<span class="backup-badge">Latest</span>' : ''}
+        <span class="backup-size">${size}</span>
+        <div class="backup-row-actions">
+          <a href="/api/backups/download?file=${encodeURIComponent(b.file)}" download
+             class="backup-btn-dl" title="Download">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download
+          </a>
+          <button type="button" class="backup-btn-restore" onclick="toggleRestoreOptions(this)" title="Restore options">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            Restore
+          </button>
+        </div>
+      </div>
+      <div class="backup-restore-opts" style="display:none">
+        <span class="backup-restore-label">Restore from this backup:</span>
+        <div class="backup-restore-btns">
+          <button type="button" class="backup-btn-scope" onclick="doRestore('${esc(b.file)}', 'library', this)">Library only</button>
+          <button type="button" class="backup-btn-scope" onclick="doRestore('${esc(b.file)}', 'config', this)">Config only</button>
+          <button type="button" class="backup-btn-scope backup-btn-scope-both" onclick="doRestore('${esc(b.file)}', 'both', this)">Both</button>
+          <button type="button" class="backup-btn-cancel-restore" onclick="toggleRestoreOptions(this.closest('.backup-row').querySelector('.backup-btn-restore'))">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleRestoreOptions(triggerBtn) {
+  const row = triggerBtn.closest('.backup-row');
+  if (!row) return;
+  const opts = row.querySelector('.backup-restore-opts');
+  if (!opts) return;
+  const willOpen = opts.style.display === 'none';
+  // Close all other open restore panels first.
+  document.querySelectorAll('.backup-restore-opts').forEach(o => { o.style.display = 'none'; });
+  opts.style.display = willOpen ? 'block' : 'none';
+}
+
+async function doRestore(file, scope, triggerEl) {
+  const labels = { library: 'library database and artwork', config: 'configuration', both: 'library and configuration' };
+  if (!confirm(`Restore ${labels[scope] || scope} from this backup?\n\nCurrent data will be replaced.`)) return;
+
+  if (triggerEl) triggerEl.disabled = true;
+  try {
+    const r = await fetch('/api/backups/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file, scope }),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) {
+      toast((data.results || []).join('; ') || 'Restore failed', true);
+      return;
+    }
+    toast((data.results || ['Restored successfully']).join(' · '));
+    // Close restore panel.
+    document.querySelectorAll('.backup-restore-opts').forEach(o => { o.style.display = 'none'; });
+    // Reload affected data.
+    if (scope === 'library' || scope === 'both') {
+      _librarySignature = '';
+      await loadLibrary();
+    }
+    if (scope === 'config' || scope === 'both') {
+      await loadConfig();
+    }
+  } catch {
+    toast('Restore failed', true);
+  } finally {
+    if (triggerEl) triggerEl.disabled = false;
+  }
+}
+
+async function runBackupNow() {
+  const btn = document.getElementById('btn-backup-now');
+  if (btn) { btn.disabled = true; btn.textContent = 'Backing up…'; }
+  try {
+    const r = await fetch('/api/backups/run', { method: 'POST' });
+    const data = await r.json();
+    if (!r.ok || !data.ok) {
+      toast('Backup failed', true);
+    } else {
+      toast('Backup created');
+      renderBackups(data.backups);
+    }
+  } catch {
+    toast('Backup failed', true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Back Up Now'; }
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// ── Upload & Restore ──────────────────────────────────────────────────────────
+
+function onBackupFileSelected(input) {
+  const label = document.getElementById('backup-upload-label');
+  const btn   = document.getElementById('btn-upload-restore');
+  const file  = input.files[0];
+  if (file) {
+    label.textContent = file.name;
+    label.classList.add('has-file');
+    if (btn) btn.disabled = false;
+  } else {
+    label.textContent = 'Choose file…';
+    label.classList.remove('has-file');
+    if (btn) btn.disabled = true;
+  }
+}
+
+async function uploadAndRestore() {
+  const input = document.getElementById('backup-upload-input');
+  const scope = document.getElementById('backup-upload-scope')?.value || 'both';
+  const btn   = document.getElementById('btn-upload-restore');
+  if (!input?.files?.length) { toast('Select a backup file first', true); return; }
+
+  const labels = { library: 'library database and artwork', config: 'configuration', both: 'library and configuration' };
+  if (!confirm(`Restore ${labels[scope] || scope} from the selected file?\n\nCurrent data will be replaced.`)) return;
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Restoring…'; }
+  try {
+    const form = new FormData();
+    form.append('backup', input.files[0]);
+    form.append('scope', scope);
+
+    const r = await fetch('/api/backups/upload-restore', { method: 'POST', body: form });
+    const data = await r.json();
+    if (!r.ok || !data.ok) {
+      toast((data.results || []).join('; ') || 'Restore failed', true);
+      return;
+    }
+    toast((data.results || ['Restored successfully']).join(' · '));
+    // Reset the file input.
+    input.value = '';
+    onBackupFileSelected(input);
+    // Reload affected data.
+    if (scope === 'library' || scope === 'both') {
+      _librarySignature = '';
+      await loadLibrary();
+    }
+    if (scope === 'config' || scope === 'both') {
+      await loadConfig();
+    }
+  } catch {
+    toast('Restore failed', true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Restore'; }
+  }
+}
+

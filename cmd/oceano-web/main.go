@@ -169,10 +169,10 @@ func main() {
 		http.ServeFile(w, r, state.Track.ArtworkPath)
 	})
 
-	// API: physical media collection (library) and backup download.
+	// API: physical media collection (library) and backup/restore.
 	cfg, _ := loadConfig(*configPath)
 	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir)
-	registerBackupRoute(mux, *libraryDB, cfg.Advanced.ArtworkDir)
+	registerBackupRoutes(mux, *libraryDB, cfg.Advanced.ArtworkDir, *configPath)
 
 	// API: amplifier and CD player IR control.
 	amp, err := buildAmplifierFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket)
@@ -182,22 +182,23 @@ func main() {
 	cdPlayer := buildCDPlayerFromConfig(cfg.CDPlayer, cfg.Amplifier.Broadlink)
 	registerAmplifierRoutes(mux, amp, cdPlayer, *configPath)
 
-	// Scheduled backup: generate a fresh backup every 24 hours.
-	// The backup is written to the same directory as the library database.
-	// There is no history — each run replaces the previous backup.
+	// Scheduled backup: generate a fresh timestamped backup every 24 hours.
+	// Backups land in the same directory as the library database.
+	// At most backupMaxHistory (7) are kept; older ones are pruned automatically.
 	// The first backup runs shortly after startup; subsequent ones every 24 h.
 	go func() {
 		backupDir := filepath.Dir(*libraryDB)
-		backupPath := filepath.Join(backupDir, "oceano-backup.tar.gz")
 		for {
 			lib, err := openLibraryDB(*libraryDB)
 			if err != nil || lib == nil {
 				log.Printf("scheduled backup: library not available: %v", err)
 			} else {
-				if err := lib.generateBackup(backupPath, cfg.Advanced.ArtworkDir); err != nil {
+				destPath := filepath.Join(backupDir, backupFileName())
+				if err := lib.generateBackup(destPath, cfg.Advanced.ArtworkDir, *configPath); err != nil {
 					log.Printf("scheduled backup failed: %v", err)
 				} else {
-					log.Printf("scheduled backup written to %s", backupPath)
+					log.Printf("scheduled backup written to %s", destPath)
+					pruneOldBackups(backupDir, backupMaxHistory)
 				}
 				lib.close()
 			}

@@ -142,7 +142,6 @@ cmd/
     static/
       index.html            #   Configuration UI (all screen sizes)
       nowplaying.html       #   Full-screen now playing UI for 5"–7" HDMI/DSI displays
-calibration/                # Python: capture and analyse calibration sessions
 scripts/
   test-acoustid.sh          # Standalone ACRCloud recognition test (stop detector first)
 install.sh                  # Installer: AirPlay stack (shairport-sync + bridge + watchdog)
@@ -150,7 +149,6 @@ install-source-detector.sh  # Installer: builds and installs the Go detector
 install-source-manager.sh   # Installer: builds and installs the Go state manager
 install-oceano-web.sh       # Installer: builds and installs the web UI
 install-oceano-display.sh   # Installer: kiosk Chromium service for HDMI/DSI display
-config.yaml                 # ALSA device + AirPlay name
 ```
 
 ## Source detector
@@ -163,18 +161,6 @@ The detector (`cmd/oceano-source-detector/main.go`) classifies audio as `Physica
    for recognition without opening the ALSA device a second time
 
 Output: `/tmp/oceano-source.json`
-
-### Calibration workflow
-
-```bash
-cd calibration
-./capture-session.sh silence  # record baseline
-./capture-session.sh cd       # record CD playing
-./capture-session.sh vinyl    # record vinyl playing
-./analyse-session.sh          # prints suggested thresholds
-```
-
-Then pass the suggested `--vinyl-ratio-threshold` to `install-source-detector.sh`.
 
 ## Hardware
 
@@ -290,4 +276,4 @@ If you make a change and notice that any of these are stale, update them in the 
 
 - Do not block the ALSA device with multiple `arecord` calls — consume the PCM socket from `oceano-source-detector` instead; PipeWire monitor taps are the long-term replacement
 - Do not add UI rendering code here — this is a backend-only repository
-- Do not hardcode thresholds without calibration data — always note they are estimates and point to the calibration workflow
+- Do not hardcode thresholds without empirical data — always note they are estimates and suggest adjusting via the web UI

@@ -478,6 +478,7 @@ function toast(msg, isError = false) {
 function openConfig() {
   document.getElementById('config-drawer').classList.add('open');
   document.getElementById('config-overlay').classList.add('open');
+  loadBackups();
 }
 function closeConfig() {
   document.getElementById('config-drawer').classList.remove('open');

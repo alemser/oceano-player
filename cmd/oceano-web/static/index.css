@@ -541,6 +541,79 @@
     .lib-format-badge.unknown { background: #111; color: var(--muted); border: 1px solid var(--border); }
     .lib-empty { text-align: center; color: var(--text-dim); padding: 60px 0; font-size: 0.9rem; }
 
+    /* ── Backup & Restore ── */
+    .backup-row {
+      display: flex; flex-direction: column; gap: 0;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; margin-bottom: 8px; overflow: hidden;
+    }
+    .backup-row-info {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 9px 12px;
+    }
+    .backup-date { font-size: 0.82rem; color: var(--text); }
+    .backup-badge {
+      font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 10px;
+      background: var(--accent-dim); color: var(--accent);
+    }
+    .backup-size { font-size: 0.75rem; color: var(--text-dim); }
+    .backup-row-actions { display: flex; gap: 6px; margin-left: auto; }
+    .backup-btn-dl {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 10px; border-radius: 5px; font-size: 0.75rem; font-weight: 500;
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text-dim); text-decoration: none;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .backup-btn-dl:hover { border-color: var(--accent); color: var(--accent); }
+    .backup-btn-restore {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 10px; border-radius: 5px; font-size: 0.75rem; font-weight: 500;
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text-dim); cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .backup-btn-restore:hover { border-color: var(--accent); color: var(--accent); }
+    .backup-restore-opts {
+      padding: 10px 12px; border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .backup-restore-label {
+      display: block; font-size: 0.75rem; color: var(--text-dim); margin-bottom: 8px;
+    }
+    .backup-restore-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .backup-btn-scope {
+      font-size: 0.75rem; font-weight: 500; padding: 5px 12px; border-radius: 5px;
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .backup-btn-scope:hover { border-color: var(--accent); color: var(--accent); }
+    .backup-btn-scope-both { border-color: var(--accent-dim); color: var(--accent); }
+    .backup-btn-scope-both:hover { border-color: var(--accent); }
+    .backup-btn-cancel-restore {
+      font-size: 0.75rem; padding: 5px 12px; border-radius: 5px;
+      background: none; border: 1px solid var(--border);
+      color: var(--muted); cursor: pointer; margin-left: auto;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .backup-btn-cancel-restore:hover { border-color: var(--border); color: var(--text-dim); }
+    .backup-empty { font-size: 0.82rem; color: var(--text-dim); padding: 8px 0; }
+    .backup-upload-row {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    }
+    .backup-upload-label {
+      flex: 1; min-width: 160px; max-width: 280px;
+      font-size: 0.82rem; padding: 7px 12px; border-radius: 5px;
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--text-dim); cursor: pointer; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .backup-upload-label:hover { border-color: var(--accent); color: var(--text); }
+    .backup-upload-label.has-file { color: var(--text); border-color: var(--accent-dim); }
+
     /* ── Modal ── */
     .modal-overlay {
       display: none; position: fixed; inset: 0;
