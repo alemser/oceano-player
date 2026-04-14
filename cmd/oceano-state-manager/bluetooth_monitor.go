@@ -251,6 +251,11 @@ func (m *mgr) applyTransportUpdate(lines []string) {
 			log.Printf("bluetooth: transport active, codec=%s rate=%s depth=%s", codec, sampleRate, bitDepth)
 			m.markDirty()
 		}
+		// The Endpoint property (PipeWire extension) may be unavailable on some
+		// WirePlumber versions. Fall back to pw-dump if codec could not be read.
+		if codec == "" {
+			go m.applyPipeWireCodec()
+		}
 	} else {
 		// idle or any other state → clear codec and format info
 		m.mu.Lock()
@@ -646,6 +651,11 @@ func (m *mgr) queryStartupBluetoothState() {
 		if changed {
 			log.Printf("bluetooth: startup transport %s: playing=true codec=%s rate=%s depth=%s", path, codec, sampleRate, bitDepth)
 			m.markDirty()
+		}
+		// The Endpoint property (PipeWire extension) may be unavailable on some
+		// WirePlumber versions. Fall back to pw-dump if codec could not be read.
+		if codec == "" {
+			go m.applyPipeWireCodec()
 		}
 
 		// Also probe MediaPlayer1 for current track metadata.

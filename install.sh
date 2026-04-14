@@ -615,15 +615,20 @@ disable_pipewire_mode() {
 # setup_bluetooth configures the built-in Bluetooth adapter so the Pi is
 # permanently discoverable and paired devices can stream audio to it.
 # The device name is set to match the AirPlay name for consistency.
-# Audio codec negotiation (SBC / AAC / Opus) is handled by PipeWire automatically
-# when libspa-0.2-bluetooth is present (pre-installed on Raspberry Pi OS Bookworm).
+# Audio codec negotiation is handled by PipeWire + WirePlumber when
+# libspa-0.2-bluetooth is installed. An explicit bluez5.codecs list is written by
+# setup_wireplumber_routing() to enable AAC, SBC-XQ, LDAC and AptX beyond the
+# SBC-only default (libspa-0.2-bluetooth is pre-installed on Raspberry Pi OS Bookworm).
 setup_bluetooth() {
   local device_name="$1"
   local bt_conf="/etc/bluetooth/main.conf"
 
   # Enable the Bluetooth service if not already running.
+  # --no-block avoids waiting for the unit to reach active state; config edits
+  # below do not require the service to be fully up, and the restart at the end
+  # of this function applies them asynchronously.
   systemctl enable bluetooth.service >/dev/null 2>&1 || true
-  systemctl start  bluetooth.service 2>/dev/null || true
+  systemctl start  bluetooth.service --no-block 2>/dev/null || true
 
   if [[ -f "${bt_conf}" ]]; then
     # Escape characters that are significant in a sed replacement string
@@ -727,6 +732,95 @@ EOF
   log_info "Pair once; the Pi will remember trusted devices across reboots."
 }
 
+# ─── Bluetooth AAC codec plugin ──────────────
+
+# build_bt_aac_codec checks whether libspa-codec-bluez5-aac.so is present and,
+# if not, compiles it from the matching PipeWire source. On Raspberry Pi OS the
+# libspa-0.2-bluetooth package omits the AAC plugin because fdk-aac was not
+# available at package build time, even though libfdk-aac2 is installable.
+build_bt_aac_codec() {
+  local plugin_dir
+  plugin_dir=$(dirname "$(find /usr/lib -name "libspa-codec-bluez5-sbc.so" 2>/dev/null | head -1)")
+  if [[ -z "${plugin_dir}" || "${plugin_dir}" == "." ]]; then
+    log_warn "AAC BT codec: cannot locate spa-0.2/bluez5 plugin directory — skipping."
+    return
+  fi
+
+  local aac_plugin="${plugin_dir}/libspa-codec-bluez5-aac.so"
+  if [[ -f "${aac_plugin}" ]]; then
+    log_ok "Bluetooth AAC codec plugin already present."
+    return
+  fi
+
+  local pw_ver
+  pw_ver=$(pipewire --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  if [[ -z "${pw_ver}" ]]; then
+    log_warn "AAC BT codec: cannot detect PipeWire version — skipping build."
+    return
+  fi
+  log_info "Building Bluetooth AAC codec plugin for PipeWire ${pw_ver}..."
+
+  apt-get install -y --no-install-recommends \
+    build-essential meson ninja-build pkg-config \
+    libfdk-aac-dev libbluetooth-dev libsbc-dev libspa-0.2-dev \
+    libdbus-1-dev libglib2.0-dev >/dev/null
+
+  local src_dir="/tmp/pipewire-${pw_ver}"
+  local build_dir="/tmp/pw-aac-build"
+  local tarball="/tmp/pipewire-${pw_ver}.tar.gz"
+
+  if [[ ! -d "${src_dir}" ]]; then
+    log_info "Downloading PipeWire ${pw_ver} source..."
+    wget -q --timeout=120 \
+      "https://gitlab.freedesktop.org/pipewire/pipewire/-/archive/${pw_ver}/pipewire-${pw_ver}.tar.gz" \
+      -O "${tarball}" || { log_warn "AAC BT codec: download failed — skipping."; return; }
+    tar xzf "${tarball}" -C /tmp/
+  fi
+
+  rm -rf "${build_dir}"
+  if ! meson setup "${build_dir}" "${src_dir}" \
+      -Dspa-plugins=enabled \
+      -Dbluez5=enabled \
+      -Dbluez5-codec-aac=enabled \
+      -Dbluez5-codec-aptx=disabled \
+      -Dbluez5-codec-ldac=disabled \
+      -Dbluez5-codec-opus=disabled \
+      -Dbluez5-codec-lc3=disabled \
+      -Dbluez5-codec-lc3plus=disabled \
+      -Dbluez5-codec-g722=disabled \
+      -Dalsa=disabled \
+      -Dpipewire-alsa=disabled \
+      -Djack=disabled \
+      -Dpipewire-jack=disabled \
+      -Dpipewire-v4l2=disabled \
+      -Dgstreamer=disabled \
+      -Dv4l2=disabled \
+      -Dlibcamera=disabled \
+      -Dvulkan=disabled \
+      -Dsdl2=disabled \
+      -Dffmpeg=disabled \
+      -Dpw-cat=disabled \
+      -Ddocs=disabled \
+      -Dtests=disabled \
+      -Dtest=disabled \
+      -Dinstalled_tests=disabled \
+      -Dexamples=disabled \
+      >/dev/null 2>&1; then
+    log_warn "AAC BT codec: meson configure failed — skipping."
+    log_warn "  Run manually: see install.sh build_bt_aac_codec() for the exact commands."
+    return
+  fi
+
+  if ! ninja -C "${build_dir}" spa/plugins/bluez5/libspa-codec-bluez5-aac.so >/dev/null 2>&1; then
+    log_warn "AAC BT codec: ninja build failed — skipping."
+    return
+  fi
+
+  install -m755 "${build_dir}/spa/plugins/bluez5/libspa-codec-bluez5-aac.so" "${aac_plugin}"
+  log_ok "Bluetooth AAC codec plugin built and installed."
+  rm -rf "${build_dir}" "${tarball}"
+}
+
 # ─── WirePlumber routing ─────────────────────
 
 # setup_wireplumber_routing installs a user systemd service that sets the USB
@@ -768,6 +862,37 @@ setup_wireplumber_routing() {
 
   # Remove any stale Lua config that may have broken the ALSA monitor.
   rm -f "${home_dir}/.config/wireplumber/main.lua.d/90-oceano-default-sink.lua"
+
+  # ── WirePlumber codec config: enable AAC, SBC-XQ, LDAC, AptX ──────────
+  # Without an explicit bluez5.codecs list, WirePlumber defaults to SBC-only
+  # on many systems even when libspa-0.2-bluetooth is installed.
+  # WirePlumber 0.5+ uses .conf; 0.4.x uses Lua. Detect by version string.
+  local wp_conf_dir="${home_dir}/.config/wireplumber"
+  local wp_ver wp_minor
+  wp_ver=$(wireplumber --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0.0")
+  wp_minor=$(echo "${wp_ver}" | cut -d. -f2)
+
+  if [[ "${wp_minor}" -ge 5 ]]; then
+    # WirePlumber 0.5+ — CONF format
+    mkdir -p "${wp_conf_dir}/wireplumber.conf.d"
+    cat > "${wp_conf_dir}/wireplumber.conf.d/51-bluez-codec.conf" <<'EOF'
+monitor.bluez.properties = {
+  bluez5.codecs = [ sbc sbc_xq aac ldac aptx aptx_hd ]
+}
+EOF
+    chown -R "${audio_user}:${audio_user}" "${wp_conf_dir}/wireplumber.conf.d"
+    log_ok "WirePlumber (0.5+): AAC, SBC-XQ, LDAC, AptX codecs enabled."
+  else
+    # WirePlumber 0.4.x — Lua format
+    mkdir -p "${wp_conf_dir}/bluetooth.lua.d"
+    cat > "${wp_conf_dir}/bluetooth.lua.d/51-bluez-codec.lua" <<'EOF'
+bluez_monitor.properties = {
+  ["bluez5.codecs"] = "[ sbc sbc_xq aac ldac aptx aptx_hd ]",
+}
+EOF
+    chown -R "${audio_user}:${audio_user}" "${wp_conf_dir}/bluetooth.lua.d"
+    log_ok "WirePlumber (0.4.x): AAC, SBC-XQ, LDAC, AptX codecs enabled."
+  fi
 
   # Write a small helper script: finds the DAC in wpctl by description and
   # calls wpctl set-default. Runs after WirePlumber to survive device numbering
@@ -1062,6 +1187,7 @@ main() {
     [[ -z "${bt_name}" ]] && bt_name="${airplay_name}"
   fi
   setup_bluetooth "${bt_name}"
+  build_bt_aac_codec
 
   # ── WirePlumber default-sink routing (pipewire mode only) ──
   if [[ "${output_strategy}" == "pipewire" && -n "${audio_user}" ]]; then
