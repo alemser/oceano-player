@@ -89,8 +89,10 @@ async function loadRecognitionStats() {
     }
 
     container.innerHTML = '';
-    // Sort providers: Fingerprint first, then others.
+    // Sort providers: Trigger first, Fingerprint second, then others alphabetically.
     const providers = Object.keys(stats).sort((a, b) => {
+      if (a === 'Trigger') return -1;
+      if (b === 'Trigger') return 1;
       if (a === 'Fingerprint') return -1;
       if (b === 'Fingerprint') return 1;
       return a.localeCompare(b);
@@ -101,31 +103,54 @@ async function loadRecognitionStats() {
       const card = document.createElement('div');
       card.className = 'stat-card';
 
-      const attempts = evs.attempt || 0;
-      const successes = evs.success || 0;
-      const rate = attempts > 0 ? Math.round((successes / attempts) * 100) : 0;
-
-      let html = `<div class="stat-provider">${p}</div>`;
-      html += `<div class="stat-row"><span class="label">Attempts</span><span class="value">${attempts}</span></div>`;
-      html += `<div class="stat-row"><span class="label">Matches</span><span class="value">${successes}</span></div>`;
-
-      if (evs.no_match) {
-        html += `<div class="stat-row"><span class="label">No match</span><span class="value">${evs.no_match}</span></div>`;
-      }
-      if (evs.error) {
-        html += `<div class="stat-row"><span class="label">Errors</span><span class="value">${evs.error}</span></div>`;
-      }
-
-      if (attempts > 0) {
-        html += `<div class="stat-success-rate">
-          <span>Success rate</span>
-          <span class="rate-ok">${rate}%</span>
-        </div>`;
+      let html;
+      if (p === 'Trigger') {
+        const boundary = evs.boundary || 0;
+        const fallback = evs.fallback_timer || 0;
+        const total = boundary + fallback;
+        const boundaryRate = total > 0 ? Math.round((boundary / total) * 100) : 0;
+        html = `<div class="stat-provider">TRIGGER</div>`;
+        html += `<div class="stat-row"><span class="label">Boundary</span><span class="value">${boundary}</span></div>`;
+        html += `<div class="stat-row"><span class="label">Fallback timer</span><span class="value">${fallback}</span></div>`;
+        html += `<div class="stat-row"><span class="label">Total</span><span class="value">${total}</span></div>`;
+        if (total > 0) {
+          html += `<div class="stat-success-rate">
+            <span>Boundary rate</span>
+            <span class="rate-ok">${boundaryRate}%</span>
+          </div>`;
+        } else {
+          html += `<div class="stat-success-rate">
+            <span>Boundary rate</span>
+            <span class="rate-none">—</span>
+          </div>`;
+        }
       } else {
-        html += `<div class="stat-success-rate">
-          <span>Success rate</span>
-          <span class="rate-none">—</span>
-        </div>`;
+        const attempts = evs.attempt || 0;
+        const successes = evs.success || 0;
+        const rate = attempts > 0 ? Math.round((successes / attempts) * 100) : 0;
+
+        html = `<div class="stat-provider">${p}</div>`;
+        html += `<div class="stat-row"><span class="label">Attempts</span><span class="value">${attempts}</span></div>`;
+        html += `<div class="stat-row"><span class="label">Matches</span><span class="value">${successes}</span></div>`;
+
+        if (evs.no_match) {
+          html += `<div class="stat-row"><span class="label">No match</span><span class="value">${evs.no_match}</span></div>`;
+        }
+        if (evs.error) {
+          html += `<div class="stat-row"><span class="label">Errors</span><span class="value">${evs.error}</span></div>`;
+        }
+
+        if (attempts > 0) {
+          html += `<div class="stat-success-rate">
+            <span>Success rate</span>
+            <span class="rate-ok">${rate}%</span>
+          </div>`;
+        } else {
+          html += `<div class="stat-success-rate">
+            <span>Success rate</span>
+            <span class="rate-none">—</span>
+          </div>`;
+        }
       }
 
       card.innerHTML = html;

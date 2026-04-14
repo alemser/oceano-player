@@ -850,9 +850,22 @@ func (m *mgr) queryStartupMediaPlayerState(devicePath string) {
 
 	m.mu.Lock()
 	changed := false
-	if b.hasStatus && b.status == "playing" && !m.bluetoothPlaying {
-		m.bluetoothPlaying = true
-		changed = true
+	if b.hasStatus {
+		if b.status == "playing" {
+			if !m.bluetoothPlaying {
+				m.bluetoothPlaying = true
+				changed = true
+			}
+		} else {
+			// AVRCP reports stopped/paused — correct the playing flag that was
+			// optimistically set by queryStartupBluetoothState from the active
+			// A2DP transport. An active transport does not imply audio is flowing.
+			if m.bluetoothPlaying {
+				m.bluetoothPlaying = false
+				changed = true
+				log.Printf("bluetooth: startup player state: AVRCP status=%s — correcting playing=false", b.status)
+			}
+		}
 	}
 	if b.hasTrack {
 		if m.bluetoothTitle != b.title || m.bluetoothArtist != b.artist || m.bluetoothAlbum != b.album {

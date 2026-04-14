@@ -641,6 +641,14 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			c.mgr.markDirty()
 		}
 
+		if c.lib != nil {
+			if isBoundaryTrigger {
+				c.lib.RecordRecognitionEvent("Trigger", "boundary")
+			} else {
+				c.lib.RecordRecognitionEvent("Trigger", "fallback_timer")
+			}
+		}
+
 		log.Printf("recognizer [%s]: capturing %s from %s (skip=%s)",
 			c.rec.Name(), c.mgr.cfg.RecognizerCaptureDuration, c.mgr.cfg.PCMSocket, skip)
 		c.mgr.mu.Lock()

@@ -56,10 +56,15 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 		log.Printf("recognizer: ACRCloud enabled (host=%s)", cfg.ACRCloudHost)
 	}
 
-	var shazamRec Recognizer
+	// shazamRaw is the unwrapped recognizer shared by both the chain and continuity wrappers.
+	// Each wrapper gets its own stats name so chain calls ("Shazam") and continuity polling
+	// ("ShazamContinuity") are tracked separately.
+	var shazamRec Recognizer          // used in the chain
+	var shazamContinuityRec Recognizer // used by the continuity monitor
 	if cfg.ShazamPythonBin != "" {
 		if s := NewShazamRecognizer(cfg.ShazamPythonBin); s != nil {
 			shazamRec = wrapWithStats(s, lib)
+			shazamContinuityRec = wrapWithStatsAs(s, lib, "ShazamContinuity")
 			log.Printf("recognizer: Shazam enabled (python=%s)", cfg.ShazamPythonBin)
 		} else {
 			log.Printf("recognizer: Shazam unavailable — %s not found or shazamio not installed", cfg.ShazamPythonBin)
@@ -114,7 +119,7 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 	plan := RecognitionPlan{
 		Ordered:    ordered,
 		Confirmer:  confirmer,
-		Continuity: shazamRec, // always Shazam for continuity — independent of chain setting
+		Continuity: shazamContinuityRec, // always Shazam for continuity — tracked separately from chain calls
 	}
 
 	return newRecognitionComponents(plan, newFingerprinter())
