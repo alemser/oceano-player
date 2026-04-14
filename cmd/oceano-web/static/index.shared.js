@@ -8,6 +8,7 @@ async function loadConfig() {
   const r = await fetch('/api/config');
   const cfg = await r.json();
 
+  await loadSPIDisplayCapabilities();
   await loadNowPlayingDisplayCapabilities();
 
   set('inp-device',        cfg.audio_input?.device ?? '');
@@ -158,6 +159,19 @@ async function loadRecognitionStats() {
     }
   } catch (e) {
     container.innerHTML = `<div class="hint" style="color:var(--warn-text)">Failed to load statistics: ${e.message}</div>`;
+  }
+}
+
+async function loadSPIDisplayCapabilities() {
+  const section = document.getElementById('spi-section');
+  if (!section) return;
+  try {
+    const r = await fetch('/api/spi-display-installed');
+    if (!r.ok) { section.style.display = 'none'; return; }
+    const d = await r.json();
+    section.style.display = d?.installed ? '' : 'none';
+  } catch {
+    section.style.display = 'none';
   }
 }
 

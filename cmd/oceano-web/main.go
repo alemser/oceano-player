@@ -250,6 +250,16 @@ func main() {
 		})
 	})
 
+	// API: report whether the SPI now-playing service is installed.
+	mux.HandleFunc("/api/spi-display-installed", func(w http.ResponseWriter, r *http.Request) {
+		svcPath := "/etc/systemd/system/" + displayUnit
+		_, err := os.Stat(svcPath)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"installed": err == nil,
+		})
+	})
+
 	mux.HandleFunc("/api/bluetooth/devices", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
