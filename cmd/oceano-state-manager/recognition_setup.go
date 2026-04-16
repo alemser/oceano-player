@@ -62,12 +62,12 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 	var shazamRec Recognizer          // used in the chain
 	var shazamContinuityRec Recognizer // used by the continuity monitor
 	if cfg.ShazamPythonBin != "" {
-		if s := NewShazamRecognizer(cfg.ShazamPythonBin); s != nil {
+		if s, err := NewShazamRecognizer(cfg.ShazamPythonBin); err != nil {
+			log.Printf("recognizer: Shazam unavailable — %v", err)
+		} else {
 			shazamRec = wrapWithStats(s, lib)
 			shazamContinuityRec = wrapWithStatsAs(s, lib, "ShazamContinuity")
 			log.Printf("recognizer: Shazam enabled (python=%s)", cfg.ShazamPythonBin)
-		} else {
-			log.Printf("recognizer: Shazam unavailable — %s not found or shazamio not installed", cfg.ShazamPythonBin)
 		}
 	}
 

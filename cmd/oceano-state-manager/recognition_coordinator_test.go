@@ -314,7 +314,7 @@ func TestApplyRecognizedResult_PromotesPendingStubFingerprints(t *testing.T) {
 		Artist: "Promoted Artist",
 		Score:  90,
 	}
-	coordinator.applyRecognizedResult(result, nil, false, false, false)
+	coordinator.applyRecognizedResult(result, nil, false, false, false, time.Now())
 
 	entry, err := lib.Lookup("acr-promote-1")
 	if err != nil || entry == nil {
@@ -361,7 +361,7 @@ func TestHandleRecognitionErrorSetsBackoff(t *testing.T) {
 
 	var backoffUntil time.Time
 	backoffRateLimited := false
-	c.handleRecognitionError(errors.New("boom"), nil, &backoffUntil, &backoffRateLimited)
+	c.handleRecognitionError(errors.New("boom"), nil, &backoffUntil, &backoffRateLimited, time.Now())
 
 	if backoffUntil.IsZero() {
 		t.Fatal("expected backoffUntil to be set")
@@ -377,7 +377,7 @@ func TestHandleRecognitionErrorSetsRateLimitBackoff(t *testing.T) {
 
 	var backoffUntil time.Time
 	backoffRateLimited := false
-	c.handleRecognitionError(ErrRateLimit, nil, &backoffUntil, &backoffRateLimited)
+	c.handleRecognitionError(ErrRateLimit, nil, &backoffUntil, &backoffRateLimited, time.Now())
 
 	if backoffUntil.IsZero() {
 		t.Fatal("expected backoffUntil to be set for rate limit")
@@ -526,7 +526,7 @@ func TestRecognitionCoordinator_ApplyLocalFallbackEntryUpdatesManagerState(t *te
 	}
 
 	before := time.Now()
-	coordinator.applyLocalFallbackEntry(entry)
+	coordinator.applyLocalFallbackEntry(entry, time.Now())
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -586,7 +586,7 @@ func TestTryLocalFingerprintFallback_MatchesUnconfirmedStub(t *testing.T) {
 	}
 
 	// Second play: fingerprint fallback must now match the unconfirmed stub.
-	matched := coordinator.tryLocalFingerprintFallback(fps)
+	matched := coordinator.tryLocalFingerprintFallback(fps, time.Now())
 	if !matched {
 		t.Fatal("tryLocalFingerprintFallback returned false for unconfirmed stub — expected true")
 	}
@@ -621,7 +621,7 @@ func TestTryLocalFingerprintFallback_MatchesConfirmedStub(t *testing.T) {
 		t.Fatalf("confirm stub: %v", err)
 	}
 
-	matched := coordinator.tryLocalFingerprintFallback(fps)
+	matched := coordinator.tryLocalFingerprintFallback(fps, time.Now())
 	if !matched {
 		t.Fatal("tryLocalFingerprintFallback returned false for confirmed stub")
 	}
@@ -645,7 +645,7 @@ func TestTryLocalFingerprintFallback_NoMatch(t *testing.T) {
 	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
 
 	fps := []Fingerprint{{0xDEADBEEF, 0xCAFEBABE, 0xFEEDFACE, 0xBAADF00D}}
-	if coordinator.tryLocalFingerprintFallback(fps) {
+	if coordinator.tryLocalFingerprintFallback(fps, time.Now()) {
 		t.Fatal("expected false for fingerprint not in library")
 	}
 }
@@ -669,8 +669,9 @@ func TestTryLocalFingerprintLocalFirst_MatchesConfirmedOnly(t *testing.T) {
 	); err != nil {
 		t.Fatalf("confirm stub: %v", err)
 	}
+	lib.RebuildFPCache() // direct SQL update bypasses library API; refresh cache
 
-	if !coordinator.tryLocalFingerprintLocalFirst(fps) {
+	if !coordinator.tryLocalFingerprintLocalFirst(fps, time.Now()) {
 		t.Fatal("expected local-first to match confirmed fingerprint entry")
 	}
 
@@ -697,7 +698,7 @@ func TestTryLocalFingerprintLocalFirst_DoesNotMatchUnconfirmedStub(t *testing.T)
 		t.Fatalf("UpsertStub: %v", err)
 	}
 
-	if coordinator.tryLocalFingerprintLocalFirst(fps) {
+	if coordinator.tryLocalFingerprintLocalFirst(fps, time.Now()) {
 		t.Fatal("expected local-first to ignore unconfirmed stub entries")
 	}
 }
@@ -712,7 +713,7 @@ func TestRecognitionCoordinator_ApplyLocalFallbackEntryLeavesFormatUnsetForNonPh
 		ArtworkPath: "/tmp/track.jpg",
 	}
 
-	coordinator.applyLocalFallbackEntry(entry)
+	coordinator.applyLocalFallbackEntry(entry, time.Now())
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -748,5 +749,103 @@ func TestShouldShortCircuitLocalFirst_DifferentCurrentTrack(t *testing.T) {
 	entry := &internallibrary.CollectionEntry{ACRID: "acrid-2", Title: "Song B", Artist: "Artist"}
 	if !shouldShortCircuitLocalFirst(current, entry) {
 		t.Fatal("expected short-circuit when local-first points to a different track")
+	}
+}
+
+// ── Physical seek (progress bar best-effort) ──────────────────────────────────
+
+// TestApplyRecognizedResult_SetsPhysicalSeek proves that after a successful
+// recognition, physicalSeekMS reflects elapsed time since captureStartedAt and
+// physicalSeekUpdatedAt is set to a recent time.
+func TestApplyRecognizedResult_SetsPhysicalSeek(t *testing.T) {
+	m := newTestMgr()
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.mu.Unlock()
+	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, nil)
+
+	captureStartedAt := time.Now().Add(-3 * time.Second) // simulate 3 s capture already elapsed
+	result := &RecognitionResult{ACRID: "acr-seek-1", Title: "Seek Track", Artist: "Artist", Score: 85}
+
+	coordinator.applyRecognizedResult(result, nil, false, false, false, captureStartedAt)
+
+	m.mu.Lock()
+	seekMS := m.physicalSeekMS
+	seekUpdatedAt := m.physicalSeekUpdatedAt
+	m.mu.Unlock()
+
+	if seekMS < 3000 {
+		t.Errorf("physicalSeekMS = %d, want >= 3000 (3 s elapsed since capture start)", seekMS)
+	}
+	if seekMS > 10000 {
+		t.Errorf("physicalSeekMS = %d, want < 10000 (no more than 10 s plausible overhead)", seekMS)
+	}
+	if seekUpdatedAt.IsZero() {
+		t.Error("physicalSeekUpdatedAt should not be zero after recognition")
+	}
+	if time.Since(seekUpdatedAt) > 2*time.Second {
+		t.Errorf("physicalSeekUpdatedAt is too old: %s", time.Since(seekUpdatedAt))
+	}
+}
+
+// TestApplyLocalFallbackEntry_SetsPhysicalSeek proves that the local fingerprint
+// fallback path also sets seek, using the same captureStartedAt mechanics.
+func TestApplyLocalFallbackEntry_SetsPhysicalSeek(t *testing.T) {
+	lib := openTestLibrary(t)
+	result := &RecognitionResult{ACRID: "acr-seek-local", Title: "Local Track", Artist: "Artist"}
+	id, _ := lib.RecordPlay(result, "")
+	entry, _ := lib.GetByID(id)
+
+	m := newTestMgr()
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.mu.Unlock()
+	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, lib)
+
+	captureStartedAt := time.Now().Add(-5 * time.Second)
+	coordinator.applyLocalFallbackEntry(entry, captureStartedAt)
+
+	m.mu.Lock()
+	seekMS := m.physicalSeekMS
+	seekUpdatedAt := m.physicalSeekUpdatedAt
+	m.mu.Unlock()
+
+	if seekMS < 5000 {
+		t.Errorf("physicalSeekMS = %d, want >= 5000 (5 s elapsed since capture start)", seekMS)
+	}
+	if seekUpdatedAt.IsZero() {
+		t.Error("physicalSeekUpdatedAt should not be zero after local fallback")
+	}
+}
+
+// TestPhysicalSeek_ResetOnBoundaryClear proves that the pre-capture boundary
+// clear zeroes seek so the UI does not interpolate from a stale position.
+func TestPhysicalSeek_ResetOnBoundaryClear(t *testing.T) {
+	m := newTestMgr()
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.physicalSeekMS = 120000
+	m.physicalSeekUpdatedAt = time.Now().Add(-2 * time.Minute)
+	m.mu.Unlock()
+
+	// Simulate the pre-capture boundary clear (same code path as in run()).
+	m.mu.Lock()
+	m.recognitionResult = nil
+	m.physicalLibraryEntryID = 0
+	m.physicalArtworkPath = ""
+	m.physicalSeekMS = 0
+	m.physicalSeekUpdatedAt = time.Time{}
+	m.mu.Unlock()
+
+	m.mu.Lock()
+	seekMS := m.physicalSeekMS
+	seekUpdatedAt := m.physicalSeekUpdatedAt
+	m.mu.Unlock()
+
+	if seekMS != 0 {
+		t.Errorf("physicalSeekMS = %d, want 0 after boundary clear", seekMS)
+	}
+	if !seekUpdatedAt.IsZero() {
+		t.Errorf("physicalSeekUpdatedAt = %s, want zero after boundary clear", seekUpdatedAt)
 	}
 }

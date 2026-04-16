@@ -383,9 +383,15 @@ func TestCanonicalTrackKey_FallsBackToMetadata(t *testing.T) {
 
 // ── NewShazamRecognizer ───────────────────────────────────────────────────────
 
-func TestNewShazamRecognizer_ReturnsNilWhenBinaryMissing(t *testing.T) {
-	rec := NewShazamRecognizer("/nonexistent/python")
+func TestNewShazamRecognizer_ReturnsErrorWhenBinaryMissing(t *testing.T) {
+	rec, err := NewShazamRecognizer("/nonexistent/python")
 	if rec != nil {
-		t.Error("NewShazamRecognizer should return nil when binary does not exist")
+		t.Error("NewShazamRecognizer should return nil recognizer when binary does not exist")
+	}
+	if err == nil {
+		t.Error("NewShazamRecognizer should return a non-nil error when binary does not exist")
+	}
+	if !strings.Contains(err.Error(), "/nonexistent/python") {
+		t.Errorf("error message should mention the missing binary path, got: %v", err)
 	}
 }

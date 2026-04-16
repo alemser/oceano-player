@@ -62,6 +62,7 @@ func (m *mgr) pollSourceFile() {
 		m.lastContinuityMismatchAt = time.Time{}
 		m.lastContinuityMismatchFrom = ""
 		m.lastContinuityMismatchTo = ""
+		m.physicalStartedAt = time.Now()
 	}
 	needsTrigger := src == "Physical" && m.recognitionResult == nil
 	m.physicalSource = src
@@ -163,6 +164,72 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 	lastEnergyTrigger := time.Time{}
 
 	fireBoundaryTrigger := func(reason string) {
+		// Pessimistic duration guard: suppress boundary triggers while the track is
+		// likely still playing, to avoid re-recognition on silent passages.
+		//
+		// Base strategy:
+		//   - Treat the reported duration as 75% reliable: allow triggers only
+		//     after 75% of the track has elapsed. No hard cap — long tracks such
+		//     as 14-min epics need the full window (10:40 with 75% of 14:14).
+		//   - elapsed is computed from physicalSeekMS, which is set to the actual
+		//     time since track start (including any recognition overhead), so the
+		//     comparison is accurate even when recognition took multiple attempts.
+		//
+		// Learned adjustment (self-calibration):
+		//   - If a false-positive was previously recorded for this track
+		//     (recognition returned the same track after a boundary trigger),
+		//     extend the threshold to learnedElapsed + 30 s.
+		//   - Never suppress past 95% of the reported duration so the real end
+		//     can always be detected.
+		//
+		// Examples (no calibration):
+		//   4-min track  → checks active from 3:00
+		//   14-min track → checks active from 10:40
+		const (
+			durationPessimism   = 0.75            // base: 75% of reported duration
+			learnedMargin       = 30 * time.Second // buffer added after last known false-positive
+			maxSuppressFraction = 0.95            // never suppress past 95% of track
+		)
+		m.mu.Lock()
+		var durationMs int
+		var seekMS int64
+		var seekUpdatedAt time.Time
+		var learnedElapsedMs int64
+		if m.recognitionResult != nil {
+			durationMs = m.recognitionResult.DurationMs
+		}
+		seekMS = m.physicalSeekMS
+		seekUpdatedAt = m.physicalSeekUpdatedAt
+		learnedElapsedMs = m.physicalDurationFPElapsedMs
+		m.mu.Unlock()
+
+		if durationMs > 0 && !seekUpdatedAt.IsZero() {
+			elapsed := time.Duration(seekMS)*time.Millisecond + time.Since(seekUpdatedAt)
+			trackDuration := time.Duration(durationMs) * time.Millisecond
+
+			// Pessimistic threshold: 75% of reported duration, no hard cap.
+			suppressUntil := time.Duration(float64(trackDuration) * durationPessimism)
+
+			// Learned adjustment: extend past the last known false-positive point.
+			if learnedElapsedMs > 0 {
+				learned := time.Duration(learnedElapsedMs)*time.Millisecond + learnedMargin
+				if learned > suppressUntil {
+					suppressUntil = learned
+				}
+				// Safety: never suppress past 95% of the reported duration.
+				maxAllowed := time.Duration(float64(trackDuration) * maxSuppressFraction)
+				if suppressUntil > maxAllowed {
+					suppressUntil = maxAllowed
+				}
+			}
+
+			if elapsed < suppressUntil {
+				log.Printf("VU monitor: boundary suppressed (%s) — %s elapsed, checks active from %s (track %s)",
+					reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))
+				return
+			}
+		}
+
 		// Do not clear current metadata/artwork here: boundary detection can fire
 		// on false positives, and clearing preemptively causes UI flicker/regressions.
 		// State is cleared later only when a boundary-triggered recognition confirms no match.

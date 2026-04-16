@@ -22,6 +22,10 @@ type Result struct {
 	Released string
 	Score    int
 	Format   string
+	// DurationMs is the track duration in milliseconds as reported by the
+	// recognition provider (ACRCloud: duration_ms; Shazam: matches[0].length).
+	// Zero means the provider did not return a duration.
+	DurationMs int
 	// TrackNumber is the position of the track on the release (e.g. "3" for CD
 	// track 3, "A2" for vinyl side A track 2). Populated from the library DB;
 	// not currently returned by recognition providers.

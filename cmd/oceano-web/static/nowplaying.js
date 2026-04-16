@@ -154,7 +154,7 @@ function updateStreamingProgress() {
   const track = _lastState.track || null;
   const durationMS = Number(track?.duration_ms || 0);
 
-  if (!playing || !track || !isStreamingSource(source) || durationMS <= 0) {
+  if (!playing || !track || durationMS <= 0) {
     $streamProgress.classList.remove('visible');
     return;
   }

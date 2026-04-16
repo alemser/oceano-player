@@ -513,3 +513,61 @@ func TestBuildState_PhysicalFormat_NewSessionClears(t *testing.T) {
 		t.Errorf("format = %q, want empty after new session", s.Format)
 	}
 }
+
+// ── Physical seek output ──────────────────────────────────────────────────────
+
+// TestBuildState_Physical_PopulatesSeek proves that physicalSeekMS and
+// physicalSeekUpdatedAt are reflected in the TrackInfo returned by buildState
+// so the frontend can interpolate the progress bar position.
+func TestBuildState_Physical_PopulatesSeek(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{
+		Title:      "Exodus",
+		Artist:     "Bob Marley",
+		DurationMs: 244000,
+	}
+	seekAt := time.Now().Add(-1 * time.Second)
+	m.physicalSeekMS = 15000
+	m.physicalSeekUpdatedAt = seekAt
+
+	s := m.buildState()
+
+	if s.Track == nil {
+		t.Fatal("track should not be nil when recognition result is set")
+	}
+	if s.Track.SeekMS != 15000 {
+		t.Errorf("SeekMS = %d, want 15000", s.Track.SeekMS)
+	}
+	if s.Track.SeekUpdatedAt == "" {
+		t.Error("SeekUpdatedAt should not be empty when physicalSeekUpdatedAt is set")
+	}
+	if s.Track.DurationMS != 244000 {
+		t.Errorf("DurationMS = %d, want 244000", s.Track.DurationMS)
+	}
+}
+
+// TestBuildState_Physical_NoSeekWhenNotSet proves that when recognition result
+// exists but seek has not been set (e.g. stub enriched via UI), SeekUpdatedAt
+// is empty and SeekMS is zero — the UI hides the progress bar gracefully.
+func TestBuildState_Physical_NoSeekWhenNotSet(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{
+		Title:  "Unknown Track",
+		Artist: "Unknown Artist",
+	}
+	// physicalSeekMS and physicalSeekUpdatedAt left at zero values.
+
+	s := m.buildState()
+
+	if s.Track == nil {
+		t.Fatal("track should not be nil when recognition result is set")
+	}
+	if s.Track.SeekMS != 0 {
+		t.Errorf("SeekMS = %d, want 0 when seek not set", s.Track.SeekMS)
+	}
+	if s.Track.SeekUpdatedAt != "" {
+		t.Errorf("SeekUpdatedAt = %q, want empty when physicalSeekUpdatedAt is zero", s.Track.SeekUpdatedAt)
+	}
+}

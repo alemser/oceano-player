@@ -792,3 +792,157 @@ func TestPruneMatchingStubs_SparesExcludeID(t *testing.T) {
 		t.Error("PruneMatchingStubs should spare the excludeID entry")
 	}
 }
+
+// ── DurationMs persistence ────────────────────────────────────────────────────
+
+// TestRecordPlay_PersistsDurationMs proves that the duration returned by a
+// recognition provider survives the RecordPlay → GetByID round-trip for all
+// three insert paths (ACRID, ShazamID-only, title+artist fallback).
+func TestRecordPlay_PersistsDurationMs(t *testing.T) {
+	tests := []struct {
+		name   string
+		result *RecognitionResult
+	}{
+		{
+			name: "ACRID path",
+			result: &RecognitionResult{
+				ACRID: "acr-dur-001", Title: "So What", Artist: "Miles Davis",
+				Score: 90, DurationMs: 561000,
+			},
+		},
+		{
+			name: "ShazamID path",
+			result: &RecognitionResult{
+				ShazamID: "shz-dur-001", Title: "Exodus", Artist: "Bob Marley",
+				Score: 85, DurationMs: 244000,
+			},
+		},
+		{
+			name: "title+artist fallback path",
+			result: &RecognitionResult{
+				Title: "Unique Track XYZ", Artist: "Unique Artist XYZ",
+				Score: 70, DurationMs: 185000,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lib := openTestLibrary(t)
+			id, err := lib.RecordPlay(tt.result, "")
+			if err != nil {
+				t.Fatalf("RecordPlay: %v", err)
+			}
+			entry, err := lib.GetByID(id)
+			if err != nil {
+				t.Fatalf("GetByID: %v", err)
+			}
+			if entry == nil {
+				t.Fatal("entry not found after RecordPlay")
+			}
+			if entry.DurationMs != tt.result.DurationMs {
+				t.Errorf("DurationMs = %d, want %d", entry.DurationMs, tt.result.DurationMs)
+			}
+		})
+	}
+}
+
+// TestRecordPlay_DurationMs_UpdatedOnConflict proves that when the same track
+// is played again with a non-zero DurationMs, the stored value is updated.
+// And when the re-play carries DurationMs=0 (provider did not return a duration),
+// the previously stored value is preserved.
+func TestRecordPlay_DurationMs_UpdatedOnConflict(t *testing.T) {
+	lib := openTestLibrary(t)
+
+	// First play: no duration yet.
+	r1 := &RecognitionResult{ACRID: "acr-dur-upd", Title: "Track", Artist: "Artist", Score: 80}
+	id, _ := lib.RecordPlay(r1, "")
+
+	entry, _ := lib.GetByID(id)
+	if entry.DurationMs != 0 {
+		t.Fatalf("DurationMs should be 0 on first play without duration, got %d", entry.DurationMs)
+	}
+
+	// Second play: provider now returns a duration.
+	r2 := &RecognitionResult{ACRID: "acr-dur-upd", Title: "Track", Artist: "Artist", Score: 90, DurationMs: 210000}
+	lib.RecordPlay(r2, "") //nolint:errcheck
+
+	entry, _ = lib.GetByID(id)
+	if entry.DurationMs != 210000 {
+		t.Errorf("DurationMs = %d, want 210000 after update", entry.DurationMs)
+	}
+
+	// Third play: provider returns no duration — existing value must be preserved.
+	r3 := &RecognitionResult{ACRID: "acr-dur-upd", Title: "Track", Artist: "Artist", Score: 95, DurationMs: 0}
+	lib.RecordPlay(r3, "") //nolint:errcheck
+
+	entry, _ = lib.GetByID(id)
+	if entry.DurationMs != 210000 {
+		t.Errorf("DurationMs = %d, want 210000 preserved when re-play carries 0", entry.DurationMs)
+	}
+}
+
+// TestRecordDurationFalsePositive proves that RecordDurationFalsePositive stores
+// the elapsed value and that successive calls keep the maximum.
+func TestRecordDurationFalsePositive(t *testing.T) {
+	lib := openTestLibrary(t)
+
+	r := &RecognitionResult{ACRID: "acr-fp-test", Title: "Long Track", Artist: "Band", DurationMs: 840000}
+	id, err := lib.RecordPlay(r, "")
+	if err != nil {
+		t.Fatalf("RecordPlay: %v", err)
+	}
+
+	// Initial state: no false positive recorded.
+	entry, _ := lib.GetByID(id)
+	if entry.DurationFPElapsedMs != 0 {
+		t.Fatalf("DurationFPElapsedMs should be 0 initially, got %d", entry.DurationFPElapsedMs)
+	}
+
+	// Record a false positive at 5:30 (330 000 ms).
+	if err := lib.RecordDurationFalsePositive(id, 330_000); err != nil {
+		t.Fatalf("RecordDurationFalsePositive: %v", err)
+	}
+	entry, _ = lib.GetByID(id)
+	if entry.DurationFPElapsedMs != 330_000 {
+		t.Errorf("DurationFPElapsedMs = %d, want 330000", entry.DurationFPElapsedMs)
+	}
+
+	// A later false positive at 8:00 (480 000 ms) should update to the higher value.
+	if err := lib.RecordDurationFalsePositive(id, 480_000); err != nil {
+		t.Fatalf("RecordDurationFalsePositive (second): %v", err)
+	}
+	entry, _ = lib.GetByID(id)
+	if entry.DurationFPElapsedMs != 480_000 {
+		t.Errorf("DurationFPElapsedMs = %d, want 480000 after higher value", entry.DurationFPElapsedMs)
+	}
+
+	// A smaller value must NOT overwrite the maximum.
+	if err := lib.RecordDurationFalsePositive(id, 200_000); err != nil {
+		t.Fatalf("RecordDurationFalsePositive (smaller): %v", err)
+	}
+	entry, _ = lib.GetByID(id)
+	if entry.DurationFPElapsedMs != 480_000 {
+		t.Errorf("DurationFPElapsedMs = %d, want 480000 preserved (smaller value should not overwrite)", entry.DurationFPElapsedMs)
+	}
+}
+
+// TestRecordDurationFalsePositive_NilAndZeroSafe proves that RecordDurationFalsePositive
+// is a no-op when called with invalid arguments.
+func TestRecordDurationFalsePositive_NilAndZeroSafe(t *testing.T) {
+	lib := openTestLibrary(t)
+	// Zero entry ID — should not error.
+	if err := lib.RecordDurationFalsePositive(0, 300_000); err != nil {
+		t.Errorf("expected no error for entryID=0, got %v", err)
+	}
+	// Zero elapsed — should not error or write anything.
+	r := &RecognitionResult{ACRID: "acr-fp-zero", Title: "Track", Artist: "Artist"}
+	id, _ := lib.RecordPlay(r, "")
+	if err := lib.RecordDurationFalsePositive(id, 0); err != nil {
+		t.Errorf("expected no error for elapsedMs=0, got %v", err)
+	}
+	entry, _ := lib.GetByID(id)
+	if entry.DurationFPElapsedMs != 0 {
+		t.Errorf("DurationFPElapsedMs = %d, want 0 when elapsedMs=0 passed", entry.DurationFPElapsedMs)
+	}
+}

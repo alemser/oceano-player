@@ -1,83 +1,250 @@
 package recognition
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"strings"
+	"sync"
+	"time"
 )
 
-const shazamPythonScript = "import sys, asyncio, json\n" +
-	"from shazamio import Shazam\n\n" +
-	"async def identify():\n" +
-	"    shazam = Shazam()\n" +
-	"    try:\n" +
-	"        result = await shazam.recognize(sys.argv[1])\n" +
-	"    except Exception as e:\n" +
-	"        print(json.dumps({'error': str(e)}))\n" +
-	"        return\n" +
-	"    if 'track' not in result:\n" +
-	"        print(json.dumps({}))\n" +
-	"        return\n" +
-	"    track = result['track']\n" +
-	"    shazam_id = str(track.get('key', '') or '')\n" +
-	"    album = ''\n" +
-	"    for section in track.get('sections', []):\n" +
-	"        if section.get('type') == 'SONG':\n" +
-	"            for meta in section.get('metadata', []):\n" +
-	"                if meta.get('title') == 'Album':\n" +
-	"                    album = meta.get('text', '')\n" +
-	"    print(json.dumps({\n" +
-	"        'shazam_id': shazam_id,\n" +
-	"        'title': track.get('title', ''),\n" +
-	"        'artist': track.get('subtitle', ''),\n" +
-	"        'album': album,\n" +
-	"    }))\n\n" +
-	"asyncio.run(identify())\n"
+// shazamDaemonScript is a Python script that runs as a persistent daemon.
+// It imports shazamio once, then reads WAV paths from stdin (one per line)
+// and writes a JSON result to stdout for each path. This avoids the 1–3 s
+// cold-start cost of spawning a fresh interpreter per recognition call.
+const shazamDaemonScript = `import sys, asyncio, json
+from shazamio import Shazam
 
+async def main():
+    shazam = Shazam()
+    loop = asyncio.get_running_loop()
+    while True:
+        line = await loop.run_in_executor(None, sys.stdin.readline)
+        if not line:
+            break
+        wav_path = line.strip()
+        if not wav_path:
+            continue
+        try:
+            result = await shazam.recognize(wav_path)
+        except Exception as e:
+            sys.stdout.write(json.dumps({'error': str(e)}) + '\n')
+            sys.stdout.flush()
+            continue
+        if 'track' not in result:
+            sys.stdout.write(json.dumps({}) + '\n')
+            sys.stdout.flush()
+            continue
+        track = result['track']
+        shazam_id = str(track.get('key', '') or '')
+        album = ''
+        for section in track.get('sections', []):
+            if section.get('type') == 'SONG':
+                for meta in section.get('metadata', []):
+                    if meta.get('title') == 'Album':
+                        album = meta.get('text', '')
+        score = 0
+        duration_ms = 0
+        matches = result.get('matches', [])
+        if matches:
+            try:
+                score = int(round(float(matches[0].get('score', 0) or 0)))
+            except (ValueError, TypeError):
+                score = 0
+            try:
+                duration_ms = int(matches[0].get('length', 0) or 0)
+            except (ValueError, TypeError):
+                duration_ms = 0
+        sys.stdout.write(json.dumps({
+            'shazam_id': shazam_id,
+            'title': track.get('title', ''),
+            'artist': track.get('subtitle', ''),
+            'album': album,
+            'score': score,
+            'duration_ms': duration_ms,
+        }) + '\n')
+        sys.stdout.flush()
+
+asyncio.run(main())
+`
+
+// ShazamRecognizer identifies tracks via a persistent Python daemon that keeps
+// shazamio loaded between calls. The daemon is started once and restarted
+// automatically if it dies.
 type ShazamRecognizer struct {
-	pythonBin string
+	pythonBin  string
+	scriptPath string
+
+	mu     sync.Mutex
+	proc   *exec.Cmd
+	stdin  io.WriteCloser
+	stdout *bufio.Reader
 }
 
-func NewShazamRecognizer(pythonBin string) *ShazamRecognizer {
+// NewShazamRecognizer creates a Shazam recognizer backed by a persistent Python daemon.
+// It returns (nil, error) with a specific reason if:
+//   - the Python binary is missing
+//   - shazamio is not importable
+//   - the daemon script cannot be written or the daemon fails to start
+func NewShazamRecognizer(pythonBin string) (*ShazamRecognizer, error) {
 	if _, err := os.Stat(pythonBin); err != nil {
-		return nil
+		return nil, fmt.Errorf("python binary not found at %s: %w", pythonBin, err)
 	}
 	if err := exec.Command(pythonBin, "-c", "import shazamio").Run(); err != nil {
-		return nil
+		return nil, fmt.Errorf("shazamio not importable (python=%s): %w", pythonBin, err)
 	}
-	return &ShazamRecognizer{pythonBin: pythonBin}
+
+	f, err := os.CreateTemp("", "shazam-daemon-*.py")
+	if err != nil {
+		return nil, fmt.Errorf("create daemon script: %w", err)
+	}
+	if _, err := f.WriteString(shazamDaemonScript); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, fmt.Errorf("write daemon script: %w", err)
+	}
+	f.Close()
+
+	s := &ShazamRecognizer{
+		pythonBin:  pythonBin,
+		scriptPath: f.Name(),
+	}
+	if err := s.startProcess(); err != nil {
+		os.Remove(f.Name())
+		return nil, fmt.Errorf("start daemon: %w", err)
+	}
+	return s, nil
 }
 
 func (s *ShazamRecognizer) Name() string { return "Shazam" }
 
+// Recognize sends wavPath to the persistent daemon and returns the result.
+// It enforces a hard 45 s subprocess timeout independent of ctx, and
+// attempts a one-shot daemon restart if the process has died.
 func (s *ShazamRecognizer) Recognize(ctx context.Context, wavPath string) (*Result, error) {
-	pyFile, err := os.CreateTemp("", "shazam-*.py")
-	if err != nil {
-		return nil, fmt.Errorf("shazam: create temp script: %w", err)
-	}
-	defer os.Remove(pyFile.Name())
-	if _, err := pyFile.WriteString(shazamPythonScript); err != nil {
-		pyFile.Close()
-		return nil, fmt.Errorf("shazam: write script: %w", err)
-	}
-	pyFile.Close()
-
-	out, err := exec.CommandContext(ctx, s.pythonBin, pyFile.Name(), wavPath).Output()
-	if err != nil {
-		return nil, fmt.Errorf("shazam: python: %w", err)
+	if strings.ContainsAny(wavPath, "\r\n") {
+		return nil, fmt.Errorf("shazam: wavPath contains newline characters")
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Lazy start / restart after previous failure.
+	if s.proc == nil {
+		if err := s.startProcess(); err != nil {
+			return nil, fmt.Errorf("shazam: daemon restart: %w", err)
+		}
+	}
+
+	if _, err := fmt.Fprintln(s.stdin, wavPath); err != nil {
+		s.stopProcess()
+		// One-shot restart: try to recover so the next call succeeds.
+		if restartErr := s.startProcess(); restartErr != nil {
+			return nil, fmt.Errorf("shazam: write request (daemon restart also failed: %v): %w", restartErr, err)
+		}
+		return nil, fmt.Errorf("shazam: write request (daemon restarted, retry next call): %w", err)
+	}
+
+	type readResult struct {
+		line string
+		err  error
+	}
+	// Capture the reader before spawning the goroutine so stopProcess() cannot
+	// nil it out from under the goroutine mid-read.
+	stdout := s.stdout
+	ch := make(chan readResult, 1)
+	go func() {
+		line, err := stdout.ReadString('\n')
+		ch <- readResult{line, err}
+	}()
+
+	const hardTimeout = 45 * time.Second
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			s.stopProcess()
+			return nil, fmt.Errorf("shazam: read response: %w", r.err)
+		}
+		return parseShazamOutput([]byte(strings.TrimSpace(r.line)))
+	case <-ctx.Done():
+		s.stopProcess() // kills the process, unblocking the goroutine's read
+		<-ch            // wait for the goroutine to exit
+		return nil, ctx.Err()
+	case <-time.After(hardTimeout):
+		s.stopProcess()
+		<-ch
+		return nil, fmt.Errorf("shazam: subprocess timeout after %s", hardTimeout)
+	}
+}
+
+// Close stops the background Python daemon and removes the temp script file.
+func (s *ShazamRecognizer) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopProcess()
+	if s.scriptPath != "" {
+		os.Remove(s.scriptPath)
+		s.scriptPath = ""
+	}
+}
+
+// startProcess launches the Python daemon. Must be called with s.mu held.
+func (s *ShazamRecognizer) startProcess() error {
+	cmd := exec.Command(s.pythonBin, s.scriptPath)
+	cmd.Stderr = os.Stderr
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("stdin pipe: %w", err)
+	}
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		stdin.Close()
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		stdin.Close()
+		stdoutPipe.Close()
+		return fmt.Errorf("start: %w", err)
+	}
+	s.proc = cmd
+	s.stdin = stdin
+	s.stdout = bufio.NewReader(stdoutPipe)
+	return nil
+}
+
+// stopProcess kills the daemon and resets all process handles.
+// Must be called with s.mu held.
+func (s *ShazamRecognizer) stopProcess() {
+	if s.proc != nil && s.proc.Process != nil {
+		s.proc.Process.Kill()
+		s.proc.Wait()
+	}
+	if s.stdin != nil {
+		s.stdin.Close()
+	}
+	s.proc = nil
+	s.stdin = nil
+	s.stdout = nil
+}
+
+func parseShazamOutput(data []byte) (*Result, error) {
 	var payload struct {
-		ShazamID string `json:"shazam_id"`
-		Title    string `json:"title"`
-		Artist   string `json:"artist"`
-		Album    string `json:"album"`
-		Error    string `json:"error"`
+		ShazamID   string `json:"shazam_id"`
+		Title      string `json:"title"`
+		Artist     string `json:"artist"`
+		Album      string `json:"album"`
+		Score      int    `json:"score"`
+		DurationMs int    `json:"duration_ms"`
+		Error      string `json:"error"`
 	}
-	if err := json.Unmarshal(out, &payload); err != nil {
-		return nil, fmt.Errorf("shazam: parse output: %w", err)
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("shazam: parse output %q: %w", data, err)
 	}
 	if payload.Error != "" {
 		return nil, fmt.Errorf("shazam: api error: %s", payload.Error)
@@ -86,9 +253,11 @@ func (s *ShazamRecognizer) Recognize(ctx context.Context, wavPath string) (*Resu
 		return nil, nil
 	}
 	return &Result{
-		ShazamID: payload.ShazamID,
-		Title:    payload.Title,
-		Artist:   payload.Artist,
-		Album:    payload.Album,
+		ShazamID:   payload.ShazamID,
+		Title:      payload.Title,
+		Artist:     payload.Artist,
+		Album:      payload.Album,
+		Score:      payload.Score,
+		DurationMs: payload.DurationMs,
 	}, nil
 }

@@ -96,14 +96,21 @@ func (m *mgr) buildState() PlayerState {
 				sampleRate = airplaySampleRate
 				bitDepth = airplayBitDepth
 			}
+			seekUpdatedAt := ""
+			if !m.physicalSeekUpdatedAt.IsZero() {
+				seekUpdatedAt = m.physicalSeekUpdatedAt.UTC().Format(time.RFC3339)
+			}
 			track = &TrackInfo{
-				Title:       r.Title,
-				Artist:      r.Artist,
-				Album:       r.Album,
-				TrackNumber: r.TrackNumber,
-				SampleRate:  sampleRate,
-				BitDepth:    bitDepth,
-				ArtworkPath: m.physicalArtworkPath,
+				Title:         r.Title,
+				Artist:        r.Artist,
+				Album:         r.Album,
+				TrackNumber:   r.TrackNumber,
+				DurationMS:    int64(r.DurationMs),
+				SeekMS:        m.physicalSeekMS,
+				SeekUpdatedAt: seekUpdatedAt,
+				SampleRate:    sampleRate,
+				BitDepth:      bitDepth,
+				ArtworkPath:   m.physicalArtworkPath,
 			}
 		}
 		// track remains nil until recognition identifies the track.
@@ -259,6 +266,7 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 			Score:       entry.Score,
 			Format:      entry.Format,
 			TrackNumber: entry.TrackNumber,
+			DurationMs:  entry.DurationMs,
 		}
 		m.physicalLibraryEntryID = entry.ID
 		m.physicalArtworkPath = entry.ArtworkPath
@@ -299,9 +307,18 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 				m.recognitionResult.TrackNumber = entry.TrackNumber
 				changed = true
 			}
+			if entry.DurationMs > 0 && m.recognitionResult.DurationMs != entry.DurationMs {
+				m.recognitionResult.DurationMs = entry.DurationMs
+				changed = true
+			}
 			if m.physicalArtworkPath != entry.ArtworkPath {
 				m.physicalArtworkPath = entry.ArtworkPath
 				changed = true
+			}
+			// Sync learned calibration data. Not state-dirty — internal only.
+			fpElapsed := int64(entry.DurationFPElapsedMs)
+			if m.physicalDurationFPElapsedMs != fpElapsed {
+				m.physicalDurationFPElapsedMs = fpElapsed
 			}
 		}
 	}

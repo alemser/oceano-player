@@ -294,11 +294,40 @@ type mgr struct {
 	// shazamContinuityReady becomes true when the current track is a Shazam
 	// fallback match, or when Shazam has confirmed the current ACR track.
 	shazamContinuityReady bool
+	// shazamContinuityAbandoned is set after the calibration deadline passes
+	// without Shazam ever agreeing with ACRCloud on the current track. When true,
+	// the continuity monitor is skipped for the rest of the track's lifetime so
+	// that systematic Shazam mis-identification cannot fire spurious triggers.
+	// Reset to false whenever shazamContinuityReady is reset (new track / boundary).
+	shazamContinuityAbandoned bool
+	// physicalStartedAt records approximately when the current track began
+	// playing. Set to time.Now() when a new physical session starts (source
+	// goes from None → Physical after idle delay). Updated to lastBoundaryAt
+	// when a boundary-triggered recognition succeeds, so fallback timer
+	// recognitions on the same track also get an accurate seek estimate.
+	physicalStartedAt time.Time
+	// physicalSeekMS and physicalSeekUpdatedAt provide a best-effort seek
+	// position for the Physical source progress bar. Set when recognition
+	// completes (boundary or fallback), using the elapsed time since capture
+	// start as a proxy for how far into the track we are. Reset on boundary.
+	physicalSeekMS        int64
+	physicalSeekUpdatedAt time.Time
+	// physicalDurationFPElapsedMs holds the learned elapsed time (ms) at which a
+	// false-positive boundary trigger was last observed for the current track.
+	// Loaded from the library entry via syncFromLibrary; reset on boundary clear.
+	// Used by the VU monitor to extend the suppression window beyond the default
+	// 75%-of-duration threshold when the track is known to have silent passages.
+	physicalDurationFPElapsedMs int64
+
 	// recognizerBusyUntil suppresses continuity checks while the main recognizer
 	// is already capturing/identifying, avoiding stale duplicate triggers.
 	recognizerBusyUntil time.Time
-	// Last continuity mismatch signature, used to dedupe repeated triggers for
-	// the same from->to mismatch within a short cooldown window.
+	// Continuity mismatch confirmation: a mismatch must be observed twice within
+	// continuityMismatchConfirmWindow before a re-recognition trigger fires.
+	// This prevents a single Shazam mis-identification (common when running
+	// without prior alignment confirmation) from causing a spurious track change.
+	// lastContinuityMismatchAt records when the *first* sighting of the current
+	// from→to pair occurred; the pair is stored in the two string fields below.
 	lastContinuityMismatchAt   time.Time
 	lastContinuityMismatchFrom string
 	lastContinuityMismatchTo   string
@@ -404,7 +433,11 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 	if captureDur <= 0 {
 		captureDur = 4 * time.Second
 	}
-	const continuityMismatchCooldown = 20 * time.Second
+	// A mismatch pair must be seen twice within this window to fire a trigger.
+	// At the default 8 s check interval this means confirmation in ~8–16 s for
+	// a real track change, while a single erroneous Shazam result is silently
+	// discarded. 3 min covers several missed cycles without resetting too eagerly.
+	const continuityMismatchConfirmWindow = 3 * time.Minute
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -426,16 +459,53 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 		}
 		current := *m.recognitionResult
 		ready := m.shazamContinuityReady
+		abandoned := m.shazamContinuityAbandoned
 		lastRecognizedAt := m.lastRecognizedAt
 		m.mu.Unlock()
 
-		// Allow continuity checks after a 30 s grace period even when Shazam
-		// alignment was never confirmed (e.g. transient error in tryEnableShazamContinuity,
-		// or Shazam simply couldn't identify the current track). Without this, a failed
-		// alignment silently disables the entire continuity monitor for the lifetime of
-		// the track, causing missed track-change detection.
-		const continuityGracePeriod = 30 * time.Second
-		if !ready && time.Since(lastRecognizedAt) < continuityGracePeriod {
+		// If calibration was already abandoned for this track, skip all polls.
+		if abandoned {
+			continue
+		}
+
+		// Duration-based skip: when the provider returned a track duration and
+		// we are still comfortably within the expected track window, there is no
+		// need to poll Shazam — we are certain the same track is still playing.
+		// Only activate this optimisation once the monitor is calibrated (ready),
+		// so the calibration phase still runs at the normal cadence.
+		//
+		// earlyCheckMargin leaves time for: one 4 s capture + one 8 s recognition
+		// round-trip + one poll cycle before the track ends, so the monitor can
+		// still detect the new track arriving right on schedule.
+		const earlyCheckMargin = 20 * time.Second
+		if ready && current.DurationMs > 0 {
+			trackDuration := time.Duration(current.DurationMs) * time.Millisecond
+			elapsed := time.Since(lastRecognizedAt)
+			if elapsed < trackDuration-earlyCheckMargin {
+				continue
+			}
+		}
+
+		// While the monitor is not yet calibrated (Shazam has not agreed with
+		// ACRCloud at least once for the current track), wait for tryEnableShazamContinuity
+		// to succeed. After continuityCalibrationTimeout passes without any
+		// agreeing poll, abandon the monitor for this track entirely rather than
+		// running uncalibrated: an uncalibrated monitor is at risk of the
+		// two-sighting confirmation confirming the *same wrong result* twice,
+		// causing spurious triggers every ~3 min.
+		const continuityCalibrationTimeout = 5 * time.Minute
+		if !ready {
+			if time.Since(lastRecognizedAt) < continuityCalibrationTimeout {
+				continue
+			}
+			// Deadline exceeded without any agreeing poll — abandon for this track.
+			m.mu.Lock()
+			if !m.shazamContinuityReady && !m.shazamContinuityAbandoned {
+				m.shazamContinuityAbandoned = true
+				log.Printf("shazam continuity: Shazam did not confirm current track within %s — disabling continuity monitor for this track (VU monitor + fallback timer remain active)",
+					continuityCalibrationTimeout)
+			}
+			m.mu.Unlock()
 			continue
 		}
 
@@ -480,19 +550,31 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 			m.mu.Unlock()
 			continue
 		}
-		duplicateMismatch := m.lastContinuityMismatchFrom == fromKey &&
+		// Require two consecutive sightings of the same from→to mismatch pair
+		// before firing a trigger. On the first sighting we record the pair and
+		// wait; on the second (within the confirm window) we trigger. This
+		// prevents a single Shazam mis-identification — especially likely when
+		// running without prior alignment confirmation (grace period) — from
+		// causing a spurious track-change event.
+		isConfirmed := m.lastContinuityMismatchFrom == fromKey &&
 			m.lastContinuityMismatchTo == toKey &&
-			now.Sub(m.lastContinuityMismatchAt) < continuityMismatchCooldown
-		if duplicateMismatch {
+			now.Sub(m.lastContinuityMismatchAt) < continuityMismatchConfirmWindow
+		if !isConfirmed {
+			m.lastContinuityMismatchAt = now
+			m.lastContinuityMismatchFrom = fromKey
+			m.lastContinuityMismatchTo = toKey
 			m.mu.Unlock()
+			log.Printf("shazam continuity: mismatch candidate (%s — %s vs %s — %s) — awaiting confirmation",
+				current.Artist, current.Title, shRes.Artist, shRes.Title)
 			continue
 		}
-		m.lastContinuityMismatchAt = now
-		m.lastContinuityMismatchFrom = fromKey
-		m.lastContinuityMismatchTo = toKey
+		// Second sighting confirmed — reset so the next change also requires two sightings.
+		m.lastContinuityMismatchAt = time.Time{}
+		m.lastContinuityMismatchFrom = ""
+		m.lastContinuityMismatchTo = ""
 		m.mu.Unlock()
 
-		log.Printf("shazam continuity: mismatch detected (%s — %s vs %s — %s) — triggering immediate re-recognition",
+		log.Printf("shazam continuity: mismatch confirmed (%s — %s vs %s — %s) — triggering immediate re-recognition",
 			current.Artist, current.Title, shRes.Artist, shRes.Title)
 		select {
 		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true}:
