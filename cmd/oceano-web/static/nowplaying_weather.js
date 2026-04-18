@@ -51,19 +51,21 @@ function weatherIconSVG(kind) {
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 14h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.3-1.6A3.5 3.5 0 0 0 6 14Z"/><path d="M9 18h0M13 19h0M17 18h0"/></svg>`;
     case 'fog':
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M5 11h12"/><path d="M3 15h15"/><path d="M6 19h10"/></svg>`;
+    case 'moon':
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>`;
     default: // sun
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.8"/><path d="M12 2.2V5M12 19V21.8M2.2 12H5M19 12h2.8M5 5L7 7M17 17L19 19M17 7L19 5M5 19L7 17"/></svg>`;
   }
 }
 
-function weatherIconKind(code) {
+function weatherIconKind(code, isDay = true) {
   const n = Number(code);
   if ([45, 48].includes(n)) return 'fog';
   if ([95, 96, 99].includes(n)) return 'storm';
   if ([71, 73, 75, 77, 85, 86].includes(n)) return 'snow';
   if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(n)) return 'rain';
   if ([1, 2, 3].includes(n)) return 'cloud';
-  return 'sun';
+  return isDay ? 'sun' : 'moon';
 }
 
 function weatherLabelFromCode(code) {
@@ -90,10 +92,11 @@ function renderWeather(data) {
   // Current temp + condition + icon
   const temp    = current ? Number(current.temperature_2m) : NaN;
   const code    = current ? current.weather_code : null;
+  const isDay   = current ? current.is_day !== 0 : true;
   const pressure = current ? Math.round(Number(current.surface_pressure)) : null;
 
   if ($idleWeatherIcon) {
-    $idleWeatherIcon.innerHTML = weatherIconSVG(weatherIconKind(code));
+    $idleWeatherIcon.innerHTML = weatherIconSVG(weatherIconKind(code, isDay));
   }
   if ($idleWeatherTemp) {
     $idleWeatherTemp.textContent = Number.isFinite(temp) ? Math.round(temp) + '°C' : '—°C';
@@ -188,7 +191,7 @@ async function refreshWeather() {
   const query = new URLSearchParams({
     latitude:     String(WEATHER_CONFIG.latitude),
     longitude:    String(WEATHER_CONFIG.longitude),
-    current:      'temperature_2m,weather_code,surface_pressure',
+    current:      'temperature_2m,weather_code,surface_pressure,is_day',
     daily:        'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset',
     forecast_days: '7',
     timezone:     'auto',

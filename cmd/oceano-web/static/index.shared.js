@@ -282,6 +282,8 @@ function updateRecognitionUI() {
 }
 
 // ── Status bar ───────────────────────────────────────────────────────────────
+window._lastBackendStatus = null;
+
 async function loadStatus() {
   try {
     const r = await fetch('/api/status');
@@ -295,6 +297,8 @@ async function loadStatus() {
 let _lastArtworkPath = null;
 
 function setStatus(s) {
+  window._lastBackendStatus = s || null;
+
   const bar      = document.getElementById('status-bar');
   const titleEl  = document.getElementById('status-title');
   const subEl    = document.getElementById('status-subtitle');

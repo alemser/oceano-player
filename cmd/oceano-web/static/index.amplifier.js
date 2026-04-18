@@ -140,6 +140,20 @@ function renderAmpInputSelect() {
   renderCurrentInputDeviceWidget();
 }
 
+function isStreamingInputChangeBlocked() {
+  const guardEnabled = document.getElementById('adv-streaming-usb-guard-enabled')?.checked ?? true;
+  if (!guardEnabled) return false;
+
+  const s = window._lastBackendStatus;
+  if (!s || s.state !== 'playing') return false;
+
+  return s.source === 'AirPlay' || s.source === 'Bluetooth';
+}
+
+function notifyStreamingInputChangeBlocked() {
+  toast('Stop AirPlay/Bluetooth playback first, or disable Streaming USB Guard in Advanced.', true);
+}
+
 // ── Connected Devices ────────────────────────────────────────────────────────
 
 function setConnectedDevicesModel(devices) {
@@ -1025,6 +1039,11 @@ async function ampVolume(direction) {
 // ── Input navigation buttons ──────────────────────────────────────────────────
 
 async function ampNextInput() {
+  if (isStreamingInputChangeBlocked()) {
+    notifyStreamingInputChangeBlocked();
+    return;
+  }
+
   const r = await fetch('/api/amplifier/next-input', { method: 'POST' });
   if (!r.ok) return;
   const total = _ampInputsModel.length;
@@ -1036,6 +1055,11 @@ async function ampNextInput() {
 }
 
 async function ampPrevInput() {
+  if (isStreamingInputChangeBlocked()) {
+    notifyStreamingInputChangeBlocked();
+    return;
+  }
+
   const r = await fetch('/api/amplifier/prev-input', { method: 'POST' });
   if (!r.ok) return;
   const total = _ampInputsModel.length;
@@ -1052,6 +1076,12 @@ async function ampPrevInput() {
 // In cycle mode, the backend handles the first IR press as selector activation,
 // then performs one additional press per requested forward step.
 async function ampSelectInputByFullIdx(targetFullIdx) {
+  if (isStreamingInputChangeBlocked()) {
+    notifyStreamingInputChangeBlocked();
+    renderAmpInputSelect();
+    return;
+  }
+
   if (_ampProcessingCount > 0) return;
   const total = _ampInputsModel.length;
   if (total === 0 || targetFullIdx < 0) return;
@@ -1067,7 +1097,18 @@ async function ampSelectInputByFullIdx(targetFullIdx) {
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ steps }),
     });
-    if (!r.ok) return;
+    if (!r.ok) {
+      let msg = 'Failed to change input.';
+      try {
+        const err = await r.json();
+        if (err?.error) msg = err.error;
+      } catch {
+        // Keep fallback message when backend does not return JSON.
+      }
+      toast(msg, true);
+      renderAmpInputSelect();
+      return;
+    }
 
     _ampCurrentInputIdx = targetFullIdx;
     renderAmpInputSelect();

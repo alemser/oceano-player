@@ -74,6 +74,22 @@ func do(t *testing.T, handler http.HandlerFunc, method, path, body string) *http
 	return w
 }
 
+func writeStreamingStateFile(t *testing.T, filePath string, source, state string, updatedAt time.Time) {
+	t.Helper()
+	payload := map[string]any{
+		"source":     source,
+		"state":      state,
+		"updated_at": updatedAt.Format(time.RFC3339Nano),
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal streaming state: %v", err)
+	}
+	if err := os.WriteFile(filePath, raw, 0o644); err != nil {
+		t.Fatalf("write streaming state: %v", err)
+	}
+}
+
 // --- /api/amplifier/state ---
 
 func TestAmplifierState_NotConfigured(t *testing.T) {
@@ -183,6 +199,59 @@ func TestAmplifierPrevInput_OK(t *testing.T) {
 	}
 	if len(mock.Sent) != 1 || mock.Sent[0] != "IR_PREV" {
 		t.Errorf("expected [IR_PREV], got %v", mock.Sent)
+	}
+}
+
+func TestAmplifierNextInput_BlockedWhileStreamingGuardActive(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp)
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	writeStreamingStateFile(t, statePath, "AirPlay", "playing", time.Now())
+
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cfg.Advanced.StreamingUSBGuardEnabled = true
+	cfg.Advanced.StateFile = statePath
+	if err := saveConfig(s.configPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	w := do(t, s.handleAmplifierNextInput, http.MethodPost, "/api/amplifier/next-input", "")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("want 409, got %d: %s", w.Code, w.Body)
+	}
+	if len(mock.Sent) != 0 {
+		t.Fatalf("expected no IR commands, got %v", mock.Sent)
+	}
+}
+
+func TestAmplifierSelectInput_AllowsWhenStreamingGuardDisabled(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp)
+	s.waitFn = func(context.Context, time.Duration) error { return nil }
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	writeStreamingStateFile(t, statePath, "Bluetooth", "playing", time.Now())
+
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cfg.Advanced.StreamingUSBGuardEnabled = false
+	cfg.Advanced.StateFile = statePath
+	if err := saveConfig(s.configPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	w := do(t, s.handleAmplifierSelectInput, http.MethodPost, "/api/amplifier/select-input", `{"steps":1}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if len(mock.Sent) != 2 {
+		t.Fatalf("expected 2 IR commands in cycle mode for one step, got %d (%v)", len(mock.Sent), mock.Sent)
 	}
 }
 

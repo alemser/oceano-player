@@ -265,6 +265,10 @@ func (s *amplifierServer) handleAmplifierNextInput(w http.ResponseWriter, r *htt
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
 		return
 	}
+	if s.shouldBlockManualInputChange() {
+		jsonError(w, "stop AirPlay/Bluetooth playback first or disable Streaming USB Guard", http.StatusConflict)
+		return
+	}
 	if err := s.amp.NextInput(); err != nil {
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -282,6 +286,10 @@ func (s *amplifierServer) handleAmplifierPrevInput(w http.ResponseWriter, r *htt
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
 		return
 	}
+	if s.shouldBlockManualInputChange() {
+		jsonError(w, "stop AirPlay/Bluetooth playback first or disable Streaming USB Guard", http.StatusConflict)
+		return
+	}
 	if err := s.amp.PrevInput(); err != nil {
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -297,6 +305,10 @@ func (s *amplifierServer) handleAmplifierSelectInput(w http.ResponseWriter, r *h
 	}
 	if s.amp == nil {
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
+		return
+	}
+	if s.shouldBlockManualInputChange() {
+		jsonError(w, "stop AirPlay/Bluetooth playback first or disable Streaming USB Guard", http.StatusConflict)
 		return
 	}
 	var req struct {
@@ -321,6 +333,44 @@ func (s *amplifierServer) handleAmplifierSelectInput(w http.ResponseWriter, r *h
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *amplifierServer) shouldBlockManualInputChange() bool {
+	if s.configPath == "" {
+		return false
+	}
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		return false
+	}
+	if !cfg.Advanced.StreamingUSBGuardEnabled {
+		return false
+	}
+
+	stateFile := strings.TrimSpace(cfg.Advanced.StateFile)
+	if stateFile == "" {
+		return false
+	}
+
+	info, err := os.Stat(stateFile)
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return false
+	}
+
+	var snap streamingStateSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return false
+	}
+
+	now := time.Now()
+	if !isStreamingStateFresh(info.ModTime(), snap.UpdatedAt, now) {
+		return false
+	}
+
+	return shouldEnsureUSBForStreamingPlayback(snap.Source, snap.State)
+}
 func (s *amplifierServer) handleAmplifierSetLastKnownInput(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
