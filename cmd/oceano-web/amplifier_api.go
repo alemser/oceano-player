@@ -8,18 +8,18 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/alemser/oceano-player/internal/amplifier"
 )
 
-// amplifierServer holds the in-memory state for amplifier and CD player control.
-// amp and cdPlayer are nil when the respective device is not configured or enabled.
+// amplifierServer holds the in-memory state for amplifier control.
+// amp may be nil when the device is not configured or enabled.
 type amplifierServer struct {
 	configPath string
 	amp        *amplifier.BroadlinkAmplifier
-	cdPlayer   *amplifier.BroadlinkCDPlayer
 	monitor    *amplifier.PowerStateMonitor
 
 	// usbProbeFn and waitFn are optional test hooks.
@@ -36,12 +36,15 @@ type amplifierServer struct {
 
 	learnMu    sync.Mutex
 	learnState *learningAttempt
+
+	inputNavMu          sync.Mutex
+	lastInputNavPressAt time.Time
 }
 
 // learningAttempt tracks an in-progress or completed IR learning session.
 type learningAttempt struct {
 	Command string `json:"command"`           // e.g. "power_on"
-	Device  string `json:"device"`            // "amplifier" or "cdplayer"
+	Device  string `json:"device"`            // "amplifier" or "device-{id}"
 	Status  string `json:"status"`            // "listening", "captured", "timeout", "error"
 	Code    string `json:"code,omitempty"`    // base64 IR code on success
 	Message string `json:"message,omitempty"` // error detail
@@ -56,14 +59,13 @@ type pairingAttempt struct {
 	Message  string `json:"message,omitempty"`
 }
 
-// registerAmplifierRoutes wires all /api/amplifier/* and /api/cdplayer/* endpoints.
-// amp, monitor and cdPlayer may be nil; affected endpoints return 404 in that case.
-func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifier, monitor *amplifier.PowerStateMonitor, cdPlayer *amplifier.BroadlinkCDPlayer, configPath string) *amplifierServer {
+// registerAmplifierRoutes wires all /api/amplifier/* endpoints.
+// amp and monitor may be nil; affected endpoints return 404 in that case.
+func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifier, monitor *amplifier.PowerStateMonitor, configPath string) *amplifierServer {
 	s := &amplifierServer{
 		configPath: configPath,
 		amp:        amp,
 		monitor:    monitor,
-		cdPlayer:   cdPlayer,
 	}
 
 	mux.HandleFunc("/api/amplifier/state", s.handleAmplifierState)
@@ -74,14 +76,19 @@ func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifi
 	mux.HandleFunc("/api/amplifier/volume", s.handleAmplifierVolume)
 	mux.HandleFunc("/api/amplifier/next-input", s.handleAmplifierNextInput)
 	mux.HandleFunc("/api/amplifier/prev-input", s.handleAmplifierPrevInput)
+	mux.HandleFunc("/api/amplifier/select-input", s.handleAmplifierSelectInput)
+	mux.HandleFunc("/api/amplifier/last-known-input", s.handleAmplifierSetLastKnownInput)
+	mux.HandleFunc("/api/amplifier/device-action", s.handleAmplifierDeviceAction)
 	mux.HandleFunc("/api/amplifier/reset-usb-input", s.handleAmplifierResetUSBInput)
 	mux.HandleFunc("/api/amplifier/pair-start", s.handlePairStart)
 	mux.HandleFunc("/api/amplifier/pair-status", s.handlePairStatus)
 	mux.HandleFunc("/api/amplifier/pair-complete", s.handlePairComplete)
+	mux.HandleFunc("/api/amplifier/profiles", s.handleAmplifierProfiles)
+	mux.HandleFunc("/api/amplifier/profiles/activate", s.handleAmplifierProfileActivate)
+	mux.HandleFunc("/api/amplifier/profiles/export", s.handleAmplifierProfileExport)
+	mux.HandleFunc("/api/amplifier/profiles/import", s.handleAmplifierProfileImport)
 	mux.HandleFunc("/api/broadlink/learn-start", s.handleLearnStart)
 	mux.HandleFunc("/api/broadlink/learn-status", s.handleLearnStatus)
-	mux.HandleFunc("/api/cdplayer/state", s.handleCDPlayerState)
-	mux.HandleFunc("/api/cdplayer/transport", s.handleCDPlayerTransport)
 
 	return s
 }
@@ -98,17 +105,6 @@ type amplifierStateResponse struct {
 type amplifierPowerStateResponse struct {
 	PowerState  string    `json:"power_state"`
 	LastUpdated time.Time `json:"last_updated"`
-}
-
-type cdPlayerStateResponse struct {
-	Maker              string    `json:"maker"`
-	Model              string    `json:"model"`
-	Track              *int      `json:"track"`
-	TotalTracks        *int      `json:"total_tracks"`
-	IsPlaying          *bool     `json:"is_playing"`
-	CurrentTimeSeconds *int      `json:"current_time_seconds"`
-	TotalTimeSeconds   *int      `json:"total_time_seconds"`
-	LastUpdated        time.Time `json:"last_updated"`
 }
 
 // --- amplifier handlers ---
@@ -273,6 +269,7 @@ func (s *amplifierServer) handleAmplifierNextInput(w http.ResponseWriter, r *htt
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+	s.markInputNavPress()
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -286,6 +283,143 @@ func (s *amplifierServer) handleAmplifierPrevInput(w http.ResponseWriter, r *htt
 		return
 	}
 	if err := s.amp.PrevInput(); err != nil {
+		jsonError(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	s.markInputNavPress()
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *amplifierServer) handleAmplifierSelectInput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.amp == nil {
+		jsonError(w, "amplifier not configured", http.StatusNotFound)
+		return
+	}
+	var req struct {
+		Steps int `json:"steps"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Steps < 0 {
+		jsonError(w, "steps must be >= 0", http.StatusBadRequest)
+		return
+	}
+	if err := s.selectInputForward(r.Context(), req.Steps); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			jsonError(w, "request canceled", http.StatusRequestTimeout)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *amplifierServer) handleAmplifierSetLastKnownInput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		InputID AmplifierInputID `json:"input_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(string(req.InputID)) == "" {
+		jsonError(w, "input_id is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.persistLastKnownInputID(req.InputID); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *amplifierServer) handleAmplifierDeviceAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		DeviceID string `json:"device_id"`
+		Action   string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.DeviceID == "" || req.Action == "" {
+		jsonError(w, "device_id and action are required", http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		jsonError(w, "failed to load config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var dev *ConnectedDeviceConfig
+	for i := range cfg.Amplifier.ConnectedDevices {
+		if cfg.Amplifier.ConnectedDevices[i].ID == req.DeviceID {
+			dev = &cfg.Amplifier.ConnectedDevices[i]
+			break
+		}
+	}
+	if dev == nil {
+		jsonError(w, "device not found", http.StatusNotFound)
+		return
+	}
+	if !dev.HasRemote {
+		jsonError(w, "device has no remote enabled", http.StatusBadRequest)
+		return
+	}
+
+	host := cfg.Amplifier.Broadlink.Host
+	if host == "" {
+		jsonError(w, "Broadlink device not paired — complete pairing first", http.StatusBadRequest)
+		return
+	}
+
+	player := amplifier.NewBroadlinkCDPlayer(
+		broadlinkClientFromConfig(host),
+		amplifier.CDPlayerSettings{
+			Maker:   dev.Name,
+			Model:   "",
+			IRCodes: dev.IRCodes,
+		},
+	)
+
+	switch req.Action {
+	case "play":
+		err = player.Play()
+	case "pause":
+		err = player.Pause()
+	case "stop":
+		err = player.Stop()
+	case "next":
+		err = player.Next()
+	case "prev":
+		err = player.Previous()
+	case "eject":
+		err = player.Eject()
+	default:
+		jsonError(w, `action must be "play", "pause", "stop", "next", "prev", or "eject"`, http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -348,28 +482,51 @@ func (s *amplifierServer) resetUSBInput(ctx context.Context) (resetUSBInputRespo
 		return resetUSBInputResponse{}, fmt.Errorf("amplifier not configured")
 	}
 
+	cfg, _ := loadConfig(s.configPath)
+	ampCfg := resolveAmplifierConfig(cfg.Amplifier)
+	inputs := ampCfg.Inputs
+	usbIdx := findUSBInputIndex(inputs)
+	usbID := AmplifierInputID("")
+	if usbIdx >= 0 {
+		usbID = inputs[usbIdx].ID
+	}
+
 	if s.usbDACPresent(ctx) {
+		if usbID != "" {
+			_ = s.persistLastKnownInputID(usbID)
+		}
 		return resetUSBInputResponse{Status: "already_usb", Attempts: 0}, nil
 	}
 
 	maxAttempts, firstStepSettle, stepWait := s.usbResetSettings()
+	if len(inputs) > 0 && len(inputs) < maxAttempts {
+		maxAttempts = len(inputs)
+	}
+
+	press := s.amp.PrevInput
+	if dir, ok := chooseUSBResetDirection(cfg); ok && dir == "next" {
+		press = s.amp.NextInput
+	}
 	jumps := 0
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		// Rotary input selectors may need two presses: first highlights current
 		// input, second performs the change. Probe once after the first press so
 		// we can stop immediately if USB was reached and avoid an extra step.
-		if err := s.amp.PrevInput(); err != nil {
+		if err := press(); err != nil {
 			return resetUSBInputResponse{}, err
 		}
 		if err := s.waitWithContext(ctx, firstStepSettle); err != nil {
 			return resetUSBInputResponse{}, err
 		}
 		if s.usbDACPresent(ctx) {
+			if usbID != "" {
+				_ = s.persistLastKnownInputID(usbID)
+			}
 			return resetUSBInputResponse{Status: "found_usb", Attempts: jumps}, nil
 		}
 
-		if err := s.amp.PrevInput(); err != nil {
+		if err := press(); err != nil {
 			return resetUSBInputResponse{}, err
 		}
 		jumps++
@@ -377,6 +534,9 @@ func (s *amplifierServer) resetUSBInput(ctx context.Context) (resetUSBInputRespo
 			return resetUSBInputResponse{}, err
 		}
 		if s.usbDACPresent(ctx) {
+			if usbID != "" {
+				_ = s.persistLastKnownInputID(usbID)
+			}
 			return resetUSBInputResponse{Status: "found_usb", Attempts: jumps}, nil
 		}
 	}
@@ -411,68 +571,149 @@ func (s *amplifierServer) usbResetSettings() (int, time.Duration, time.Duration)
 	return maxAttempts, firstStepSettle, stepWait
 }
 
-// --- CD player handlers ---
-
-func (s *amplifierServer) handleCDPlayerState(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+func (s *amplifierServer) selectInputForward(ctx context.Context, steps int) error {
+	if s.amp == nil {
+		return fmt.Errorf("amplifier not configured")
 	}
-	if s.cdPlayer == nil {
-		jsonError(w, "CD player not configured", http.StatusNotFound)
-		return
+	if steps == 0 {
+		return nil
 	}
 
-	// Track/time queries are not supported via IR on the CD-S300; all fields are null.
-	jsonOK(w, cdPlayerStateResponse{
-		Maker:       s.cdPlayer.Maker(),
-		Model:       s.cdPlayer.Model(),
-		LastUpdated: time.Now(),
-	})
+	if s.configPath == "" {
+		for i := 0; i < steps; i++ {
+			if err := s.amp.NextInput(); err != nil {
+				return err
+			}
+			s.markInputNavPress()
+		}
+		return nil
+	}
+
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		return err
+	}
+	ampCfg := resolveAmplifierConfig(cfg.Amplifier)
+	if !strings.EqualFold(strings.TrimSpace(ampCfg.InputMode), "cycle") {
+		for i := 0; i < steps; i++ {
+			if err := s.amp.NextInput(); err != nil {
+				return err
+			}
+			s.markInputNavPress()
+		}
+		return nil
+	}
+
+	_, firstStepSettle, _ := s.usbResetSettings()
+	selectionActiveWindow := 1200 * time.Millisecond
+	if !s.inputSelectionIsActive(selectionActiveWindow) {
+		if err := s.amp.NextInput(); err != nil {
+			return err
+		}
+		s.markInputNavPress()
+		if err := s.waitWithContext(ctx, firstStepSettle); err != nil {
+			return err
+		}
+	}
+
+	stepAdvanceWait := firstStepSettle
+	if stepAdvanceWait <= 0 {
+		stepAdvanceWait = 150 * time.Millisecond
+	}
+	for i := 0; i < steps; i++ {
+		if err := s.amp.NextInput(); err != nil {
+			return err
+		}
+		s.markInputNavPress()
+		if i < steps-1 {
+			if err := s.waitWithContext(ctx, stepAdvanceWait); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
-func (s *amplifierServer) handleCDPlayerTransport(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if s.cdPlayer == nil {
-		jsonError(w, "CD player not configured", http.StatusNotFound)
-		return
-	}
+func (s *amplifierServer) markInputNavPress() {
+	s.inputNavMu.Lock()
+	s.lastInputNavPressAt = time.Now()
+	s.inputNavMu.Unlock()
+}
 
-	var req struct {
-		Action string `json:"action"`
+func (s *amplifierServer) inputSelectionIsActive(window time.Duration) bool {
+	s.inputNavMu.Lock()
+	last := s.lastInputNavPressAt
+	s.inputNavMu.Unlock()
+	if last.IsZero() {
+		return false
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
+	return time.Since(last) <= window
+}
 
-	var err error
-	switch req.Action {
-	case "play":
-		err = s.cdPlayer.Play()
-	case "pause":
-		err = s.cdPlayer.Pause()
-	case "stop":
-		err = s.cdPlayer.Stop()
-	case "next":
-		err = s.cdPlayer.Next()
-	case "prev":
-		err = s.cdPlayer.Previous()
-	case "eject":
-		err = s.cdPlayer.Eject()
-	default:
-		jsonError(w, `action must be "play", "pause", "stop", "next", "prev", or "eject"`, http.StatusBadRequest)
-		return
+func (s *amplifierServer) persistLastKnownInputID(inputID AmplifierInputID) error {
+	if s.configPath == "" {
+		return nil
 	}
-
+	cfg, err := loadConfig(s.configPath)
 	if err != nil {
-		jsonError(w, err.Error(), http.StatusServiceUnavailable)
-		return
+		return err
 	}
-	w.WriteHeader(http.StatusOK)
+	if findInputIndexByID(cfg.Amplifier.Inputs, inputID) < 0 {
+		return fmt.Errorf("input id %q not registered", inputID)
+	}
+	if cfg.AmplifierRuntime.LastKnownInputID == inputID {
+		return nil
+	}
+	cfg.AmplifierRuntime.LastKnownInputID = inputID
+	return saveConfig(s.configPath, cfg)
+}
+
+func findInputIndexByID(inputs []AmplifierInputConfig, inputID AmplifierInputID) int {
+	for i, input := range inputs {
+		if input.ID == inputID {
+			return i
+		}
+	}
+	return -1
+}
+
+func findUSBInputIndex(inputs []AmplifierInputConfig) int {
+	for i, input := range inputs {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(input.LogicalName)), "usb") {
+			return i
+		}
+	}
+	return -1
+}
+
+func chooseUSBResetDirection(cfg Config) (string, bool) {
+	ampCfg := resolveAmplifierConfig(cfg.Amplifier)
+	currentIdx := findInputIndexByID(ampCfg.Inputs, cfg.AmplifierRuntime.LastKnownInputID)
+	usbIdx := findUSBInputIndex(ampCfg.Inputs)
+	if currentIdx < 0 || usbIdx < 0 || len(ampCfg.Inputs) == 0 {
+		return "prev", false
+	}
+	total := len(ampCfg.Inputs)
+	nextSteps := (usbIdx - currentIdx + total) % total
+	prevSteps := (currentIdx - usbIdx + total) % total
+	hasExplicitDirectionCodes := ampCfg.IRCodes != nil
+	hasNext := strings.TrimSpace(ampCfg.IRCodes["next_input"]) != ""
+	hasPrev := strings.TrimSpace(ampCfg.IRCodes["prev_input"]) != ""
+	if !hasExplicitDirectionCodes {
+		hasNext = true
+		hasPrev = true
+	}
+
+	switch {
+	case hasNext && (!hasPrev || nextSteps < prevSteps):
+		return "next", true
+	case hasPrev:
+		return "prev", true
+	case hasNext:
+		return "next", true
+	default:
+		return "prev", false
+	}
 }
 
 // --- pairing handlers ---
@@ -640,7 +881,7 @@ func (s *amplifierServer) handlePairComplete(w http.ResponseWriter, r *http.Requ
 // The learning runs in a goroutine; poll /api/broadlink/learn-status for result.
 //
 // POST /api/broadlink/learn-start
-// Body: {"command": "power_on", "device": "amplifier"|"cdplayer"}
+// Body: {"command": "power_on", "device": "amplifier"|"device-{id}"}
 func (s *amplifierServer) handleLearnStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -659,8 +900,8 @@ func (s *amplifierServer) handleLearnStart(w http.ResponseWriter, r *http.Reques
 		jsonError(w, "command and device are required", http.StatusBadRequest)
 		return
 	}
-	if req.Device != "amplifier" && req.Device != "cdplayer" {
-		jsonError(w, `device must be "amplifier" or "cdplayer"`, http.StatusBadRequest)
+	if req.Device != "amplifier" && !strings.HasPrefix(req.Device, "device-") {
+		jsonError(w, `device must be "amplifier" or "device-{id}"`, http.StatusBadRequest)
 		return
 	}
 
@@ -730,29 +971,47 @@ func (s *amplifierServer) handleLearnStatus(w http.ResponseWriter, r *http.Reque
 	}
 
 	s.learnMu.Lock()
-	copy := *state
+	resp := *state
 	s.learnMu.Unlock()
 
-	jsonOK(w, copy)
+	jsonOK(w, resp)
 }
 
 // saveLearnedCode persists a captured IR code to the config file.
+// For amplifier codes it also mirrors the code into the active stored profile
+// so the code survives profile re-activation.
 func (s *amplifierServer) saveLearnedCode(device, command, code string) {
 	cfg, err := loadConfig(s.configPath)
 	if err != nil {
 		return
 	}
-	switch device {
-	case "amplifier":
+	switch {
+	case device == "amplifier":
 		if cfg.Amplifier.IRCodes == nil {
 			cfg.Amplifier.IRCodes = make(map[string]string)
 		}
 		cfg.Amplifier.IRCodes[command] = code
-	case "cdplayer":
-		if cfg.CDPlayer.IRCodes == nil {
-			cfg.CDPlayer.IRCodes = make(map[string]string)
+		// Mirror into the active stored profile so the code is not lost when
+		// the profile is re-activated later. Built-in profiles are not stored,
+		// so this only applies to custom/imported profiles.
+		activeID := inferActiveAmplifierProfileID(cfg.Amplifier)
+		if _, idx, ok := findStoredAmplifierProfile(cfg.AmplifierProfiles, activeID); ok {
+			if cfg.AmplifierProfiles[idx].Config.IRCodes == nil {
+				cfg.AmplifierProfiles[idx].Config.IRCodes = make(map[string]string)
+			}
+			cfg.AmplifierProfiles[idx].Config.IRCodes[command] = code
 		}
-		cfg.CDPlayer.IRCodes[command] = code
+	case strings.HasPrefix(device, "device-"):
+		deviceID := strings.TrimPrefix(device, "device-")
+		for i, d := range cfg.Amplifier.ConnectedDevices {
+			if d.ID == deviceID {
+				if cfg.Amplifier.ConnectedDevices[i].IRCodes == nil {
+					cfg.Amplifier.ConnectedDevices[i].IRCodes = make(map[string]string)
+				}
+				cfg.Amplifier.ConnectedDevices[i].IRCodes[command] = code
+				break
+			}
+		}
 	}
 	_ = saveConfig(s.configPath, cfg)
 }
@@ -777,6 +1036,7 @@ func broadlinkClientFromConfig(host string) amplifier.BroadlinkClient {
 // buildAmplifierFromConfig constructs a BroadlinkAmplifier from AmplifierConfig.
 // Returns nil, nil when the amplifier is disabled or not yet configured.
 func buildAmplifierFromConfig(cfg AmplifierConfig, vuSocketPath, outputDeviceMatch string) (*amplifier.BroadlinkAmplifier, error) {
+	cfg = resolveAmplifierConfig(cfg)
 	if !cfg.Enabled || cfg.Maker == "" || cfg.Model == "" {
 		return nil, nil
 	}
@@ -803,33 +1063,13 @@ func buildAmplifierFromConfig(cfg AmplifierConfig, vuSocketPath, outputDeviceMat
 
 // monitorConfigFromAmplifierConfig derives MonitorConfig from AmplifierConfig.
 func monitorConfigFromAmplifierConfig(cfg AmplifierConfig) amplifier.MonitorConfig {
+	cfg = resolveAmplifierConfig(cfg)
 	return amplifier.MonitorConfig{
 		WarmUp:            time.Duration(cfg.WarmUpSecs) * time.Second,
 		StandbyTimeout:    time.Duration(cfg.StandbyTimeoutMins) * time.Minute,
 		CyclingEnabled:    cfg.InputCycling.Enabled,
 		CyclingMinSilence: time.Duration(cfg.InputCycling.MinSilenceSecs) * time.Second,
 	}
-}
-
-// buildCDPlayerFromConfig constructs a BroadlinkCDPlayer from CDPlayerConfig.
-// Returns nil when the CD player is disabled.
-func buildCDPlayerFromConfig(cfg CDPlayerConfig, ampBroadlink BroadlinkConfig) *amplifier.BroadlinkCDPlayer {
-	if !cfg.Enabled {
-		return nil
-	}
-	// CD player shares the amplifier's RM4 Mini (same host).
-	host := cfg.Broadlink.Host
-	if host == "" {
-		host = ampBroadlink.Host
-	}
-	return amplifier.NewBroadlinkCDPlayer(
-		broadlinkClientFromConfig(host),
-		amplifier.CDPlayerSettings{
-			Maker:   cfg.Maker,
-			Model:   cfg.Model,
-			IRCodes: cfg.IRCodes,
-		},
-	)
 }
 
 // --- shared helpers ---

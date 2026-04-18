@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -12,11 +13,13 @@ const (
 	streamingUSBGuardPollInterval = 500 * time.Millisecond
 	streamingUSBGuardCooldown     = 20 * time.Second
 	streamingUSBGuardResetTimeout = 45 * time.Second
+	streamingUSBGuardMaxStateAge  = 15 * time.Second
 )
 
 type streamingStateSnapshot struct {
-	Source string `json:"source"`
-	State  string `json:"state"`
+	Source    string `json:"source"`
+	State     string `json:"state"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 func shouldEnsureUSBForStreamingPlayback(source, playbackState string) bool {
@@ -24,6 +27,31 @@ func shouldEnsureUSBForStreamingPlayback(source, playbackState string) bool {
 		return false
 	}
 	return source == "AirPlay" || source == "Bluetooth"
+}
+
+func isStreamingStateFresh(fileModTime time.Time, updatedAtRaw string, now time.Time) bool {
+	if fileModTime.IsZero() {
+		return false
+	}
+	if now.Sub(fileModTime) <= streamingUSBGuardMaxStateAge {
+		return true
+	}
+
+	updatedAtRaw = strings.TrimSpace(updatedAtRaw)
+	if updatedAtRaw == "" {
+		return false
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, updatedAtRaw)
+	if err != nil {
+		parsed, err = time.Parse(time.RFC3339, updatedAtRaw)
+		if err != nil {
+			return false
+		}
+	}
+	if parsed.After(now.Add(2 * time.Second)) {
+		return false
+	}
+	return now.Sub(parsed) <= streamingUSBGuardMaxStateAge
 }
 
 // startStreamingUSBGuard ensures the amp is routed to USB while AirPlay or
@@ -66,11 +94,14 @@ func startStreamingUSBGuard(ctx context.Context, stateFile string, ampServer *am
 			if err := json.Unmarshal(data, &snap); err != nil {
 				continue
 			}
+			now := time.Now()
+			if !isStreamingStateFresh(info.ModTime(), snap.UpdatedAt, now) {
+				continue
+			}
 			if !shouldEnsureUSBForStreamingPlayback(snap.Source, snap.State) {
 				continue
 			}
 
-			now := time.Now()
 			if !lastResetAttempt.IsZero() && now.Sub(lastResetAttempt) < streamingUSBGuardCooldown {
 				continue
 			}

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Amplifier Configuration — Oceano</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 52 52'><rect x='0' y='16' width='8' height='20' rx='4' fill='%23888'/><rect x='11' y='9' width='8' height='34' rx='4' fill='%23888'/><rect x='22' y='3' width='8' height='46' rx='4' fill='%23888'/><rect x='33' y='12' width='8' height='28' rx='4' fill='%23888'/><rect x='44' y='17' width='8' height='18' rx='4' fill='%23888'/></svg>">
+  <link rel="stylesheet" href="index.css">
+  <style>
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+    .amp-page-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .amp-page-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.85rem;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .amp-page-back:hover { background: var(--hover); }
+    .amp-page-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+      flex: 1;
+    }
+    .amp-page-body {
+      max-width: 660px;
+      margin: 0 auto;
+      padding: 20px 20px 60px;
+    }
+    .amp-page-actions {
+      margin-top: 28px;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+  </style>
+</head>
+<body>
+
+<div class="amp-page-header">
+  <a href="/" class="amp-page-back">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 18l-6-6 6-6"/>
+    </svg>
+    Back
+  </a>
+  <span class="amp-page-title">Amplifier Configuration</span>
+</div>
+
+<div class="amp-page-body">
+
+  <!-- ── Profile ─────────────────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Active Profile</div>
+    <p class="hint" style="margin-bottom:14px">Built-in and imported profiles define the amplifier defaults. Activate a profile to apply its settings.</p>
+
+    <div class="field">
+      <label><span>Profile</span></label>
+      <select id="amp-profile-select" onchange="_refreshCloneBuiltInButton()"></select>
+    </div>
+    <div class="field" style="display:flex;gap:10px;flex-wrap:wrap">
+      <button type="button" class="detect-btn" onclick="activateSelectedAmplifierProfile()">Activate Profile</button>
+      <button type="button" id="amp-clone-profile-btn" class="detect-btn" onclick="cloneSelectedBuiltInProfile()">Clone Built-in</button>
+      <button type="button" class="detect-btn" onclick="saveCurrentAsCustomProfile()">Save as Custom</button>
+      <button type="button" class="detect-btn" onclick="deleteSelectedCustomProfile()">Delete Custom</button>
+      <button type="button" class="detect-btn" onclick="exportSelectedAmplifierProfile()">Export Profile</button>
+      <label class="detect-btn" style="display:inline-flex;align-items:center;cursor:pointer">
+        Import Profile
+        <input type="file" id="amp-profile-import-file" accept="application/json,.json" style="display:none" onchange="importAmplifierProfileFile(this)">
+      </label>
+    </div>
+  </div>
+
+  <!-- ── Amplifier ───────────────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Amplifier</div>
+
+    <div class="field">
+      <label><span>Maker</span></label>
+      <input type="text" id="amp-maker" placeholder="Magnat">
+    </div>
+    <div class="field">
+      <label><span>Model</span></label>
+      <input type="text" id="amp-model" placeholder="MR 780">
+    </div>
+
+    <div class="field">
+      <label><span>Input selection</span></label>
+      <select id="amp-input-mode" onchange="onAmpInputModeChanged()">
+        <option value="cycle">Cycle (next_input IR code — e.g. Magnat MR 780)</option>
+        <option value="direct">Direct (one IR code per input)</option>
+      </select>
+      <div class="hint">Cycle: steps through inputs in order. Direct: sends a specific IR code per input.</div>
+    </div>
+
+    <div class="config-subsection">
+      <div class="config-subtitle">Inputs</div>
+      <p class="hint" style="margin-bottom:10px">Top-to-bottom is the amplifier's real cycle order. In cycle mode, the next input command moves downward through this list and wraps back to the top, so keep this order aligned with the amplifier's clockwise input sequence. Index 0 is the default input. Internal ID stays hidden; edit only logical name and visibility.</p>
+      <div id="amp-inputs-table"></div>
+      <div class="field" style="margin-top:8px">
+        <button type="button" class="detect-btn" onclick="addAmplifierInputRow()">Add Input</button>
+      </div>
+    </div>
+
+    <div class="config-subsection">
+      <div class="config-subtitle">Connected Devices</div>
+      <p class="hint" style="margin-bottom:10px">Register the physical devices connected to each input. Their names replace raw input names in the input selector. A device can span multiple inputs and doesn't need to have a remote control.</p>
+      <div id="amp-devices-list"></div>
+      <div class="field" style="margin-top:8px">
+        <button type="button" class="detect-btn" onclick="addConnectedDevice()">Add Device</button>
+      </div>
+    </div>
+
+    <div class="config-subsection">
+      <div class="config-subtitle">USB Reset (Cycle Mode)</div>
+      <p class="hint" style="margin-bottom:10px">Controls the timing used by "Reset to USB Input" when inputs are changed by cycling.</p>
+
+      <div class="field">
+        <label><span>Max attempts (input jumps)</span></label>
+        <input type="number" id="amp-usb-reset-max-attempts" min="1" max="50" step="1" placeholder="13">
+        <div class="hint">Maximum number of effective input jumps before giving up.</div>
+      </div>
+      <div class="field">
+        <label><span>First-step settle (ms)</span></label>
+        <input type="number" id="amp-usb-reset-first-step-ms" min="0" max="5000" step="10" placeholder="150">
+        <div class="hint">Short wait after the first cycle press before probing USB DAC visibility.</div>
+      </div>
+      <div class="field">
+        <label><span>DAC probe wait after jump (ms)</span></label>
+        <input type="number" id="amp-usb-reset-step-wait-ms" min="100" max="10000" step="50" placeholder="2400">
+        <div class="hint">Wait after each effective input jump before checking whether USB DAC is detected.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Broadlink RM4 Mini ─────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Broadlink RM4 Mini</div>
+    <p class="hint" style="margin-bottom:14px">Shared by amplifier and connected devices with remote control. Pair once, used by all IR learning actions.</p>
+
+    <div class="field">
+      <label><span>IP address</span></label>
+      <input type="text" id="amp-broadlink-host" placeholder="192.168.1.100">
+    </div>
+    <div class="field">
+      <label><span>Pairing token</span></label>
+      <input type="text" id="amp-token" placeholder="(set via pairing wizard)" readonly style="opacity:0.6;cursor:default">
+    </div>
+    <div class="field">
+      <button type="button" class="detect-btn" onclick="window.open('/pair.html','_blank')">Open Pairing Wizard ↗</button>
+      <div class="hint">Pairs the RM4 Mini and stores credentials automatically. Opens in a new tab.</div>
+    </div>
+  </div>
+
+  <!-- ── IR Codes — Amplifier ───────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">IR Codes — Amplifier</div>
+    <p class="hint" style="margin-bottom:10px">Point the amplifier remote at the RM4 Mini and click Learn.</p>
+    <div id="amp-direct-warning" class="amp-direct-warning" style="display:none"></div>
+    <div id="amp-ir-table"></div>
+  </div>
+
+  <!-- ── Save ──────────────────────────────────────────────────────────── -->
+  <div class="amp-page-actions">
+    <button type="button" class="btn-save" id="btn-amp-page-save" onclick="saveAmplifierPage()">Save &amp; Restart Services</button>
+  </div>
+
+</div><!-- .amp-page-body -->
+
+<div id="toast"></div>
+
+<script src="index.amplifier.js"></script>
+<script src="amplifier_page.js"></script>
+
+</body>
+</html>

@@ -353,6 +353,17 @@
       margin-top: 4px;
     }
 
+    .amp-direct-warning {
+      margin: 0 0 10px;
+      padding: 10px 12px;
+      border: 1px solid #5a4520;
+      background: #2a2110;
+      color: #f0c060;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
+
     .config-subsection {
       margin-top: 18px;
       padding-top: 16px;
@@ -806,7 +817,7 @@
     }
     .artwork-picker-thumb:hover .thumb-label { display: block; }
 
-    /* ── Amplifier / CD player control widget ── */
+    /* ── Amplifier control widget ── */
     .amp-widget {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -897,8 +908,9 @@
     .amp-power-badge {
       font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em;
       text-transform: uppercase; padding: 2px 7px; border-radius: 20px;
-      border: 1px solid transparent; margin-left: auto; flex-shrink: 0;
+      border: 1px solid transparent; flex-shrink: 0;
       transition: background 0.3s, color 0.3s, border-color 0.3s;
+      margin-left: auto;
     }
     .amp-power-badge[data-state="on"]         { background: rgba(30,90,30,0.25); border-color: #2d6e2d; color: #6fc96f; }
     .amp-power-badge[data-state="warming_up"] { background: rgba(90,70,0,0.25);  border-color: #7a5e00; color: #ffc742; animation: amp-pulse 1.2s ease-in-out infinite; }
@@ -906,8 +918,27 @@
     .amp-power-badge[data-state="off"]        { background: rgba(60,20,20,0.18); border-color: #3a2020; color: #7a4444; }
     .amp-power-badge[data-state="unknown"]    { background: rgba(50,50,50,0.2);  border-color: #2e2e2e; color: #555; }
 
+    .amp-processing-indicator {
+      width: 13px; height: 13px;
+      border-radius: 50%;
+      border: 2px solid rgba(120,120,120,0.35);
+      border-top-color: var(--accent);
+      opacity: 0;
+      flex-shrink: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+    .amp-processing-indicator[data-active="true"] {
+      opacity: 1;
+      animation: amp-spin 0.8s linear infinite;
+    }
+
     @keyframes amp-pulse {
       0%, 100% { opacity: 1; } 50% { opacity: 0.45; }
+    }
+    @keyframes amp-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
     }
 
     /* ON / OFF split power buttons */
@@ -921,12 +952,15 @@
     /* Input nav: chevron buttons + label */
     .btn-amp-nav { padding: 9px 12px; color: var(--text-dim); }
     .btn-amp-nav:hover { color: var(--text); border-color: var(--border); }
-    .amp-input-label {
-      flex: 1; text-align: center;
-      font-size: 0.85rem; font-weight: 600; letter-spacing: 0.02em;
-      color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      padding: 0 4px; min-width: 0;
+    .amp-input-select {
+      flex: 1; min-width: 0;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-size: 0.85rem; font-weight: 600;
+      padding: 9px 8px; cursor: pointer; text-align: center;
+      appearance: none; -webkit-appearance: none;
     }
+    .amp-input-select:hover { border-color: var(--accent); color: var(--accent); }
+    .amp-input-select:focus { outline: none; border-color: var(--accent); }
 
     /* Sync button — icon only, right of input row */
     .btn-amp-sync {
@@ -938,6 +972,21 @@
     /* Volume buttons */
     .btn-amp-vol { flex: 1; }
     .btn-amp-repeat { touch-action: none; }
+
+    /* Connected device widget below amplifier controls */
+    #amp-device-widget {
+      margin-top: 6px; padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .amp-device-widget-divider {
+      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--text-faint);
+      margin-bottom: 10px;
+    }
+    .btn-device-eject { color: var(--text-dim); }
+    .btn-device-transport { flex: 1; padding: 10px 6px; }
+    .btn-device-play { color: var(--accent); border-color: rgba(74,158,255,0.3); }
+    .btn-device-play:hover { background: rgba(74,158,255,0.08); }
 
     /* Disabled state when amplifier is detected as off */
     .btn-amp.amp-disabled,
@@ -958,20 +1007,6 @@
       transition: border-color 0.15s, color 0.15s;
     }
     .btn-sync-input:hover { border-color: var(--accent); color: var(--accent); }
-
-    /* CD section */
-    #cd-widget { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--border); }
-    .cd-section-divider {
-      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.12em;
-      text-transform: uppercase; color: var(--text-faint);
-      margin-bottom: 10px;
-    }
-    .cd-btn-eject { color: var(--text-dim); }
-    .btn-amp-transport {
-      flex: 1; padding: 10px 6px;
-    }
-    .btn-transport-play { color: var(--accent); border-color: rgba(74,158,255,0.3); }
-    .btn-transport-play:hover { background: rgba(74,158,255,0.08); }
 
     /* ── Inputs editor ── */
     .amp-inputs-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
@@ -1017,3 +1052,45 @@
       cursor: pointer; width: 100%; transition: border-color 0.15s, color 0.15s;
     }
     .btn-add-input:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Connected devices editor */
+    .amp-device-row {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 8px 10px;
+      margin-bottom: 6px;
+    }
+    .amp-device-topbar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .amp-device-name {
+      flex: 1; min-width: 140px; background: transparent; border: none;
+      border-bottom: 1px solid var(--border); outline: none;
+      color: var(--text); font-size: 0.83rem; padding: 2px 4px;
+    }
+    .amp-device-name:focus { border-bottom-color: var(--accent); }
+    .amp-device-remote-toggle {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 0.78rem; color: var(--text-dim); cursor: pointer;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .amp-device-inputs {
+      display: flex; flex-wrap: wrap; align-items: center;
+      gap: 6px 12px; padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 4px;
+    }
+    .amp-device-inputs-label {
+      font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--text-faint);
+    }
+    .amp-device-input-cb {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 0.8rem; color: var(--text-dim); cursor: pointer;
+    }
+    .amp-device-input-cb input[type=checkbox] {
+      width: auto; accent-color: var(--accent); cursor: pointer;
+    }
+    .amp-device-ir-section {
+      margin-top: 8px; padding-top: 8px;
+    }

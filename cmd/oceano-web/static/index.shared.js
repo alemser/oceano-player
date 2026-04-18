@@ -51,6 +51,8 @@ async function loadConfig() {
 
   set('adv-library-db',     cfg.advanced?.library_db ?? '');
   set('adv-idle-delay',     cfg.advanced?.idle_delay_secs ?? 10);
+  const guardEnabledEl = document.getElementById('adv-streaming-usb-guard-enabled');
+  if (guardEnabledEl) guardEnabledEl.checked = cfg.advanced?.streaming_usb_guard_enabled ?? true;
   set('adv-vu-socket',      cfg.advanced?.vu_socket ?? '');
   set('adv-pcm-socket',     cfg.advanced?.pcm_socket ?? '');
   set('adv-source-file',    cfg.advanced?.source_file ?? '');
@@ -71,27 +73,34 @@ async function loadConfig() {
   set('weather-lon',     cfg.weather?.longitude ?? -6.2603);
   set('weather-refresh', cfg.weather?.refresh_mins ?? 10);
 
-  // Amplifier / CD player config
+  // Amplifier config
   const ampEl = document.getElementById('amp-enabled');
   if (ampEl) ampEl.checked = cfg.amplifier?.enabled ?? false;
   set('amp-maker',          cfg.amplifier?.maker ?? '');
   set('amp-model',          cfg.amplifier?.model ?? '');
+  set('amp-input-mode',     cfg.amplifier?.input_mode ?? 'cycle');
   set('amp-usb-reset-max-attempts',   cfg.amplifier?.usb_reset?.max_attempts ?? 13);
   set('amp-usb-reset-first-step-ms',  cfg.amplifier?.usb_reset?.first_step_settle_ms ?? 150);
   set('amp-usb-reset-step-wait-ms',   cfg.amplifier?.usb_reset?.step_wait_ms ?? 2400);
   set('amp-broadlink-host', cfg.amplifier?.broadlink?.host ?? '');
   set('amp-token',          cfg.amplifier?.broadlink?.token ?? '');
-  updateAmpIRSummary(cfg.amplifier?.ir_codes ?? {});
   _ampConfig = cfg.amplifier ?? {};
-
-  const cdEl = document.getElementById('cd-enabled');
-  if (cdEl) cdEl.checked = cfg.cd_player?.enabled ?? false;
-  set('cd-maker',  cfg.cd_player?.maker ?? '');
-  set('cd-model',  cfg.cd_player?.model ?? '');
-  updateCDIRSummary(cfg.cd_player?.ir_codes ?? {});
-  _cdConfig = cfg.cd_player ?? {};
+  _ampLastKnownInputID = String(cfg.amplifier_runtime?.last_known_input_id ?? '');
+  if (typeof setAmplifierInputsModel === 'function') {
+    setAmplifierInputsModel(cfg.amplifier?.inputs ?? []);
+  }
+  if (typeof setConnectedDevicesModel === 'function') {
+    setConnectedDevicesModel(cfg.amplifier?.connected_devices ?? []);
+  }
+  updateAmpIRSummary(cfg.amplifier?.ir_codes ?? {});
+  if (typeof _refreshDirectIRWarning === 'function') {
+    _refreshDirectIRWarning();
+  }
 
   updateAmpPanel();
+  if (typeof loadAmplifierProfiles === 'function') {
+    await loadAmplifierProfiles(cfg);
+  }
 
   // Preserve advanced values as-is from server.
   _advancedConfig = cfg.advanced ?? {};
@@ -425,6 +434,7 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       ..._advancedConfig,
       library_db:     val('adv-library-db') || _advancedConfig.library_db || '',
       idle_delay_secs: intOr('adv-idle-delay', 10),
+      streaming_usb_guard_enabled: document.getElementById('adv-streaming-usb-guard-enabled')?.checked ?? (_advancedConfig.streaming_usb_guard_enabled ?? true),
       vu_socket:      val('adv-vu-socket')     || _advancedConfig.vu_socket || '',
       pcm_socket:     val('adv-pcm-socket')    || _advancedConfig.pcm_socket || '',
       source_file:    val('adv-source-file')   || _advancedConfig.source_file || '',
@@ -447,22 +457,14 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
     },
     amplifier: {
       ..._ampConfig,
-      enabled:                   document.getElementById('amp-enabled')?.checked ?? false,
-      maker:                     val('amp-maker'),
-      model:                     val('amp-model'),
-      usb_reset: {
-        ...(_ampConfig.usb_reset ?? {}),
-        max_attempts: intOr('amp-usb-reset-max-attempts', 13),
-        first_step_settle_ms: intOr('amp-usb-reset-first-step-ms', 150),
-        step_wait_ms: intOr('amp-usb-reset-step-wait-ms', 2400),
-      },
-      broadlink: { ...(_ampConfig.broadlink ?? {}), host: val('amp-broadlink-host') },
-    },
-    cd_player: {
-      ..._cdConfig,
-      enabled: document.getElementById('cd-enabled')?.checked ?? false,
-      maker:   val('cd-maker'),
-      model:   val('cd-model'),
+      enabled:    document.getElementById('amp-enabled')?.checked ?? false,
+      profile_id: val('amp-profile-select') || _ampConfig.profile_id || '',
+      input_mode: _ampConfig.input_mode || 'cycle',
+      maker:      _ampConfig.maker  || '',
+      model:      _ampConfig.model  || '',
+      inputs:     _ampConfig.inputs ?? [],
+      usb_reset:  _ampConfig.usb_reset ?? {},
+      broadlink:  _ampConfig.broadlink ?? {},
     },
   };
 

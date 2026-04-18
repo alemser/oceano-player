@@ -77,8 +77,75 @@ type USBResetConfig struct {
 	StepWaitMS int `json:"step_wait_ms"`
 }
 
+// AmplifierInputID is an internal stable input identifier used by runtime
+// logic and IR mapping. It accepts either JSON string or number.
+type AmplifierInputID string
+
+// UnmarshalJSON accepts "usb" and 40-style JSON IDs, normalizing both to
+// string form internally.
+func (id *AmplifierInputID) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 {
+		*id = ""
+		return nil
+	}
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		*id = AmplifierInputID(strings.TrimSpace(s))
+		return nil
+	}
+	var n json.Number
+	if err := json.Unmarshal(data, &n); err != nil {
+		return fmt.Errorf("amplifier input id must be string or number")
+	}
+	*id = AmplifierInputID(n.String())
+	return nil
+}
+
+// MarshalJSON serializes the normalized string form.
+func (id AmplifierInputID) MarshalJSON() ([]byte, error) {
+	return json.Marshal(string(id))
+}
+
+// AmplifierInputConfig defines one registered amplifier input.
+type AmplifierInputConfig struct {
+	// ID is hidden from end users and used only for stable internal mapping.
+	ID AmplifierInputID `json:"id"`
+	// LogicalName is the user-facing label.
+	LogicalName string `json:"logical_name"`
+	// Visible controls whether this input is shown in the primary UI selectors.
+	Visible bool `json:"visible"`
+}
+
+// ConnectedDeviceConfig describes a physical device connected to one or more
+// amplifier inputs (e.g. turntable, CD player, streaming source).
+// Devices are shown in the input selector to replace raw input names.
+type ConnectedDeviceConfig struct {
+	// ID is a stable internal identifier (not shown to users).
+	ID string `json:"id"`
+	// Name is the user-facing label shown in the input selector (e.g. "Yamaha CD-S300").
+	Name string `json:"name"`
+	// InputIDs lists the amplifier input IDs this device is connected to.
+	InputIDs []AmplifierInputID `json:"input_ids,omitempty"`
+	// HasRemote indicates whether this device has a remote control (IR codes).
+	HasRemote bool `json:"has_remote,omitempty"`
+	// IRCodes maps command names to base64-encoded Broadlink IR codes.
+	// Keys follow the same convention as CD player: power_on, power_off,
+	// play, pause, stop, next, previous, eject.
+	IRCodes map[string]string `json:"ir_codes,omitempty"`
+}
+
 // AmplifierConfig controls the IR-controlled amplifier (e.g. Magnat MR 780).
 type AmplifierConfig struct {
+	// ProfileID selects a built-in/custom profile baseline to resolve from.
+	// Empty preserves legacy field-only behavior.
+	ProfileID string `json:"profile_id"`
+	// InputMode is "cycle" or "direct".
+	InputMode string `json:"input_mode"`
+	// Inputs lists all registered amplifier inputs. Index 0 is the default input.
+	Inputs []AmplifierInputConfig `json:"inputs"`
 	// Enabled controls whether amplifier control is active.
 	Enabled bool `json:"enabled"`
 	// Maker is the manufacturer name (e.g. "Magnat").
@@ -104,9 +171,30 @@ type AmplifierConfig struct {
 	InputCycling InputCyclingConfig `json:"input_cycling"`
 	// USBReset controls the manual/automatic "reset to USB input" flow timing.
 	USBReset USBResetConfig `json:"usb_reset"`
+	// ConnectedDevices lists physical devices wired to the amplifier inputs.
+	// Device names replace raw input names in the input selector.
+	ConnectedDevices []ConnectedDeviceConfig `json:"connected_devices,omitempty"`
 }
 
-// CDPlayerConfig controls the IR-controlled CD player (e.g. Yamaha CD-S300).
+// AmplifierRuntimeConfig stores runtime-only UI/transport state that should
+// persist across restarts but must not belong to reusable amplifier profiles.
+type AmplifierRuntimeConfig struct {
+	// LastKnownInputID is the last amplifier input explicitly selected or
+	// confidently inferred by the web UI / reset flow.
+	LastKnownInputID AmplifierInputID `json:"last_known_input_id,omitempty"`
+}
+
+// StoredAmplifierProfile holds a reusable amplifier profile persisted in
+// config.json for activation/import/export workflows.
+type StoredAmplifierProfile struct {
+	ID     string          `json:"id"`
+	Name   string          `json:"name"`
+	Origin string          `json:"origin,omitempty"` // builtin | custom | imported
+	Config AmplifierConfig `json:"config"`
+}
+
+// CDPlayerConfig is a legacy config block kept only for backward-compatibility
+// migration from old config.json files that still contain "cd_player".
 type CDPlayerConfig struct {
 	// Enabled controls whether CD player control is active.
 	Enabled bool `json:"enabled"`
@@ -117,6 +205,10 @@ type CDPlayerConfig struct {
 	// Broadlink holds the pairing credentials for the RM4 Mini controlling this device.
 	// May share the same RM4 Mini as the amplifier (same host/token, different device_id).
 	Broadlink BroadlinkConfig `json:"broadlink"`
+	// InputIDs lists the amplifier input IDs that correspond to this CD player.
+	// Used to automatically switch the amplifier to the correct input when
+	// CD playback starts. An empty slice means no automatic input switching.
+	InputIDs []AmplifierInputID `json:"input_ids,omitempty"`
 	// IRCodes maps command names to base64-encoded Broadlink IR codes.
 	// Keys: "play", "pause", "stop", "next", "previous", "power_on", "power_off".
 	// Values are populated via the IR learning workflow or copied from a
@@ -147,15 +239,19 @@ type BluetoothConfig struct {
 //   - The web server translates this struct into ExecStart arguments
 //     when writing systemd service files.
 type Config struct {
-	AudioInput  AudioInputConfig  `json:"audio_input"`
-	AudioOutput AudioOutputConfig `json:"audio_output"`
-	Bluetooth   BluetoothConfig   `json:"bluetooth"`
-	Recognition RecognitionConfig `json:"recognition"`
-	Advanced    AdvancedConfig    `json:"advanced"`
-	Display     SPIDisplayConfig  `json:"display"`
-	Weather     WeatherConfig     `json:"weather"`
-	Amplifier   AmplifierConfig   `json:"amplifier"`
-	CDPlayer    CDPlayerConfig    `json:"cd_player"`
+	AudioInput        AudioInputConfig         `json:"audio_input"`
+	AudioOutput       AudioOutputConfig        `json:"audio_output"`
+	Bluetooth         BluetoothConfig          `json:"bluetooth"`
+	Recognition       RecognitionConfig        `json:"recognition"`
+	Advanced          AdvancedConfig           `json:"advanced"`
+	Display           SPIDisplayConfig         `json:"display"`
+	Weather           WeatherConfig            `json:"weather"`
+	Amplifier         AmplifierConfig          `json:"amplifier"`
+	AmplifierRuntime  AmplifierRuntimeConfig   `json:"amplifier_runtime,omitempty"`
+	AmplifierProfiles []StoredAmplifierProfile `json:"amplifier_profiles,omitempty"`
+	// LegacyCDPlayer is read from older files and migrated into
+	// amplifier.connected_devices at load time.
+	LegacyCDPlayer *CDPlayerConfig `json:"cd_player,omitempty"`
 }
 
 // WeatherConfig controls idle-screen weather rendering in nowplaying.html.
@@ -267,12 +363,15 @@ type RecognitionConfig struct {
 // AdvancedConfig holds paths and internal settings that rarely need
 // to change. Exposed for completeness and debugging.
 type AdvancedConfig struct {
-	VUSocket     string `json:"vu_socket"`
-	PCMSocket    string `json:"pcm_socket"`
-	SourceFile   string `json:"source_file"`
-	StateFile    string `json:"state_file"`
-	ArtworkDir   string `json:"artwork_dir"`
-	MetadataPipe string `json:"metadata_pipe"`
+	VUSocket   string `json:"vu_socket"`
+	PCMSocket  string `json:"pcm_socket"`
+	SourceFile string `json:"source_file"`
+	StateFile  string `json:"state_file"`
+	// StreamingUSBGuardEnabled toggles the automatic background flow that
+	// forces the amplifier back to USB while AirPlay/Bluetooth playback is active.
+	StreamingUSBGuardEnabled bool   `json:"streaming_usb_guard_enabled"`
+	ArtworkDir               string `json:"artwork_dir"`
+	MetadataPipe             string `json:"metadata_pipe"`
 	// IdleDelaySecs is how long to keep showing the last physical track after
 	// audio stops before switching to the idle screen.
 	IdleDelaySecs int `json:"idle_delay_secs"`
@@ -314,14 +413,15 @@ func defaultConfig() Config {
 			ShazamPythonBin:                     "/opt/shazam-env/bin/python",
 		},
 		Advanced: AdvancedConfig{
-			VUSocket:      "/tmp/oceano-vu.sock",
-			PCMSocket:     "/tmp/oceano-pcm.sock",
-			SourceFile:    "/tmp/oceano-source.json",
-			StateFile:     "/tmp/oceano-state.json",
-			ArtworkDir:    "/var/lib/oceano/artwork",
-			MetadataPipe:  "/tmp/shairport-sync-metadata",
-			IdleDelaySecs: 10,
-			LibraryDB:     "/var/lib/oceano/library.db",
+			VUSocket:                 "/tmp/oceano-vu.sock",
+			PCMSocket:                "/tmp/oceano-pcm.sock",
+			SourceFile:               "/tmp/oceano-source.json",
+			StateFile:                "/tmp/oceano-state.json",
+			StreamingUSBGuardEnabled: true,
+			ArtworkDir:               "/var/lib/oceano/artwork",
+			MetadataPipe:             "/tmp/shairport-sync-metadata",
+			IdleDelaySecs:            10,
+			LibraryDB:                "/var/lib/oceano/library.db",
 		},
 		Display: SPIDisplayConfig{
 			UIPreset:               "high_contrast_rotate",
@@ -334,6 +434,16 @@ func defaultConfig() Config {
 			Name:    "", // empty → derived from AirPlay name at install time
 		},
 		Amplifier: AmplifierConfig{
+			ProfileID: "magnat_mr780",
+			InputMode: "cycle",
+			Inputs: []AmplifierInputConfig{
+				{ID: AmplifierInputID("10"), LogicalName: "Phono", Visible: false},
+				{ID: AmplifierInputID("20"), LogicalName: "CD", Visible: true},
+				{ID: AmplifierInputID("30"), LogicalName: "Aux", Visible: true},
+				{ID: AmplifierInputID("40"), LogicalName: "USB Audio", Visible: true},
+			},
+			Maker:              "Magnat",
+			Model:              "MR 780",
 			WarmUpSecs:         30,
 			StandbyTimeoutMins: 20,
 			InputCycling: InputCyclingConfig{
@@ -371,7 +481,59 @@ func loadConfig(path string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse %s: %w", path, err)
 	}
+	migrateLegacyCDPlayer(&cfg)
 	return cfg, nil
+}
+
+func migrateLegacyCDPlayer(cfg *Config) {
+	if cfg == nil || cfg.LegacyCDPlayer == nil {
+		return
+	}
+	legacy := cfg.LegacyCDPlayer
+
+	name := strings.TrimSpace(strings.TrimSpace(legacy.Maker + " " + legacy.Model))
+	if !legacy.Enabled || name == "" {
+		cfg.LegacyCDPlayer = nil
+		return
+	}
+
+	for i := range cfg.Amplifier.ConnectedDevices {
+		if strings.EqualFold(strings.TrimSpace(cfg.Amplifier.ConnectedDevices[i].Name), name) {
+			if len(cfg.Amplifier.ConnectedDevices[i].InputIDs) == 0 && len(legacy.InputIDs) > 0 {
+				cfg.Amplifier.ConnectedDevices[i].InputIDs = legacy.InputIDs
+			}
+			if len(cfg.Amplifier.ConnectedDevices[i].IRCodes) == 0 && len(legacy.IRCodes) > 0 {
+				cfg.Amplifier.ConnectedDevices[i].IRCodes = legacy.IRCodes
+			}
+			cfg.Amplifier.ConnectedDevices[i].HasRemote = true
+			cfg.LegacyCDPlayer = nil
+			return
+		}
+	}
+
+	id := "legacy-cdplayer"
+	for n := 2; ; n++ {
+		exists := false
+		for _, d := range cfg.Amplifier.ConnectedDevices {
+			if d.ID == id {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			break
+		}
+		id = fmt.Sprintf("legacy-cdplayer-%d", n)
+	}
+
+	cfg.Amplifier.ConnectedDevices = append(cfg.Amplifier.ConnectedDevices, ConnectedDeviceConfig{
+		ID:        id,
+		Name:      name,
+		InputIDs:  legacy.InputIDs,
+		HasRemote: true,
+		IRCodes:   legacy.IRCodes,
+	})
+	cfg.LegacyCDPlayer = nil
 }
 
 func saveConfig(path string, cfg Config) error {

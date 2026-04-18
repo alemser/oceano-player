@@ -65,13 +65,14 @@
 </button>
 </div>
 
-<!-- Amplifier / CD player control widget -->
+<!-- Amplifier control widget -->
 <div id="amp-panel" style="display:none">
   <!-- Amplifier widget -->
   <div class="amp-widget" id="amp-widget">
     <div class="amp-header" onclick="toggleAmpWidget('amp-widget')" onkeydown="handleAmpHeaderKey(event, 'amp-widget')" role="button" tabindex="0" aria-expanded="false">
       <span class="amp-title" id="amp-widget-title">Amplifier</span>
       <span class="amp-power-badge" id="amp-power-badge" data-state="unknown" title="Power state: unknown">?</span>
+      <span class="amp-processing-indicator" id="amp-processing-indicator" data-active="false" title="Processing input change" aria-hidden="true"></span>
       <!-- Collapse chevron -->
       <svg class="amp-chevron" viewBox="0 0 14 14" fill="none" aria-hidden="true">
         <path d="M2 4.5 L7 9.5 L12 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -102,7 +103,9 @@
             <polyline points="15,18 9,12 15,6"/>
           </svg>
         </button>
-        <span class="amp-input-label">Input</span>
+        <select id="amp-input-select" class="amp-input-select" title="Select input" onchange="ampSelectInputByFullIdx(+this.value)">
+          <option value="-1">Input</option>
+        </select>
         <button class="btn-amp btn-amp-nav" onclick="ampNextInput()" title="Next input">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="9,6 15,12 9,18"/>
@@ -138,15 +141,14 @@
         </button>
       </div>
 
-      <!-- CD Player controls -->
-      <div id="cd-widget" style="display:none">
-        <div class="cd-section-divider">
-          <span class="cd-inline-title" id="cd-widget-title">CD Player</span>
+      <!-- Row 4: Connected device (remote-enabled) transport -->
+      <div id="amp-device-widget" style="display:none">
+        <div class="amp-device-widget-divider">
+          <span class="amp-device-widget-title" id="amp-device-widget-title">Device</span>
         </div>
 
-        <!-- CD Row 1: Eject -->
         <div class="amp-row">
-          <button class="btn-amp btn-amp-full cd-btn-eject" onclick="cdTransport('eject')" title="Eject">
+          <button class="btn-amp btn-amp-full btn-device-eject" onclick="deviceTransport('eject')" title="Eject">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M6 17h12"/><path d="M7 13l5-6 5 6"/>
             </svg>
@@ -154,21 +156,20 @@
           </button>
         </div>
 
-        <!-- CD Row 2: Transport -->
         <div class="amp-row">
-          <button class="btn-amp btn-amp-transport" onclick="cdTransport('prev')" title="Previous track">
+          <button class="btn-amp btn-device-transport" onclick="deviceTransport('prev')" title="Previous track">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 6l-8 6 8 6V6zM6 6v12"/></svg>
           </button>
-          <button class="btn-amp btn-amp-transport" onclick="cdTransport('stop')" title="Stop">
+          <button class="btn-amp btn-device-transport" onclick="deviceTransport('stop')" title="Stop">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
           </button>
-          <button class="btn-amp btn-amp-transport btn-transport-play" onclick="cdTransport('play')" title="Play">
+          <button class="btn-amp btn-device-transport btn-device-play" onclick="deviceTransport('play')" title="Play">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 6l10 6-10 6V6z"/></svg>
           </button>
-          <button class="btn-amp btn-amp-transport" onclick="cdTransport('pause')" title="Pause">
+          <button class="btn-amp btn-device-transport" onclick="deviceTransport('pause')" title="Pause">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M9 6v12M15 6v12"/></svg>
           </button>
-          <button class="btn-amp btn-amp-transport" onclick="cdTransport('next')" title="Next track">
+          <button class="btn-amp btn-device-transport" onclick="deviceTransport('next')" title="Next track">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 6l8 6-8 6V6zM18 6v12"/></svg>
           </button>
         </div>
@@ -480,6 +481,35 @@
       </div>
     </div>
 
+    <!-- Amplifier Control -->
+    <div class="section">
+      <div class="section-title">Amplifier Control</div>
+      <p class="hint" style="margin-bottom:14px">IR control via Broadlink RM4 Mini. Requires pairing before commands work.</p>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="amp-enabled" style="width:auto;accent-color:var(--accent)" onchange="updateAmpPanel()">
+          <span>Enable amplifier control</span>
+        </label>
+      </div>
+
+      <div class="config-subsection">
+        <div class="config-subtitle">Active Profile</div>
+        <div class="field">
+          <label><span>Profile</span></label>
+          <select id="amp-profile-select" onchange="_refreshCloneBuiltInButton()"></select>
+          <div class="hint">Built-in and imported profiles. Activating a profile updates amplifier defaults.</div>
+        </div>
+        <div class="field" style="margin-top:12px">
+          <a href="/amplifier.html" class="detect-btn" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Configure Amplifier &amp; IR Codes ↗
+          </a>
+          <div class="hint">Maker, model, input mapping, USB reset timing, Broadlink pairing, and all IR codes.</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Display -->
     <div class="section" id="spi-section" style="display:none">
       <div class="section-title">SPI Display</div>
@@ -568,109 +598,6 @@
       </div>
     </div>
 
-    <!-- Amplifier Control -->
-    <div class="section">
-      <div class="section-title">Amplifier Control</div>
-      <p class="hint" style="margin-bottom:14px">IR control via Broadlink RM4 Mini. Requires pairing before commands work.</p>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-          <input type="checkbox" id="amp-enabled" style="width:auto;accent-color:var(--accent)" onchange="updateAmpPanel()">
-          <span>Enable amplifier control</span>
-        </label>
-      </div>
-
-      <div class="field">
-        <label><span>Maker</span></label>
-        <input type="text" id="amp-maker" placeholder="Magnat">
-      </div>
-      <div class="field">
-        <label><span>Model</span></label>
-        <input type="text" id="amp-model" placeholder="MR 780">
-      </div>
-      <div class="field">
-        <label><span>Input selection</span></label>
-        <select id="amp-input-mode">
-          <option value="cycle">Cycle (next_input IR code — e.g. Magnat MR 780)</option>
-          <option value="direct">Direct (one IR code per input)</option>
-        </select>
-        <div class="hint">Cycle: steps through inputs in order. Direct: sends a specific IR code per input.</div>
-      </div>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">USB Reset (Cycle Mode)</div>
-        <p class="hint" style="margin-bottom:10px">Controls the timing used by "Reset to USB Input" when inputs are changed by cycling.</p>
-
-        <div class="field">
-          <label><span>Max attempts (input jumps)</span></label>
-          <input type="number" id="amp-usb-reset-max-attempts" min="1" max="50" step="1" placeholder="13">
-          <div class="hint">Maximum number of effective input jumps before giving up.</div>
-        </div>
-
-        <div class="field">
-          <label><span>First-step settle (ms)</span></label>
-          <input type="number" id="amp-usb-reset-first-step-ms" min="0" max="5000" step="10" placeholder="150">
-          <div class="hint">Short wait after the first cycle press before probing USB DAC visibility.</div>
-        </div>
-
-        <div class="field">
-          <label><span>DAC probe wait after jump (ms)</span></label>
-          <input type="number" id="amp-usb-reset-step-wait-ms" min="100" max="10000" step="50" placeholder="2400">
-          <div class="hint">Wait after each effective input jump before checking whether USB DAC is detected.</div>
-        </div>
-      </div>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">Broadlink RM4 Mini</div>
-        <div class="field">
-          <label><span>IP address</span></label>
-          <input type="text" id="amp-broadlink-host" placeholder="192.168.1.100">
-        </div>
-        <div class="field">
-          <label><span>Pairing token</span></label>
-          <input type="text" id="amp-token" placeholder="(set via pairing wizard)" readonly style="opacity:0.6;cursor:default">
-        </div>
-        <div class="field">
-          <button type="button" class="detect-btn" onclick="window.open('/pair.html','_blank')">Open Pairing Wizard ↗</button>
-          <div class="hint">Pairs the RM4 Mini and stores credentials automatically. Opens in a new tab.</div>
-        </div>
-      </div>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">IR Codes — Amplifier</div>
-        <div class="hint" style="margin-bottom:10px">Point the Magnat remote at the RM4 Mini and click Learn.</div>
-        <div id="amp-ir-table"></div>
-      </div>
-    </div>
-
-    <!-- CD Player Control -->
-    <div class="section">
-      <div class="section-title">CD Player Control</div>
-      <p class="hint" style="margin-bottom:14px">IR transport control via Broadlink RM4 Mini.</p>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-          <input type="checkbox" id="cd-enabled" style="width:auto;accent-color:var(--accent)" onchange="updateAmpPanel()">
-          <span>Enable CD player control</span>
-        </label>
-      </div>
-      <div class="field">
-        <label><span>Maker</span></label>
-        <input type="text" id="cd-maker" placeholder="Yamaha">
-      </div>
-      <div class="field">
-        <label><span>Model</span></label>
-        <input type="text" id="cd-model" placeholder="CD-S300">
-      </div>
-      <div class="hint" style="margin-bottom:10px">Uses the same RM4 Mini as the amplifier (paired via the wizard above).</div>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">IR Codes — CD Player</div>
-        <div class="hint" style="margin-bottom:10px">Point the Yamaha remote at the RM4 Mini and click Learn.</div>
-        <div id="cd-ir-table"></div>
-      </div>
-    </div>
-
     <!-- Advanced -->
     <div class="section">
       <div class="section-title">Advanced</div>
@@ -678,6 +605,11 @@
 
       <div class="config-subsection">
         <div class="config-subtitle">Library &amp; Idle</div>
+
+        <div class="field">
+          <label class="check"><input type="checkbox" id="adv-streaming-usb-guard-enabled"> Enable Streaming USB Guard</label>
+          <div class="hint">Automatically returns amplifier input to USB while AirPlay/Bluetooth is playing. Disable to prevent any background IR input switching.</div>
+        </div>
 
         <div class="field">
           <label><span>Library database path</span></label>

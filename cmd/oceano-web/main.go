@@ -176,7 +176,7 @@ func main() {
 	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir)
 	registerBackupRoutes(mux, *libraryDB, cfg.Advanced.ArtworkDir, *configPath)
 
-	// API: amplifier and CD player IR control.
+	// API: amplifier IR control.
 	amp, err := buildAmplifierFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket, cfg.AudioOutput.DeviceMatch)
 	if err != nil {
 		log.Printf("amplifier config error: %v (amplifier control disabled)", err)
@@ -186,9 +186,12 @@ func main() {
 		monitor = amplifier.NewPowerStateMonitor(amp, 30*time.Second, monitorConfigFromAmplifierConfig(cfg.Amplifier))
 		go monitor.Start(context.Background())
 	}
-	cdPlayer := buildCDPlayerFromConfig(cfg.CDPlayer, cfg.Amplifier.Broadlink)
-	ampServer := registerAmplifierRoutes(mux, amp, monitor, cdPlayer, *configPath)
-	startStreamingUSBGuard(context.Background(), cfg.Advanced.StateFile, ampServer)
+	ampServer := registerAmplifierRoutes(mux, amp, monitor, *configPath)
+	if cfg.Advanced.StreamingUSBGuardEnabled {
+		startStreamingUSBGuard(context.Background(), cfg.Advanced.StateFile, ampServer)
+	} else {
+		log.Printf("streaming USB guard: disabled by config")
+	}
 
 	// Scheduled backup: generate a fresh timestamped backup every 24 hours.
 	// Backups land in the same directory as the library database.
@@ -493,7 +496,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		}
 	}
 
-	// amplifier, cd_player: managed in-memory by oceano-web — no systemd restart needed.
+	// amplifier controls: managed in-memory by oceano-web — no systemd restart needed.
 	// weather: rendered client-side from /api/config — no restart needed.
 
 	w.Header().Set("Content-Type", "application/json")
