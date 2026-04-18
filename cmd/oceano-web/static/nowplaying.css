@@ -58,7 +58,8 @@ body::after {
 /* ─── Layout ──────────────────────────────────────────────── */
 #app {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto;
+  align-content: center;
   height: 100%;
   width: min(100%, var(--content-max-width));
   margin: 0 auto;
@@ -215,11 +216,9 @@ body::after {
   margin-bottom: 8px;
 }
 
-#track-artist { font-size: clamp(1.12rem, 2.8vw, 1.45rem); font-weight: 500; color: #98a3c4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.4s; margin-bottom: 2px; }
+#track-artist { font-size: clamp(1.12rem, 2.8vw, 1.45rem); font-weight: 600; color: #aab5d4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.4s; margin-bottom: 2px; }
 
-#track-album { font-size: clamp(0.92rem, 2.1vw, 1.08rem); color: #677094; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.4s; margin-bottom: 18px; }
-
-#meta-divider { width: 42px; height: 2px; background: rgba(108, 126, 166, 0.4); border-radius: 2px; margin-bottom: 14px; transition: opacity 0.4s; }
+#track-album { font-size: clamp(0.92rem, 2.1vw, 1.08rem); color: #556080; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.4s; margin-bottom: 22px; }
 
 #meta-chips { display: flex; flex-wrap: wrap; gap: 10px; transition: opacity 0.4s; }
 
@@ -354,8 +353,7 @@ body::after {
   #playback-badge { font-size: 0.64rem; padding: 3px 8px; }
   #track-title { font-size: clamp(1.36rem, 4vw, 1.8rem); margin-bottom: 6px; }
   #track-artist { font-size: clamp(1rem, 2.7vw, 1.22rem); }
-  #track-album { font-size: clamp(0.86rem, 2.1vw, 0.98rem); margin-bottom: 10px; }
-  #meta-divider { margin-bottom: 10px; }
+  #track-album { font-size: clamp(0.86rem, 2.1vw, 0.98rem); margin-bottom: 20px; }
   .chip { font-size: 0.68rem; padding: 3px 8px; }
 }
 
@@ -367,15 +365,15 @@ body::after {
     --app-pad-top: clamp(10px, 3vh, 20px);
     --app-pad-bot: clamp(10px, 3vh, 20px);
   }
-  #app { display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
-  #content { grid-template-columns: 1fr; gap: clamp(14px, 3vh, 22px); }
+  #app { display: flex; flex-direction: column; height: 100%; overflow-y: auto; justify-content: center; }
+  #content { grid-template-columns: 1fr; gap: clamp(10px, 2vh, 16px); }
   #artwork-wrap { margin: 0 auto; }
   #meta { padding-top: 0; padding-right: 0; align-items: flex-start; }
-  #source-bar { margin-bottom: 12px; }
+  #source-bar { margin-bottom: 8px; }
   #track-title { font-size: clamp(1.5rem, 6vw, 2rem); }
   #track-artist { font-size: clamp(1.1rem, 4.5vw, 1.4rem); }
   #track-album { font-size: clamp(0.9rem, 3.5vw, 1rem); margin-bottom: 14px; }
-  #stream-progress { max-width: 100%; }
+  #stream-progress { width: 100%; max-width: 100%; }
 }
 
 /* Landscape mobile / small tablet */
@@ -391,8 +389,7 @@ body::after {
   #meta { padding-top: 8px; }
   #track-title { font-size: clamp(1.42rem, 3.2vw, 1.82rem); margin-bottom: 5px; }
   #track-artist { font-size: clamp(1rem, 2.2vw, 1.2rem); }
-  #track-album { margin-bottom: 10px; }
-  #meta-divider { margin-bottom: 10px; }
+  #track-album { margin-bottom: 20px; }
   #meta-chips { gap: 7px; }
   .chip { font-size: 0.7rem; padding: 3px 8px; }
   #stream-progress { margin-top: 8px; }
@@ -400,7 +397,7 @@ body::after {
 
 @media (max-width: 640px), (max-height: 460px) {
   #top-controls { top: 12px; right: 12px; gap: 8px; }
-  #app { grid-template-rows: auto 1fr; }
+  #app { grid-template-rows: auto auto; align-content: center; }
   #source-bar { padding: 7px 10px; gap: 8px; }
   #source-icon { width: 24px; height: 24px; }
   #source-label { font-size: 0.8rem; letter-spacing: 0.11em; }
@@ -496,14 +493,12 @@ body::after {
   /* Text */
   #track-title  { font-size: clamp(1.9rem, 3.8vw, 2.5rem); margin-bottom: 10px; }
   #track-artist { font-size: clamp(1.25rem, 2.6vw, 1.65rem); margin-bottom: 4px; }
-  #track-album  { font-size: clamp(1rem,   2vw,   1.22rem); margin-bottom: 16px; }
-
-  #meta-divider { margin-bottom: 14px; }
+  #track-album  { font-size: clamp(1rem,   2vw,   1.22rem); margin-bottom: 24px; }
 
   /* Chips */
   #meta-chips { gap: 10px; }
-  .chip       { font-size: 0.86rem; padding: 6px 14px; }
-  .chip svg   { width: 14px; height: 14px; }
+  .chip       { font-size: 1rem; padding: 8px 18px; }
+  .chip svg   { width: 15px; height: 15px; }
 
   /* Progress */
   #stream-progress       { margin-top: 16px; }

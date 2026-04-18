@@ -232,17 +232,12 @@ function applyState(state) {
   $chips.textContent = '';
 
   if (track) {
-    // Streaming: sample rate + bit depth
-    if (track.samplerate) {
+    // Streaming: sample rate + bit depth merged into one chip
+    if (track.samplerate || track.bitdepth) {
+      const fmtLabel = [track.samplerate, track.bitdepth].filter(Boolean).join(' · ');
       $chips.appendChild(makeChip(
         chipSVG('M1 6 Q3 2 5 6 Q7 10 9 6 Q11 2 11 6'),
-        track.samplerate
-      ));
-    }
-    if (track.bitdepth) {
-      $chips.appendChild(makeChip(
-        chipSVG('M2 9 L2 3 M2 6 L6 3 M6 3 L6 9 M6 6 L10 3 M10 3 L10 9'),
-        track.bitdepth
+        fmtLabel
       ));
     }
 
