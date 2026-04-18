@@ -38,6 +38,45 @@ type BroadlinkConfig struct {
 	DeviceID string `json:"device_id"`
 }
 
+// InputCyclingConfig controls the optional input-cycling probe used as a
+// last resort to detect whether the amplifier is on when neither USB nor
+// RMS signals are conclusive (e.g. no source is playing).
+//
+// Cycling sends repeated IR navigation commands until the USB DAC appears or
+// MaxCycles is exhausted. It is only performed when the amplifier's RMS has
+// been near zero for at least MinSilenceSecs seconds.
+//
+// This feature is amp-specific: only enable it when the IR codes and timing
+// have been validated for a particular model.
+type InputCyclingConfig struct {
+	// Enabled controls whether input cycling is attempted during detection.
+	Enabled bool `json:"enabled"`
+	// Direction is which input navigation command to send: "prev" or "next".
+	// Magnat MR 780 uses "prev" to cycle backwards to USB Audio.
+	Direction string `json:"direction"`
+	// MaxCycles is the maximum number of input steps before giving up.
+	MaxCycles int `json:"max_cycles"`
+	// StepWaitSecs is how many seconds to wait after each input step before
+	// checking for USB DAC presence. Allows the amp to switch and enumerate.
+	StepWaitSecs int `json:"step_wait_secs"`
+	// MinSilenceSecs is the minimum number of seconds RMS must have been near
+	// zero before cycling is allowed. Prevents interrupting active playback.
+	MinSilenceSecs int `json:"min_silence_secs"`
+}
+
+// USBResetConfig controls how the web-triggered "reset to USB input" flow
+// behaves for amplifiers that cycle inputs with repeated IR presses.
+type USBResetConfig struct {
+	// MaxAttempts is the maximum number of input jumps before giving up.
+	MaxAttempts int `json:"max_attempts"`
+	// FirstStepSettleMS is the short delay after the first press in a cycle.
+	// This allows the selector highlight to settle before probing DAC visibility.
+	FirstStepSettleMS int `json:"first_step_settle_ms"`
+	// StepWaitMS is the delay after the effective input-jump press before probing
+	// DAC visibility.
+	StepWaitMS int `json:"step_wait_ms"`
+}
+
 // AmplifierConfig controls the IR-controlled amplifier (e.g. Magnat MR 780).
 type AmplifierConfig struct {
 	// Enabled controls whether amplifier control is active.
@@ -53,6 +92,18 @@ type AmplifierConfig struct {
 	// Values are populated via the IR learning workflow or copied from a
 	// community database. Empty string means the command is not yet configured.
 	IRCodes map[string]string `json:"ir_codes"`
+	// WarmUpSecs is how long to wait after a power-on command before the amp
+	// is expected to be ready. Tube amplifiers (e.g. Magnat MR 780) take ~30s.
+	// During this window the monitor reports PowerStateWarmingUp.
+	WarmUpSecs int `json:"warm_up_secs"`
+	// StandbyTimeoutMins is the amplifier's auto-standby delay in minutes.
+	// When RMS has been silent for longer than this, the monitor infers
+	// PowerStateStandby instead of PowerStateOn.
+	StandbyTimeoutMins int `json:"standby_timeout_mins"`
+	// InputCycling controls the optional last-resort input-cycling probe.
+	InputCycling InputCyclingConfig `json:"input_cycling"`
+	// USBReset controls the manual/automatic "reset to USB input" flow timing.
+	USBReset USBResetConfig `json:"usb_reset"`
 }
 
 // CDPlayerConfig controls the IR-controlled CD player (e.g. Yamaha CD-S300).
@@ -281,6 +332,22 @@ func defaultConfig() Config {
 		Bluetooth: BluetoothConfig{
 			Enabled: false,
 			Name:    "", // empty → derived from AirPlay name at install time
+		},
+		Amplifier: AmplifierConfig{
+			WarmUpSecs:         30,
+			StandbyTimeoutMins: 20,
+			InputCycling: InputCyclingConfig{
+				Enabled:        false,
+				Direction:      "prev",
+				MaxCycles:      8,
+				StepWaitSecs:   3,
+				MinSilenceSecs: 120,
+			},
+			USBReset: USBResetConfig{
+				MaxAttempts:       13,
+				FirstStepSettleMS: 150,
+				StepWaitMS:        2400,
+			},
 		},
 		Weather: WeatherConfig{
 			Enabled:       true,

@@ -76,6 +76,9 @@ async function loadConfig() {
   if (ampEl) ampEl.checked = cfg.amplifier?.enabled ?? false;
   set('amp-maker',          cfg.amplifier?.maker ?? '');
   set('amp-model',          cfg.amplifier?.model ?? '');
+  set('amp-usb-reset-max-attempts',   cfg.amplifier?.usb_reset?.max_attempts ?? 13);
+  set('amp-usb-reset-first-step-ms',  cfg.amplifier?.usb_reset?.first_step_settle_ms ?? 150);
+  set('amp-usb-reset-step-wait-ms',   cfg.amplifier?.usb_reset?.step_wait_ms ?? 2400);
   set('amp-broadlink-host', cfg.amplifier?.broadlink?.host ?? '');
   set('amp-token',          cfg.amplifier?.broadlink?.token ?? '');
   updateAmpIRSummary(cfg.amplifier?.ir_codes ?? {});
@@ -220,6 +223,24 @@ async function loadNowPlayingDisplayCapabilities() {
     }
   } catch {
     section.style.display = 'none';
+  }
+}
+
+async function restartHDMIDisplayService() {
+  const btn = document.getElementById('restart-display-btn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const response = await fetch('/api/display/restart', { method: 'POST' });
+    if (!response.ok) {
+      const errorText = (await response.text()).trim();
+      throw new Error(errorText || `Display restart failed (${response.status})`);
+    }
+    toast('HDMI/DSI display service restarted.');
+  } catch (error) {
+    toast(error?.message || 'Failed to restart HDMI/DSI display service.', true);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -429,6 +450,12 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       enabled:                   document.getElementById('amp-enabled')?.checked ?? false,
       maker:                     val('amp-maker'),
       model:                     val('amp-model'),
+      usb_reset: {
+        ...(_ampConfig.usb_reset ?? {}),
+        max_attempts: intOr('amp-usb-reset-max-attempts', 13),
+        first_step_settle_ms: intOr('amp-usb-reset-first-step-ms', 150),
+        step_wait_ms: intOr('amp-usb-reset-step-wait-ms', 2400),
+      },
       broadlink: { ...(_ampConfig.broadlink ?? {}), host: val('amp-broadlink-host') },
     },
     cd_player: {

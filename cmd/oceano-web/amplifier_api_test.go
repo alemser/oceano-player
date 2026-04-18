@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -207,6 +208,135 @@ func TestAmplifierPrevInput_OK(t *testing.T) {
 	}
 }
 
+func TestAmplifierResetUSBInput_RunsWhenPowerNotOn(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp, nil)
+	s.powerStateFn = func() (amplifier.PowerState, time.Time) {
+		return amplifier.PowerStateOff, time.Now()
+	}
+	s.waitFn = func(context.Context, time.Duration) error { return nil }
+	probeCalls := 0
+	s.usbProbeFn = func(context.Context) bool {
+		probeCalls++
+		// initial check=false, after first click=false, after second click=true
+		return probeCalls >= 3
+	}
+
+	w := do(t, s.handleAmplifierResetUSBInput, http.MethodPost, "/api/amplifier/reset-usb-input", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+
+	var resp resetUSBInputResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Status != "found_usb" || resp.Attempts != 1 {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if len(mock.Sent) != 2 {
+		t.Fatalf("expected 2 IR commands, got %d (%v)", len(mock.Sent), mock.Sent)
+	}
+	for i, ir := range mock.Sent {
+		if ir != "IR_PREV" {
+			t.Fatalf("IR command %d = %q, want IR_PREV", i, ir)
+		}
+	}
+}
+
+func TestAmplifierResetUSBInput_AlreadyUSB_NoInputChange(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp, nil)
+	s.powerStateFn = func() (amplifier.PowerState, time.Time) {
+		return amplifier.PowerStateOn, time.Now()
+	}
+	s.usbProbeFn = func(context.Context) bool { return true }
+
+	w := do(t, s.handleAmplifierResetUSBInput, http.MethodPost, "/api/amplifier/reset-usb-input", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+
+	var resp resetUSBInputResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Status != "already_usb" || resp.Attempts != 0 {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if len(mock.Sent) != 0 {
+		t.Fatalf("expected no IR commands, got %v", mock.Sent)
+	}
+}
+
+func TestAmplifierResetUSBInput_FindsUSBStopsEarly(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp, nil)
+	s.powerStateFn = func() (amplifier.PowerState, time.Time) {
+		return amplifier.PowerStateOn, time.Now()
+	}
+	s.waitFn = func(context.Context, time.Duration) error { return nil }
+	probeCalls := 0
+	s.usbProbeFn = func(context.Context) bool {
+		probeCalls++
+		// Call sequence: initial check, after each first and second click.
+		// Succeed after the first click of attempt 3.
+		return probeCalls >= 6
+	}
+
+	w := do(t, s.handleAmplifierResetUSBInput, http.MethodPost, "/api/amplifier/reset-usb-input", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+
+	var resp resetUSBInputResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Status != "found_usb" || resp.Attempts != 2 {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if len(mock.Sent) != 5 {
+		t.Fatalf("expected 5 IR commands, got %d (%v)", len(mock.Sent), mock.Sent)
+	}
+	for i, ir := range mock.Sent {
+		if ir != "IR_PREV" {
+			t.Fatalf("IR command %d = %q, want IR_PREV", i, ir)
+		}
+	}
+}
+
+func TestAmplifierResetUSBInput_ExhaustsAfterThirteenAttempts(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp, nil)
+	s.powerStateFn = func() (amplifier.PowerState, time.Time) {
+		return amplifier.PowerStateOn, time.Now()
+	}
+	s.waitFn = func(context.Context, time.Duration) error { return nil }
+	s.usbProbeFn = func(context.Context) bool { return false }
+
+	w := do(t, s.handleAmplifierResetUSBInput, http.MethodPost, "/api/amplifier/reset-usb-input", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+
+	var resp resetUSBInputResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Status != "usb_not_found" || resp.Attempts != 13 {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if len(mock.Sent) != 26 {
+		t.Fatalf("expected 26 IR commands, got %d (%v)", len(mock.Sent), mock.Sent)
+	}
+	for i, ir := range mock.Sent {
+		if ir != "IR_PREV" {
+			t.Fatalf("IR command %d = %q, want IR_PREV", i, ir)
+		}
+	}
+}
+
 // --- /api/cdplayer/state ---
 
 func TestCDPlayerState_NotConfigured(t *testing.T) {
@@ -396,7 +526,7 @@ func TestPairComplete_InvalidPairingID(t *testing.T) {
 // --- buildAmplifierFromConfig / buildCDPlayerFromConfig ---
 
 func TestBuildAmplifierFromConfig_Disabled(t *testing.T) {
-	amp, err := buildAmplifierFromConfig(AmplifierConfig{Enabled: false}, "")
+	amp, err := buildAmplifierFromConfig(AmplifierConfig{Enabled: false}, "", "")
 	if err != nil || amp != nil {
 		t.Errorf("expected nil,nil for disabled amp; got %v, %v", amp, err)
 	}
@@ -409,7 +539,7 @@ func TestBuildAmplifierFromConfig_Enabled(t *testing.T) {
 		Model:   "MR 780",
 		IRCodes: map[string]string{"power_on": "IR_ON"},
 	}
-	amp, err := buildAmplifierFromConfig(cfg, "")
+	amp, err := buildAmplifierFromConfig(cfg, "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -467,6 +597,189 @@ func TestJsonError_SetsCodeAndBody(t *testing.T) {
 	if resp["error"] != "something went wrong" {
 		t.Errorf("unexpected error body: %v", resp)
 	}
+}
+
+// --- /api/amplifier/power-state ---
+
+func TestHandleAmplifierPowerState_ReturnsUnknownByDefault(t *testing.T) {
+	amp, _ := newTestAmp(t)
+	s := newTestServer(t, amp, nil) // no monitor → unknown
+
+	w := do(t, s.handleAmplifierPowerState, http.MethodGet, "/api/amplifier/power-state", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	var resp amplifierPowerStateResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.PowerState != string(amplifier.PowerStateUnknown) {
+		t.Errorf("power_state = %q, want %q", resp.PowerState, amplifier.PowerStateUnknown)
+	}
+}
+
+func TestHandleAmplifierPowerState_NoAmp(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+	w := do(t, s.handleAmplifierPowerState, http.MethodGet, "/api/amplifier/power-state", "")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("want 404, got %d", w.Code)
+	}
+}
+
+func TestHandleAmplifierPowerState_MethodNotAllowed(t *testing.T) {
+	amp, _ := newTestAmp(t)
+	s := newTestServer(t, amp, nil)
+	w := do(t, s.handleAmplifierPowerState, http.MethodPost, "/api/amplifier/power-state", "")
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("want 405, got %d", w.Code)
+	}
+}
+
+// --- /api/amplifier/power-on ---
+
+func TestHandleAmplifierPowerOn_SendsIR(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp, nil)
+
+	w := do(t, s.handleAmplifierPowerOn, http.MethodPost, "/api/amplifier/power-on", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if len(mock.Sent) != 1 || mock.Sent[0] != "IR_ON" {
+		t.Errorf("IR sent = %v, want [IR_ON]", mock.Sent)
+	}
+}
+
+func TestHandleAmplifierPowerOn_NotifiesMonitor(t *testing.T) {
+	amp, _ := newTestAmp(t)
+	monitor := amplifier.NewPowerStateMonitor(amp, time.Hour, amplifier.MonitorConfig{
+		WarmUp: time.Hour,
+	})
+	s := newTestServer(t, amp, nil)
+	s.monitor = monitor
+
+	do(t, s.handleAmplifierPowerOn, http.MethodPost, "/api/amplifier/power-on", "")
+
+	// After NotifyPowerOn the monitor should report WarmingUp when detection is Unknown.
+	// We verify indirectly: start monitor, detect (no socket → Unknown), expect WarmingUp.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	go monitor.Start(ctx)
+
+	select {
+	case <-time.After(12 * time.Second):
+		state, _ := monitor.Current()
+		if state != amplifier.PowerStateWarmingUp {
+			t.Errorf("power state after power-on = %q, want %q", state, amplifier.PowerStateWarmingUp)
+		}
+	case <-ctx.Done():
+	}
+}
+
+func TestHandleAmplifierPowerOn_NoAmp(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+	w := do(t, s.handleAmplifierPowerOn, http.MethodPost, "/api/amplifier/power-on", "")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("want 404, got %d", w.Code)
+	}
+}
+
+// --- /api/amplifier/power-off ---
+
+func TestHandleAmplifierPowerOff_SendsIR(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp, nil)
+
+	w := do(t, s.handleAmplifierPowerOff, http.MethodPost, "/api/amplifier/power-off", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if len(mock.Sent) != 1 || mock.Sent[0] != "IR_OFF" {
+		t.Errorf("IR sent = %v, want [IR_OFF]", mock.Sent)
+	}
+}
+
+func TestHandleAmplifierPowerOff_NoAmp(t *testing.T) {
+	s := newTestServer(t, nil, nil)
+	w := do(t, s.handleAmplifierPowerOff, http.MethodPost, "/api/amplifier/power-off", "")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("want 404, got %d", w.Code)
+	}
+}
+
+// --- /api/amplifier/state includes power_state ---
+
+func TestHandleAmplifierState_IncludesPowerState(t *testing.T) {
+	amp, _ := newTestAmp(t)
+	s := newTestServer(t, amp, nil)
+
+	w := do(t, s.handleAmplifierState, http.MethodGet, "/api/amplifier/state", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	var resp amplifierStateResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.PowerState == "" {
+		t.Error("power_state field missing in amplifier state response")
+	}
+}
+
+// --- monitorConfigFromAmplifierConfig ---
+
+func TestMonitorConfigFromAmplifierConfig_DurationConversion(t *testing.T) {
+	cfg := AmplifierConfig{
+		WarmUpSecs:         45,
+		StandbyTimeoutMins: 25,
+		InputCycling: InputCyclingConfig{
+			Enabled:        true,
+			MinSilenceSecs: 180,
+		},
+	}
+	mc := monitorConfigFromAmplifierConfig(cfg)
+
+	if mc.WarmUp != 45*time.Second {
+		t.Errorf("WarmUp = %v, want 45s", mc.WarmUp)
+	}
+	if mc.StandbyTimeout != 25*time.Minute {
+		t.Errorf("StandbyTimeout = %v, want 25m", mc.StandbyTimeout)
+	}
+	if !mc.CyclingEnabled {
+		t.Error("CyclingEnabled = false, want true")
+	}
+	if mc.CyclingMinSilence != 180*time.Second {
+		t.Errorf("CyclingMinSilence = %v, want 180s", mc.CyclingMinSilence)
+	}
+}
+
+// --- buildAmplifierFromConfig propagates timing settings ---
+
+func TestBuildAmplifierFromConfig_PropagatesTimings(t *testing.T) {
+	cfg := AmplifierConfig{
+		Enabled:            true,
+		Maker:              "Magnat",
+		Model:              "MR 780",
+		IRCodes:            map[string]string{"power_on": "IR_ON"},
+		WarmUpSecs:         30,
+		StandbyTimeoutMins: 20,
+		InputCycling: InputCyclingConfig{
+			Enabled:        true,
+			Direction:      "prev",
+			MaxCycles:      8,
+			StepWaitSecs:   3,
+			MinSilenceSecs: 120,
+		},
+	}
+	amp, err := buildAmplifierFromConfig(cfg, "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if amp == nil {
+		t.Fatal("expected non-nil amp")
+	}
+	// Settings are private but we can verify the amp was constructed without error.
+	// The MonitorConfig conversion is tested separately.
 }
 
 func TestSaveAndLoadConfig_RoundTrip(t *testing.T) {

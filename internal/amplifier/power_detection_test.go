@@ -31,30 +31,37 @@ func TestClassifyNoiseFloor_On(t *testing.T) {
 	}
 }
 
-func TestClassifyNoiseFloor_Off(t *testing.T) {
+func TestClassifyNoiseFloor_LowNoiseUnknown(t *testing.T) {
 	cases := []float64{
 		0.0,
 		0.0001,
-		noiseFloorOffThreshold,
-		noiseFloorOffThreshold - 0.001,
+		noiseFloorOnThreshold - 0.0001,
 	}
 	for _, rms := range cases {
-		if got := classifyNoiseFloor(rms); got != PowerStateOff {
-			t.Errorf("classifyNoiseFloor(%.4f) = %q, want %q", rms, got, PowerStateOff)
+		if got := classifyNoiseFloor(rms); got != PowerStateUnknown {
+			t.Errorf("classifyNoiseFloor(%.4f) = %q, want %q", rms, got, PowerStateUnknown)
 		}
 	}
 }
 
 func TestClassifyNoiseFloor_Unknown(t *testing.T) {
 	cases := []float64{
-		noiseFloorOffThreshold + 0.0005,
-		(noiseFloorOffThreshold + noiseFloorOnThreshold) / 2,
+		noiseFloorOnThreshold / 2,
 		noiseFloorOnThreshold - 0.0005,
 	}
 	for _, rms := range cases {
 		if got := classifyNoiseFloor(rms); got != PowerStateUnknown {
 			t.Errorf("classifyNoiseFloor(%.4f) = %q, want %q", rms, got, PowerStateUnknown)
 		}
+	}
+}
+
+func TestClassifyNoiseFloor_PhonoLikeSignalNotOff(t *testing.T) {
+	// Phono stage can expose a low but non-zero noise floor while the amplifier
+	// is on. Do not classify this as Off; keep it Unknown.
+	const phonoLikeRMS = 0.0085
+	if got := classifyNoiseFloor(phonoLikeRMS); got != PowerStateUnknown {
+		t.Fatalf("classifyNoiseFloor(%.4f) = %q, want %q", phonoLikeRMS, got, PowerStateUnknown)
 	}
 }
 
@@ -163,9 +170,9 @@ func TestDetectPowerState_OnViaNoiseFloor(t *testing.T) {
 	}
 }
 
-func TestDetectPowerState_OffViaNoiseFloor(t *testing.T) {
-	// RMS at/below off-threshold should classify as Off.
-	rms := float32(noiseFloorOffThreshold - 0.001)
+func TestDetectPowerState_UnknownViaLowNoiseFloor(t *testing.T) {
+	// Low RMS without USB detection is inconclusive (Unknown).
+	rms := float32(0.001)
 	sockPath := startMockVUSocket(t, rms)
 	amp := newAmpWithVUSocket(t, sockPath)
 
@@ -176,14 +183,14 @@ func TestDetectPowerState_OffViaNoiseFloor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DetectPowerState: %v", err)
 	}
-	if state != PowerStateOff {
-		t.Errorf("DetectPowerState = %q, want %q", state, PowerStateOff)
+	if state != PowerStateUnknown {
+		t.Errorf("DetectPowerState = %q, want %q", state, PowerStateUnknown)
 	}
 }
 
 func TestDetectPowerState_UnknownViaNoiseFloorDeadZone(t *testing.T) {
-	// RMS between off and on thresholds is intentionally inconclusive.
-	rms := float32((noiseFloorOffThreshold + noiseFloorOnThreshold) / 2)
+	// RMS below on-threshold is intentionally inconclusive.
+	rms := float32(noiseFloorOnThreshold - 0.002)
 	sockPath := startMockVUSocket(t, rms)
 	amp := newAmpWithVUSocket(t, sockPath)
 

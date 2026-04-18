@@ -147,6 +147,7 @@ async function loadAmplifierState() {
     const r = await fetch('/api/amplifier/state');
     if (!r.ok) return;
     renderAmpWidget(await r.json());
+    startPowerStatePolling();
   } catch { /* not configured or offline — widget stays hidden */ }
 
   try {
@@ -186,12 +187,59 @@ function renderAmpWidget(state) {
 
   const title = document.getElementById('amp-widget-title');
   if (title) title.textContent = `${state.maker} ${state.model}`;
+
+  if (state.power_state) applyPowerState(state.power_state);
 }
 
-// ── Power toggle ──────────────────────────────────────────────────────────────
+const _powerStateLabels = {
+  on:          'On',
+  warming_up:  'Warming up',
+  standby:     'Standby',
+  off:         'Off',
+  unknown:     '?',
+};
 
-async function ampPower() {
-  await fetch('/api/amplifier/power', { method: 'POST' });
+function applyPowerState(ps) {
+  const badge = document.getElementById('amp-power-badge');
+  if (badge) {
+    badge.dataset.state = ps;
+    badge.textContent   = _powerStateLabels[ps] ?? ps;
+    badge.title         = `Power state: ${ps.replace('_', ' ')}`;
+  }
+
+  const btnOn  = document.getElementById('btn-amp-on');
+  const btnOff = document.getElementById('btn-amp-off');
+  if (btnOn)  btnOn.classList.toggle('pwr-active',  ps === 'on' || ps === 'warming_up');
+  if (btnOff) btnOff.classList.toggle('pwr-active', ps === 'off' || ps === 'standby');
+}
+
+let _powerStatePoll = null;
+
+function startPowerStatePolling() {
+  if (_powerStatePoll) return;
+  _pollPowerState();
+  _powerStatePoll = setInterval(_pollPowerState, 30000);
+}
+
+async function _pollPowerState() {
+  try {
+    const r = await fetch('/api/amplifier/power-state');
+    if (!r.ok) return;
+    const data = await r.json();
+    applyPowerState(data.power_state);
+  } catch { /* offline — keep last state */ }
+}
+
+// ── Power ON / OFF ────────────────────────────────────────────────────────────
+
+async function ampPowerOn() {
+  applyPowerState('warming_up'); // optimistic UI
+  await fetch('/api/amplifier/power-on', { method: 'POST' });
+}
+
+async function ampPowerOff() {
+  applyPowerState('off'); // optimistic UI
+  await fetch('/api/amplifier/power-off', { method: 'POST' });
 }
 
 // ── Volume hold-to-repeat ─────────────────────────────────────────────────────
@@ -238,6 +286,36 @@ async function ampNextInput() {
 
 async function ampPrevInput() {
   await fetch('/api/amplifier/prev-input', { method: 'POST' });
+}
+
+async function ampResetUSBInput() {
+  const btn = document.getElementById('btn-amp-reset-usb');
+  if (btn) btn.disabled = true;
+
+  try {
+    const r = await fetch('/api/amplifier/reset-usb-input', { method: 'POST' });
+    if (!r.ok) throw new Error('request failed');
+
+    const res = await r.json();
+    switch (res?.status) {
+      case 'already_usb':
+        toast('USB input is already active.');
+        break;
+      case 'found_usb':
+        toast(`USB input found after ${res.attempts} input jump(s).`);
+        break;
+      case 'usb_not_found':
+        toast(`USB input not found after ${res?.attempts ?? 13} input jump(s).`, true);
+        break;
+      default:
+        toast('USB input reset finished.');
+        break;
+    }
+  } catch {
+    toast('Failed to reset input to USB.', true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function cdTransport(action) {

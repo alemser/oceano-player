@@ -9,9 +9,11 @@ import (
 type PowerState string
 
 const (
-	PowerStateOn      PowerState = "on"
-	PowerStateOff     PowerState = "off"
-	PowerStateUnknown PowerState = "unknown"
+	PowerStateOn         PowerState = "on"
+	PowerStateOff        PowerState = "off"
+	PowerStateWarmingUp  PowerState = "warming_up"
+	PowerStateStandby    PowerState = "standby"
+	PowerStateUnknown    PowerState = "unknown"
 )
 
 // ErrNotSupported is returned by RemoteDevice methods that are not available
@@ -55,6 +57,17 @@ type Amplifier interface {
 	// DetectPowerState probes hardware to determine the actual power state.
 	// The context controls the total detection timeout.
 	DetectPowerState(ctx context.Context) (PowerState, error)
+}
+
+// InputCycler is an optional interface implemented by amplifiers that support
+// active power detection by cycling through inputs until the USB DAC appears.
+// The PowerStateMonitor calls ProbeWithInputCycling only when passive detection
+// is inconclusive and silence has persisted long enough to make it safe.
+type InputCycler interface {
+	// ProbeWithInputCycling sends repeated input-navigation IR commands until
+	// the USB DAC is detected or the context is cancelled. Returns PowerStateOn
+	// if the DAC appears, PowerStateUnknown if it does not.
+	ProbeWithInputCycling(ctx context.Context) (PowerState, error)
 }
 
 // CDPlayer extends RemoteDevice with CD-specific state queries.

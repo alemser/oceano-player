@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/alemser/oceano-player/internal/amplifier"
 )
 
 //go:embed static
@@ -25,7 +27,7 @@ const (
 	managerBinary  = "/usr/local/bin/oceano-state-manager"
 	detectorUnit   = "oceano-source-detector.service"
 	managerUnit    = "oceano-state-manager.service"
-	displayUnit    = "oceano-now-playing.service"
+	displayUnit    = "oceano-display.service"
 	detectorSvc    = "/etc/systemd/system/" + detectorUnit
 	managerSvc     = "/etc/systemd/system/" + managerUnit
 	displayEnvPath = "/etc/oceano/display.env"
@@ -175,12 +177,18 @@ func main() {
 	registerBackupRoutes(mux, *libraryDB, cfg.Advanced.ArtworkDir, *configPath)
 
 	// API: amplifier and CD player IR control.
-	amp, err := buildAmplifierFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket)
+	amp, err := buildAmplifierFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket, cfg.AudioOutput.DeviceMatch)
 	if err != nil {
 		log.Printf("amplifier config error: %v (amplifier control disabled)", err)
 	}
+	var monitor *amplifier.PowerStateMonitor
+	if amp != nil {
+		monitor = amplifier.NewPowerStateMonitor(amp, 30*time.Second, monitorConfigFromAmplifierConfig(cfg.Amplifier))
+		go monitor.Start(context.Background())
+	}
 	cdPlayer := buildCDPlayerFromConfig(cfg.CDPlayer, cfg.Amplifier.Broadlink)
-	registerAmplifierRoutes(mux, amp, cdPlayer, *configPath)
+	ampServer := registerAmplifierRoutes(mux, amp, monitor, cdPlayer, *configPath)
+	startStreamingUSBGuard(context.Background(), cfg.Advanced.StateFile, ampServer)
 
 	// Scheduled backup: generate a fresh timestamped backup every 24 hours.
 	// Backups land in the same directory as the library database.
@@ -265,6 +273,7 @@ func main() {
 			"connectors": connectors,
 		})
 	})
+	mux.HandleFunc("/api/display/restart", handleDisplayServiceRestart)
 
 	// API: report whether the SPI now-playing service is installed.
 	mux.HandleFunc("/api/spi-display-installed", func(w http.ResponseWriter, r *http.Request) {

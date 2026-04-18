@@ -893,10 +893,30 @@
     /* Full-width button (power, eject) */
     .btn-amp-full { flex: 1; width: 100%; }
 
-    /* Power */
-    .btn-amp-power { color: #777; border-color: #2e2e2e; }
-    .btn-amp-power.pwr-on  { border-color: #1e3d1e !important; color: var(--ok-text) !important; background: rgba(30,80,30,0.12) !important; }
-    .btn-amp-power.pwr-off { border-color: #2e2e2e; color: #555; }
+    /* Power state badge in amp header */
+    .amp-power-badge {
+      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; padding: 2px 7px; border-radius: 20px;
+      border: 1px solid transparent; margin-left: auto; flex-shrink: 0;
+      transition: background 0.3s, color 0.3s, border-color 0.3s;
+    }
+    .amp-power-badge[data-state="on"]         { background: rgba(30,90,30,0.25); border-color: #2d6e2d; color: #6fc96f; }
+    .amp-power-badge[data-state="warming_up"] { background: rgba(90,70,0,0.25);  border-color: #7a5e00; color: #ffc742; animation: amp-pulse 1.2s ease-in-out infinite; }
+    .amp-power-badge[data-state="standby"]    { background: rgba(80,45,0,0.25);  border-color: #6e3d00; color: #e08840; }
+    .amp-power-badge[data-state="off"]        { background: rgba(60,20,20,0.18); border-color: #3a2020; color: #7a4444; }
+    .amp-power-badge[data-state="unknown"]    { background: rgba(50,50,50,0.2);  border-color: #2e2e2e; color: #555; }
+
+    @keyframes amp-pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.45; }
+    }
+
+    /* ON / OFF split power buttons */
+    .btn-amp-pwr-on  { flex: 1; color: #4a4; border-color: #1e3a1e; }
+    .btn-amp-pwr-off { flex: 1; color: #888; border-color: #2e2e2e; }
+    .btn-amp-pwr-on:hover  { border-color: #4a4 !important; color: #6fc !important; }
+    .btn-amp-pwr-off:hover { border-color: #a44 !important; color: #f88 !important; }
+    .btn-amp-pwr-on.pwr-active  { border-color: #2d6e2d !important; color: #6fc96f !important; background: rgba(30,80,30,0.15) !important; }
+    .btn-amp-pwr-off.pwr-active { border-color: #6e2020 !important; color: #e05555 !important; background: rgba(80,20,20,0.15) !important; }
 
     /* Input nav: chevron buttons + label */
     .btn-amp-nav { padding: 9px 12px; color: var(--text-dim); }
