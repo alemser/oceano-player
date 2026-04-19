@@ -17,17 +17,15 @@ type recognitionCoordinator struct {
 	rec        Recognizer
 	confirmRec Recognizer
 	shazamRec  Recognizer
-	fpr        Fingerprinter
 	lib        *internallibrary.Library
 }
 
-func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, fpr Fingerprinter, lib *internallibrary.Library) *recognitionCoordinator {
+func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, lib *internallibrary.Library) *recognitionCoordinator {
 	return &recognitionCoordinator{
 		mgr:        m,
 		rec:        rec,
 		confirmRec: confirmRec,
 		shazamRec:  shazamRec,
-		fpr:        fpr,
 		lib:        lib,
 	}
 }
@@ -65,26 +63,6 @@ func shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth bool) bool 
 	return !isPhysical || isAirPlay || isBluetooth
 }
 
-func shouldCreateBoundaryStub(lastStub, lastBoundary time.Time, stillPhysical bool) bool {
-	if !stillPhysical {
-		return false
-	}
-	return lastStub.IsZero() || !lastStub.After(lastBoundary)
-}
-
-func shouldCreateFingerprintOnlyStub(lastStub, lastBoundary time.Time, stillPhysical bool, minInterval time.Duration) bool {
-	if !stillPhysical {
-		return false
-	}
-	if shouldCreateBoundaryStub(lastStub, lastBoundary, stillPhysical) {
-		return true
-	}
-	if minInterval <= 0 {
-		minInterval = 5 * time.Minute
-	}
-	return time.Since(lastStub) >= minInterval
-}
-
 func recognitionLogFields(result *RecognitionResult) (string, string) {
 	source := "unknown"
 	score := fmt.Sprintf("score=%d", result.Score)
@@ -99,128 +77,6 @@ func recognitionLogFields(result *RecognitionResult) (string, string) {
 	return source, score
 }
 
-func (c *recognitionCoordinator) applyLocalFallbackEntry(entry *internallibrary.CollectionEntry, captureStartedAt time.Time) {
-	now := time.Now()
-	// Use physicalStartedAt for a more accurate seek: local fallback is always a
-	// non-boundary path, so the track may have been playing much longer than the
-	// single-attempt captureStartedAt window.
-	c.mgr.mu.Lock()
-	physStartedAt := c.mgr.physicalStartedAt
-	c.mgr.mu.Unlock()
-	seekMS := now.Sub(captureStartedAt).Milliseconds()
-	if !physStartedAt.IsZero() {
-		if better := now.Sub(physStartedAt).Milliseconds(); better > seekMS {
-			seekMS = better
-		}
-	}
-
-	c.mgr.mu.Lock()
-	c.mgr.recognitionResult = &RecognitionResult{
-		ACRID:      entry.ACRID,
-		ShazamID:   entry.ShazamID,
-		Title:      entry.Title,
-		Artist:     entry.Artist,
-		Album:      entry.Album,
-		Label:      entry.Label,
-		Released:   entry.Released,
-		Score:      entry.Score,
-		Format:     entry.Format,
-		DurationMs: entry.DurationMs,
-	}
-	c.mgr.lastRecognizedAt = now
-	c.mgr.pendingStubID = 0
-	c.mgr.physicalLibraryEntryID = entry.ID
-	c.mgr.shazamContinuityReady = entry.ShazamID != ""
-	if isPhysicalFormat(entry.Format) {
-		c.mgr.physicalFormat = entry.Format
-	}
-	c.mgr.physicalArtworkPath = entry.ArtworkPath
-	c.mgr.physicalSeekMS = seekMS
-	c.mgr.physicalSeekUpdatedAt = now
-	c.mgr.mu.Unlock()
-	c.mgr.markDirty()
-}
-
-func (c *recognitionCoordinator) tryLocalFingerprintFallback(capturedFPs []Fingerprint, captureStartedAt time.Time) bool {
-	if len(capturedFPs) == 0 || c.lib == nil {
-		return false
-	}
-	c.lib.RecordRecognitionEvent("FingerprintFallback", "attempt")
-	localEntry, err := c.lib.FindByFingerprints(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30)
-	if err != nil {
-		log.Printf("recognizer: fingerprint lookup error: %v", err)
-		c.lib.RecordRecognitionEvent("FingerprintFallback", "no_match")
-		return false
-	}
-	if localEntry == nil {
-		c.lib.RecordRecognitionEvent("FingerprintFallback", "no_match")
-		return false
-	}
-	c.lib.RecordRecognitionEvent("FingerprintFallback", "success")
-	log.Printf("recognizer: local fingerprint fallback match (id=%d confirmed=%v %s — %s)",
-		localEntry.ID, localEntry.UserConfirmed, localEntry.Artist, localEntry.Title)
-	c.applyLocalFallbackEntry(localEntry, captureStartedAt)
-	return true
-}
-
-func (c *recognitionCoordinator) lookupLocalFingerprintLocalFirst(capturedFPs []Fingerprint) *internallibrary.CollectionEntry {
-	if !c.mgr.cfg.FingerprintLocalFirst || len(capturedFPs) == 0 || c.lib == nil {
-		return nil
-	}
-	threshold := c.mgr.cfg.FingerprintLocalFirstThreshold
-	if threshold <= 0 {
-		threshold = c.mgr.cfg.FingerprintThreshold
-	}
-	// FindByFingerprints (unfiltered) is used here intentionally: entries created
-	// by RecordPlay are user_confirmed=0 and FindConfirmedByFingerprints would
-	// always return nil for them, making the shortcircuit dormant.
-	// The strict BER threshold (FingerprintLocalFirstThreshold < FingerprintThreshold)
-	// and the title+artist guard below are the accuracy gates; stubs (empty
-	// title/artist) are rejected explicitly.
-	localEntry, err := c.lib.FindByFingerprints(capturedFPs, threshold, 30)
-	if err != nil {
-		log.Printf("recognizer: local-first fingerprint lookup error: %v", err)
-		return nil
-	}
-	if localEntry == nil || localEntry.Title == "" || localEntry.Artist == "" {
-		return nil
-	}
-	return localEntry
-}
-
-func shouldShortCircuitLocalFirst(current *RecognitionResult, localEntry *internallibrary.CollectionEntry) bool {
-	if localEntry == nil {
-		return false
-	}
-	// When there is no prior confirmed track (e.g. service just started or the
-	// previous track was cleared), we have no reliable baseline. Do not
-	// short-circuit: always go through the provider chain so the result is
-	// confirmed by ACRCloud/Shazam before being accepted. A local fingerprint
-	// false-positive at startup would otherwise show the wrong track without
-	// any cross-check.
-	if current == nil {
-		return false
-	}
-	candidate := &RecognitionResult{
-		ACRID:    localEntry.ACRID,
-		ShazamID: localEntry.ShazamID,
-		Title:    localEntry.Title,
-		Artist:   localEntry.Artist,
-	}
-	return !sameTrackByProviderIDs(current, candidate)
-}
-
-func (c *recognitionCoordinator) tryLocalFingerprintLocalFirst(capturedFPs []Fingerprint, captureStartedAt time.Time) bool {
-	localEntry := c.lookupLocalFingerprintLocalFirst(capturedFPs)
-	if localEntry == nil {
-		return false
-	}
-	log.Printf("recognizer: local-first fingerprint match (id=%d %s — %s)",
-		localEntry.ID, localEntry.Artist, localEntry.Title)
-	c.applyLocalFallbackEntry(localEntry, captureStartedAt)
-	return true
-}
-
 func (c *recognitionCoordinator) drainPendingTriggers() int {
 	drained := 0
 	for {
@@ -233,14 +89,8 @@ func (c *recognitionCoordinator) drainPendingTriggers() int {
 	}
 }
 
-func (c *recognitionCoordinator) handleRecognitionError(err error, capturedFPs []Fingerprint, backoffUntil *time.Time, backoffRateLimited *bool, captureStartedAt time.Time) bool {
+func (c *recognitionCoordinator) handleRecognitionError(err error, backoffUntil *time.Time, backoffRateLimited *bool) bool {
 	log.Printf("recognizer [%s]: error: %v", c.rec.Name(), err)
-	if c.tryLocalFingerprintFallback(capturedFPs, captureStartedAt) {
-		drained := c.drainPendingTriggers()
-		log.Printf("recognizer [%s]: local fallback matched; pending triggers drained=%d", c.rec.Name(), drained)
-		*backoffUntil = time.Time{}
-		return true
-	}
 	if errors.Is(err, ErrRateLimit) {
 		const rateLimitBackoff = 5 * time.Minute
 		log.Printf("recognizer [%s]: rate limited — backing off %s", c.rec.Name(), rateLimitBackoff)
@@ -254,83 +104,12 @@ func (c *recognitionCoordinator) handleRecognitionError(err error, capturedFPs [
 	return true
 }
 
-func (c *recognitionCoordinator) handleNoMatch(capturedFPs []Fingerprint, isBoundaryTrigger bool, backoffUntil *time.Time, backoffRateLimited *bool) {
+func (c *recognitionCoordinator) handleNoMatch(isBoundaryTrigger bool, backoffUntil *time.Time, backoffRateLimited *bool) {
 	noMatchBackoff := c.mgr.cfg.NoMatchBackoff
 	if noMatchBackoff <= 0 {
 		noMatchBackoff = 15 * time.Second
 	}
-
-	// Do NOT use the local fingerprint fallback when cloud providers return an
-	// explicit "no match". The providers checked their database and found nothing;
-	// substituting a local fingerprint match at that point risks showing a
-	// completely wrong track (false positive). The fingerprint fallback is only
-	// appropriate for transient errors (network, rate-limit) — see
-	// handleRecognitionError — not for authoritative "no match" responses.
 	log.Printf("recognizer [%s]: no match — retrying in %s", c.rec.Name(), noMatchBackoff)
-	storeStubOnNoMatch := isBoundaryTrigger || c.mgr.cfg.RecognizerChain == "fingerprint_only"
-	if len(capturedFPs) > 0 && c.lib != nil && storeStubOnNoMatch {
-		c.mgr.mu.Lock()
-		lastStub := c.mgr.lastStubAt
-		lastBoundary := c.mgr.lastBoundaryAt
-		stillPhysical := c.mgr.physicalSource == "Physical"
-		hasRecognition := c.mgr.recognitionResult != nil
-		pendingStubID := c.mgr.pendingStubID
-		c.mgr.mu.Unlock()
-
-		if c.mgr.cfg.RecognizerChain == "fingerprint_only" {
-			minInterval := c.mgr.cfg.RecognizerMaxInterval
-			if minInterval <= 0 {
-				minInterval = noMatchBackoff
-			}
-			if !stillPhysical {
-				log.Printf("recognizer: stub skipped — source is no longer Physical (run-out groove or disc removed)")
-				c.mgr.mu.Lock()
-				c.mgr.pendingStubID = 0
-				c.mgr.mu.Unlock()
-			} else if hasRecognition {
-				log.Printf("recognizer: fingerprint-only stub skipped — already holding recognized track")
-				c.mgr.mu.Lock()
-				c.mgr.pendingStubID = 0
-				c.mgr.mu.Unlock()
-			} else if pendingStubID > 0 {
-				if saveErr := c.lib.SaveFingerprints(pendingStubID, capturedFPs); saveErr != nil {
-					log.Printf("recognizer: pending stub enrich error (id=%d): %v", pendingStubID, saveErr)
-					c.mgr.mu.Lock()
-					c.mgr.pendingStubID = 0
-					c.mgr.mu.Unlock()
-				} else {
-					log.Printf("recognizer: fingerprint-only no-match enriched pending stub (id=%d)", pendingStubID)
-				}
-			} else if !shouldCreateFingerprintOnlyStub(lastStub, lastBoundary, stillPhysical, minInterval) {
-				log.Printf("recognizer: fingerprint-only stub skipped — throttle active (lastStub=%s, minInterval=%s)", lastStub.Format(time.RFC3339), minInterval)
-			} else if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {
-				log.Printf("recognizer: stub upsert error: %v", stubErr)
-			} else {
-				log.Printf("recognizer: fingerprint-only no-match stub stored (id=%d)", stub.ID)
-				c.mgr.mu.Lock()
-				c.mgr.lastStubAt = time.Now()
-				c.mgr.pendingStubID = stub.ID
-				c.mgr.mu.Unlock()
-			}
-		} else if shouldCreateBoundaryStub(lastStub, lastBoundary, stillPhysical) {
-			if stub, stubErr := c.lib.UpsertStub(capturedFPs, c.mgr.cfg.FingerprintThreshold, 30); stubErr != nil {
-				log.Printf("recognizer: stub upsert error: %v", stubErr)
-			} else {
-				log.Printf("recognizer: fingerprint stub stored (id=%d)", stub.ID)
-				c.mgr.mu.Lock()
-				c.mgr.lastStubAt = time.Now()
-				c.mgr.pendingStubID = stub.ID
-				c.mgr.mu.Unlock()
-			}
-		} else if !stillPhysical {
-			log.Printf("recognizer: stub skipped — source is no longer Physical (run-out groove or disc removed)")
-			c.mgr.mu.Lock()
-			c.mgr.pendingStubID = 0
-			c.mgr.mu.Unlock()
-		} else {
-			log.Printf("recognizer: stub skipped — already created for this boundary (lastStub=%s)", lastStub.Format(time.RFC3339))
-		}
-	}
 
 	if isBoundaryTrigger {
 		c.mgr.mu.Lock()
@@ -469,12 +248,8 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 	return false, false
 }
 
-func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult, capturedFPs []Fingerprint, isBoundaryTrigger bool, isShazamFallback bool, shazamMatchedACR bool, captureStartedAt time.Time) {
+func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult, isBoundaryTrigger bool, isShazamFallback bool, shazamMatchedACR bool, captureStartedAt time.Time) {
 	if c.lib != nil {
-		c.mgr.mu.Lock()
-		pendingStubID := c.mgr.pendingStubID
-		c.mgr.mu.Unlock()
-
 		artworkPath := ""
 		if entry, lookupErr := c.lib.LookupByIDs(result.ACRID, result.ShazamID); lookupErr != nil {
 			log.Printf("recognizer: library lookup error: %v", lookupErr)
@@ -508,25 +283,6 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		if recErr != nil {
 			log.Printf("recognizer: library record error: %v", recErr)
 		} else if entryID > 0 {
-			if pendingStubID > 0 && pendingStubID != entryID {
-				if promoteErr := c.lib.PromoteStubFingerprints(pendingStubID, entryID); promoteErr != nil {
-					log.Printf("recognizer: promote pending stub fingerprints error (stub=%d target=%d): %v", pendingStubID, entryID, promoteErr)
-				} else {
-					log.Printf("recognizer: promoted pending stub fingerprints (stub=%d target=%d)", pendingStubID, entryID)
-				}
-			}
-			if len(capturedFPs) > 0 && isBoundaryTrigger && !c.lib.HasFingerprints(entryID) {
-				if fpErr := c.lib.SaveFingerprints(entryID, capturedFPs); fpErr != nil {
-					log.Printf("recognizer: save fingerprints error: %v", fpErr)
-				}
-			}
-			c.mgr.mu.Lock()
-			lastBoundary := c.mgr.lastBoundaryAt
-			c.mgr.mu.Unlock()
-			if !lastBoundary.IsZero() {
-				c.lib.PruneRecentStubs(lastBoundary, entryID)
-			}
-
 			// Read back the final entry after RecordPlay to pick up any library
 			// metadata applied by equivalent-metadata merge (e.g. when ACRCloud
 			// returns a different ACRID for a track the user already edited).
@@ -552,10 +308,6 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 			}
 		}
 
-		// Compute seek: prefer the time since the track actually started playing
-		// over captureStartedAt, which only reflects the last recognition attempt.
-		// For boundary triggers use lastBoundaryAt (when silence→audio fired);
-		// for timer-based triggers use physicalStartedAt (session or last boundary).
 		now := time.Now()
 		c.mgr.mu.Lock()
 		lastBoundaryForSeek := c.mgr.lastBoundaryAt
@@ -575,7 +327,6 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.mu.Lock()
 		c.mgr.recognitionResult = result
 		c.mgr.lastRecognizedAt = now
-		c.mgr.pendingStubID = 0
 		c.mgr.physicalLibraryEntryID = entryID
 		c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
 		c.mgr.shazamContinuityAbandoned = false
@@ -585,8 +336,6 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.physicalArtworkPath = artworkPath
 		c.mgr.physicalSeekMS = seekMS
 		c.mgr.physicalSeekUpdatedAt = now
-		// Remember the track start time so fallback timer recognitions of the same
-		// track also get an accurate seek estimate.
 		if isBoundaryTrigger && !lastBoundaryForSeek.IsZero() {
 			c.mgr.physicalStartedAt = lastBoundaryForSeek
 		}
@@ -594,7 +343,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		return
 	}
 
-	// No-library path: same seek improvement as the library path.
+	// No-library path.
 	now := time.Now()
 	c.mgr.mu.Lock()
 	lastBoundaryForSeek := c.mgr.lastBoundaryAt
@@ -716,14 +465,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 
 		var skip time.Duration
 		if isBoundaryTrigger {
-			skip = time.Duration(c.mgr.cfg.FingerprintBoundaryLeadSkipSecs) * time.Second
-			// Record the boundary time and reset pending stub. Do NOT clear
-			// recognitionResult yet — we do that only after all source checks
-			// pass, so the UI never briefly shows "Identifying" if BT/AirPlay
-			// became active between the first skip check and here.
+			// Skip 2 s at start of boundary capture to avoid vinyl stylus-drop crackle.
+			skip = 2 * time.Second
 			c.mgr.mu.Lock()
 			c.mgr.lastBoundaryAt = time.Now()
-			c.mgr.pendingStubID = 0
 			c.mgr.mu.Unlock()
 		}
 
@@ -739,31 +484,15 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			continue
 		}
 
-		// All pre-capture checks passed — now clear recognition state for boundary
+		// All pre-capture checks passed — clear recognition state for boundary
 		// triggers so the UI shows "Identifying" at the right moment.
-		// Save pre-boundary IDs and elapsed before clearing, for false-positive
-		// calibration after recognition completes.
-		var preBoundaryACRID, preBoundaryShazamID string
-		var preBoundaryLibEntryID int64
-		var preBoundaryElapsedMs int64
 		if isBoundaryTrigger {
 			c.mgr.mu.Lock()
-			if r := c.mgr.recognitionResult; r != nil {
-				preBoundaryACRID = r.ACRID
-				preBoundaryShazamID = r.ShazamID
-			}
-			preBoundaryLibEntryID = c.mgr.physicalLibraryEntryID
-			if !c.mgr.physicalSeekUpdatedAt.IsZero() {
-				elapsed := time.Duration(c.mgr.physicalSeekMS)*time.Millisecond +
-					time.Since(c.mgr.physicalSeekUpdatedAt)
-				preBoundaryElapsedMs = elapsed.Milliseconds()
-			}
 			c.mgr.recognitionResult = nil
 			c.mgr.physicalLibraryEntryID = 0
 			c.mgr.physicalArtworkPath = ""
 			c.mgr.physicalSeekMS = 0
 			c.mgr.physicalSeekUpdatedAt = time.Time{}
-			c.mgr.physicalDurationFPElapsedMs = 0
 			c.mgr.mu.Unlock()
 			c.mgr.markDirty()
 		}
@@ -798,43 +527,6 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			continue
 		}
 
-		captureSec := int(c.mgr.cfg.RecognizerCaptureDuration.Seconds())
-		capturedFPs := GenerateFingerprints(c.fpr, wavPath,
-			c.mgr.cfg.FingerprintWindows, c.mgr.cfg.FingerprintStrideSec,
-			c.mgr.cfg.FingerprintLengthSec, captureSec)
-
-		c.mgr.mu.Lock()
-		c.mgr.lastCapturedFPs = capturedFPs
-		c.mgr.mu.Unlock()
-
-		// Local-first short-circuit is skipped on boundary triggers: a boundary means
-		// the track changed, so the local fingerprint match may be the previous track
-		// (residual audio or a fingerprint overlap). Always use the remote provider to
-		// confirm what is actually playing after a boundary.
-		if !isBoundaryTrigger {
-			c.lib.RecordRecognitionEvent("Fingerprint", "attempt")
-			if localEntry := c.lookupLocalFingerprintLocalFirst(capturedFPs); localEntry != nil {
-				c.mgr.mu.Lock()
-				currentResult := c.mgr.recognitionResult
-				c.mgr.mu.Unlock()
-				if shouldShortCircuitLocalFirst(currentResult, localEntry) {
-					c.lib.RecordRecognitionEvent("Fingerprint", "success")
-					log.Printf("recognizer: local-first fingerprint match (id=%d %s — %s)",
-						localEntry.ID, localEntry.Artist, localEntry.Title)
-					c.applyLocalFallbackEntry(localEntry, captureStartedAt)
-					drained := c.drainPendingTriggers()
-					log.Printf("recognizer [%s]: local-first matched; pending triggers drained=%d", c.rec.Name(), drained)
-					os.Remove(wavPath)
-					backoffUntil = time.Time{}
-					backoffRateLimited = false
-					continue
-				}
-				log.Printf("recognizer [%s]: local-first matched current track — continuing provider chain", c.rec.Name())
-			} else {
-				c.lib.RecordRecognitionEvent("Fingerprint", "no_match")
-			}
-		}
-
 		result, err := c.rec.Recognize(ctx, wavPath)
 		os.Remove(wavPath)
 		if ctx.Err() != nil {
@@ -842,7 +534,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		}
 
 		if err != nil {
-			if c.handleRecognitionError(err, capturedFPs, &backoffUntil, &backoffRateLimited, captureStartedAt) {
+			if c.handleRecognitionError(err, &backoffUntil, &backoffRateLimited) {
 				continue
 			}
 			continue
@@ -905,25 +597,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				return
 			}
 
-			c.applyRecognizedResult(result, capturedFPs, isBoundaryTrigger, isShazamFallback, shazamMatchedACR, captureStartedAt)
+			c.applyRecognizedResult(result, isBoundaryTrigger, isShazamFallback, shazamMatchedACR, captureStartedAt)
 
 			// Detect false-positive boundary: the boundary trigger fired but
-			// recognition returned the same track that was playing before.
-			// Record the elapsed time so the VU monitor suppresses past this
-			// point on future plays of this track (self-calibration).
-			if isBoundaryTrigger && preBoundaryLibEntryID > 0 && preBoundaryElapsedMs > 0 && c.lib != nil {
-				samePre := (preBoundaryACRID != "" && preBoundaryACRID == result.ACRID) ||
-					(preBoundaryShazamID != "" && preBoundaryShazamID == result.ShazamID)
-				if samePre {
-					if err := c.lib.RecordDurationFalsePositive(preBoundaryLibEntryID, preBoundaryElapsedMs); err != nil {
-						log.Printf("recognizer: duration false positive record error: %v", err)
-					} else {
-						log.Printf("recognizer: duration false positive recorded — track still playing at %s (entry=%d)",
-							(time.Duration(preBoundaryElapsedMs)*time.Millisecond).Round(time.Second), preBoundaryLibEntryID)
-					}
-				}
-			}
-
 			if c.shazamRec != nil && result.ACRID != "" && !shazamMatchedACR {
 				go c.mgr.tryEnableShazamContinuity(ctx, c.shazamRec, result)
 			}
@@ -937,7 +613,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			}
 		drained:
 		} else {
-			c.handleNoMatch(capturedFPs, isBoundaryTrigger, &backoffUntil, &backoffRateLimited)
+			c.handleNoMatch(isBoundaryTrigger, &backoffUntil, &backoffRateLimited)
 			if backoffUntil.IsZero() {
 				continue
 			}

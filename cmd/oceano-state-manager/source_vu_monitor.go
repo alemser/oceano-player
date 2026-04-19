@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const physicalResumeRecognitionGap = 2 * time.Second
+
 // runSourceWatcher polls the source detector JSON file every 2 seconds.
 // Changes are rare (user switches from vinyl to CD), so polling is sufficient.
 func (m *mgr) runSourceWatcher(ctx context.Context) {
@@ -44,27 +46,55 @@ func (m *mgr) pollSourceFile() {
 	m.mu.Lock()
 	changed := m.physicalSource != src
 	newSession := false
+	resumedAfterIdle := false
+	resumedAfterSilence := false
 	if src == "Physical" {
-		// A new session is one where we've been silent longer than the idle delay —
-		// meaning the user stopped the record and started a new one, not just a
-		// gap between tracks or brief oscillation around the threshold.
-		if m.lastPhysicalAt.IsZero() || time.Since(m.lastPhysicalAt) > m.cfg.IdleDelay {
-			newSession = true
+		now := time.Now()
+		gap := time.Duration(0)
+		if !m.lastPhysicalAt.IsZero() {
+			gap = now.Sub(m.lastPhysicalAt)
 		}
-		m.lastPhysicalAt = time.Now()
+		// A new session is one where the source has been None longer than
+		// SessionGapThreshold — indicating the record stopped or the side was
+		// flipped, not merely a normal inter-track silence gap.
+		if m.lastPhysicalAt.IsZero() || gap > m.cfg.SessionGapThreshold {
+			newSession = true
+		} else if gap > m.cfg.IdleDelay {
+			resumedAfterIdle = true
+		} else if changed && gap >= physicalResumeRecognitionGap {
+			// Manual stop/start within the same session (e.g. lifting the stylus and
+			// placing it back at the beginning) should trigger recognition even though
+			// the existing result is still present and duration-based boundary
+			// suppression would otherwise block a fast re-start.
+			resumedAfterSilence = true
+		}
+		m.lastPhysicalAt = now
 	}
 	if newSession {
 		m.recognitionResult = nil
 		m.physicalArtworkPath = ""
 		m.physicalFormat = ""
-		m.pendingStubID = 0
 		m.shazamContinuityReady = false
 		m.lastContinuityMismatchAt = time.Time{}
 		m.lastContinuityMismatchFrom = ""
 		m.lastContinuityMismatchTo = ""
 		m.physicalStartedAt = time.Now()
+	} else if resumedAfterIdle {
+		// The UI may have already gone idle during a longer pause. Reset the seek
+		// anchor and queue a fresh recognition attempt on resume instead of waiting
+		// solely for the VU boundary path to win the race.
+		m.physicalStartedAt = time.Now()
+		// Invalidate seek so the duration guard cannot suppress the first boundary
+		// trigger after the needle is placed back on the record.
+		m.physicalSeekMS = 0
+		m.physicalSeekUpdatedAt = time.Time{}
+	} else if resumedAfterSilence {
+		m.physicalStartedAt = time.Now()
+		// Same: invalidate seek on manual stop/start so the boundary guard is bypassed.
+		m.physicalSeekMS = 0
+		m.physicalSeekUpdatedAt = time.Time{}
 	}
-	needsTrigger := src == "Physical" && m.recognitionResult == nil
+	needsTrigger := src == "Physical" && (m.recognitionResult == nil || resumedAfterIdle || resumedAfterSilence)
 	m.physicalSource = src
 	m.mu.Unlock()
 
@@ -136,6 +166,13 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 
 func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold float32, silenceFrames, activeFrames int) {
 	const (
+		// seekResetFrames is intentionally much smaller than silenceFrames:
+		// we want to invalidate the seek position as soon as a brief silence appears
+		// (indicating track end / needle lift) so the duration guard cannot suppress
+		// the next silence→audio boundary trigger. The silence must still sustain for
+		// silenceFrames before the boundary state machine commits inSilence=true.
+		seekResetFrames = 5 // ~250 ms — enough to distinguish gap from glitch
+
 		// Energy-change detection for track boundaries without silence gaps
 		// (e.g. vinyl with residual hum, CD crossfades).
 		//
@@ -165,64 +202,25 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 
 	fireBoundaryTrigger := func(reason string) {
 		// Pessimistic duration guard: suppress boundary triggers while the track is
-		// likely still playing, to avoid re-recognition on silent passages.
-		//
-		// Base strategy:
-		//   - Treat the reported duration as 75% reliable: allow triggers only
-		//     after 75% of the track has elapsed. No hard cap — long tracks such
-		//     as 14-min epics need the full window (10:40 with 75% of 14:14).
-		//   - elapsed is computed from physicalSeekMS, which is set to the actual
-		//     time since track start (including any recognition overhead), so the
-		//     comparison is accurate even when recognition took multiple attempts.
-		//
-		// Learned adjustment (self-calibration):
-		//   - If a false-positive was previously recorded for this track
-		//     (recognition returned the same track after a boundary trigger),
-		//     extend the threshold to learnedElapsed + 30 s.
-		//   - Never suppress past 95% of the reported duration so the real end
-		//     can always be detected.
-		//
-		// Examples (no calibration):
-		//   4-min track  → checks active from 3:00
-		//   14-min track → checks active from 10:40
-		const (
-			durationPessimism   = 0.75            // base: 75% of reported duration
-			learnedMargin       = 30 * time.Second // buffer added after last known false-positive
-			maxSuppressFraction = 0.95            // never suppress past 95% of track
-		)
+		// likely still playing, to avoid re-recognition on silent passages within a track.
+		// Triggers are allowed only after 75% of the reported duration has elapsed.
+		// No hard cap — long tracks (e.g. 14-min epics) need the full window.
+		const durationPessimism = 0.75
 		m.mu.Lock()
 		var durationMs int
 		var seekMS int64
 		var seekUpdatedAt time.Time
-		var learnedElapsedMs int64
 		if m.recognitionResult != nil {
 			durationMs = m.recognitionResult.DurationMs
 		}
 		seekMS = m.physicalSeekMS
 		seekUpdatedAt = m.physicalSeekUpdatedAt
-		learnedElapsedMs = m.physicalDurationFPElapsedMs
 		m.mu.Unlock()
 
 		if durationMs > 0 && !seekUpdatedAt.IsZero() {
 			elapsed := time.Duration(seekMS)*time.Millisecond + time.Since(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
-
-			// Pessimistic threshold: 75% of reported duration, no hard cap.
 			suppressUntil := time.Duration(float64(trackDuration) * durationPessimism)
-
-			// Learned adjustment: extend past the last known false-positive point.
-			if learnedElapsedMs > 0 {
-				learned := time.Duration(learnedElapsedMs)*time.Millisecond + learnedMargin
-				if learned > suppressUntil {
-					suppressUntil = learned
-				}
-				// Safety: never suppress past 95% of the reported duration.
-				maxAllowed := time.Duration(float64(trackDuration) * maxSuppressFraction)
-				if suppressUntil > maxAllowed {
-					suppressUntil = maxAllowed
-				}
-			}
-
 			if elapsed < suppressUntil {
 				log.Printf("VU monitor: boundary suppressed (%s) — %s elapsed, checks active from %s (track %s)",
 					reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))
@@ -257,6 +255,17 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 		if avg < silenceThreshold {
 			silenceCount++
 			activeCount = 0
+			if silenceCount == seekResetFrames {
+				// Reset seek suppression as soon as a brief silence is confirmed.
+				// Inter-track gaps on vinyl can be shorter than silenceFrames (~1 s),
+				// so we decouple the seek reset from the inSilence commit: 250 ms of
+				// silence is sufficient to signal "current track ended"; we do not need
+				// to wait for the full 1 s before disabling duration-based suppression.
+				m.mu.Lock()
+				m.physicalSeekMS = 0
+				m.physicalSeekUpdatedAt = time.Time{}
+				m.mu.Unlock()
+			}
 			if silenceCount >= silenceFrames && !inSilence {
 				inSilence = true
 				log.Printf("VU monitor: silence detected")
@@ -296,7 +305,17 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 
 		if fastEMA < slowEMA*energyDipRatio {
 			dipCount++
-			if dipCount >= energyDipMinFrames {
+			if dipCount == seekResetFrames {
+				// Energy dip confirmed (~250 ms) — reset seek suppression early,
+				// just like we do at seekResetFrames consecutive silent frames.
+				// This ensures the duration guard cannot suppress the boundary
+				// trigger even if the dip is shorter than energyDipMinFrames.
+				m.mu.Lock()
+				m.physicalSeekMS = 0
+				m.physicalSeekUpdatedAt = time.Time{}
+				m.mu.Unlock()
+			}
+			if dipCount >= energyDipMinFrames && !hadDip {
 				hadDip = true
 			}
 		} else {

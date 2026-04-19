@@ -8,7 +8,7 @@ import (
 
 func normalizeRecognizerChain(raw string) string {
 	switch raw {
-	case "acrcloud_first", "shazam_first", "acrcloud_only", "shazam_only", "fingerprint_only":
+	case "acrcloud_first", "shazam_first", "acrcloud_only", "shazam_only":
 		return raw
 	case "":
 		return "acrcloud_first"
@@ -28,18 +28,16 @@ type RecognitionPlan struct {
 }
 
 type recognitionComponents struct {
-	chain       Recognizer
-	confirmer   Recognizer
-	continuity  Recognizer
-	fingerprint Fingerprinter
+	chain      Recognizer
+	confirmer  Recognizer
+	continuity Recognizer
 }
 
-func newRecognitionComponents(plan RecognitionPlan, fingerprinter Fingerprinter) recognitionComponents {
+func newRecognitionComponents(plan RecognitionPlan) recognitionComponents {
 	return recognitionComponents{
-		chain:       NewChainRecognizer(plan.Ordered...),
-		confirmer:   plan.Confirmer,
-		continuity:  plan.Continuity,
-		fingerprint: fingerprinter,
+		chain:      NewChainRecognizer(plan.Ordered...),
+		confirmer:  plan.Confirmer,
+		continuity: plan.Continuity,
 	}
 }
 
@@ -92,8 +90,6 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 		if shazamRec != nil {
 			ordered = append(ordered, shazamRec)
 		}
-	case "fingerprint_only":
-		ordered = append(ordered, wrapWithStats(localOnlyRecognizer{}, lib))
 	default: // "acrcloud_first" or unset
 		if acrRec != nil {
 			ordered = append(ordered, acrRec)
@@ -104,8 +100,7 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 	}
 
 	if len(ordered) == 0 {
-		log.Printf("recognizer: chain policy=%s resolved to no available providers — falling back to local fingerprint-only mode", chain)
-		ordered = append(ordered, wrapWithStats(localOnlyRecognizer{}, lib))
+		log.Printf("recognizer: chain policy=%s resolved to no available providers — recognition disabled", chain)
 	}
 
 	// Confirmer is the secondary provider in the chain — used for cross-provider
@@ -122,5 +117,5 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 		Continuity: shazamContinuityRec, // always Shazam for continuity — tracked separately from chain calls
 	}
 
-	return newRecognitionComponents(plan, newFingerprinter())
+	return newRecognitionComponents(plan)
 }

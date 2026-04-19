@@ -19,17 +19,6 @@ func openTestLibrary(t *testing.T) *internallibrary.Library {
 	return lib
 }
 
-// makeFingerprint builds a deterministic Fingerprint of length n whose values
-// are all set to v. Used to construct fingerprints that are identical (BER=0)
-// or completely different (BER=1.0) in a controlled way.
-func makeFingerprint(v uint32, n int) Fingerprint {
-	fp := make(Fingerprint, n)
-	for i := range fp {
-		fp[i] = v
-	}
-	return fp
-}
-
 // ── Open / migrate ────────────────────────────────────────────────────────────
 
 func TestOpen_CreatesSchema(t *testing.T) {
@@ -38,9 +27,6 @@ func TestOpen_CreatesSchema(t *testing.T) {
 	var count int
 	if err := lib.DB().QueryRow(`SELECT COUNT(*) FROM collection`).Scan(&count); err != nil {
 		t.Fatalf("collection table missing after Open: %v", err)
-	}
-	if err := lib.DB().QueryRow(`SELECT COUNT(*) FROM fingerprints`).Scan(&count); err != nil {
-		t.Fatalf("fingerprints table missing after Open: %v", err)
 	}
 }
 
@@ -357,6 +343,43 @@ func TestLookupByIDs_FallsBackToShazamID(t *testing.T) {
 	}
 }
 
+func TestLookupByIDs_PrefersEntryWithDurationWhenACRHasNone(t *testing.T) {
+	lib := openTestLibrary(t)
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Simulate a historical split where ACRID and Shazam IDs point to different
+	// rows for the same musical work. ACR row has no duration; Shazam row does.
+	if _, err := lib.DB().Exec(`
+		INSERT INTO collection
+			(acrid, title, artist, score, play_count, first_played, last_played, user_confirmed, duration_ms)
+		VALUES (?, ?, ?, ?, 1, ?, ?, 0, ?)
+	`, "acr-split-001", "Telegraph Road", "Dire Straits", 95, now, now, 0); err != nil {
+		t.Fatalf("insert acr row: %v", err)
+	}
+
+	if _, err := lib.DB().Exec(`
+		INSERT INTO collection
+			(shazam_id, title, artist, score, play_count, first_played, last_played, user_confirmed, duration_ms)
+		VALUES (?, ?, ?, ?, 1, ?, ?, 1, ?)
+	`, "shz-split-001", "Telegraph Road", "Dire Straits", 80, now, now, 854000); err != nil {
+		t.Fatalf("insert shazam row: %v", err)
+	}
+
+	entry, err := lib.LookupByIDs("acr-split-001", "shz-split-001")
+	if err != nil {
+		t.Fatalf("LookupByIDs: %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected entry from LookupByIDs")
+	}
+	if entry.DurationMs != 854000 {
+		t.Fatalf("DurationMs = %d, want %d", entry.DurationMs, 854000)
+	}
+	if entry.ShazamID != "shz-split-001" {
+		t.Fatalf("expected selected row to be shazam-backed row, got shazam_id=%q", entry.ShazamID)
+	}
+}
+
 func TestRecordPlay_ACRIDUpsertPersistsShazamID(t *testing.T) {
 	lib := openTestLibrary(t)
 
@@ -390,406 +413,6 @@ func TestRecordPlay_ACRIDUpsertPersistsShazamID(t *testing.T) {
 	}
 	if entry.ACRID != "acr-merge-001" {
 		t.Fatalf("acrid = %q, want %q", entry.ACRID, "acr-merge-001")
-	}
-}
-
-// ── HasFingerprints ───────────────────────────────────────────────────────────
-
-func TestHasFingerprints_FalseWhenNone(t *testing.T) {
-	lib := openTestLibrary(t)
-	result := &RecognitionResult{ACRID: "acr-hfp-01", Title: "Track", Artist: "Artist"}
-	id, _ := lib.RecordPlay(result, "")
-	if lib.HasFingerprints(id) {
-		t.Error("HasFingerprints should be false for a new entry with no fingerprints")
-	}
-}
-
-func TestHasFingerprints_TrueAfterSave(t *testing.T) {
-	lib := openTestLibrary(t)
-	result := &RecognitionResult{ACRID: "acr-hfp-02", Title: "Track", Artist: "Artist"}
-	id, _ := lib.RecordPlay(result, "")
-	lib.SaveFingerprints(id, []Fingerprint{makeFingerprint(0x11223344, 50)}) //nolint:errcheck
-	if !lib.HasFingerprints(id) {
-		t.Error("HasFingerprints should be true after SaveFingerprints")
-	}
-}
-
-func TestHasFingerprints_FirstPlayOnlySemantics(t *testing.T) {
-	lib := openTestLibrary(t)
-	result := &RecognitionResult{ACRID: "acr-hfp-03", Title: "Track", Artist: "Artist"}
-	id, _ := lib.RecordPlay(result, "")
-	fp := []Fingerprint{makeFingerprint(0xAABBCCDD, 50)}
-
-	// First play: no fingerprints yet → should save.
-	if lib.HasFingerprints(id) {
-		t.Fatal("should have no fingerprints before first save")
-	}
-	lib.SaveFingerprints(id, fp) //nolint:errcheck
-
-	// Second play: fingerprints exist → caller should skip SaveFingerprints.
-	if !lib.HasFingerprints(id) {
-		t.Error("should have fingerprints after first save")
-	}
-
-	// Verify count stays at len(fp) — caller is responsible for gating,
-	// but confirm the DB state is correct.
-	var count int
-	lib.DB().QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id=?`, id).Scan(&count)
-	if count != len(fp) {
-		t.Errorf("fingerprint count = %d, want %d", count, len(fp))
-	}
-}
-
-// ── SaveFingerprints / FindByFingerprints ─────────────────────────────────────
-
-func TestFindByFingerprints_NoMatch(t *testing.T) {
-	lib := openTestLibrary(t)
-	// Store fingerprints for one entry.
-	result := &RecognitionResult{ACRID: "acr-fp-01", Title: "Track A", Artist: "Artist"}
-	id, _ := lib.RecordPlay(result, "")
-	stored := makeFingerprint(0xAAAAAAAA, 50)
-	lib.SaveFingerprints(id, []Fingerprint{stored}) //nolint:errcheck
-
-	// Query with a completely different fingerprint.
-	query := []Fingerprint{makeFingerprint(0x55555555, 50)}
-	entry, err := lib.FindByFingerprints(query, 0.35, 30)
-	if err != nil {
-		t.Fatalf("FindByFingerprints: %v", err)
-	}
-	if entry != nil {
-		t.Errorf("expected no match for completely different fingerprint, got id=%d", entry.ID)
-	}
-}
-
-func TestFindByFingerprints_MatchBelowThreshold(t *testing.T) {
-	lib := openTestLibrary(t)
-	result := &RecognitionResult{ACRID: "acr-fp-02", Title: "Track B", Artist: "Artist"}
-	id, _ := lib.RecordPlay(result, "")
-	// Store an identical fingerprint.
-	fp := makeFingerprint(0xDEADBEEF, 50)
-	lib.SaveFingerprints(id, []Fingerprint{fp}) //nolint:errcheck
-
-	entry, err := lib.FindByFingerprints([]Fingerprint{fp}, 0.35, 30)
-	if err != nil {
-		t.Fatalf("FindByFingerprints: %v", err)
-	}
-	if entry == nil {
-		t.Fatal("expected match for identical fingerprint")
-	}
-	if entry.ACRID != "acr-fp-02" {
-		t.Errorf("matched wrong entry: %q", entry.ACRID)
-	}
-}
-
-func TestFindByFingerprints_ReturnsClosestMatch(t *testing.T) {
-	lib := openTestLibrary(t)
-
-	// Entry A: identical to query (BER=0).
-	rA := &RecognitionResult{ACRID: "acr-close", Title: "Close", Artist: "A"}
-	idA, _ := lib.RecordPlay(rA, "")
-	fpA := makeFingerprint(0x00000000, 50)
-	lib.SaveFingerprints(idA, []Fingerprint{fpA}) //nolint:errcheck
-
-	// Entry B: all bits differ (BER=1.0).
-	rB := &RecognitionResult{ACRID: "acr-far", Title: "Far", Artist: "B"}
-	idB, _ := lib.RecordPlay(rB, "")
-	fpB := makeFingerprint(0xFFFFFFFF, 50)
-	lib.SaveFingerprints(idB, []Fingerprint{fpB}) //nolint:errcheck
-
-	query := []Fingerprint{makeFingerprint(0x00000000, 50)}
-	entry, err := lib.FindByFingerprints(query, 0.35, 30)
-	if err != nil {
-		t.Fatalf("FindByFingerprints: %v", err)
-	}
-	if entry == nil {
-		t.Fatal("expected a match")
-	}
-	if entry.ACRID != "acr-close" {
-		t.Errorf("matched %q, want %q", entry.ACRID, "acr-close")
-	}
-}
-
-func TestFindByFingerprints_EmptyLibrary(t *testing.T) {
-	lib := openTestLibrary(t)
-	query := []Fingerprint{makeFingerprint(0xDEADBEEF, 50)}
-	entry, err := lib.FindByFingerprints(query, 0.35, 30)
-	if err != nil {
-		t.Fatalf("FindByFingerprints on empty library: %v", err)
-	}
-	if entry != nil {
-		t.Errorf("empty library should return nil, got %+v", entry)
-	}
-}
-
-func TestFindByFingerprints_EmptyQuery(t *testing.T) {
-	lib := openTestLibrary(t)
-	entry, err := lib.FindByFingerprints(nil, 0.35, 30)
-	if err != nil {
-		t.Fatalf("FindByFingerprints(nil): %v", err)
-	}
-	if entry != nil {
-		t.Error("nil query should return nil")
-	}
-}
-
-func TestFindByFingerprints_RequiresAllQueryWindowsToMatchSameEntry(t *testing.T) {
-	lib := openTestLibrary(t)
-	result := &RecognitionResult{ACRID: "acr-fp-03", Title: "Track C", Artist: "Artist"}
-	id, _ := lib.RecordPlay(result, "")
-
-	matching := makeFingerprint(0x12345678, 50)
-	lib.SaveFingerprints(id, []Fingerprint{matching}) //nolint:errcheck
-
-	// First query window matches perfectly, second is completely different.
-	// Old logic used the global minimum BER and would incorrectly accept this.
-	query := []Fingerprint{
-		matching,
-		makeFingerprint(0xFFFFFFFF, 50),
-	}
-
-	entry, err := lib.FindByFingerprints(query, 0.35, 30)
-	if err != nil {
-		t.Fatalf("FindByFingerprints: %v", err)
-	}
-	if entry != nil {
-		t.Fatalf("expected no match when only one query window aligns, got id=%d", entry.ID)
-	}
-}
-
-func TestFindByFingerprints_PrefersEntryMatchingAllWindows(t *testing.T) {
-	lib := openTestLibrary(t)
-
-	// Entry A matches both windows.
-	rA := &RecognitionResult{ACRID: "acr-fp-all", Title: "All", Artist: "A"}
-	idA, _ := lib.RecordPlay(rA, "")
-	fpA1 := makeFingerprint(0x11111111, 50)
-	fpA2 := makeFingerprint(0x22222222, 50)
-	lib.SaveFingerprints(idA, []Fingerprint{fpA1, fpA2}) //nolint:errcheck
-
-	// Entry B matches only the first window.
-	rB := &RecognitionResult{ACRID: "acr-fp-partial", Title: "Partial", Artist: "B"}
-	idB, _ := lib.RecordPlay(rB, "")
-	lib.SaveFingerprints(idB, []Fingerprint{fpA1}) //nolint:errcheck
-
-	query := []Fingerprint{fpA1, fpA2}
-	entry, err := lib.FindByFingerprints(query, 0.35, 30)
-	if err != nil {
-		t.Fatalf("FindByFingerprints: %v", err)
-	}
-	if entry == nil {
-		t.Fatal("expected a match")
-	}
-	if entry.ACRID != "acr-fp-all" {
-		t.Fatalf("matched %q, want %q", entry.ACRID, "acr-fp-all")
-	}
-}
-
-// ── UpsertStub ────────────────────────────────────────────────────────────────
-
-func TestUpsertStub_CreatesStub(t *testing.T) {
-	lib := openTestLibrary(t)
-	fps := []Fingerprint{makeFingerprint(0x11223344, 50)}
-	stub, err := lib.UpsertStub(fps, 0.35, 30)
-	if err != nil {
-		t.Fatalf("UpsertStub: %v", err)
-	}
-	if stub == nil || stub.ID == 0 {
-		t.Fatal("expected stub with non-zero ID")
-	}
-	if stub.Title != "" || stub.Artist != "" {
-		t.Errorf("stub should have empty title/artist, got %q/%q", stub.Title, stub.Artist)
-	}
-	if stub.PlayCount != 1 {
-		t.Errorf("play_count = %d, want 1", stub.PlayCount)
-	}
-}
-
-func TestUpsertStub_ReusesExistingStubByFingerprint(t *testing.T) {
-	lib := openTestLibrary(t)
-	fp := makeFingerprint(0xAABBCCDD, 50)
-	fps := []Fingerprint{fp}
-
-	stub1, _ := lib.UpsertStub(fps, 0.35, 30)
-	stub2, _ := lib.UpsertStub(fps, 0.35, 30)
-
-	if stub1.ID != stub2.ID {
-		t.Errorf("second UpsertStub should reuse id=%d, got id=%d", stub1.ID, stub2.ID)
-	}
-
-	// Re-read to check play_count was incremented.
-	var playCount int
-	lib.DB().QueryRow(`SELECT play_count FROM collection WHERE id=?`, stub1.ID).Scan(&playCount)
-	if playCount != 2 {
-		t.Errorf("play_count = %d after two upserts, want 2", playCount)
-	}
-}
-
-func TestUpsertStub_DifferentFingerprintCreatesNewStub(t *testing.T) {
-	lib := openTestLibrary(t)
-	fp1 := []Fingerprint{makeFingerprint(0x00000000, 50)}
-	fp2 := []Fingerprint{makeFingerprint(0xFFFFFFFF, 50)}
-
-	stub1, _ := lib.UpsertStub(fp1, 0.35, 30)
-	stub2, _ := lib.UpsertStub(fp2, 0.35, 30)
-
-	if stub1.ID == stub2.ID {
-		t.Error("different fingerprints should create distinct stubs")
-	}
-}
-
-func TestUpsertStub_NoFingerprintsErrors(t *testing.T) {
-	lib := openTestLibrary(t)
-	_, err := lib.UpsertStub(nil, 0.35, 30)
-	if err == nil {
-		t.Error("UpsertStub(nil) should return an error")
-	}
-}
-
-// ── PruneStub ─────────────────────────────────────────────────────────────────
-
-func TestPruneStub_RemovesStub(t *testing.T) {
-	lib := openTestLibrary(t)
-	fps := []Fingerprint{makeFingerprint(0xCAFEBABE, 50)}
-	stub, _ := lib.UpsertStub(fps, 0.35, 30)
-
-	if err := lib.PruneStub(stub.ID); err != nil {
-		t.Fatalf("PruneStub: %v", err)
-	}
-	var count int
-	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
-	if count != 0 {
-		t.Error("stub should have been deleted")
-	}
-}
-
-func TestPruneStub_DoesNotDeleteConfirmedEntry(t *testing.T) {
-	lib := openTestLibrary(t)
-	result := &RecognitionResult{ACRID: "acr-safe", Title: "Safe", Artist: "Artist"}
-	id, _ := lib.RecordPlay(result, "")
-
-	lib.PruneStub(id) //nolint:errcheck
-
-	entry, _ := lib.Lookup("acr-safe")
-	if entry == nil {
-		t.Error("PruneStub should not delete user_confirmed=1 entries")
-	}
-}
-
-// ── PruneRecentStubs ──────────────────────────────────────────────────────────
-
-func TestPruneRecentStubs_DeletesStubsAfterBoundary(t *testing.T) {
-	lib := openTestLibrary(t)
-
-	boundary := time.Now().Add(-5 * time.Second)
-
-	// Stub created after boundary — should be pruned.
-	stub1, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0x11111111, 50)}, 0.35, 30)
-
-	// Confirmed entry — must NOT be pruned.
-	result := &RecognitionResult{ACRID: "acr-keep", Title: "Keep", Artist: "Artist"}
-	keepID, _ := lib.RecordPlay(result, "")
-
-	lib.PruneRecentStubs(boundary, keepID)
-
-	var count int
-	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub1.ID).Scan(&count)
-	if count != 0 {
-		t.Errorf("stub created after boundary should be pruned, still found id=%d", stub1.ID)
-	}
-
-	// keepID must still exist.
-	entry, _ := lib.Lookup("acr-keep")
-	if entry == nil {
-		t.Error("confirmed entry should not be pruned")
-	}
-}
-
-func TestPruneRecentStubs_SparesBoundaryExcludeID(t *testing.T) {
-	lib := openTestLibrary(t)
-
-	boundary := time.Now().Add(-5 * time.Second)
-	stub, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0x22222222, 50)}, 0.35, 30)
-
-	// excludeID = stub.ID → should NOT be deleted even though it matches the time window.
-	lib.PruneRecentStubs(boundary, stub.ID)
-
-	var count int
-	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
-	if count == 0 {
-		t.Error("stub matching excludeID should be spared by PruneRecentStubs")
-	}
-}
-
-func TestPruneRecentStubs_SparesStubsBeforeBoundary(t *testing.T) {
-	lib := openTestLibrary(t)
-
-	// Create stub, then set its first_played to before the boundary.
-	stub, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0x33333333, 50)}, 0.35, 30)
-	pastTime := time.Now().Add(-2 * time.Minute).UTC().Format(time.RFC3339)
-	lib.DB().Exec(`UPDATE collection SET first_played=? WHERE id=?`, pastTime, stub.ID)
-
-	boundary := time.Now().Add(-1 * time.Minute) // 1 min ago — after pastTime above
-	lib.PruneRecentStubs(boundary, 0)
-
-	// Stub was created before boundary → spared.
-	var count int
-	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
-	if count == 0 {
-		t.Error("stub created before boundary should not be pruned")
-	}
-}
-
-// ── PruneMatchingStubs ────────────────────────────────────────────────────────
-
-func TestPruneMatchingStubs_DeletesMatchingStub(t *testing.T) {
-	lib := openTestLibrary(t)
-
-	fp := makeFingerprint(0x00000001, 50)
-	stub, _ := lib.UpsertStub([]Fingerprint{fp}, 0.35, 30)
-
-	// Simulate recognition of the same track — different entry.
-	result := &RecognitionResult{ACRID: "acr-match", Title: "Found", Artist: "Artist"}
-	keepID, _ := lib.RecordPlay(result, "")
-
-	lib.PruneMatchingStubs([]Fingerprint{fp}, 0.35, 30, keepID)
-
-	var count int
-	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
-	if count != 0 {
-		t.Errorf("stub with matching fingerprint should be pruned, found id=%d", stub.ID)
-	}
-}
-
-func TestPruneMatchingStubs_SparesNonMatchingStub(t *testing.T) {
-	lib := openTestLibrary(t)
-
-	stub, _ := lib.UpsertStub([]Fingerprint{makeFingerprint(0xFFFFFFFF, 50)}, 0.35, 30)
-
-	result := &RecognitionResult{ACRID: "acr-other", Title: "Other", Artist: "Artist"}
-	keepID, _ := lib.RecordPlay(result, "")
-
-	// Query with completely different fingerprint → no match → stub spared.
-	lib.PruneMatchingStubs([]Fingerprint{makeFingerprint(0x00000000, 50)}, 0.35, 30, keepID)
-
-	var count int
-	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
-	if count == 0 {
-		t.Error("stub with non-matching fingerprint should NOT be pruned")
-	}
-}
-
-func TestPruneMatchingStubs_SparesExcludeID(t *testing.T) {
-	lib := openTestLibrary(t)
-	fp := makeFingerprint(0x12345678, 50)
-	stub, _ := lib.UpsertStub([]Fingerprint{fp}, 0.35, 30)
-
-	// excludeID == stub.ID → spared even though fingerprint matches.
-	lib.PruneMatchingStubs([]Fingerprint{fp}, 0.35, 30, stub.ID)
-
-	var count int
-	lib.DB().QueryRow(`SELECT COUNT(*) FROM collection WHERE id=?`, stub.ID).Scan(&count)
-	if count == 0 {
-		t.Error("PruneMatchingStubs should spare the excludeID entry")
 	}
 }
 
@@ -879,70 +502,5 @@ func TestRecordPlay_DurationMs_UpdatedOnConflict(t *testing.T) {
 	entry, _ = lib.GetByID(id)
 	if entry.DurationMs != 210000 {
 		t.Errorf("DurationMs = %d, want 210000 preserved when re-play carries 0", entry.DurationMs)
-	}
-}
-
-// TestRecordDurationFalsePositive proves that RecordDurationFalsePositive stores
-// the elapsed value and that successive calls keep the maximum.
-func TestRecordDurationFalsePositive(t *testing.T) {
-	lib := openTestLibrary(t)
-
-	r := &RecognitionResult{ACRID: "acr-fp-test", Title: "Long Track", Artist: "Band", DurationMs: 840000}
-	id, err := lib.RecordPlay(r, "")
-	if err != nil {
-		t.Fatalf("RecordPlay: %v", err)
-	}
-
-	// Initial state: no false positive recorded.
-	entry, _ := lib.GetByID(id)
-	if entry.DurationFPElapsedMs != 0 {
-		t.Fatalf("DurationFPElapsedMs should be 0 initially, got %d", entry.DurationFPElapsedMs)
-	}
-
-	// Record a false positive at 5:30 (330 000 ms).
-	if err := lib.RecordDurationFalsePositive(id, 330_000); err != nil {
-		t.Fatalf("RecordDurationFalsePositive: %v", err)
-	}
-	entry, _ = lib.GetByID(id)
-	if entry.DurationFPElapsedMs != 330_000 {
-		t.Errorf("DurationFPElapsedMs = %d, want 330000", entry.DurationFPElapsedMs)
-	}
-
-	// A later false positive at 8:00 (480 000 ms) should update to the higher value.
-	if err := lib.RecordDurationFalsePositive(id, 480_000); err != nil {
-		t.Fatalf("RecordDurationFalsePositive (second): %v", err)
-	}
-	entry, _ = lib.GetByID(id)
-	if entry.DurationFPElapsedMs != 480_000 {
-		t.Errorf("DurationFPElapsedMs = %d, want 480000 after higher value", entry.DurationFPElapsedMs)
-	}
-
-	// A smaller value must NOT overwrite the maximum.
-	if err := lib.RecordDurationFalsePositive(id, 200_000); err != nil {
-		t.Fatalf("RecordDurationFalsePositive (smaller): %v", err)
-	}
-	entry, _ = lib.GetByID(id)
-	if entry.DurationFPElapsedMs != 480_000 {
-		t.Errorf("DurationFPElapsedMs = %d, want 480000 preserved (smaller value should not overwrite)", entry.DurationFPElapsedMs)
-	}
-}
-
-// TestRecordDurationFalsePositive_NilAndZeroSafe proves that RecordDurationFalsePositive
-// is a no-op when called with invalid arguments.
-func TestRecordDurationFalsePositive_NilAndZeroSafe(t *testing.T) {
-	lib := openTestLibrary(t)
-	// Zero entry ID — should not error.
-	if err := lib.RecordDurationFalsePositive(0, 300_000); err != nil {
-		t.Errorf("expected no error for entryID=0, got %v", err)
-	}
-	// Zero elapsed — should not error or write anything.
-	r := &RecognitionResult{ACRID: "acr-fp-zero", Title: "Track", Artist: "Artist"}
-	id, _ := lib.RecordPlay(r, "")
-	if err := lib.RecordDurationFalsePositive(id, 0); err != nil {
-		t.Errorf("expected no error for elapsedMs=0, got %v", err)
-	}
-	entry, _ := lib.GetByID(id)
-	if entry.DurationFPElapsedMs != 0 {
-		t.Errorf("DurationFPElapsedMs = %d, want 0 when elapsedMs=0 passed", entry.DurationFPElapsedMs)
 	}
 }

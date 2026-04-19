@@ -189,15 +189,12 @@ function makePlayRow(p) {
   artEl.className = 'play-art';
   if (p.artwork_path) {
     const img = document.createElement('img');
-    img.src = '/api/library/' + encodeURIComponent(p.collection_id) + '/artwork';
+    img.src = p.collection_id
+      ? '/api/library/' + encodeURIComponent(p.collection_id) + '/artwork'
+      : '/api/history/artwork/' + encodeURIComponent(p.id);
     img.alt = '';
     img.loading = 'lazy';
     img.onerror = () => { artEl.innerHTML = musicNoteSVG(); };
-    if (!p.collection_id) {
-      img.src = '';
-      img.onerror = null;
-      artEl.innerHTML = musicNoteSVG();
-    }
     artEl.appendChild(img);
   } else {
     artEl.innerHTML = musicNoteSVG();

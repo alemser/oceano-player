@@ -101,10 +101,9 @@ type Config struct {
 	// When set and shazamio is importable, Shazam is used as a fallback after ACRCloud.
 	ShazamPythonBin string
 	// RecognizerChain controls which API providers are included and their order.
-	// Valid values: "acrcloud_first" | "shazam_first" | "acrcloud_only" | "shazam_only" | "fingerprint_only".
-	// Local fingerprint cache is always active as a final fallback. If the selected
-	// policy resolves to no available API provider, recognition automatically
-	// falls back to fingerprint-only mode.
+	// Valid values: "acrcloud_first" | "shazam_first" | "acrcloud_only" | "shazam_only".
+	// If the selected policy resolves to no available API provider, recognition
+	// is disabled until a provider becomes available again.
 	// Continuity monitoring always uses Shazam when available, independent of this setting.
 	RecognizerChain string
 	// ShazamContinuityInterval controls how often Shazam re-checks if the
@@ -136,36 +135,17 @@ type Config struct {
 	// and uses them to trigger recognition at the right moment.
 	VUSocket string
 	// IdleDelay is how long to keep showing the last physical track after audio stops
-	// before switching to the idle screen. Defaults to 60 seconds.
+	// before switching to the idle screen. Defaults to 10 seconds.
 	IdleDelay time.Duration
+	// SessionGapThreshold is the maximum silence gap that is treated as an
+	// inter-track pause rather than end of record. If the source goes None and
+	// comes back Physical within this window, the existing recognition result is
+	// kept and no new session is started. Set this longer than the longest expected
+	// silence between tracks on your records. Defaults to 45 seconds.
+	SessionGapThreshold time.Duration
 	// LibraryDB is the path to the SQLite database used to record physical-media plays.
 	// Set to empty string to disable library recording.
 	LibraryDB string
-
-	// Fingerprint cache — requires fpcalc(1) from chromaprint-tools.
-	// FingerprintWindows is the number of overlapping windows generated per capture.
-	FingerprintWindows int
-	// FingerprintStrideSec is the offset in seconds between consecutive windows.
-	// Constraint: (FingerprintWindows-1)*FingerprintStrideSec + FingerprintLengthSec <= RecognizerCaptureDuration.
-	FingerprintStrideSec int
-	// FingerprintLengthSec is the duration in seconds of each fingerprint window.
-	// Must satisfy: FingerprintLengthSec <= RecognizerCaptureDuration - (FingerprintWindows-1)*FingerprintStrideSec.
-	FingerprintLengthSec int
-	// FingerprintBoundaryLeadSkipSecs is how many seconds to discard from the
-	// start of a boundary-triggered capture. On vinyl, the stylus drop and
-	// surface crackle precede the music; skipping a few seconds prevents a
-	// crackle-only fingerprint from being stored as the track stub.
-	FingerprintBoundaryLeadSkipSecs int
-	// FingerprintThreshold is the maximum BER for a fingerprint to be considered a match.
-	// 0.35 is the threshold used by AcoustID; lower values are stricter.
-	FingerprintThreshold float64
-	// FingerprintLocalFirst enables a conservative local-first lookup before
-	// calling online providers. Only confirmed library entries are considered,
-	// and matching uses FingerprintLocalFirstThreshold.
-	FingerprintLocalFirst bool
-	// FingerprintLocalFirstThreshold is the maximum BER for local-first matches.
-	// Keep this stricter (lower) than FingerprintThreshold to avoid false positives.
-	FingerprintLocalFirstThreshold float64
 
 	// ConfirmationDelay is how long to wait before making a second ACRCloud call
 	// to confirm a track change. When a recognition result differs from the current
@@ -194,14 +174,8 @@ func defaultConfig() Config {
 		RecognizerRefreshInterval:       2 * time.Minute,
 		NoMatchBackoff:                  15 * time.Second,
 		IdleDelay:                       10 * time.Second,
+		SessionGapThreshold:             45 * time.Second,
 		LibraryDB:                       "/var/lib/oceano/library.db",
-		FingerprintWindows:              5,
-		FingerprintStrideSec:            1,
-		FingerprintLengthSec:            6,
-		FingerprintBoundaryLeadSkipSecs: 2,
-		FingerprintThreshold:            0.30,
-		FingerprintLocalFirst:           true,
-		FingerprintLocalFirstThreshold:  0.28,
 		ConfirmationDelay:               0,
 		ConfirmationCaptureDuration:     4 * time.Second,
 		ConfirmationBypassScore:         95,
@@ -234,29 +208,29 @@ type mgr struct {
 	artworkPath    string
 
 	// Bluetooth state (updated by runBluetoothMonitor goroutine)
-	bluetoothConnected   bool        // true while a device is Connected=true via Device1
-	bluetoothPlaying     bool        // true while AVRCP status=playing
-	bluetoothTitle       string
-	bluetoothArtist      string
-	bluetoothAlbum       string
-	bluetoothDevicePath  string      // D-Bus path of the connected device, e.g. /org/bluez/hci0/dev_XX
-	bluetoothCodec       string      // e.g. "SBC", "AAC", "LDAC", "AptX", "Opus"
-	bluetoothSampleRate  string      // e.g. "44.1 kHz", "48 kHz", "96 kHz" — parsed from transport config
-	bluetoothBitDepth    string      // e.g. "16 bit", "24 bit" — parsed from transport config
-	bluetoothArtworkPath    string      // fetched via iTunes API when track changes
-	bluetoothArtworkKey     string      // "artist\x00album" — avoids re-fetching same track
-	bluetoothStopTimer      *time.Timer // debounce: delays stopped→false by 2 s
-	bluetoothDurationMS     int64       // track duration from AVRCP (0 = unknown)
-	bluetoothSeekMS         int64       // last known position from AVRCP Position property
-	bluetoothSeekUpdatedAt  time.Time   // wall-clock time when bluetoothSeekMS was last set
+	bluetoothConnected     bool // true while a device is Connected=true via Device1
+	bluetoothPlaying       bool // true while AVRCP status=playing
+	bluetoothTitle         string
+	bluetoothArtist        string
+	bluetoothAlbum         string
+	bluetoothDevicePath    string      // D-Bus path of the connected device, e.g. /org/bluez/hci0/dev_XX
+	bluetoothCodec         string      // e.g. "SBC", "AAC", "LDAC", "AptX", "Opus"
+	bluetoothSampleRate    string      // e.g. "44.1 kHz", "48 kHz", "96 kHz" — parsed from transport config
+	bluetoothBitDepth      string      // e.g. "16 bit", "24 bit" — parsed from transport config
+	bluetoothArtworkPath   string      // fetched via iTunes API when track changes
+	bluetoothArtworkKey    string      // "artist\x00album" — avoids re-fetching same track
+	bluetoothStopTimer     *time.Timer // debounce: delays stopped→false by 2 s
+	bluetoothDurationMS    int64       // track duration from AVRCP (0 = unknown)
+	bluetoothSeekMS        int64       // last known position from AVRCP Position property
+	bluetoothSeekUpdatedAt time.Time   // wall-clock time when bluetoothSeekMS was last set
 
 	// Physical source (updated by source watcher goroutine)
-	physicalSource      string             // "Physical" or "None"
-	lastPhysicalAt      time.Time          // last time physicalSource was "Physical"
-	recognitionResult       *RecognitionResult // last successful recognition; nil until identified
-	physicalArtworkPath     string             // artwork path for current physical track (from library or fetch)
-	physicalFormat          string             // "CD" | "Vinyl" — set on recognition success; cleared only on new session
-	physicalLibraryEntryID  int64              // library DB row ID for the current physical track; 0 when unknown
+	physicalSource         string             // "Physical" or "None"
+	lastPhysicalAt         time.Time          // last time physicalSource was "Physical"
+	recognitionResult      *RecognitionResult // last successful recognition; nil until identified
+	physicalArtworkPath    string             // artwork path for current physical track (from library or fetch)
+	physicalFormat         string             // "CD" | "Vinyl" — set on recognition success; cleared only on new session
+	physicalLibraryEntryID int64              // library DB row ID for the current physical track; 0 when unknown
 
 	// streamingPhysicalMatch is set when a streaming track (AirPlay, etc.) matches
 	// an entry in the local physical library. Cleared when the track changes or
@@ -275,18 +249,6 @@ type mgr struct {
 	// same track on a subsequent retry.
 	lastBoundaryAt time.Time
 	// lastStubAt is the time the most recent unrecognised-track stub was stored.
-	// A cooldown prevents creating duplicate stubs when the VU monitor fires
-	// multiple boundary triggers within the same track (brief musical pauses,
-	// run-out groove noise at end of side, etc.).
-	lastStubAt time.Time
-	// pendingStubID tracks the unresolved stub currently being enriched by
-	// retry attempts within the same boundary/session. Subsequent no-match
-	// retries append fingerprints to this stub instead of creating new rows.
-	pendingStubID int64
-	// lastCapturedFPs is the most recent fingerprint capture. Used by the library
-	// sync to find tracks that were manually associated by the user while
-	// the state manager was in "Identifying" state.
-	lastCapturedFPs []Fingerprint
 	// lastRecognizedAt is the time of the most recent successful recognition.
 	// Used by the fallback timer to allow periodic re-checks when no VU boundary
 	// trigger fires (e.g. gapless albums with no audible silence between tracks).
@@ -312,13 +274,6 @@ type mgr struct {
 	// start as a proxy for how far into the track we are. Reset on boundary.
 	physicalSeekMS        int64
 	physicalSeekUpdatedAt time.Time
-	// physicalDurationFPElapsedMs holds the learned elapsed time (ms) at which a
-	// false-positive boundary trigger was last observed for the current track.
-	// Loaded from the library entry via syncFromLibrary; reset on boundary clear.
-	// Used by the VU monitor to extend the suppression window beyond the default
-	// 75%-of-duration threshold when the track is known to have silent passages.
-	physicalDurationFPElapsedMs int64
-
 	// lib is the library database, shared with the recognition coordinator.
 	// Set once at startup; nil when library recording is disabled.
 	lib *internallibrary.Library
@@ -380,8 +335,8 @@ func (m *mgr) markDirty() {
 // display. When confirmRec differs from rec (e.g. Shazam confirming an ACRCloud
 // result), agreement from two independent services is required. When confirmRec
 // is nil, rec itself is used for the second call (same-provider confirmation).
-func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, fpr Fingerprinter, lib *internallibrary.Library) {
-	newRecognitionCoordinator(m, rec, confirmRec, shazamRec, fpr, lib).run(ctx)
+func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, lib *internallibrary.Library) {
+	newRecognitionCoordinator(m, rec, confirmRec, shazamRec, lib).run(ctx)
 }
 
 func (m *mgr) tryEnableShazamContinuity(ctx context.Context, shazamRec Recognizer, current *RecognitionResult) {
@@ -612,21 +567,15 @@ func main() {
 	flag.DurationVar(&cfg.RecognizerRefreshInterval, "recognizer-refresh-interval", cfg.RecognizerRefreshInterval, "how soon to re-check after a successful recognition to catch gapless track changes (0 = disabled)")
 	flag.DurationVar(&cfg.NoMatchBackoff, "recognizer-no-match-backoff", cfg.NoMatchBackoff, "wait before retrying after a no-match response from the recognition provider")
 	flag.DurationVar(&cfg.IdleDelay, "idle-delay", cfg.IdleDelay, "how long to keep showing the last track after audio stops before switching to idle screen")
+	flag.DurationVar(&cfg.SessionGapThreshold, "session-gap-threshold", cfg.SessionGapThreshold, "max silence gap treated as inter-track pause; gaps longer than this start a new recognition session")
 	flag.StringVar(&cfg.LibraryDB, "library-db", cfg.LibraryDB, "path to SQLite library database (empty to disable)")
-	flag.IntVar(&cfg.FingerprintWindows, "fingerprint-windows", cfg.FingerprintWindows, "number of fingerprint windows to generate per recognition capture")
-	flag.IntVar(&cfg.FingerprintStrideSec, "fingerprint-stride", cfg.FingerprintStrideSec, "stride in seconds between fingerprint windows")
-	flag.IntVar(&cfg.FingerprintLengthSec, "fingerprint-length", cfg.FingerprintLengthSec, "length in seconds of each fingerprint window")
-	flag.Float64Var(&cfg.FingerprintThreshold, "fingerprint-threshold", cfg.FingerprintThreshold, "maximum BER for a local fingerprint match (0.35 = AcoustID default)")
-	flag.BoolVar(&cfg.FingerprintLocalFirst, "fingerprint-local-first", cfg.FingerprintLocalFirst, "attempt a conservative local fingerprint lookup before online providers")
-	flag.Float64Var(&cfg.FingerprintLocalFirstThreshold, "fingerprint-local-first-threshold", cfg.FingerprintLocalFirstThreshold, "maximum BER for conservative local-first fingerprint matches")
-	flag.IntVar(&cfg.FingerprintBoundaryLeadSkipSecs, "fingerprint-boundary-lead-skip", cfg.FingerprintBoundaryLeadSkipSecs, "seconds to skip at the start of a boundary-triggered capture (helps avoid vinyl crackle in the stored stub)")
 	flag.DurationVar(&cfg.ConfirmationDelay, "confirmation-delay", cfg.ConfirmationDelay, "wait before second recognition call to confirm a track change (0 = disabled)")
 	flag.DurationVar(&cfg.ConfirmationCaptureDuration, "confirmation-capture-duration", cfg.ConfirmationCaptureDuration, "audio capture duration for confirmation call")
 	flag.IntVar(&cfg.ConfirmationBypassScore, "confirmation-bypass-score", cfg.ConfirmationBypassScore, "skip confirmation when initial provider score is >= this value (0 = always confirm)")
 	flag.StringVar(&cfg.ShazamPythonBin, "shazam-python", cfg.ShazamPythonBin, "path to Python binary with shazamio installed (empty to disable Shazam fallback)")
 	flag.DurationVar(&cfg.ShazamContinuityInterval, "shazam-continuity-interval", cfg.ShazamContinuityInterval, "how often to run Shazam continuity checks for the current track")
 	flag.DurationVar(&cfg.ShazamContinuityCaptureDuration, "shazam-continuity-capture-duration", cfg.ShazamContinuityCaptureDuration, "audio capture duration per periodic Shazam continuity check")
-	flag.StringVar(&cfg.RecognizerChain, "recognizer-chain", cfg.RecognizerChain, "recognition chain order: acrcloud_first | shazam_first | acrcloud_only | shazam_only | fingerprint_only (continuity always uses Shazam when available)")
+	flag.StringVar(&cfg.RecognizerChain, "recognizer-chain", cfg.RecognizerChain, "recognition chain order: acrcloud_first | shazam_first | acrcloud_only | shazam_only (continuity always uses Shazam when available)")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")
@@ -661,22 +610,6 @@ func main() {
 			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval, cfg.RecognizerRefreshInterval, cfg.ConfirmationDelay, cfg.ShazamContinuityInterval)
 	}
 
-	fpr := components.fingerprint
-	if fpr != nil && rec != nil {
-		log.Printf("recognizer: local fingerprint cache enabled (windows=%d stride=%ds length=%ds threshold=%.2f local-first=%v local-first-threshold=%.2f boundary-lead-skip=%ds)",
-			cfg.FingerprintWindows, cfg.FingerprintStrideSec, cfg.FingerprintLengthSec, cfg.FingerprintThreshold, cfg.FingerprintLocalFirst, cfg.FingerprintLocalFirstThreshold, cfg.FingerprintBoundaryLeadSkipSecs)
-		captureSec := int(cfg.RecognizerCaptureDuration.Seconds())
-		maxOffset := (cfg.FingerprintWindows - 1) * cfg.FingerprintStrideSec
-		if maxOffset+cfg.FingerprintLengthSec > captureSec {
-			log.Printf("WARN: fingerprint window clipping detected — window at offset %ds requests %ds but capture is only %ds; last window(s) will be truncated. Reduce fingerprint-length or fingerprint-stride.",
-				maxOffset, cfg.FingerprintLengthSec, captureSec)
-		}
-	} else if fpr != nil {
-		log.Printf("recognizer: fpcalc found but ACRCloud not configured — fingerprint cache inactive")
-	} else {
-		log.Printf("recognizer: fpcalc not found — local fingerprint cache disabled")
-	}
-
 	// SIGUSR1 forces an immediate boundary-type recognition attempt — useful when
 	// the VU monitor misses a track change (e.g. very short inter-track silence).
 	// oceano-web sends this via: systemctl kill --kill-who=main --signal=SIGUSR1 oceano-state-manager.service
@@ -701,7 +634,7 @@ func main() {
 	go m.runBluetoothMonitor(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
-	go m.runRecognizer(ctx, rec, confirmRec, shazamRec, fpr, lib)
+	go m.runRecognizer(ctx, rec, confirmRec, shazamRec, lib)
 	go m.runShazamContinuityMonitor(ctx, shazamRec)
 	go m.runLibrarySync(ctx, lib)
 	go m.runStatsLogger(ctx, lib)

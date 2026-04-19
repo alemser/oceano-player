@@ -34,23 +34,16 @@ async function loadConfig() {
   set('rec-interval',         cfg.recognition?.max_interval_secs ?? 300);
   set('rec-refresh-interval', cfg.recognition?.refresh_interval_secs ?? 120);
   set('rec-no-match-backoff', cfg.recognition?.no_match_backoff_secs ?? 15);
-  set('rec-fp-boundary-skip', cfg.recognition?.fingerprint_boundary_lead_skip_secs ?? 2);
   set('rec-confirm-delay',    cfg.recognition?.confirmation_delay_secs ?? 0);
   set('rec-confirm-duration', cfg.recognition?.confirmation_capture_duration_secs ?? 4);
   set('rec-confirm-bypass',   cfg.recognition?.confirmation_bypass_score ?? 95);
   set('rec-continuity-interval', cfg.recognition?.shazam_continuity_interval_secs ?? 8);
   set('rec-continuity-capture',  cfg.recognition?.shazam_continuity_capture_duration_secs ?? 4);
-  set('rec-fp-windows',              cfg.recognition?.fingerprint_windows ?? 5);
-  set('rec-fp-stride',               cfg.recognition?.fingerprint_stride_secs ?? 1);
-  set('rec-fp-length',               cfg.recognition?.fingerprint_length_secs ?? 6);
-  set('rec-fp-threshold',            cfg.recognition?.fingerprint_threshold ?? 0.30);
-  set('rec-fp-local-first-threshold',cfg.recognition?.fingerprint_local_first_threshold ?? 0.28);
-  const fpLocalFirstEl = document.getElementById('rec-fp-local-first');
-  if (fpLocalFirstEl) fpLocalFirstEl.checked = cfg.recognition?.fingerprint_local_first ?? true;
   _recognitionConfig = cfg.recognition ?? {};
 
   set('adv-library-db',     cfg.advanced?.library_db ?? '');
   set('adv-idle-delay',     cfg.advanced?.idle_delay_secs ?? 10);
+  set('adv-session-gap',    cfg.advanced?.session_gap_threshold_secs ?? 45);
   const guardEnabledEl = document.getElementById('adv-streaming-usb-guard-enabled');
   if (guardEnabledEl) guardEnabledEl.checked = cfg.advanced?.streaming_usb_guard_enabled ?? true;
   set('adv-vu-socket',      cfg.advanced?.vu_socket ?? '');
@@ -122,12 +115,10 @@ async function loadRecognitionStats() {
     }
 
     container.innerHTML = '';
-    // Sort providers: Trigger first, Fingerprint second, then others alphabetically.
+    // Sort providers: Trigger first, then others alphabetically.
     const providers = Object.keys(stats).sort((a, b) => {
       if (a === 'Trigger') return -1;
       if (b === 'Trigger') return 1;
-      if (a === 'Fingerprint') return -1;
-      if (b === 'Fingerprint') return 1;
       return a.localeCompare(b);
     });
 
@@ -421,23 +412,17 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       max_interval_secs:                   intOr('rec-interval', 300),
       refresh_interval_secs:               intOr('rec-refresh-interval', 120),
       no_match_backoff_secs:               intOr('rec-no-match-backoff', 15),
-      fingerprint_boundary_lead_skip_secs: intOr('rec-fp-boundary-skip', 2),
       confirmation_delay_secs:             intOr('rec-confirm-delay', 0),
       confirmation_capture_duration_secs:  intOr('rec-confirm-duration', 4),
       confirmation_bypass_score:           intOr('rec-confirm-bypass', 95),
       shazam_continuity_interval_secs:          intOr('rec-continuity-interval', 8),
       shazam_continuity_capture_duration_secs:  intOr('rec-continuity-capture', 4),
-      fingerprint_windows:                 intOr('rec-fp-windows', 5),
-      fingerprint_stride_secs:             intOr('rec-fp-stride', 1),
-      fingerprint_length_secs:             intOr('rec-fp-length', 6),
-      fingerprint_threshold:               floatOr('rec-fp-threshold', 0.30),
-      fingerprint_local_first:             document.getElementById('rec-fp-local-first')?.checked ?? true,
-      fingerprint_local_first_threshold:   floatOr('rec-fp-local-first-threshold', 0.28),
     },
     advanced: {
       ..._advancedConfig,
       library_db:     val('adv-library-db') || _advancedConfig.library_db || '',
       idle_delay_secs: intOr('adv-idle-delay', 10),
+      session_gap_threshold_secs: intOr('adv-session-gap', 45),
       streaming_usb_guard_enabled: document.getElementById('adv-streaming-usb-guard-enabled')?.checked ?? (_advancedConfig.streaming_usb_guard_enabled ?? true),
       vu_socket:      val('adv-vu-socket')     || _advancedConfig.vu_socket || '',
       pcm_socket:     val('adv-pcm-socket')    || _advancedConfig.pcm_socket || '',

@@ -29,7 +29,7 @@ The backend must expose a single stream (WebSocket or SSE) that the UI consumes:
 }
 ```
 
-Track metadata for physical media (Vinyl/CD) is identified via ACRCloud audio fingerprinting.
+Track metadata for physical media (Vinyl/CD) is identified via the configured online recognizer chain.
 
 ## Architecture
 
@@ -47,8 +47,8 @@ oceano-state-manager
   ├── reads /tmp/oceano-vu.sock          (VU monitor: silence→audio = track boundary trigger)
   ├── reads /tmp/oceano-pcm.sock         (recognition capture — no second arecord needed)
   ├── reads shairport-sync metadata pipe (AirPlay metadata)
-  ├── internal/recognition               (provider clients + chain + fingerprint logic)
-  ├── internal/library                   (SQLite collection, fingerprint cache, artwork paths)
+  ├── internal/recognition               (provider clients + chain orchestration)
+  ├── internal/library                   (SQLite collection and artwork paths)
   ├── recognition coordinator            (trigger loop + confirmation + persistence policies)
   └── writes /tmp/oceano-state.json      (unified state for UI)
 ```
@@ -61,8 +61,8 @@ detection takes priority over any concurrently active AirPlay stream.
 1. `pollSourceFile` detects `Physical` → fires trigger immediately
 2. `runVUMonitor` watches VU frames for silence gaps between tracks → fires trigger on audio resumption
 3. `runRecognizer` delegates to the recognition coordinator, which waits for triggers,
-   captures PCM, runs the recognizer chain, applies confirmation/local fallback policies,
-   and persists track/fingerprint/artwork updates
+  captures PCM, runs the recognizer chain, applies confirmation/fallback policies,
+  and persists track/artwork updates
 4. On rate limit: backs off 5 min. On no match: retries after 90 s. Fallback: re-runs every `RecognizerMaxInterval` (default 5 min) even without a track boundary event.
 
 **PipeWire migration**: once PipeWire replaces `arecord`, the PCM and VU sockets become PipeWire
@@ -113,7 +113,7 @@ sudo ./install-oceano-web.sh
 - Artwork with graceful placeholder for unidentified or artwork-less tracks
 - Large track title, artist, album text
 - Format chips: sample rate + bit depth (AirPlay/streaming), codec + sample rate + bit depth (Bluetooth, detected via PipeWire within ~6s of playback start), CD track number, vinyl side + track
-- Identifying animation while ACRCloud/Shazam fingerprints a new track
+- Identifying animation while ACRCloud/Shazam recognises a new track
 - Idle clock screen when no source is active
 - Reconnecting SSE client with exponential back-off
 
@@ -143,7 +143,7 @@ cmd/
       index.html            #   Configuration UI (all screen sizes)
       nowplaying.html       #   Full-screen now playing UI for 5"–7" HDMI/DSI displays
 scripts/
-  test-acoustid.sh          # Standalone ACRCloud recognition test (stop detector first)
+  test-acoustid.sh          # Legacy standalone AcoustID experiment (not used by services)
 install.sh                  # Installer: AirPlay stack (shairport-sync + bridge + watchdog)
 install-source-detector.sh  # Installer: builds and installs the Go detector
 install-source-manager.sh   # Installer: builds and installs the Go state manager
@@ -223,7 +223,7 @@ journalctl -u oceano-display.service -f
    # look at: heartbeat: source=Physical rms=X
    ```
 
-2. **RMS too high (> 0.40)** — REC OUT is overdriving the capture card, causing clipping that corrupts the fingerprint. Find your capture card number with `arecord -l`, then reduce the level:
+2. **RMS too high (> 0.40)** — REC OUT is overdriving the capture card, causing clipping that degrades recognition quality. Find your capture card number with `arecord -l`, then reduce the level:
    ```bash
    amixer -c N sset 'Mic' 50%    # replace N with your card number; adjust until RMS ≈ 0.15–0.20
    alsactl store                  # persist across reboots
@@ -234,7 +234,7 @@ journalctl -u oceano-display.service -f
    curl -4 https://identify-eu-west-1.acrcloud.com
    ```
 
-4. **Album art shows wrong album** — expected when playing a compilation (e.g. a "Best Of"). ACRCloud identifies by audio fingerprint and returns the best-known release for that recording. No workaround without manual input.
+4. **Album art shows wrong album** — expected when playing a compilation (e.g. a "Best Of"). ACRCloud returns the best-known release for the recording it matched. No workaround without manual input.
 
 ---
 

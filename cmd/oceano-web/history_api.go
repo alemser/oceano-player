@@ -104,6 +104,21 @@ func registerHistoryRoutes(mux *http.ServeMux, dbPath string) {
 		})
 	})
 
+	mux.HandleFunc("/api/history/artwork/", func(w http.ResponseWriter, r *http.Request) {
+		idStr := r.URL.Path[len("/api/history/artwork/"):]
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
+			http.NotFound(w, r)
+			return
+		}
+		var artworkPath string
+		if err := h.db.QueryRow(`SELECT COALESCE(artwork_path,'') FROM play_history WHERE id=?`, id).Scan(&artworkPath); err != nil || artworkPath == "" {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, artworkPath)
+	})
+
 	mux.HandleFunc("/api/history/stats", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -125,18 +140,23 @@ func (h *historyDB) listPlays(limit, offset int) ([]PlayHistoryItem, int, error)
 	}
 
 	rows, err := h.db.Query(`
-		SELECT id, COALESCE(collection_id,0),
-		       COALESCE(title,''), COALESCE(artist,''), COALESCE(album,''),
-		       COALESCE(track_number,''), COALESCE(source,''),
-		       COALESCE(media_format,''), COALESCE(vinyl_side,''),
-		       COALESCE(samplerate,''), COALESCE(bitdepth,''), COALESCE(codec,''),
-		       COALESCE(artwork_path,''),
-		       COALESCE(recognition_score,0), COALESCE(recognition_provider,''),
-		       COALESCE(matched_library,0),
-		       started_at, COALESCE(ended_at,''),
-		       COALESCE(listened_seconds,0), COALESCE(duration_ms,0)
-		FROM play_history
-		ORDER BY started_at DESC
+		SELECT ph.id, COALESCE(ph.collection_id,0),
+		       COALESCE(NULLIF(c.title,''),  ph.title,  ''),
+		       COALESCE(NULLIF(c.artist,''), ph.artist, ''),
+		       COALESCE(NULLIF(c.album,''),  ph.album,  ''),
+		       COALESCE(NULLIF(c.track_number,''), ph.track_number, ''),
+		       COALESCE(ph.source,''),
+		       COALESCE(NULLIF(c.format,''), ph.media_format, ''),
+		       COALESCE(ph.vinyl_side,''),
+		       COALESCE(ph.samplerate,''), COALESCE(ph.bitdepth,''), COALESCE(ph.codec,''),
+		       COALESCE(NULLIF(c.artwork_path,''), ph.artwork_path, ''),
+		       COALESCE(ph.recognition_score,0), COALESCE(ph.recognition_provider,''),
+		       COALESCE(ph.matched_library,0),
+		       ph.started_at, COALESCE(ph.ended_at,''),
+		       COALESCE(ph.listened_seconds,0), COALESCE(ph.duration_ms,0)
+		FROM play_history ph
+		LEFT JOIN collection c ON c.id = ph.collection_id
+		ORDER BY ph.started_at DESC
 		LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("history: list: %w", err)

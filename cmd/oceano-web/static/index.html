@@ -56,7 +56,7 @@
 </div>
 <button id="status-recognize-btn" style="display:none" onclick="forceRecognize(this)" title="Force track recognition">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
-    <!-- fingerprint -->
+    <!-- recognition -->
     <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
     <path d="M9.5 12 C9.5 10.6 10.6 9.5 12 9.5 C13.4 9.5 14.5 10.6 14.5 12 C14.5 13.2 13.8 14.2 12.7 14.7"/>
     <path d="M7 12 C7 9 9.2 6.5 12 6.5 C14.8 6.5 17 9 17 12 C17 14.5 15.8 16.7 13.8 17.9"/>
@@ -71,8 +71,8 @@
   <div class="amp-widget" id="amp-widget">
     <div class="amp-header" onclick="toggleAmpWidget('amp-widget')" onkeydown="handleAmpHeaderKey(event, 'amp-widget')" role="button" tabindex="0" aria-expanded="false">
       <span class="amp-title" id="amp-widget-title">Amplifier</span>
-      <span class="amp-power-badge" id="amp-power-badge" data-state="unknown" title="Power state: unknown">?</span>
       <span class="amp-processing-indicator" id="amp-processing-indicator" data-active="false" title="Processing input change" aria-hidden="true"></span>
+      <span class="amp-power-badge" id="amp-power-badge" data-state="unknown" title="Power state: unknown">?</span>      
       <!-- Collapse chevron -->
       <svg class="amp-chevron" viewBox="0 0 14 14" fill="none" aria-hidden="true">
         <path d="M2 4.5 L7 9.5 L12 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -257,7 +257,7 @@
     <!-- Track Recognition (includes capture device — Audio Input feeds exclusively into recognition) -->
     <div class="section">
       <div class="section-title">Track Recognition</div>
-      <p class="hint" style="margin-bottom:14px">Physical media identification: capture device, provider chain, fingerprinting, and timing.</p>
+      <p class="hint" style="margin-bottom:14px">Physical media identification: capture device, provider chain, and timing.</p>
 
       <div class="config-subsection">
         <div class="config-subtitle">Capture Device</div>
@@ -308,9 +308,8 @@
             <option value="shazam_first">Shazam → ACRCloud (Shazam first, ACRCloud fallback)</option>
             <option value="acrcloud_only">ACRCloud only</option>
             <option value="shazam_only">Shazam only</option>
-            <option value="fingerprint_only">Fingerprint only</option>
           </select>
-          <div class="hint">Local fingerprint cache is always the final fallback. If the selected chain has no available API provider at runtime, recognition falls back to fingerprint-only mode automatically.</div>
+          <div class="hint">Choose which online providers are active and in which order they run.</div>
         </div>
 
         <div id="acrcloud-config-group">
@@ -350,7 +349,7 @@
         <div id="rec-stats-container" class="stats-grid">
           <div class="hint">Loading statistics...</div>
         </div>
-        <div class="hint" style="margin-top:10px">Lifetime counters for each recognition provider. Local fingerprint hits save API calls. <b>Shazam</b> counts chain-based identifications; <b>ShazamContinuity</b> counts the continuous polling used to detect track changes.</div>
+        <div class="hint" style="margin-top:10px">Lifetime counters for each recognition provider. <b>Shazam</b> counts chain-based identifications; <b>ShazamContinuity</b> counts the continuous polling used to detect track changes.</div>
       </div>
 
       <div class="config-subsection">
@@ -382,13 +381,6 @@
           <input type="number" id="rec-no-match-backoff" name="rec-no-match-backoff"
                  step="5" min="5" max="300" placeholder="15">
           <div class="hint">Wait before retrying after the provider returns no result. Lower values identify tracks faster at the cost of more API calls.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Boundary lead skip (seconds)</span></label>
-          <input type="number" id="rec-fp-boundary-skip" name="rec-fp-boundary-skip"
-                 step="1" min="0" max="10" placeholder="2">
-          <div class="hint">Seconds discarded at the start of a track-boundary capture to skip vinyl stylus drop crackle. Set 0 to disable.</div>
         </div>
 
         <div class="field">
@@ -432,53 +424,6 @@
         </div>
       </div>
 
-      <div class="config-subsection">
-        <div class="config-subtitle">Local Fingerprinting</div>
-        <p class="hint" style="margin-bottom:10px">AcoustID/Chromaprint fingerprints stored in the local library to identify tracks offline or when the API is unavailable.</p>
-
-        <div class="field">
-          <label><span>Windows per capture</span></label>
-          <input type="number" id="rec-fp-windows" name="rec-fp-windows"
-                 step="1" min="1" max="20" placeholder="5">
-          <div class="hint">Number of overlapping fingerprint windows generated per capture. More windows improve recall at the cost of more fpcalc calls.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Window stride (seconds)</span></label>
-          <input type="number" id="rec-fp-stride" name="rec-fp-stride"
-                 step="1" min="1" max="10" placeholder="1">
-          <div class="hint">Offset in seconds between consecutive windows.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Window length (seconds)</span></label>
-          <input type="number" id="rec-fp-length" name="rec-fp-length"
-                 step="1" min="2" max="15" placeholder="6">
-          <div class="hint">Duration of each fingerprint window. Constraint: (windows−1)×stride + length ≤ capture duration.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Match threshold (BER)</span></label>
-          <input type="number" id="rec-fp-threshold" name="rec-fp-threshold"
-                 step="0.01" min="0.1" max="0.5" placeholder="0.30">
-          <div class="hint">Maximum Bit Error Rate for a fingerprint match. AcoustID default is 0.35; lower = stricter.</div>
-        </div>
-
-        <div class="field">
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input type="checkbox" id="rec-fp-local-first" style="width:auto;accent-color:var(--accent)">
-            <span>Local-first lookup</span>
-          </label>
-          <div class="hint">Attempt a conservative fingerprint lookup against confirmed library entries before calling online providers. Saves API calls for well-known tracks.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Local-first threshold (BER)</span></label>
-          <input type="number" id="rec-fp-local-first-threshold" name="rec-fp-local-first-threshold"
-                 step="0.01" min="0.1" max="0.5" placeholder="0.28">
-          <div class="hint">Stricter BER threshold used only for local-first lookups. Keep lower than the main match threshold to reduce false positives.</div>
-        </div>
-      </div>
     </div>
 
     <!-- Amplifier Control -->
@@ -615,7 +560,7 @@
           <label><span>Library database path</span></label>
           <input type="text" id="adv-library-db" name="adv-library-db"
                  placeholder="/var/lib/oceano/library.db">
-          <div class="hint">SQLite database for physical-media plays and fingerprint cache. Leave empty to disable library features.</div>
+          <div class="hint">SQLite database for physical-media plays. Leave empty to disable library features.</div>
         </div>
 
         <div class="field">
@@ -623,6 +568,13 @@
           <input type="number" id="adv-idle-delay" name="adv-idle-delay"
                  step="1" min="0" max="120" placeholder="10">
           <div class="hint">How long to keep showing the last physical track after audio stops before switching to the idle screen.</div>
+        </div>
+
+        <div class="field">
+          <label><span>Session gap threshold (seconds)</span></label>
+          <input type="number" id="adv-session-gap" name="adv-session-gap"
+                 step="1" min="5" max="300" placeholder="45">
+          <div class="hint">Max silence between tracks treated as an inter-track pause. Gaps longer than this start a new recognition session. Increase if the display resets to "identifying" between tracks on the same side.</div>
         </div>
       </div>
 
@@ -746,11 +698,6 @@
       <div class="artwork-picker-label">Copy artwork from recent tracks</div>
       <div class="artwork-picker" id="artwork-picker"></div>
     </div>
-    <div class="resolve-wrap" id="resolve-wrap" style="display:none">
-      <div class="resolve-title">Resolve fingerprint stub</div>
-      <input type="text" id="resolve-search" class="resolve-input" placeholder="Search by title, artist or album" oninput="searchResolveTargets()">
-      <div class="resolve-results" id="resolve-results"></div>
-    </div>
     <div class="modal-row">
       <div class="modal-field">
         <label>Title</label>
@@ -799,10 +746,6 @@
         </button>
       </div>
       <div class="actions-center">
-        <button type="button" class="btn-modal-resolve" id="btn-resolve-stub" onclick="toggleResolvePanel()" style="display:none">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-          <span>Link Track</span>
-        </button>
         <button type="button" class="btn-modal-prev" id="btn-copy-prev" onclick="fillFromPrevious()" title="Copy album, artist, label, year, format and artwork from the previous track">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M5 12l6 6M5 12l6-6"/></svg>
           <span>Copy Previous</span>

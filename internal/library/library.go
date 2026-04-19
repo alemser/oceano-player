@@ -7,9 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/alemser/oceano-player/internal/recognition"
@@ -93,31 +91,12 @@ var migrations = []string{
 		isrc                  TEXT    NOT NULL DEFAULT ''
 	)`,
 	`CREATE INDEX play_history_started_at ON play_history(started_at)`,
-}
-
-// fpCacheRow is one parsed fingerprint row held in the in-memory scan cache.
-type fpCacheRow struct {
-	entryID   int64
-	confirmed bool // user_confirmed = 1
-	hasTitle  bool // title != ''
-	hasArtist bool // artist != ''
-	fp        recognition.Fingerprint
+	`DROP TABLE IF EXISTS fingerprints`,
 }
 
 // Library wraps a SQLite database that tracks recognised physical-media tracks.
 type Library struct {
 	db *sql.DB
-
-	// fpCache holds every parsed fingerprint from the fingerprints table so that
-	// FindByFingerprints scans never need to re-parse the stored TEXT column.
-	// Rebuilt after any write that changes fingerprint rows. Protected by fpMu.
-	//
-	// Note: user_confirmed changes made by the web UI bypass the library API and
-	// will not be reflected in the cache until the next SaveFingerprints call.
-	// The practical impact is minor: a just-confirmed entry may be missed by
-	// FindConfirmedByFingerprints until the next recognition cycle.
-	fpMu    sync.RWMutex
-	fpCache []fpCacheRow
 }
 
 type CollectionEntry struct {
@@ -136,9 +115,8 @@ type CollectionEntry struct {
 	PlayCount     int
 	FirstPlayed   string
 	LastPlayed    string
-	UserConfirmed       bool
-	DurationMs          int
-	DurationFPElapsedMs int // learned: max elapsed (ms) at which a false-positive boundary was observed
+	UserConfirmed bool
+	DurationMs    int
 }
 
 var (
@@ -230,7 +208,7 @@ func (l *Library) lookupByEquivalentMetadata(title, artist string) (*CollectionE
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0), COALESCE(duration_fp_elapsed_ms,0)
+		       COALESCE(duration_ms,0)
 		FROM collection
 		WHERE title != '' AND artist != ''`)
 	if err != nil {
@@ -246,7 +224,7 @@ func (l *Library) lookupByEquivalentMetadata(title, artist string) (*CollectionE
 			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 			&e.TrackNumber, &e.ArtworkPath,
 			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-			&e.DurationMs, &e.DurationFPElapsedMs,
+			&e.DurationMs,
 		); err != nil {
 			return nil, fmt.Errorf("library: equivalent metadata lookup scan: %w", err)
 		}
@@ -282,73 +260,12 @@ func Open(path string) (*Library, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := l.buildFPCache(); err != nil {
-		db.Close()
-		return nil, err
-	}
 	return l, nil
 }
 
 func (l *Library) DB() *sql.DB {
 	return l.db
 }
-
-// buildFPCache loads and parses every fingerprint row from the database into the
-// in-memory cache. Called once at Open and after any mutation that changes
-// fingerprint rows (SaveFingerprints, PruneStub, PromoteStubFingerprints, etc.).
-func (l *Library) buildFPCache() error {
-	rows, err := l.db.Query(`
-		SELECT f.entry_id, f.data, c.user_confirmed, c.title, c.artist
-		FROM fingerprints f
-		JOIN collection c ON c.id = f.entry_id`)
-	if err != nil {
-		return fmt.Errorf("library: build fp cache: %w", err)
-	}
-	defer rows.Close()
-
-	var cache []fpCacheRow
-	for rows.Next() {
-		var entryID int64
-		var data, title, artist string
-		var confirmed int
-		if err := rows.Scan(&entryID, &data, &confirmed, &title, &artist); err != nil {
-			continue
-		}
-		fp, err := recognition.ParseFingerprint(data)
-		if err != nil {
-			continue
-		}
-		cache = append(cache, fpCacheRow{
-			entryID:   entryID,
-			confirmed: confirmed == 1,
-			hasTitle:  title != "",
-			hasArtist: artist != "",
-			fp:        fp,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("library: build fp cache rows: %w", err)
-	}
-
-	l.fpMu.Lock()
-	l.fpCache = cache
-	l.fpMu.Unlock()
-	return nil
-}
-
-// rebuildFPCache rebuilds the in-memory fingerprint cache, logging on error.
-// Used as a post-mutation hook; errors are non-fatal (next call falls back to
-// a stale but still-valid cache until the next successful rebuild).
-func (l *Library) rebuildFPCache() {
-	if err := l.buildFPCache(); err != nil {
-		log.Printf("library: fp cache rebuild: %v", err)
-	}
-}
-
-// RebuildFPCache is the public variant of rebuildFPCache. Call it after any
-// direct SQL mutation that changes fingerprint rows or the user_confirmed flag
-// outside the library API (e.g. web UI updates via DB(), test fixtures).
-func (l *Library) RebuildFPCache() { l.rebuildFPCache() }
 
 func (l *Library) migrate() error {
 	if _, err := l.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -385,7 +302,7 @@ func (l *Library) lookupByColumn(col, value string) (*CollectionEntry, error) {
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0), COALESCE(duration_fp_elapsed_ms,0)
+		       COALESCE(duration_ms,0)
 		FROM collection WHERE `+col+` = ?`, value)
 
 	var e CollectionEntry
@@ -395,7 +312,7 @@ func (l *Library) lookupByColumn(col, value string) (*CollectionEntry, error) {
 		&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 		&e.TrackNumber, &e.ArtworkPath,
 		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-		&e.DurationMs, &e.DurationFPElapsedMs,
+		&e.DurationMs,
 	)
 	e.UserConfirmed = confirmed == 1
 	if err == sql.ErrNoRows {
@@ -424,21 +341,6 @@ func (l *Library) RecordRecognitionEvent(provider, event string) {
 	if err != nil {
 		log.Printf("library: RecordRecognitionEvent: %v", err)
 	}
-}
-
-// RecordDurationFalsePositive records the elapsed playback time at which a
-// boundary trigger fired but recognition returned the same track (false positive).
-// It updates duration_fp_elapsed_ms to the maximum observed elapsed value, so the
-// VU monitor can suppress boundary triggers past this point on future plays.
-func (l *Library) RecordDurationFalsePositive(entryID int64, elapsedMs int64) error {
-	if l == nil || l.db == nil || entryID <= 0 || elapsedMs <= 0 {
-		return nil
-	}
-	_, err := l.db.Exec(`
-		UPDATE collection
-		SET duration_fp_elapsed_ms = MAX(COALESCE(duration_fp_elapsed_ms, 0), ?)
-		WHERE id = ?`, elapsedMs, entryID)
-	return err
 }
 
 // GetRecognitionStats returns a map of provider -> event -> count.
@@ -477,7 +379,7 @@ func (l *Library) GetByID(id int64) (*CollectionEntry, error) {
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0), COALESCE(duration_fp_elapsed_ms,0)
+		       COALESCE(duration_ms,0)
 		FROM collection WHERE id = ?`, id)
 	var e CollectionEntry
 	var confirmed int
@@ -486,7 +388,7 @@ func (l *Library) GetByID(id int64) (*CollectionEntry, error) {
 		&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 		&e.TrackNumber, &e.ArtworkPath,
 		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-		&e.DurationMs, &e.DurationFPElapsedMs,
+		&e.DurationMs,
 	)
 	e.UserConfirmed = confirmed == 1
 	if err == sql.ErrNoRows {
@@ -502,11 +404,53 @@ func (l *Library) LookupByShazamID(shazamID string) (*CollectionEntry, error) {
 	return l.lookupByColumn("shazam_id", shazamID)
 }
 
-func (l *Library) LookupByIDs(acrid, shazamID string) (*CollectionEntry, error) {
-	if e, err := l.Lookup(acrid); err != nil || e != nil {
-		return e, err
+func preferLookupCandidate(current, alternate *CollectionEntry) *CollectionEntry {
+	if current == nil {
+		return alternate
 	}
-	return l.LookupByShazamID(shazamID)
+	if alternate == nil {
+		return current
+	}
+
+	if alternate.UserConfirmed != current.UserConfirmed {
+		if alternate.UserConfirmed {
+			return alternate
+		}
+		return current
+	}
+
+	currentHasDuration := current.DurationMs > 0
+	alternateHasDuration := alternate.DurationMs > 0
+	if alternateHasDuration != currentHasDuration {
+		if alternateHasDuration {
+			return alternate
+		}
+		return current
+	}
+
+	if alternate.Score > current.Score {
+		return alternate
+	}
+	if current.Score > alternate.Score {
+		return current
+	}
+
+	if alternate.PlayCount > current.PlayCount {
+		return alternate
+	}
+	return current
+}
+
+func (l *Library) LookupByIDs(acrid, shazamID string) (*CollectionEntry, error) {
+	byACR, err := l.Lookup(acrid)
+	if err != nil {
+		return nil, err
+	}
+	byShazam, err := l.LookupByShazamID(shazamID)
+	if err != nil {
+		return nil, err
+	}
+	return preferLookupCandidate(byACR, byShazam), nil
 }
 
 // FindPhysicalMatch searches the library for a confirmed physical-media entry
@@ -528,7 +472,7 @@ func (l *Library) FindPhysicalMatch(title, artist string) (*CollectionEntry, err
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0), COALESCE(duration_fp_elapsed_ms,0)
+		       COALESCE(duration_ms,0)
 		FROM collection
 		WHERE title != '' AND artist != ''
 		  AND user_confirmed = 1
@@ -546,7 +490,7 @@ func (l *Library) FindPhysicalMatch(title, artist string) (*CollectionEntry, err
 			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 			&e.TrackNumber, &e.ArtworkPath,
 			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-			&e.DurationMs, &e.DurationFPElapsedMs,
+			&e.DurationMs,
 		); err != nil {
 			return nil, fmt.Errorf("library: physical match scan: %w", err)
 		}
@@ -677,296 +621,6 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 	}
 	_, err = l.db.Exec(`UPDATE collection SET play_count = play_count + 1, last_played = ? WHERE id = ?`, now, id)
 	return id, err
-}
-
-// UpsertStub creates or updates an unconfirmed "stub" entry in the collection.
-// Stubs are used when a track is captured but not yet fully identified or confirmed.
-func (l *Library) UpsertStub(fps []recognition.Fingerprint, threshold float64, maxShift int) (*CollectionEntry, error) {
-	if len(fps) == 0 {
-		return nil, fmt.Errorf("library: UpsertStub: no fingerprints provided")
-	}
-
-	entry, err := l.FindByFingerprints(fps, threshold, maxShift)
-	if err != nil {
-		return nil, err
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	if entry != nil {
-		if _, err := l.db.Exec(`UPDATE collection SET play_count = play_count + 1, last_played = ? WHERE id = ?`, now, entry.ID); err != nil {
-			return nil, fmt.Errorf("library: stub update: %w", err)
-		}
-		_ = l.SaveFingerprints(entry.ID, fps)
-		return entry, nil
-	}
-
-	var id int64
-	if err := l.db.QueryRow(`
-		INSERT INTO collection (title, artist, play_count, first_played, last_played, user_confirmed)
-		VALUES ('','',1,?,?,0)
-		RETURNING id`, now, now).Scan(&id); err != nil {
-		return nil, fmt.Errorf("library: stub insert: %w", err)
-	}
-	if err := l.SaveFingerprints(id, fps); err != nil {
-		return nil, fmt.Errorf("library: stub save fingerprints: %w", err)
-	}
-
-	return &CollectionEntry{ID: id, FirstPlayed: now, LastPlayed: now, PlayCount: 1}, nil
-}
-
-func (l *Library) HasFingerprints(entryID int64) bool {
-	var count int
-	l.db.QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE entry_id=?`, entryID).Scan(&count)
-	return count > 0
-}
-
-func (l *Library) SaveFingerprints(entryID int64, fps []recognition.Fingerprint) error {
-	tx, err := l.db.Begin()
-	if err != nil {
-		return fmt.Errorf("library: save fingerprints begin: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	stmt, err := tx.Prepare(`INSERT INTO fingerprints (entry_id, data) VALUES (?,?)`)
-	if err != nil {
-		return fmt.Errorf("library: save fingerprints prepare: %w", err)
-	}
-	defer stmt.Close()
-
-	for _, fp := range fps {
-		if len(fp) == 0 {
-			continue
-		}
-		parts := make([]string, len(fp))
-		for i, v := range fp {
-			parts[i] = strconv.FormatUint(uint64(v), 10)
-		}
-		if _, err := stmt.Exec(entryID, strings.Join(parts, ",")); err != nil {
-			return fmt.Errorf("library: save fingerprint: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	l.rebuildFPCache()
-	return nil
-}
-
-func (l *Library) FindByFingerprints(fps []recognition.Fingerprint, threshold float64, maxShift int) (*CollectionEntry, error) {
-	return l.findByFingerprintsWithFilter(fps, threshold, maxShift, false, "fingerprint", true)
-}
-
-func (l *Library) FindConfirmedByFingerprints(fps []recognition.Fingerprint, threshold float64, maxShift int) (*CollectionEntry, error) {
-	return l.findByFingerprintsWithFilter(fps, threshold, maxShift, true, "confirmed fingerprint", false)
-}
-
-// findByFingerprintsWithFilter scans the in-memory fingerprint cache and returns
-// the library entry whose stored fingerprints best match fps, subject to threshold.
-//
-// The cache is a snapshot of parsed []uint32 values built at Open and refreshed
-// after every write, so there is no per-call SQL query or string parsing.
-// A single GetByID call fetches the winning entry's metadata.
-//
-// confirmedOnly restricts the scan to entries with user_confirmed=1, title≠'',
-// and artist≠'' — equivalent to the old "WHERE c.user_confirmed = 1 …" clause.
-func (l *Library) findByFingerprintsWithFilter(fps []recognition.Fingerprint, threshold float64, maxShift int, confirmedOnly bool, logScope string, labelFallbackToStub bool) (*CollectionEntry, error) {
-	if len(fps) == 0 {
-		return nil, nil
-	}
-
-	// Snapshot the cache pointer under RLock. buildFPCache replaces l.fpCache
-	// atomically under a write lock; the old slice (and its []uint32 arrays)
-	// remains valid for the lifetime of this snapshot reference.
-	l.fpMu.RLock()
-	cache := l.fpCache
-	l.fpMu.RUnlock()
-
-	type entryState struct {
-		bestBERs []float64
-	}
-	states := make(map[int64]*entryState, len(cache)/4+1)
-
-	for i := range cache {
-		row := &cache[i]
-		if confirmedOnly && !(row.confirmed && row.hasTitle && row.hasArtist) {
-			continue
-		}
-		state, ok := states[row.entryID]
-		if !ok {
-			state = &entryState{bestBERs: make([]float64, len(fps))}
-			for j := range state.bestBERs {
-				state.bestBERs[j] = 1.0
-			}
-			states[row.entryID] = state
-		}
-		for j, fp := range fps {
-			if b := recognition.BER(fp, row.fp, maxShift); b < state.bestBERs[j] {
-				state.bestBERs[j] = b
-			}
-		}
-	}
-
-	var bestEntryID int64
-	bestScore := threshold
-	for id, state := range states {
-		worst := 0.0
-		for _, b := range state.bestBERs {
-			if b > worst {
-				worst = b
-			}
-		}
-		if worst < bestScore {
-			bestScore = worst
-			bestEntryID = id
-		}
-	}
-
-	if bestEntryID == 0 {
-		return nil, nil
-	}
-
-	entry, err := l.GetByID(bestEntryID)
-	if err != nil {
-		return nil, fmt.Errorf("library: %s fetch winner id=%d: %w", logScope, bestEntryID, err)
-	}
-	if entry == nil {
-		return nil, nil
-	}
-	label := entry.Artist + " — " + entry.Title
-	if label == " — " && labelFallbackToStub {
-		label = fmt.Sprintf("stub id=%d", entry.ID)
-	}
-	log.Printf("library: %s match id=%d %q worst-best-ber=%.3f threshold=%.2f (scanned %d entries)",
-		logScope, entry.ID, label, bestScore, threshold, len(states))
-	return entry, nil
-}
-
-func (l *Library) PruneStub(id int64) error {
-	_, err := l.db.Exec(`DELETE FROM collection WHERE id=? AND title='' AND artist='' AND user_confirmed=0`, id)
-	if err == nil {
-		l.rebuildFPCache()
-	}
-	return err
-}
-
-// PromoteStubFingerprints moves all fingerprint rows from an unresolved stub to
-// an identified entry, then prunes the source stub if it is still unresolved.
-func (l *Library) PromoteStubFingerprints(stubID, entryID int64) error {
-	if stubID <= 0 || entryID <= 0 || stubID == entryID {
-		return nil
-	}
-
-	tx, err := l.db.Begin()
-	if err != nil {
-		return fmt.Errorf("library: promote stub fingerprints begin: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	if _, err := tx.Exec(`UPDATE fingerprints SET entry_id=? WHERE entry_id=?`, entryID, stubID); err != nil {
-		return fmt.Errorf("library: promote stub fingerprints move: %w", err)
-	}
-	// Delete the stub unconditionally (only guard: must not be user-confirmed,
-	// to avoid accidentally deleting a real library entry if stubID is wrong).
-	// The previous title='' AND artist='' guard caused fingerprints to be moved
-	// without deleting the stub when a user had edited the stub's metadata,
-	// leaving an orphaned collection entry with no fingerprints.
-	if _, err := tx.Exec(`DELETE FROM collection WHERE id=? AND user_confirmed=0`, stubID); err != nil {
-		return fmt.Errorf("library: promote stub fingerprints prune: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("library: promote stub fingerprints commit: %w", err)
-	}
-	l.rebuildFPCache()
-	return nil
-}
-
-func (l *Library) PruneMatchingStubs(fps []recognition.Fingerprint, threshold float64, maxShift int, excludeID int64) {
-	if len(fps) == 0 {
-		return
-	}
-
-	l.fpMu.RLock()
-	cache := l.fpCache
-	l.fpMu.RUnlock()
-
-	type stubState struct {
-		bestBER []float64
-	}
-	stubs := make(map[int64]*stubState)
-	for i := range cache {
-		row := &cache[i]
-		// Only unresolved stubs: not confirmed, no title, no artist.
-		if row.confirmed || row.hasTitle || row.hasArtist {
-			continue
-		}
-		if row.entryID == excludeID {
-			continue
-		}
-		state, ok := stubs[row.entryID]
-		if !ok {
-			state = &stubState{bestBER: make([]float64, len(fps))}
-			for j := range state.bestBER {
-				state.bestBER[j] = 1.0
-			}
-			stubs[row.entryID] = state
-		}
-		for j, fp := range fps {
-			if b := recognition.BER(fp, row.fp, maxShift); b < state.bestBER[j] {
-				state.bestBER[j] = b
-			}
-		}
-	}
-
-	deleted := false
-	for id, state := range stubs {
-		worstBest := 0.0
-		for _, b := range state.bestBER {
-			if b > worstBest {
-				worstBest = b
-			}
-		}
-		if worstBest >= threshold {
-			continue
-		}
-		if _, err := l.db.Exec(`DELETE FROM collection WHERE id=? AND title='' AND artist='' AND user_confirmed=0`, id); err == nil {
-			log.Printf("library: pruned orphaned stub %d", id)
-			deleted = true
-		}
-	}
-	if deleted {
-		l.rebuildFPCache()
-	}
-}
-
-func (l *Library) PruneRecentStubs(since time.Time, excludeID int64) {
-	sinceStr := since.UTC().Format(time.RFC3339)
-	rows, err := l.db.Query(`
-		SELECT id FROM collection
-		WHERE title = '' AND artist = '' AND user_confirmed = 0
-		  AND id != ?
-		  AND first_played >= ?`, excludeID, sinceStr)
-	if err != nil {
-		return
-	}
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if rows.Scan(&id) == nil {
-			ids = append(ids, id)
-		}
-	}
-	rows.Close()
-	deleted := false
-	for _, id := range ids {
-		if _, err := l.db.Exec(`DELETE FROM collection WHERE id=? AND title='' AND artist='' AND user_confirmed=0`, id); err == nil {
-			log.Printf("library: pruned recent stub %d (created after boundary at %s)", id, sinceStr)
-			deleted = true
-		}
-	}
-	if deleted {
-		l.rebuildFPCache()
-	}
 }
 
 func (l *Library) Close() error {

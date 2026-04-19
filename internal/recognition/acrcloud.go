@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-// ACRCloudConfig holds credentials for the ACRCloud audio fingerprinting API.
+// ACRCloudConfig holds credentials for the ACRCloud recognition API.
 type ACRCloudConfig struct {
 	Host      string
 	AccessKey string

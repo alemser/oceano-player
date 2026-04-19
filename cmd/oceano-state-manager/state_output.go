@@ -215,11 +215,6 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 		shazamID = r.ShazamID
 	}
 	entryID := m.physicalLibraryEntryID
-	pendingStubID := m.pendingStubID
-	var capturedFPs []Fingerprint
-	if m.recognitionResult == nil && pendingStubID > 0 {
-		capturedFPs = m.lastCapturedFPs
-	}
 	m.mu.Unlock()
 
 	var entry *internallibrary.CollectionEntry
@@ -228,55 +223,13 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 		entry, err = lib.LookupByIDs(acrid, shazamID)
 	} else if entryID > 0 {
 		entry, err = lib.GetByID(entryID)
-	} else if pendingStubID > 0 {
-		entry, err = lib.GetByID(pendingStubID)
-		if (err != nil || entry == nil) && len(capturedFPs) > 0 {
-			// Stub is gone! Maybe it was resolved. Try finding by fingerprints.
-			entry, err = lib.FindByFingerprints(capturedFPs, m.cfg.FingerprintThreshold, 30)
-		}
 	}
 	if err != nil || entry == nil {
-		if pendingStubID > 0 && (err != nil || entry == nil) {
-			// Stub no longer exists and no replacement found.
-			m.mu.Lock()
-			if m.pendingStubID == pendingStubID {
-				m.pendingStubID = 0
-			}
-			m.mu.Unlock()
-		}
 		return
 	}
 
 	m.mu.Lock()
 	changed := false
-
-	// When recognitionResult is nil but the pending stub has been user-enriched
-	// (title/artist filled in by the user), promote it to recognitionResult so
-	// the display shows the track info without waiting for a new recognition cycle.
-	if m.recognitionResult == nil && m.pendingStubID == entry.ID &&
-		(entry.Title != "" || entry.Artist != "") {
-		m.recognitionResult = &RecognitionResult{
-			ACRID:       entry.ACRID,
-			ShazamID:    entry.ShazamID,
-			Title:       entry.Title,
-			Artist:      entry.Artist,
-			Album:       entry.Album,
-			Label:       entry.Label,
-			Released:    entry.Released,
-			Score:       entry.Score,
-			Format:      entry.Format,
-			TrackNumber: entry.TrackNumber,
-			DurationMs:  entry.DurationMs,
-		}
-		m.physicalLibraryEntryID = entry.ID
-		m.physicalArtworkPath = entry.ArtworkPath
-		if f := strings.ToLower(strings.TrimSpace(entry.Format)); f == "cd" || f == "vinyl" {
-			m.physicalFormat = entry.Format
-		}
-		m.mu.Unlock()
-		m.markDirty()
-		return
-	}
 
 	if m.recognitionResult != nil {
 		// Match by whichever ID is available, or by DB entry ID as a final fallback.
@@ -314,11 +267,6 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 			if m.physicalArtworkPath != entry.ArtworkPath {
 				m.physicalArtworkPath = entry.ArtworkPath
 				changed = true
-			}
-			// Sync learned calibration data. Not state-dirty — internal only.
-			fpElapsed := int64(entry.DurationFPElapsedMs)
-			if m.physicalDurationFPElapsedMs != fpElapsed {
-				m.physicalDurationFPElapsedMs = fpElapsed
 			}
 		}
 	}

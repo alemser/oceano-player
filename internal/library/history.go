@@ -10,7 +10,7 @@ import (
 // PlayHistoryEntry represents one play event in play_history.
 type PlayHistoryEntry struct {
 	ID                   int64
-	CollectionID         int64  // 0 when track is not in local collection
+	CollectionID         int64 // 0 when track is not in local collection
 	Title                string
 	Artist               string
 	Album                string
@@ -107,6 +107,53 @@ func (l *Library) OpenPlayHistory(e PlayHistoryEntry) (int64, error) {
 		return 0, fmt.Errorf("history: open play: %w", err)
 	}
 	return id, nil
+}
+
+// UpdateOpenPlayHistory refreshes metadata on an in-progress play record.
+// Safe to call with id=0 (no-op).
+func (l *Library) UpdateOpenPlayHistory(id int64, e PlayHistoryEntry) error {
+	if l == nil || l.db == nil || id <= 0 {
+		return nil
+	}
+	var collID *int64
+	if e.CollectionID > 0 {
+		collID = &e.CollectionID
+	}
+	_, err := l.db.Exec(`
+		UPDATE play_history
+		SET collection_id           = ?,
+		    title                   = ?,
+		    artist                  = ?,
+		    album                   = ?,
+		    track_number            = ?,
+		    source                  = ?,
+		    media_format            = ?,
+		    vinyl_side              = ?,
+		    samplerate              = ?,
+		    bitdepth                = ?,
+		    codec                   = ?,
+		    artwork_path            = ?,
+		    artwork_source          = ?,
+		    recognition_score       = ?,
+		    recognition_provider    = ?,
+		    recognition_confirmed   = ?,
+		    matched_library         = ?,
+		    started_at              = COALESCE(NULLIF(?, ''), started_at),
+		    duration_ms             = ?,
+		    isrc                    = ?
+		WHERE id = ? AND ended_at IS NULL`,
+		collID, e.Title, e.Artist, e.Album, e.TrackNumber,
+		e.Source, e.MediaFormat, e.VinylSide,
+		e.SampleRate, e.BitDepth, e.Codec,
+		e.ArtworkPath, e.ArtworkSource,
+		e.RecognitionScore, e.RecognitionProvider,
+		boolInt(e.RecognitionConfirmed), boolInt(e.MatchedLibrary),
+		e.StartedAt, e.DurationMs, e.ISRC,
+		id)
+	if err != nil {
+		return fmt.Errorf("history: update open play: %w", err)
+	}
+	return nil
 }
 
 // ClosePlayHistory sets ended_at and listened_seconds on an open play record.

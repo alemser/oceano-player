@@ -329,32 +329,8 @@ type RecognitionConfig struct {
 	// periodic Shazam continuity check.
 	ShazamContinuityCaptureDurationSecs int `json:"shazam_continuity_capture_duration_secs"`
 	// RecognizerChain controls which API providers are active and their order.
-	// Valid values: "acrcloud_first" (default), "shazam_first", "acrcloud_only", "shazam_only", "fingerprint_only".
-	// Local fingerprint cache is always active as a final fallback. If the selected
-	// provider policy resolves to no available API provider, the manager
-	// automatically falls back to fingerprint-only recognition.
+	// Valid values: "acrcloud_first" (default), "shazam_first", "acrcloud_only", "shazam_only".
 	RecognizerChain string `json:"recognizer_chain"`
-	// FingerprintBoundaryLeadSkipSecs is how many seconds to discard at the
-	// start of a boundary-triggered capture. Skipping a couple of seconds
-	// avoids capturing vinyl crackle/transients before the music settles.
-	// Default 2; set 0 to disable.
-	FingerprintBoundaryLeadSkipSecs int `json:"fingerprint_boundary_lead_skip_secs"`
-	// FingerprintWindows is the number of overlapping windows generated per capture.
-	// More windows increase recall at the cost of more fpcalc calls.
-	FingerprintWindows int `json:"fingerprint_windows"`
-	// FingerprintStrideSec is the offset in seconds between consecutive windows.
-	FingerprintStrideSec int `json:"fingerprint_stride_secs"`
-	// FingerprintLengthSec is the duration in seconds of each fingerprint window.
-	FingerprintLengthSec int `json:"fingerprint_length_secs"`
-	// FingerprintThreshold is the maximum Bit Error Rate for a fingerprint match.
-	// AcoustID default is 0.35; lower values require stricter matches.
-	FingerprintThreshold float64 `json:"fingerprint_threshold"`
-	// FingerprintLocalFirst enables a conservative local fingerprint lookup
-	// before calling online providers. Only confirmed entries are checked.
-	FingerprintLocalFirst bool `json:"fingerprint_local_first"`
-	// FingerprintLocalFirstThreshold is the BER threshold for local-first matches.
-	// Keep this lower (stricter) than FingerprintThreshold to reduce false positives.
-	FingerprintLocalFirstThreshold float64 `json:"fingerprint_local_first_threshold"`
 	// ShazamPythonBin is the path to the Python binary with shazamio installed.
 	// Empty string disables Shazam in the recognition chain and continuity monitor.
 	ShazamPythonBin string `json:"shazam_python_bin"`
@@ -375,8 +351,11 @@ type AdvancedConfig struct {
 	// IdleDelaySecs is how long to keep showing the last physical track after
 	// audio stops before switching to the idle screen.
 	IdleDelaySecs int `json:"idle_delay_secs"`
+	// SessionGapThresholdSecs is the max silence gap treated as an inter-track
+	// pause. Gaps longer than this start a new recognition session.
+	SessionGapThresholdSecs int `json:"session_gap_threshold_secs"`
 	// LibraryDB is the path to the SQLite database used to record physical-media
-	// plays and cache fingerprints. Empty string disables library features.
+	// plays. Empty string disables library features.
 	LibraryDB string `json:"library_db"`
 }
 
@@ -403,13 +382,6 @@ func defaultConfig() Config {
 			ShazamContinuityIntervalSecs:        8,
 			ShazamContinuityCaptureDurationSecs: 4,
 			RecognizerChain:                     "acrcloud_first",
-			FingerprintBoundaryLeadSkipSecs:     2,
-			FingerprintWindows:                  5,
-			FingerprintStrideSec:                1,
-			FingerprintLengthSec:                6,
-			FingerprintThreshold:                0.30,
-			FingerprintLocalFirst:               true,
-			FingerprintLocalFirstThreshold:      0.28,
 			ShazamPythonBin:                     "/opt/shazam-env/bin/python",
 		},
 		Advanced: AdvancedConfig{
@@ -421,6 +393,7 @@ func defaultConfig() Config {
 			ArtworkDir:               "/var/lib/oceano/artwork",
 			MetadataPipe:             "/tmp/shairport-sync-metadata",
 			IdleDelaySecs:            10,
+			SessionGapThresholdSecs:  45,
 			LibraryDB:                "/var/lib/oceano/library.db",
 		},
 		Display: SPIDisplayConfig{
@@ -592,20 +565,15 @@ func managerArgs(cfg Config) []string {
 		"--shazam-continuity-interval", fmt.Sprintf("%ds", rec.ShazamContinuityIntervalSecs),
 		"--shazam-continuity-capture-duration", fmt.Sprintf("%ds", rec.ShazamContinuityCaptureDurationSecs),
 		"--recognizer-chain", rec.RecognizerChain,
-		"--fingerprint-windows", fmt.Sprintf("%d", rec.FingerprintWindows),
-		"--fingerprint-stride", fmt.Sprintf("%d", rec.FingerprintStrideSec),
-		"--fingerprint-length", fmt.Sprintf("%d", rec.FingerprintLengthSec),
-		"--fingerprint-threshold", fmt.Sprintf("%.3f", rec.FingerprintThreshold),
-		"--fingerprint-local-first-threshold", fmt.Sprintf("%.3f", rec.FingerprintLocalFirstThreshold),
 	}
 	if adv.IdleDelaySecs > 0 {
 		args = append(args, "--idle-delay", fmt.Sprintf("%ds", adv.IdleDelaySecs))
 	}
+	if adv.SessionGapThresholdSecs > 0 {
+		args = append(args, "--session-gap-threshold", fmt.Sprintf("%ds", adv.SessionGapThresholdSecs))
+	}
 	if adv.LibraryDB != "" {
 		args = append(args, "--library-db", adv.LibraryDB)
-	}
-	if rec.FingerprintBoundaryLeadSkipSecs > 0 {
-		args = append(args, "--fingerprint-boundary-lead-skip", fmt.Sprintf("%d", rec.FingerprintBoundaryLeadSkipSecs))
 	}
 	if rec.ACRCloudHost != "" {
 		args = append(args,
@@ -618,7 +586,6 @@ func managerArgs(cfg Config) []string {
 		args = append(args, "--shazam-python", rec.ShazamPythonBin)
 	}
 	// Boolean flags and --verbose must be last (no paired value).
-	args = append(args, "--fingerprint-local-first", fmt.Sprintf("%v", rec.FingerprintLocalFirst))
 	args = append(args, "--verbose")
 	return args
 }

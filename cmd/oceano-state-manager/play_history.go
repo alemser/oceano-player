@@ -8,6 +8,8 @@ import (
 	internallibrary "github.com/alemser/oceano-player/internal/library"
 )
 
+const physicalUnknownHistoryKey = "Physical\x00\x00"
+
 // runPlayHistoryRecorder polls playback state every 5 seconds and writes
 // play_history records to the library database. It detects track changes across
 // all sources (AirPlay, Bluetooth, Physical) and closes open play records when
@@ -63,6 +65,23 @@ func (m *mgr) tickPlayHistory() {
 		return // same track still playing
 	}
 
+	if openID > 0 && currentKey == physicalUnknownHistoryKey && snap.Source == "Physical" && (snap.Title != "" || snap.Artist != "") {
+		if err := m.lib.UpdateOpenPlayHistory(openID, *snap); err != nil {
+			log.Printf("history: update open play error: %v", err)
+			m.mu.Lock()
+			m.currentPlayHistoryID = 0
+			m.currentPlayKey = ""
+			m.mu.Unlock()
+			return
+		}
+
+		m.mu.Lock()
+		m.currentPlayHistoryID = openID
+		m.currentPlayKey = newKey
+		m.mu.Unlock()
+		return
+	}
+
 	// Track changed or first play — close previous and open new.
 	if openID > 0 {
 		m.lib.ClosePlayHistory(openID, time.Now())
@@ -92,18 +111,23 @@ func (m *mgr) snapshotForHistory() *internallibrary.PlayHistoryEntry {
 	defer m.mu.Unlock()
 
 	// Priority matches state_output.go: Physical > AirPlay > Bluetooth.
-	if m.physicalSource == "Physical" && m.recognitionResult != nil {
-		r := m.recognitionResult
-		if r.Title == "" && r.Artist == "" {
-			return nil
+	if m.physicalSource == "Physical" {
+		if m.recognitionResult == nil || (m.recognitionResult.Title == "" && m.recognitionResult.Artist == "") {
+			// Physical source active but recognition not yet complete — record a
+			// placeholder so listening time is not lost from the statistics.
+			return &internallibrary.PlayHistoryEntry{
+				Source:      "Physical",
+				MediaFormat: m.physicalFormat,
+			}
 		}
+		r := m.recognitionResult
 		provider := ""
 		if r.ACRID != "" {
 			provider = "acrcloud"
 		} else if r.ShazamID != "" {
 			provider = "shazam"
 		}
-		return &internallibrary.PlayHistoryEntry{
+		entry := &internallibrary.PlayHistoryEntry{
 			CollectionID:        m.physicalLibraryEntryID,
 			Title:               r.Title,
 			Artist:              r.Artist,
@@ -120,34 +144,42 @@ func (m *mgr) snapshotForHistory() *internallibrary.PlayHistoryEntry {
 			DurationMs:          r.DurationMs,
 			ISRC:                r.ISRC,
 		}
+		// Backdate the play start to account for recognition delay:
+		// physicalSeekMS is the elapsed time from track start at the moment
+		// recognition completed, so subtracting it gives the actual track start.
+		if !m.physicalSeekUpdatedAt.IsZero() && m.physicalSeekMS > 0 {
+			trackStart := m.physicalSeekUpdatedAt.Add(-time.Duration(m.physicalSeekMS) * time.Millisecond)
+			entry.StartedAt = trackStart.UTC().Format(time.RFC3339)
+		}
+		return entry
 	}
 
 	if m.airplayPlaying && m.title != "" {
 		return &internallibrary.PlayHistoryEntry{
-			Title:      m.title,
-			Artist:     m.artist,
-			Album:      m.album,
-			Source:     "AirPlay",
-			SampleRate: airplaySampleRate,
-			BitDepth:   airplayBitDepth,
-			ArtworkPath: m.artworkPath,
+			Title:         m.title,
+			Artist:        m.artist,
+			Album:         m.album,
+			Source:        "AirPlay",
+			SampleRate:    airplaySampleRate,
+			BitDepth:      airplayBitDepth,
+			ArtworkPath:   m.artworkPath,
 			ArtworkSource: artworkSource(m.artworkPath, 0),
-			DurationMs: int(m.durationMS),
+			DurationMs:    int(m.durationMS),
 		}
 	}
 
 	if m.bluetoothPlaying && m.bluetoothTitle != "" {
 		return &internallibrary.PlayHistoryEntry{
-			Title:       m.bluetoothTitle,
-			Artist:      m.bluetoothArtist,
-			Album:       m.bluetoothAlbum,
-			Source:      "Bluetooth",
-			Codec:       m.bluetoothCodec,
-			SampleRate:  m.bluetoothSampleRate,
-			BitDepth:    m.bluetoothBitDepth,
-			ArtworkPath: m.bluetoothArtworkPath,
+			Title:         m.bluetoothTitle,
+			Artist:        m.bluetoothArtist,
+			Album:         m.bluetoothAlbum,
+			Source:        "Bluetooth",
+			Codec:         m.bluetoothCodec,
+			SampleRate:    m.bluetoothSampleRate,
+			BitDepth:      m.bluetoothBitDepth,
+			ArtworkPath:   m.bluetoothArtworkPath,
 			ArtworkSource: artworkSource(m.bluetoothArtworkPath, 0),
-			DurationMs:  int(m.bluetoothDurationMS),
+			DurationMs:    int(m.bluetoothDurationMS),
 		}
 	}
 

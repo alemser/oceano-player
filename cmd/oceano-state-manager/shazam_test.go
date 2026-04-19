@@ -156,8 +156,8 @@ func TestChainRecognizer_FallsThrough_OnRateLimit(t *testing.T) {
 }
 
 func TestChainRecognizer_ErrorThenNoMatch_ReturnsError(t *testing.T) {
-	// This outcome drives runRecognizer's error path, where local fingerprint
-	// fallback is attempted as a last resort.
+	// This outcome drives runRecognizer's error path after both configured
+	// providers have been exhausted.
 	a := &stubRecognizer{name: "ACRCloud", err: errors.New("network error")}
 	b := &stubRecognizer{name: "Shazam", result: nil}
 	chain := NewChainRecognizer(a, b)
@@ -172,8 +172,8 @@ func TestChainRecognizer_ErrorThenNoMatch_ReturnsError(t *testing.T) {
 }
 
 func TestChainRecognizer_NoMatchThenNoMatch_ReturnsNilNil(t *testing.T) {
-	// This outcome drives runRecognizer's no-match path, where local fingerprint
-	// fallback is attempted as a last resort.
+	// This outcome drives runRecognizer's no-match path when neither configured
+	// provider identifies the capture.
 	a := &stubRecognizer{name: "ACRCloud", result: nil}
 	b := &stubRecognizer{name: "Shazam", result: nil}
 	chain := NewChainRecognizer(a, b)

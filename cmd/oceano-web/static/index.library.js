@@ -4,8 +4,6 @@ let _libLoadedAt = 0;
 let _editingId = null;
 let _libraryAutoTimer = null;
 let _librarySignature = '';
-let _resolveSearchTimer = null;
-let _resolveSearchRequestId = 0;
 
 function librarySignature(items) {
   return (items || []).map(e => [
@@ -85,8 +83,8 @@ function renderLibrary() {
   grid.innerHTML = filtered.map(e => {
     const fmtClass = (e.format||'unknown').toLowerCase();
     const artUrl   = e.artwork_path ? `/api/library/${e.id}/artwork?t=${_libLoadedAt}` : '';
-    const title = e.title || (e.is_fingerprint_stub ? `Unresolved fingerprint #${e.id}` : '(Untitled)');
-    const artist = e.artist || (e.is_fingerprint_stub ? 'No provider match' : '');
+    const title = e.title || '(Untitled)';
+    const artist = e.artist || '';
     return `<div class="lib-card" onclick="openModal(${e.id})">
       <div class="lib-card-art">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
@@ -111,7 +109,7 @@ function openModal(id) {
   if (!e) return;
   _editingId = id;
 
-  document.getElementById('modal-heading').textContent = e.title || (e.is_fingerprint_stub ? `Unresolved fingerprint #${e.id}` : 'Edit track');
+  document.getElementById('modal-heading').textContent = e.title || 'Edit track';
   document.getElementById('modal-plays').textContent   =
     'Last played: ' + new Date(e.last_played).toLocaleDateString();
   document.getElementById('modal-title').value    = e.title;
@@ -132,16 +130,6 @@ function openModal(id) {
   }
 
   document.getElementById('lib-modal').classList.add('open');
-  const resolveBtn = document.getElementById('btn-resolve-stub');
-  const resolveWrap = document.getElementById('resolve-wrap');
-  if (resolveBtn && resolveWrap) {
-    // Show "Link Track" button for any track that is not yet user-confirmed.
-    const canResolve = !e.user_confirmed;
-    resolveBtn.style.display = canResolve ? 'flex' : 'none';
-    resolveWrap.style.display = 'none';
-    document.getElementById('resolve-search').value = '';
-    document.getElementById('resolve-results').innerHTML = '';
-  }
   loadArtworkPicker(id);
   const idx = _library.findIndex(x => x.id === id);
   document.getElementById('btn-copy-prev').disabled = (idx + 1 >= _library.length);
@@ -160,91 +148,7 @@ function closeModal() {
   const img = document.getElementById('modal-art-img');
   img.classList.remove('loaded');
   img.src = '';
-  const resolveBtn = document.getElementById('btn-resolve-stub');
-  const resolveWrap = document.getElementById('resolve-wrap');
-  if (resolveBtn) resolveBtn.style.display = 'none';
-  if (resolveWrap) resolveWrap.style.display = 'none';
-  const results = document.getElementById('resolve-results');
-  if (results) results.innerHTML = '';
-  const search = document.getElementById('resolve-search');
-  if (search) search.value = '';
   _editingId = null;
-}
-
-function toggleResolvePanel() {
-  const wrap = document.getElementById('resolve-wrap');
-  if (!wrap) return;
-  const willOpen = wrap.style.display === 'none' || !wrap.style.display;
-  wrap.style.display = willOpen ? 'block' : 'none';
-  if (willOpen) {
-    document.getElementById('resolve-search').focus();
-    searchResolveTargets();
-  }
-}
-
-function searchResolveTargets() {
-  if (!_editingId) return;
-  const q = document.getElementById('resolve-search')?.value?.trim() || '';
-  const out = document.getElementById('resolve-results');
-  if (!out) return;
-  if (_resolveSearchTimer) clearTimeout(_resolveSearchTimer);
-  _resolveSearchTimer = setTimeout(async () => {
-    const requestId = ++_resolveSearchRequestId;
-    if (q.length < 2) {
-      if (requestId !== _resolveSearchRequestId) return;
-      out.innerHTML = '<div class="resolve-empty">Type at least 2 characters to search.</div>';
-      return;
-    }
-    try {
-      const r = await fetch(`/api/library/search?q=${encodeURIComponent(q)}&limit=12`);
-      if (requestId !== _resolveSearchRequestId) return;
-      if (!r.ok) {
-        out.innerHTML = '<div class="resolve-empty">Search failed.</div>';
-        return;
-      }
-      const rows = await r.json();
-      if (requestId !== _resolveSearchRequestId) return;
-      if (!Array.isArray(rows) || rows.length === 0) {
-        out.innerHTML = '<div class="resolve-empty">No matches found.</div>';
-        return;
-      }
-      out.innerHTML = rows.map(row => `
-        <div class="resolve-item">
-          <div class="resolve-item-main">
-            <div class="resolve-item-title">${esc(row.title || '')}</div>
-            <div class="resolve-item-sub">${esc(row.artist || '')}${row.album ? ` · ${esc(row.album)}` : ''}</div>
-          </div>
-          <button type="button" class="resolve-item-btn" onclick="resolveStubTo(${row.id})">Use</button>
-        </div>
-      `).join('');
-    } catch {
-      if (requestId !== _resolveSearchRequestId) return;
-      out.innerHTML = '<div class="resolve-empty">Search failed.</div>';
-    }
-  }, 220);
-}
-
-async function resolveStubTo(targetId) {
-  if (!_editingId || !targetId) return;
-  if (!confirm('Resolve this fingerprint stub to the selected track?')) return;
-
-  try {
-    const r = await fetch(`/api/library/${_editingId}/resolve`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ target_id: targetId })
-    });
-    if (!r.ok) {
-      const msg = (await r.text()) || 'Resolve failed';
-      toast(msg, true);
-      return;
-    }
-    toast('Fingerprint stub resolved');
-    closeModal();
-    await loadLibrary();
-  } catch {
-    toast('Resolve failed', true);
-  }
 }
 
 async function saveEntry() {

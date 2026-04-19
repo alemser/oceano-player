@@ -26,7 +26,7 @@ type Recognizer = internalrecognition.Recognizer
 //
 // skipDuration discards that many seconds of PCM before capturing. Use this
 // after a track-boundary trigger to flush buffered audio from the previous
-// track — preventing fingerprint false-positives caused by buffer latency.
+// track and reduce false positives caused by buffer latency.
 func captureFromPCMSocket(ctx context.Context, socketPath string, duration, skipDuration time.Duration, dir string) (string, error) {
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {

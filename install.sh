@@ -1173,7 +1173,7 @@ main() {
   log_section "System Dependencies"
   log_info "Installing system packages..."
   apt-get update -qq
-  apt-get install -y --no-install-recommends shairport-sync alsa-utils libchromaprint-tools ffmpeg bluez bluez-tools dbus libspa-0.2-bluetooth
+  apt-get install -y --no-install-recommends shairport-sync alsa-utils ffmpeg bluez bluez-tools dbus libspa-0.2-bluetooth
   log_ok "System packages ready."
 
   # ── Bluetooth ──

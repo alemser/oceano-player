@@ -3,7 +3,7 @@ package main
 import "testing"
 
 func TestNewRecognitionComponents_EmptyPlan(t *testing.T) {
-	components := newRecognitionComponents(RecognitionPlan{}, nil)
+	components := newRecognitionComponents(RecognitionPlan{})
 	if components.chain != nil {
 		t.Fatal("expected nil chain for empty plan")
 	}
@@ -18,7 +18,7 @@ func TestNewRecognitionComponents_EmptyPlan(t *testing.T) {
 func TestNewRecognitionComponents_PreservesOrder(t *testing.T) {
 	a := &stubRecognizer{name: "A"}
 	b := &stubRecognizer{name: "B"}
-	components := newRecognitionComponents(RecognitionPlan{Ordered: []Recognizer{a, b}}, nil)
+	components := newRecognitionComponents(RecognitionPlan{Ordered: []Recognizer{a, b}})
 	chain, ok := components.chain.(*ChainRecognizer)
 	if !ok {
 		t.Fatal("expected chain recognizer")
@@ -35,7 +35,7 @@ func TestNewRecognitionComponents_RolesIndependentFromOrder(t *testing.T) {
 		Ordered:    []Recognizer{a, b},
 		Confirmer:  b,
 		Continuity: b,
-	}, nil)
+	})
 	if components.confirmer != b {
 		t.Fatal("expected explicit confirmer to be preserved")
 	}

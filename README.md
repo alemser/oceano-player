@@ -188,7 +188,7 @@ Frame rate: ~22 fps (2048-sample buffer at 44.1 kHz ≈ 46 ms per frame).
 
 1. **ACRCloud credentials not configured** — the most common cause after a fresh install. Open `http://<pi-ip>:8080` → **Track Recognition** → fill in credentials → **Save & Restart Services**.
 
-2. **RMS too high (> 0.40)** — clipping corrupts the audio fingerprint. Find your capture card number with `arecord -l`, then reduce the level:
+2. **RMS too high (> 0.40)** — clipping degrades recognition quality. Find your capture card number with `arecord -l`, then reduce the level:
    ```bash
    amixer -c N sset 'Mic' 50%   # replace N with your card number
    alsactl store
@@ -229,7 +229,7 @@ Options:
 
 ### Album art shows wrong album
 
-Expected when playing a compilation or "Best Of". ACRCloud identifies by audio fingerprint and returns the best-known release for that recording — which may be credited to "Various Artists" in music databases, causing the artwork lookup to fail.
+Expected when playing a compilation or "Best Of". ACRCloud returns the best-known release for the recording it matched, which may be credited to "Various Artists" in music databases, causing the artwork lookup to fail.
 
 ---
 
