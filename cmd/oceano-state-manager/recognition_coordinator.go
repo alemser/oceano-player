@@ -365,11 +365,15 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 	}
 
 	if c.mgr.cfg.ConfirmationBypassScore > 0 && result.Score >= c.mgr.cfg.ConfirmationBypassScore {
-		log.Printf("recognizer [%s]: high-confidence match (score=%d) — skipping confirmation", c.rec.Name(), result.Score)
+		if c.mgr.cfg.Verbose {
+			log.Printf("recognizer [%s]: high-confidence match (score=%d) — skipping confirmation", c.rec.Name(), result.Score)
+		}
 		return false, false
 	}
 	if isBoundaryTrigger {
-		log.Printf("recognizer [%s]: boundary-triggered recognition — skipping confirmation delay", c.rec.Name())
+		if c.mgr.cfg.Verbose {
+			log.Printf("recognizer [%s]: boundary-triggered recognition — skipping confirmation delay", c.rec.Name())
+		}
 		return false, false
 	}
 
@@ -475,7 +479,9 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		if entry, lookupErr := c.lib.LookupByIDs(result.ACRID, result.ShazamID); lookupErr != nil {
 			log.Printf("recognizer: library lookup error: %v", lookupErr)
 		} else if entry != nil {
-			log.Printf("recognizer: known track (plays: %d) — using saved metadata", entry.PlayCount)
+			if c.mgr.cfg.Verbose {
+				log.Printf("recognizer: known track (plays: %d) — using saved metadata", entry.PlayCount)
+			}
 			result.Title = entry.Title
 			result.Artist = entry.Artist
 			result.Album = entry.Album
@@ -697,11 +703,13 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		isBluetooth := c.mgr.bluetoothPlaying
 		c.mgr.mu.Unlock()
 		if shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth) {
-			switch {
-			case isAirPlay:
-				log.Printf("recognizer [%s]: skipping — AirPlay is active", c.rec.Name())
-			case isBluetooth:
-				log.Printf("recognizer [%s]: skipping — Bluetooth is active", c.rec.Name())
+			if c.mgr.cfg.Verbose {
+				switch {
+				case isAirPlay:
+					log.Printf("recognizer [%s]: skipping — AirPlay is active", c.rec.Name())
+				case isBluetooth:
+					log.Printf("recognizer [%s]: skipping — Bluetooth is active", c.rec.Name())
+				}
 			}
 			continue
 		}
@@ -768,8 +776,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			}
 		}
 
-		log.Printf("recognizer [%s]: capturing %s from %s (skip=%s)",
-			c.rec.Name(), c.mgr.cfg.RecognizerCaptureDuration, c.mgr.cfg.PCMSocket, skip)
+		if c.mgr.cfg.Verbose {
+			log.Printf("recognizer [%s]: capturing %s from %s (skip=%s)",
+				c.rec.Name(), c.mgr.cfg.RecognizerCaptureDuration, c.mgr.cfg.PCMSocket, skip)
+		}
 		c.mgr.mu.Lock()
 		c.mgr.recognizerBusyUntil = time.Now().Add(skip + c.mgr.cfg.RecognizerCaptureDuration + 12*time.Second)
 		c.mgr.mu.Unlock()
@@ -866,7 +876,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			currentResult := c.mgr.recognitionResult
 			c.mgr.mu.Unlock()
 			if !isBoundaryTrigger && currentResult != nil && sameTrackByProviderIDs(currentResult, result) {
-				log.Printf("recognizer [%s]: same track confirmed — no change (%s — %s)", c.rec.Name(), result.Artist, result.Title)
+				if c.mgr.cfg.Verbose {
+					log.Printf("recognizer [%s]: same track confirmed — no change (%s — %s)", c.rec.Name(), result.Artist, result.Title)
+				}
 				shouldMarkDirty := false
 				c.mgr.mu.Lock()
 				c.mgr.lastRecognizedAt = time.Now()

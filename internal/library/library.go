@@ -67,6 +67,32 @@ var migrations = []string{
 	`ALTER TABLE collection ADD COLUMN isrc TEXT`,
 	`ALTER TABLE collection ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE collection ADD COLUMN duration_fp_elapsed_ms INTEGER NOT NULL DEFAULT 0`,
+	`CREATE TABLE play_history (
+		id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+		collection_id         INTEGER REFERENCES collection(id),
+		title                 TEXT    NOT NULL DEFAULT '',
+		artist                TEXT    NOT NULL DEFAULT '',
+		album                 TEXT    NOT NULL DEFAULT '',
+		track_number          TEXT    NOT NULL DEFAULT '',
+		source                TEXT    NOT NULL DEFAULT '',
+		media_format          TEXT    NOT NULL DEFAULT '',
+		vinyl_side            TEXT    NOT NULL DEFAULT '',
+		samplerate            TEXT    NOT NULL DEFAULT '',
+		bitdepth              TEXT    NOT NULL DEFAULT '',
+		codec                 TEXT    NOT NULL DEFAULT '',
+		artwork_path          TEXT    NOT NULL DEFAULT '',
+		artwork_source        TEXT    NOT NULL DEFAULT '',
+		recognition_score     INTEGER NOT NULL DEFAULT 0,
+		recognition_provider  TEXT    NOT NULL DEFAULT '',
+		recognition_confirmed INTEGER NOT NULL DEFAULT 0,
+		matched_library       INTEGER NOT NULL DEFAULT 0,
+		started_at            TEXT    NOT NULL,
+		ended_at              TEXT,
+		listened_seconds      INTEGER NOT NULL DEFAULT 0,
+		duration_ms           INTEGER NOT NULL DEFAULT 0,
+		isrc                  TEXT    NOT NULL DEFAULT ''
+	)`,
+	`CREATE INDEX play_history_started_at ON play_history(started_at)`,
 }
 
 // fpCacheRow is one parsed fingerprint row held in the in-memory scan cache.

@@ -319,6 +319,16 @@ type mgr struct {
 	// 75%-of-duration threshold when the track is known to have silent passages.
 	physicalDurationFPElapsedMs int64
 
+	// lib is the library database, shared with the recognition coordinator.
+	// Set once at startup; nil when library recording is disabled.
+	lib *internallibrary.Library
+	// currentPlayHistoryID is the open play_history row ID for the currently
+	// playing track. 0 means no play is open. Protected by mu.
+	currentPlayHistoryID int64
+	// currentPlayKey is "source\x00title\x00artist" of the last opened play,
+	// used to detect track changes without reopening on every poll.
+	currentPlayKey string
+
 	// recognizerBusyUntil suppresses continuity checks while the main recognizer
 	// is already capturing/identifying, avoiding stale duplicate triggers.
 	recognizerBusyUntil time.Time
@@ -638,6 +648,7 @@ func main() {
 		} else {
 			defer lib.Close()
 			log.Printf("library: opened at %s", cfg.LibraryDB)
+			m.lib = lib
 		}
 	}
 	components := buildRecognitionComponents(cfg, lib)
@@ -694,6 +705,7 @@ func main() {
 	go m.runShazamContinuityMonitor(ctx, shazamRec)
 	go m.runLibrarySync(ctx, lib)
 	go m.runStatsLogger(ctx, lib)
+	go m.runPlayHistoryRecorder(ctx)
 	m.runWriter(ctx)
 }
 

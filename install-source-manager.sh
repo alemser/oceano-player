@@ -115,7 +115,7 @@ write_service() {
     exec_start+=" \\${NL}  --acrcloud-access-key \"${acrcloud_access_key}\""
     exec_start+=" \\${NL}  --acrcloud-secret-key \"${acrcloud_secret_key}\""
   fi
-  exec_start+=" \\${NL}  --verbose"
+
 
   cat > "${SERVICE_DEST}" <<EOF
 [Unit]

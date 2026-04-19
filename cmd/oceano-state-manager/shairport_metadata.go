@@ -191,7 +191,6 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		if !wasPlaying {
 			m.markDirty()
 		}
-		log.Printf("AirPlay: play resume")
 
 	case "pend", "pfls", "stop": // play end / flush / stop
 		m.mu.Lock()
@@ -227,9 +226,7 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		m.markDirty()
 
 	case "PICT": // embedded album artwork (JPEG/PNG bytes)
-		log.Printf("AirPlay: PICT received, bytes=%d", len(data))
 		if len(data) == 0 {
-			log.Printf("AirPlay: PICT empty, skipping")
 			return
 		}
 		path := m.saveArtwork(data)
@@ -264,7 +261,6 @@ func (m *mgr) tryFetchAirPlayArtwork() {
 	// Check if PICT arrived in the meantime
 	if m.artworkPath != "" {
 		m.mu.Unlock()
-		log.Printf("AirPlay: artwork already set (PICT arrived)")
 		return
 	}
 	artist := m.artist
