@@ -314,3 +314,4 @@ Install oceano-player first (this project), then oceano-now-playing.
 - UPnP/OpenHome (`upmpdcli` / `gmrender-resurrect`)
 - PipeWire migration — replace `arecord` single-reader model with monitor taps
 - Local media library — SQLite cache of recognized tracks enriched with MusicBrainz metadata and Cover Art Archive artwork; editable via web UI
+.
