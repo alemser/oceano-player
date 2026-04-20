@@ -135,6 +135,52 @@ html, body {
   text-overflow: clip;
 }
 
+#stat-stylus-title {
+  font-size: clamp(1rem, 1.8vw, 1.2rem);
+  line-height: 1.25;
+}
+
+.stylus-mini-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  gap: 8px;
+}
+
+.stylus-mini-state {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: var(--text-dim);
+}
+
+.stylus-mini-wear {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.stylus-mini-progress {
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.stylus-mini-progress > span {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #3cb371 0%, #f6c945 65%, #e65c5c 100%);
+  transition: width 240ms ease;
+}
+
 /* ─── Responsive ───────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
   #stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

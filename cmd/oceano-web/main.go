@@ -176,6 +176,7 @@ func main() {
 	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir)
 	registerBackupRoutes(mux, *libraryDB, cfg.Advanced.ArtworkDir, *configPath)
 	registerHistoryRoutes(mux, *libraryDB)
+	registerStylusRoutes(mux, *libraryDB)
 
 	// API: amplifier IR control.
 	amp, err := buildAmplifierFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket, cfg.AudioOutput.DeviceMatch)
