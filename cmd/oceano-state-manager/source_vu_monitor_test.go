@@ -44,54 +44,22 @@ func TestPollSourceFile_ResumeWithinSessionQueuesRecognition(t *testing.T) {
 	}
 }
 
-func TestFireBoundaryTrigger_SilenceResetsSeekSuppression(t *testing.T) {
-	// Scenario: needle dropped near end of track.
-	// Recognition fires quickly → physicalSeekMS is small (~15 s overhead).
-	// End-of-track silence is then detected.
-	// Without the fix, elapsed (15 s + silence gap) < 75% of 240 s → boundary suppressed.
-	// With the fix, silence detection resets seek → duration guard bypassed.
-	m := newTestMgr()
-	recognizedAt := time.Now().Add(-30 * time.Second)
-	m.physicalSource = "Physical"
-	m.physicalSeekMS = 15000 // 15 s since capture — not actual position
-	m.physicalSeekUpdatedAt = recognizedAt
-	m.recognitionResult = &RecognitionResult{
-		Title:      "Needle Near End",
-		Artist:     "Test Artist",
-		DurationMs: 240000, // 4-min track, 75% = 3:00
-	}
+func TestShouldSuppressBoundary_BypassWindowPreventsSuppression(t *testing.T) {
+	now := time.Now()
+	recognizedAt := now.Add(-30 * time.Second)
 
-	// Simulate the VU monitor committing silence (silenceFrames reached).
-	m.mu.Lock()
-	m.physicalSeekMS = 0
-	m.physicalSeekUpdatedAt = time.Time{}
-	m.mu.Unlock()
+	if got := shouldSuppressBoundary(240000, 15000, recognizedAt, now.Add(10*time.Second), now, 0.75); got {
+		t.Fatal("expected no suppression while bypass window is active")
+	}
+}
 
-	// Now simulate fireBoundaryTrigger — check the guard directly.
-	m.mu.Lock()
-	var durationMs int
-	var seekMS int64
-	var seekUpdatedAt time.Time
-	if m.recognitionResult != nil {
-		durationMs = m.recognitionResult.DurationMs
-	}
-	seekMS = m.physicalSeekMS
-	seekUpdatedAt = m.physicalSeekUpdatedAt
-	m.mu.Unlock()
+func TestShouldSuppressBoundary_SuppressesWithoutBypass(t *testing.T) {
+	now := time.Now()
+	recognizedAt := now.Add(-30 * time.Second)
 
-	// The guard: if seekUpdatedAt is zero, suppression must be skipped.
-	wouldSuppress := false
-	if durationMs > 0 && !seekUpdatedAt.IsZero() {
-		elapsed := time.Duration(seekMS)*time.Millisecond + time.Since(seekUpdatedAt)
-		suppressUntil := time.Duration(float64(time.Duration(durationMs)*time.Millisecond) * 0.75)
-		if elapsed < suppressUntil {
-			wouldSuppress = true
-		}
+	if got := shouldSuppressBoundary(240000, 15000, recognizedAt, time.Time{}, now, 0.75); !got {
+		t.Fatal("expected suppression when elapsed is below 75% and no bypass is active")
 	}
-	if wouldSuppress {
-		t.Fatal("boundary should NOT be suppressed after silence reset seek state")
-	}
-	_ = seekUpdatedAt // used above
 }
 
 func TestPollSourceFile_TinyGapDoesNotQueueRecognition(t *testing.T) {

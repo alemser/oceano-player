@@ -14,6 +14,19 @@ import (
 
 const physicalResumeRecognitionGap = 2 * time.Second
 
+func shouldSuppressBoundary(durationMs int, seekMS int64, seekUpdatedAt, bypassUntil, now time.Time, durationPessimism float64) bool {
+	if durationMs <= 0 || seekUpdatedAt.IsZero() || now.Before(bypassUntil) {
+		return false
+	}
+	if durationPessimism <= 0 || durationPessimism > 1 {
+		durationPessimism = 0.75 // fallback to default if invalid
+	}
+	elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
+	trackDuration := time.Duration(durationMs) * time.Millisecond
+	suppressUntil := time.Duration(float64(trackDuration) * durationPessimism)
+	return elapsed < suppressUntil
+}
+
 // runSourceWatcher polls the source detector JSON file every 2 seconds.
 // Changes are rare (user switches from vinyl to CD), so polling is sufficient.
 func (m *mgr) runSourceWatcher(ctx context.Context) {
@@ -78,6 +91,7 @@ func (m *mgr) pollSourceFile() {
 		m.lastContinuityMismatchAt = time.Time{}
 		m.lastContinuityMismatchFrom = ""
 		m.lastContinuityMismatchTo = ""
+		m.lastContinuityMismatchCount = 0
 		m.physicalStartedAt = time.Now()
 	} else if resumedAfterIdle {
 		// The UI may have already gone idle during a longer pause. Reset the seek
@@ -109,7 +123,7 @@ func (m *mgr) pollSourceFile() {
 
 	if needsTrigger {
 		select {
-		case m.recognizeTrigger <- recognizeTrigger{isBoundary: false}:
+		case m.recognizeTrigger <- triggerPeriodicRecognition():
 		default:
 		}
 	}
@@ -149,7 +163,11 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 		}
 
 		log.Printf("VU monitor: connected to %s", m.cfg.VUSocket)
-		m.readVUFrames(ctx, conn, silenceThreshold, silenceFrames, activeFrames)
+		durationGuardBypassWindow := m.cfg.DurationGuardBypassWindow
+		if durationGuardBypassWindow <= 0 {
+			durationGuardBypassWindow = 20 * time.Second
+		}
+		m.readVUFrames(ctx, conn, silenceThreshold, silenceFrames, activeFrames, durationGuardBypassWindow, m.cfg.DurationPessimism)
 		conn.Close()
 
 		if ctx.Err() != nil {
@@ -164,14 +182,14 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 	}
 }
 
-func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold float32, silenceFrames, activeFrames int) {
+func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold float32, silenceFrames, activeFrames int, durationGuardBypassWindow time.Duration, durationPessimism float64) {
 	const (
-		// seekResetFrames is intentionally much smaller than silenceFrames:
-		// we want to invalidate the seek position as soon as a brief silence appears
-		// (indicating track end / needle lift) so the duration guard cannot suppress
-		// the next silence→audio boundary trigger. The silence must still sustain for
-		// silenceFrames before the boundary state machine commits inSilence=true.
-		seekResetFrames = 5 // ~250 ms — enough to distinguish gap from glitch
+		// seekResetFrames is intentionally much smaller than silenceFrames.
+		// At this point we only arm a temporary bypass for the duration guard
+		// (we do NOT zero seek anymore), so UI progress stays monotonic even when
+		// long tracks contain short quiet passages.
+		seekResetFrames   = 5  // ~250 ms — enough to distinguish gap from glitch
+		hardSilenceFrames = 40 // ~1.8 s; helps distinguish true pause from quiet passage
 
 		// Energy-change detection for track boundaries without silence gaps
 		// (e.g. vinyl with residual hum, CD crossfades).
@@ -183,7 +201,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 		energyFastAlpha      = float32(0.15)  // ~7-frame  / ~0.3 s time constant
 		energyDipRatio       = float32(0.45)  // fast < slow*0.45 → dip in progress
 		energyRecoverRatio   = float32(0.75)  // fast > slow*0.75 after dip → boundary
-		energyDipMinFrames   = 43             // dip must sustain ~2 s before committing
+		energyDipMinFrames   = 32             // dip must sustain ~1.5 s before committing
 		energyWarmupFrames   = 200            // frames before detection is active (~9 s)
 		energyChangeCooldown = 30 * time.Second
 	)
@@ -192,6 +210,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 	silenceCount := 0
 	activeCount := 0
 	inSilence := false
+	hadHardSilence := false
 
 	// Energy-change detection state.
 	var slowEMA, fastEMA float32
@@ -199,13 +218,9 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 	dipCount := 0
 	hadDip := false
 	lastEnergyTrigger := time.Time{}
+	durationGuardBypassUntil := time.Time{}
 
-	fireBoundaryTrigger := func(reason string) {
-		// Pessimistic duration guard: suppress boundary triggers while the track is
-		// likely still playing, to avoid re-recognition on silent passages within a track.
-		// Triggers are allowed only after 75% of the reported duration has elapsed.
-		// No hard cap — long tracks (e.g. 14-min epics) need the full window.
-		const durationPessimism = 0.75
+	fireBoundaryTrigger := func(reason string, isHardBoundary bool) {
 		m.mu.Lock()
 		var durationMs int
 		var seekMS int64
@@ -217,23 +232,24 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 		seekUpdatedAt = m.physicalSeekUpdatedAt
 		m.mu.Unlock()
 
-		if durationMs > 0 && !seekUpdatedAt.IsZero() {
-			elapsed := time.Duration(seekMS)*time.Millisecond + time.Since(seekUpdatedAt)
+		now := time.Now()
+		if shouldSuppressBoundary(durationMs, seekMS, seekUpdatedAt, durationGuardBypassUntil, now, durationPessimism) {
+			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
 			suppressUntil := time.Duration(float64(trackDuration) * durationPessimism)
-			if elapsed < suppressUntil {
-				log.Printf("VU monitor: boundary suppressed (%s) — %s elapsed, checks active from %s (track %s)",
-					reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))
-				return
-			}
+			log.Printf("VU monitor: boundary suppressed (%s) — %s elapsed, checks active from %s (track %s)",
+				reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))
+			return
 		}
+
+		durationGuardBypassUntil = time.Time{}
 
 		// Do not clear current metadata/artwork here: boundary detection can fire
 		// on false positives, and clearing preemptively causes UI flicker/regressions.
 		// State is cleared later only when a boundary-triggered recognition confirms no match.
-		log.Printf("VU monitor: track boundary detected (%s) — triggering recognition", reason)
+		log.Printf("VU monitor: track boundary detected (%s hard=%v) — triggering recognition", reason, isHardBoundary)
 		select {
-		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true}:
+		case m.recognizeTrigger <- triggerBoundaryRecognition(isHardBoundary):
 		default:
 		}
 	}
@@ -255,16 +271,11 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 		if avg < silenceThreshold {
 			silenceCount++
 			activeCount = 0
+			if silenceCount >= hardSilenceFrames {
+				hadHardSilence = true
+			}
 			if silenceCount == seekResetFrames {
-				// Reset seek suppression as soon as a brief silence is confirmed.
-				// Inter-track gaps on vinyl can be shorter than silenceFrames (~1 s),
-				// so we decouple the seek reset from the inSilence commit: 250 ms of
-				// silence is sufficient to signal "current track ended"; we do not need
-				// to wait for the full 1 s before disabling duration-based suppression.
-				m.mu.Lock()
-				m.physicalSeekMS = 0
-				m.physicalSeekUpdatedAt = time.Time{}
-				m.mu.Unlock()
+				durationGuardBypassUntil = time.Now().Add(durationGuardBypassWindow)
 			}
 			if silenceCount >= silenceFrames && !inSilence {
 				inSilence = true
@@ -279,7 +290,8 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 			silenceCount = 0
 			if inSilence && activeCount >= activeFrames {
 				inSilence = false
-				fireBoundaryTrigger("silence→audio")
+				fireBoundaryTrigger("silence→audio", hadHardSilence)
+				hadHardSilence = false
 				lastEnergyTrigger = time.Now()
 			}
 		}
@@ -306,14 +318,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 		if fastEMA < slowEMA*energyDipRatio {
 			dipCount++
 			if dipCount == seekResetFrames {
-				// Energy dip confirmed (~250 ms) — reset seek suppression early,
-				// just like we do at seekResetFrames consecutive silent frames.
-				// This ensures the duration guard cannot suppress the boundary
-				// trigger even if the dip is shorter than energyDipMinFrames.
-				m.mu.Lock()
-				m.physicalSeekMS = 0
-				m.physicalSeekUpdatedAt = time.Time{}
-				m.mu.Unlock()
+				durationGuardBypassUntil = time.Now().Add(durationGuardBypassWindow)
 			}
 			if dipCount >= energyDipMinFrames && !hadDip {
 				hadDip = true
@@ -325,7 +330,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, silenceThreshold 
 				if time.Since(lastEnergyTrigger) >= energyChangeCooldown {
 					lastEnergyTrigger = time.Now()
 					energyFrameCount = 0 // restart model for the new track
-					fireBoundaryTrigger("energy-change")
+					fireBoundaryTrigger("energy-change", false)
 				} else {
 					log.Printf("VU monitor: energy-change boundary suppressed (cooldown active)")
 				}

@@ -77,6 +77,85 @@ func recognitionLogFields(result *RecognitionResult) (string, string) {
 	return source, score
 }
 
+func cloneRecognitionResult(r *RecognitionResult) *RecognitionResult {
+	if r == nil {
+		return nil
+	}
+	cp := *r
+	return &cp
+}
+
+func mergeMissingProviderIDs(dst, src *RecognitionResult) bool {
+	if dst == nil || src == nil {
+		return false
+	}
+	changed := false
+	if dst.ACRID == "" && src.ACRID != "" {
+		dst.ACRID = src.ACRID
+		changed = true
+	}
+	if dst.ShazamID == "" && src.ShazamID != "" {
+		dst.ShazamID = src.ShazamID
+		changed = true
+	}
+	return changed
+}
+
+func recoverSeekMSFromSnapshot(previousSeekMS int64, previousSeekUpdatedAt, now time.Time) int64 {
+	if previousSeekMS < 0 {
+		previousSeekMS = 0
+	}
+	if previousSeekUpdatedAt.IsZero() {
+		return previousSeekMS
+	}
+	delta := now.Sub(previousSeekUpdatedAt).Milliseconds()
+	if delta < 0 {
+		delta = 0
+	}
+	return previousSeekMS + delta
+}
+
+func shouldRestorePreBoundaryResult(isHardBoundaryTrigger bool, preBoundarySeekMS int64, minSeekForRestore time.Duration) (bool, string) {
+	if minSeekForRestore <= 0 {
+		minSeekForRestore = 60 * time.Second
+	}
+	if isHardBoundaryTrigger {
+		return false, "hard boundary"
+	}
+	if preBoundarySeekMS < minSeekForRestore.Milliseconds() {
+		return false, "seek too short"
+	}
+	return true, ""
+}
+
+func computeRecognizedSeekMS(isBoundaryTrigger bool, captureStartedAt, now, lastBoundaryForSeek, physStartedAt time.Time, previousResult, newResult *RecognitionResult) (int64, bool) {
+	seekMS := now.Sub(captureStartedAt).Milliseconds()
+	if seekMS < 0 {
+		seekMS = 0
+	}
+	if isBoundaryTrigger {
+		if !lastBoundaryForSeek.IsZero() {
+			if better := now.Sub(lastBoundaryForSeek).Milliseconds(); better > seekMS {
+				seekMS = better
+			}
+		}
+		return seekMS, true
+	}
+
+	// For timer/manual resumes, only reuse the session anchor when the recognizer
+	// is effectively re-confirming the same track. If a different track is found
+	// without a boundary event, inheriting the full session elapsed time makes the
+	// new track appear to start already near the end.
+	if previousResult != nil && newResult != nil && sameTrackByProviderIDs(previousResult, newResult) && !physStartedAt.IsZero() {
+		if better := now.Sub(physStartedAt).Milliseconds(); better > seekMS {
+			seekMS = better
+		}
+		return seekMS, false
+	}
+
+	return seekMS, true
+}
+
 func (c *recognitionCoordinator) drainPendingTriggers() int {
 	drained := 0
 	for {
@@ -312,17 +391,9 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.mu.Lock()
 		lastBoundaryForSeek := c.mgr.lastBoundaryAt
 		physStartedAt := c.mgr.physicalStartedAt
+		previousResult := cloneRecognitionResult(c.mgr.recognitionResult)
 		c.mgr.mu.Unlock()
-		seekMS := now.Sub(captureStartedAt).Milliseconds()
-		if isBoundaryTrigger && !lastBoundaryForSeek.IsZero() {
-			if better := now.Sub(lastBoundaryForSeek).Milliseconds(); better > seekMS {
-				seekMS = better
-			}
-		} else if !physStartedAt.IsZero() {
-			if better := now.Sub(physStartedAt).Milliseconds(); better > seekMS {
-				seekMS = better
-			}
-		}
+		seekMS, shouldResetPhysicalStartedAt := computeRecognizedSeekMS(isBoundaryTrigger, captureStartedAt, now, lastBoundaryForSeek, physStartedAt, previousResult, result)
 
 		c.mgr.mu.Lock()
 		c.mgr.recognitionResult = result
@@ -338,6 +409,8 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.physicalSeekUpdatedAt = now
 		if isBoundaryTrigger && !lastBoundaryForSeek.IsZero() {
 			c.mgr.physicalStartedAt = lastBoundaryForSeek
+		} else if shouldResetPhysicalStartedAt {
+			c.mgr.physicalStartedAt = captureStartedAt
 		}
 		c.mgr.mu.Unlock()
 		return
@@ -348,17 +421,9 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 	c.mgr.mu.Lock()
 	lastBoundaryForSeek := c.mgr.lastBoundaryAt
 	physStartedAt := c.mgr.physicalStartedAt
+	previousResult := cloneRecognitionResult(c.mgr.recognitionResult)
 	c.mgr.mu.Unlock()
-	seekMS := now.Sub(captureStartedAt).Milliseconds()
-	if isBoundaryTrigger && !lastBoundaryForSeek.IsZero() {
-		if better := now.Sub(lastBoundaryForSeek).Milliseconds(); better > seekMS {
-			seekMS = better
-		}
-	} else if !physStartedAt.IsZero() {
-		if better := now.Sub(physStartedAt).Milliseconds(); better > seekMS {
-			seekMS = better
-		}
-	}
+	seekMS, shouldResetPhysicalStartedAt := computeRecognizedSeekMS(isBoundaryTrigger, captureStartedAt, now, lastBoundaryForSeek, physStartedAt, previousResult, result)
 
 	c.mgr.mu.Lock()
 	c.mgr.recognitionResult = result
@@ -372,6 +437,8 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 	c.mgr.physicalSeekUpdatedAt = now
 	if isBoundaryTrigger && !lastBoundaryForSeek.IsZero() {
 		c.mgr.physicalStartedAt = lastBoundaryForSeek
+	} else if shouldResetPhysicalStartedAt {
+		c.mgr.physicalStartedAt = captureStartedAt
 	}
 	c.mgr.mu.Unlock()
 }
@@ -381,6 +448,18 @@ func resolvedRefreshInterval(refresh, max time.Duration) time.Duration {
 		return max
 	}
 	return refresh
+}
+
+// captureSkipDuration returns how many seconds of PCM to discard before
+// recording the recognition sample. Hard boundaries (silence→audio) need a
+// 2 s flush to remove stylus-drop crackle and the previous-track buffer.
+// Soft boundaries (energy-change, continuity monitor) are gapless — the new
+// track is already playing cleanly so no skip is needed.
+func captureSkipDuration(isHardBoundary bool) time.Duration {
+	if isHardBoundary {
+		return 2 * time.Second
+	}
+	return 0
 }
 
 func (c *recognitionCoordinator) run(ctx context.Context) {
@@ -398,11 +477,20 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 
 	for {
 		isBoundaryTrigger := false
+		isHardBoundaryTrigger := false
+		var boundaryDetectedAt time.Time
+		var preBoundaryResult *RecognitionResult
+		var preBoundarySeekMS int64
+		var preBoundarySeekUpdatedAt time.Time
+		var preBoundaryLibraryEntryID int64
+		var preBoundaryArtworkPath string
 		select {
 		case <-ctx.Done():
 			return
 		case trig := <-c.mgr.recognizeTrigger:
 			isBoundaryTrigger = trig.isBoundary
+			isHardBoundaryTrigger = trig.isHardBoundary
+			boundaryDetectedAt = trig.detectedAt
 			if !fallbackTimer.Stop() {
 				select {
 				case <-fallbackTimer.C:
@@ -463,12 +551,16 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			continue
 		}
 
-		var skip time.Duration
+		skip := captureSkipDuration(isHardBoundaryTrigger)
 		if isBoundaryTrigger {
-			// Skip 2 s at start of boundary capture to avoid vinyl stylus-drop crackle.
-			skip = 2 * time.Second
 			c.mgr.mu.Lock()
-			c.mgr.lastBoundaryAt = time.Now()
+			if !boundaryDetectedAt.IsZero() {
+				// Continuity-monitor triggers carry the first-sighting time, which
+				// is closer to the actual track change than time.Now().
+				c.mgr.lastBoundaryAt = boundaryDetectedAt
+			} else {
+				c.mgr.lastBoundaryAt = time.Now()
+			}
 			c.mgr.mu.Unlock()
 		}
 
@@ -488,6 +580,11 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		// triggers so the UI shows "Identifying" at the right moment.
 		if isBoundaryTrigger {
 			c.mgr.mu.Lock()
+			preBoundaryResult = cloneRecognitionResult(c.mgr.recognitionResult)
+			preBoundarySeekMS = c.mgr.physicalSeekMS
+			preBoundarySeekUpdatedAt = c.mgr.physicalSeekUpdatedAt
+			preBoundaryLibraryEntryID = c.mgr.physicalLibraryEntryID
+			preBoundaryArtworkPath = c.mgr.physicalArtworkPath
 			c.mgr.recognitionResult = nil
 			c.mgr.physicalLibraryEntryID = 0
 			c.mgr.physicalArtworkPath = ""
@@ -567,28 +664,48 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			c.mgr.mu.Lock()
 			currentResult := c.mgr.recognitionResult
 			c.mgr.mu.Unlock()
-			if !isBoundaryTrigger && currentResult != nil && sameTrackByProviderIDs(currentResult, result) {
-				if c.mgr.cfg.Verbose {
-					log.Printf("recognizer [%s]: same track confirmed — no change (%s — %s)", c.rec.Name(), result.Artist, result.Title)
-				}
-				shouldMarkDirty := false
-				c.mgr.mu.Lock()
-				c.mgr.lastRecognizedAt = time.Now()
-				if c.mgr.recognitionResult != nil {
-					if c.mgr.recognitionResult.ACRID == "" && result.ACRID != "" {
-						c.mgr.recognitionResult.ACRID = result.ACRID
+			compareResult := currentResult
+			if compareResult == nil && isBoundaryTrigger {
+				compareResult = preBoundaryResult
+			}
+			if compareResult != nil && sameTrackByProviderIDs(compareResult, result) {
+				minSeekForRestore := c.mgr.cfg.BoundaryRestoreMinSeek
+				// Conservative policy:
+				// 1) Never restore on hard boundaries (likely true pause/resume / needle move).
+				// 2) For soft boundaries, restore only when prior seek is mature.
+				canRestore, restoreBlockedReason := shouldRestorePreBoundaryResult(isHardBoundaryTrigger, preBoundarySeekMS, minSeekForRestore)
+
+				if canRestore {
+					if c.mgr.cfg.Verbose {
+						log.Printf("recognizer [%s]: same track confirmed — restoring pre-boundary result (%s — %s, seek %ds)",
+							c.rec.Name(), result.Artist, result.Title, preBoundarySeekMS/1000)
+					}
+					shouldMarkDirty := false
+					now := time.Now()
+					c.mgr.mu.Lock()
+					c.mgr.lastRecognizedAt = now
+					if c.mgr.recognitionResult == nil && isBoundaryTrigger && preBoundaryResult != nil {
+						restored := cloneRecognitionResult(preBoundaryResult)
+						c.mgr.recognitionResult = restored
+						c.mgr.physicalLibraryEntryID = preBoundaryLibraryEntryID
+						c.mgr.physicalArtworkPath = preBoundaryArtworkPath
+						c.mgr.physicalSeekMS = recoverSeekMSFromSnapshot(preBoundarySeekMS, preBoundarySeekUpdatedAt, now)
+						c.mgr.physicalSeekUpdatedAt = now
 						shouldMarkDirty = true
 					}
-					if c.mgr.recognitionResult.ShazamID == "" && result.ShazamID != "" {
-						c.mgr.recognitionResult.ShazamID = result.ShazamID
-						shouldMarkDirty = true
+					if c.mgr.recognitionResult != nil {
+						if mergeMissingProviderIDs(c.mgr.recognitionResult, result) {
+							shouldMarkDirty = true
+						}
 					}
+					c.mgr.mu.Unlock()
+					if shouldMarkDirty {
+						c.mgr.markDirty()
+					}
+					continue
 				}
-				c.mgr.mu.Unlock()
-				if shouldMarkDirty {
-					c.mgr.markDirty()
-				}
-				continue
+				log.Printf("recognizer [%s]: same track re-confirmed but restore blocked (%s, seek=%ds, min=%ds) — applying fresh result (%s — %s)",
+					c.rec.Name(), restoreBlockedReason, preBoundarySeekMS/1000, int(minSeekForRestore.Seconds()), result.Artist, result.Title)
 			}
 
 			stop := false

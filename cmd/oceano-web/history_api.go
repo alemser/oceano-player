@@ -56,12 +56,12 @@ type playHistoryListResponse struct {
 }
 
 type playHistoryStatsResponse struct {
-	TotalPlays         int                         `json:"total_plays"`
-	TotalListenedHours float64                     `json:"total_listened_hours"`
-	TopArtists         []playHistoryArtistStat     `json:"top_artists"`
-	TopAlbums          []playHistoryAlbumStat      `json:"top_albums"`
-	PlaysBySource      map[string]int              `json:"plays_by_source"`
-	Heatmap            map[string]int              `json:"heatmap"`
+	TotalPlays         int                     `json:"total_plays"`
+	TotalListenedHours float64                 `json:"total_listened_hours"`
+	TopArtists         []playHistoryArtistStat `json:"top_artists"`
+	TopAlbums          []playHistoryAlbumStat  `json:"top_albums"`
+	PlaysBySource      map[string]int          `json:"plays_by_source"`
+	HoursBySource      map[string]float64      `json:"hours_by_source"`
 }
 
 type playHistoryArtistStat struct {
@@ -190,10 +190,18 @@ func (h *historyDB) listPlays(limit, offset int) ([]PlayHistoryItem, int, error)
 	return items, total, rows.Err()
 }
 
+// mediaKey returns a display key for a (source, media_format) pair, collapsing
+// "Physical/Vinyl" → "Vinyl" and "Physical/CD" → "CD" for clearer UI labelling.
+const mediaKeySQLExpr = `CASE
+		WHEN source='Physical' AND lower(media_format)='vinyl' THEN 'Vinyl'
+		WHEN source='Physical' AND lower(media_format)='cd'    THEN 'CD'
+		ELSE source
+	END`
+
 func (h *historyDB) getStats() (*playHistoryStatsResponse, error) {
 	stats := &playHistoryStatsResponse{
 		PlaysBySource: make(map[string]int),
-		Heatmap:       make(map[string]int),
+		HoursBySource: make(map[string]float64),
 	}
 
 	h.db.QueryRow(`
@@ -226,27 +234,21 @@ func (h *historyDB) getStats() (*playHistoryStatsResponse, error) {
 		rows.Close()
 	}
 
-	rows, err = h.db.Query(`SELECT source, COUNT(*) FROM play_history GROUP BY source`)
+	// Play counts and listening hours grouped by media key (Vinyl/CD/AirPlay/…).
+	rows, err = h.db.Query(`
+		SELECT ` + mediaKeySQLExpr + ` AS src_key,
+		       COUNT(*),
+		       COALESCE(SUM(listened_seconds),0) / 3600.0
+		FROM play_history
+		GROUP BY src_key`)
 	if err == nil {
 		for rows.Next() {
 			var src string
 			var cnt int
-			rows.Scan(&src, &cnt)
+			var hrs float64
+			rows.Scan(&src, &cnt, &hrs)
 			stats.PlaysBySource[src] = cnt
-		}
-		rows.Close()
-	}
-
-	rows, err = h.db.Query(`
-		SELECT date(started_at), COUNT(*) FROM play_history
-		WHERE started_at >= datetime('now','-365 days')
-		GROUP BY date(started_at)`)
-	if err == nil {
-		for rows.Next() {
-			var d string
-			var cnt int
-			rows.Scan(&d, &cnt)
-			stats.Heatmap[d] = cnt
+			stats.HoursBySource[src] = hrs
 		}
 		rows.Close()
 	}

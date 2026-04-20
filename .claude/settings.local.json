@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(go build:*)",
-      "Bash(gh pr *)"
+      "Bash(gh pr *)",
+      "Bash(go test *)",
+      "Bash(chmod +x /Users/alemser/Projects/oceano-player/.git/hooks/pre-commit)",
+      "Bash(/Users/alemser/Projects/oceano-player/.git/hooks/pre-commit)"
     ]
   }
 }

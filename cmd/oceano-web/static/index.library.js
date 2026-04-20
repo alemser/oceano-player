@@ -4,6 +4,10 @@ let _libLoadedAt = 0;
 let _editingId = null;
 let _libraryAutoTimer = null;
 let _librarySignature = '';
+let _resolveSearchTimer = null;
+const LIBRARY_PAGE_SIZE = 40;
+let _libraryVisible = LIBRARY_PAGE_SIZE;
+let _libraryFilterSignature = '';
 
 function librarySignature(items) {
   return (items || []).map(e => [
@@ -58,50 +62,84 @@ async function loadLibrary() {
 function renderLibrary() {
   const search = (document.getElementById('lib-search')?.value || '').toLowerCase();
   const fmt    = document.getElementById('lib-format-filter')?.value || '';
-  const grid   = document.getElementById('lib-grid');
+  const list   = document.getElementById('lib-list');
   const count  = document.getElementById('lib-count');
-  if (!grid) return;
+  const moreWrap = document.getElementById('lib-more-wrap');
+  const moreBtn = document.getElementById('lib-more-btn');
+  if (!list) return;
+
+  const filterSignature = `${search}|${fmt}`;
+  if (filterSignature !== _libraryFilterSignature) {
+    _libraryVisible = LIBRARY_PAGE_SIZE;
+    _libraryFilterSignature = filterSignature;
+  }
 
   const filtered = _library.filter(e => {
+    const title = (e.title || '').toLowerCase();
+    const artist = (e.artist || '').toLowerCase();
+    const album = (e.album || '').toLowerCase();
     const matchSearch = !search ||
-      e.title.toLowerCase().includes(search) ||
-      e.artist.toLowerCase().includes(search) ||
-      (e.album||'').toLowerCase().includes(search);
+      title.includes(search) ||
+      artist.includes(search) ||
+      album.includes(search);
     const matchFmt = !fmt || e.format === fmt;
     return matchSearch && matchFmt;
   });
+  const visible = filtered.slice(0, _libraryVisible);
 
   count.textContent = filtered.length + ' / ' + _library.length + ' tracks';
 
   if (filtered.length === 0) {
-    grid.innerHTML = `<div class="lib-empty" style="grid-column:1/-1">
+    list.innerHTML = `<div class="lib-empty">
       ${_library.length === 0 ? 'No tracks yet — play a record to start building your collection.' : 'No tracks match your search.'}
     </div>`;
+    if (moreWrap) moreWrap.style.display = 'none';
     return;
   }
 
-  grid.innerHTML = filtered.map(e => {
-    const fmtClass = (e.format||'unknown').toLowerCase();
+  list.innerHTML = visible.map(e => {
+    const fmtClass = (e.format || 'unknown').toLowerCase();
     const artUrl   = e.artwork_path ? `/api/library/${e.id}/artwork?t=${_libLoadedAt}` : '';
     const title = e.title || '(Untitled)';
     const artist = e.artist || '';
-    return `<div class="lib-card" onclick="openModal(${e.id})">
-      <div class="lib-card-art">
+    const album = e.album || '';
+    return `<button type="button" class="lib-row" onclick="openModal(${e.id})" title="Edit track">
+      <div class="lib-row-art">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
           <path d="M9 18V5l12-2v13M9 18c0 1.657-1.343 3-3 3s-3-1.343-3-3 1.343-3 3-3 3 1.343 3 3zm12-2c0 1.657-1.343 3-3 3s-3-1.343-3-3 1.343-3 3-3 3 1.343 3 3z"
                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         ${artUrl ? `<img src="${artUrl}" alt="" onload="this.classList.add('loaded')">` : ''}
       </div>
-      <div class="lib-card-body">
-        <div class="lib-card-title">${esc(title)}</div>
-        <div class="lib-card-artist">${esc(artist)}</div>
-        <div class="lib-card-meta">
+      <div class="lib-row-main">
+        <div class="lib-row-title">${esc(title)}</div>
+        <div class="lib-row-sub">${esc(artist)}${album ? ' · ' + esc(album) : ''}</div>
+      </div>
+      <div class="lib-row-meta">
+        <div class="lib-row-badges">
           <span class="lib-format-badge ${fmtClass}">${e.format||'?'}</span>
         </div>
       </div>
-    </div>`;
+    </button>`;
   }).join('');
+
+  const hasMore = filtered.length > _libraryVisible;
+  if (moreWrap) moreWrap.style.display = hasMore ? 'flex' : 'none';
+  if (moreBtn) {
+    moreBtn.disabled = !hasMore;
+    const remaining = Math.max(filtered.length - _libraryVisible, 0);
+    moreBtn.textContent = hasMore ? `Load more (${remaining} left)` : 'All tracks loaded';
+  }
+}
+
+function onLibraryFilterChanged() {
+  _libraryVisible = LIBRARY_PAGE_SIZE;
+  renderLibrary();
+}
+
+function loadMoreLibraryItems() {
+  _libraryVisible += LIBRARY_PAGE_SIZE;
+  renderLibrary();
 }
 
 function openModal(id) {
@@ -119,6 +157,7 @@ function openModal(id) {
   document.getElementById('modal-label').value        = e.label || '';
   document.getElementById('modal-released').value     = e.released || '';
   document.getElementById('modal-track-number').value = e.track_number || '';
+  document.getElementById('modal-duration').value     = msToDuration(e.duration_ms || 0);
 
   const img = document.getElementById('modal-art-img');
   img.classList.remove('loaded');
@@ -127,6 +166,15 @@ function openModal(id) {
     img.onload = () => img.classList.add('loaded');
   } else {
     img.src = '';
+  }
+
+  const resolveBtn = document.getElementById('btn-resolve-stub');
+  const resolveWrap = document.getElementById('resolve-wrap');
+  if (resolveBtn && resolveWrap) {
+    resolveBtn.style.display = !e.user_confirmed ? 'flex' : 'none';
+    resolveWrap.style.display = 'none';
+    document.getElementById('resolve-search').value = '';
+    document.getElementById('resolve-results').innerHTML = '';
   }
 
   document.getElementById('lib-modal').classList.add('open');
@@ -145,9 +193,14 @@ function closeModal() {
   document.getElementById('modal-label').value = '';
   document.getElementById('modal-released').value = '';
   document.getElementById('modal-track-number').value = '';
+  document.getElementById('modal-duration').value = '';
   const img = document.getElementById('modal-art-img');
   img.classList.remove('loaded');
   img.src = '';
+  const resolveBtn = document.getElementById('btn-resolve-stub');
+  const resolveWrap = document.getElementById('resolve-wrap');
+  if (resolveBtn) resolveBtn.style.display = 'none';
+  if (resolveWrap) resolveWrap.style.display = 'none';
   _editingId = null;
 }
 
@@ -162,6 +215,7 @@ async function saveEntry() {
     released: document.getElementById('modal-released').value.trim(),
     track_number: document.getElementById('modal-track-number').value.trim(),
     artwork_path: (_library.find(x => x.id === _editingId)||{}).artwork_path || '',
+    duration_ms:  durationToMs(document.getElementById('modal-duration').value.trim()),
   };
   if (!body.title || !body.artist) { toast('Title and artist are required', true); return; }
   const r = await fetch(`/api/library/${_editingId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
@@ -281,6 +335,82 @@ async function uploadArtwork(input) {
   img.onload = () => img.classList.add('loaded');
   toast('Artwork updated');
   input.value = '';
+}
+
+function toggleResolvePanel() {
+  const wrap = document.getElementById('resolve-wrap');
+  if (!wrap) return;
+  const visible = wrap.style.display !== 'none';
+  wrap.style.display = visible ? 'none' : 'block';
+  if (!visible) {
+    document.getElementById('resolve-search')?.focus();
+    searchResolveTargets();
+  }
+}
+
+function searchResolveTargets() {
+  const q = document.getElementById('resolve-search')?.value?.trim() || '';
+  const out = document.getElementById('resolve-results');
+  if (_resolveSearchTimer) clearTimeout(_resolveSearchTimer);
+  _resolveSearchTimer = setTimeout(async () => {
+    if (!out) return;
+    if (q.length < 2) { out.innerHTML = ''; return; }
+    try {
+      const r = await fetch(`/api/library/search?q=${encodeURIComponent(q)}&limit=10`);
+      const results = await r.json();
+      if (!results.length) {
+        out.innerHTML = '<div class="resolve-empty">No confirmed tracks found.</div>';
+        return;
+      }
+      out.innerHTML = results
+        .filter(x => x.id !== _editingId)
+        .map(x => `<div class="resolve-item">
+          <div class="resolve-item-main">
+            <div class="resolve-item-title">${esc(x.title)}</div>
+            <div class="resolve-item-sub">${esc(x.artist)}${x.album ? ' · ' + esc(x.album) : ''}</div>
+          </div>
+          <button class="resolve-item-btn" onclick="resolveStub(${x.id})">Link</button>
+        </div>`).join('');
+    } catch {
+      out.innerHTML = '<div class="resolve-empty">Search failed.</div>';
+    }
+  }, 250);
+}
+
+async function resolveStub(targetId) {
+  if (!_editingId) return;
+  if (!confirm('Link this unresolved entry to the selected track? Play history will be merged and this entry removed.')) return;
+  const r = await fetch(`/api/library/${_editingId}/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target_id: targetId }),
+  });
+  if (!r.ok) {
+    const err = await r.text().catch(() => '');
+    toast(err || 'Link failed', true);
+    return;
+  }
+  toast('Linked — entry merged');
+  closeModal();
+  await loadLibrary();
+}
+
+function msToDuration(ms) {
+  if (!ms || ms <= 0) return '';
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function durationToMs(str) {
+  if (!str) return 0;
+  const parts = str.split(':');
+  if (parts.length !== 2) return 0;
+  const m = parseInt(parts[0], 10);
+  const s = parseInt(parts[1], 10);
+  if (isNaN(m) || isNaN(s) || s < 0 || s > 59) return 0;
+  return (m * 60 + s) * 1000;
 }
 
 function esc(s) {

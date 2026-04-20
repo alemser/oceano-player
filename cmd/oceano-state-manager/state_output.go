@@ -261,7 +261,15 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 				changed = true
 			}
 			if entry.DurationMs > 0 && m.recognitionResult.DurationMs != entry.DurationMs {
+				previousDuration := m.recognitionResult.DurationMs
 				m.recognitionResult.DurationMs = entry.DurationMs
+				// If duration becomes known later (e.g. user-entered in the library)
+				// and the current seek is clearly incompatible, drop the seek anchor
+				// rather than rendering a progress bar that starts already complete.
+				if previousDuration <= 0 && m.physicalSeekMS > int64(entry.DurationMs)+15000 {
+					m.physicalSeekMS = 0
+					m.physicalSeekUpdatedAt = time.Time{}
+				}
 				changed = true
 			}
 			if m.physicalArtworkPath != entry.ArtworkPath {

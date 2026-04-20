@@ -173,10 +173,11 @@ func (m *PowerStateMonitor) detect(ctx context.Context) {
 	m.mu.RLock()
 	lastCmd := m.lastCommand
 	lastCmdAt := m.lastCommandAt
+	lastAudioAt := m.lastAudioAt
 	cfg := m.config
 	m.mu.RUnlock()
 
-	state := m.infer(detected, lastCmd, lastCmdAt, cfg)
+	state := m.infer(detected, lastCmd, lastCmdAt, lastAudioAt, cfg)
 
 	m.mu.Lock()
 	if detected == PowerStateOn {
@@ -197,6 +198,7 @@ func (m *PowerStateMonitor) infer(
 	detected PowerState,
 	lastCmd string,
 	lastCmdAt time.Time,
+	lastAudioAt time.Time,
 	cfg MonitorConfig,
 ) PowerState {
 	now := time.Now()
@@ -208,6 +210,11 @@ func (m *PowerStateMonitor) infer(
 	// Within warm-up window after a power-on command.
 	if lastCmd == "on" && cfg.WarmUp > 0 && !lastCmdAt.IsZero() && now.Sub(lastCmdAt) < cfg.WarmUp {
 		return PowerStateWarmingUp
+	}
+
+	// After StandbyTimeout of no confirmed On, infer the amp entered auto-standby.
+	if cfg.StandbyTimeout > 0 && !lastAudioAt.IsZero() && now.Sub(lastAudioAt) >= cfg.StandbyTimeout {
+		return PowerStateStandby
 	}
 
 	return PowerStateUnknown

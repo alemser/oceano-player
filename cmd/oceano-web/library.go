@@ -17,20 +17,22 @@ import (
 
 // LibraryEntry is the JSON representation of a collection row.
 type LibraryEntry struct {
-	ID          int64  `json:"id"`
-	ACRID       string `json:"acrid"`
-	ShazamID    string `json:"shazam_id"`
-	Title       string `json:"title"`
-	Artist      string `json:"artist"`
-	Album       string `json:"album"`
-	Label       string `json:"label"`
-	Released    string `json:"released"`
-	Format      string `json:"format"`
-	TrackNumber string `json:"track_number"`
-	ArtworkPath string `json:"artwork_path"`
-	PlayCount   int    `json:"play_count"`
-	FirstPlayed string `json:"first_played"`
-	LastPlayed  string `json:"last_played"`
+	ID            int64  `json:"id"`
+	ACRID         string `json:"acrid"`
+	ShazamID      string `json:"shazam_id"`
+	Title         string `json:"title"`
+	Artist        string `json:"artist"`
+	Album         string `json:"album"`
+	Label         string `json:"label"`
+	Released      string `json:"released"`
+	Format        string `json:"format"`
+	TrackNumber   string `json:"track_number"`
+	ArtworkPath   string `json:"artwork_path"`
+	DurationMs    int    `json:"duration_ms"`
+	PlayCount     int    `json:"play_count"`
+	FirstPlayed   string `json:"first_played"`
+	LastPlayed    string `json:"last_played"`
+	UserConfirmed bool   `json:"user_confirmed"`
 }
 
 // LibraryDB wraps the collection SQLite database for the web UI.
@@ -167,7 +169,7 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist, COALESCE(album,''), COALESCE(label,''),
 		       COALESCE(released,''), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
-		       play_count, first_played, last_played
+		       COALESCE(duration_ms,0), play_count, first_played, last_played, COALESCE(user_confirmed,0)
 		FROM collection ORDER BY last_played DESC`)
 	if err != nil {
 		return nil, err
@@ -177,10 +179,12 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 	var entries []LibraryEntry
 	for rows.Next() {
 		var e LibraryEntry
+		var confirmed int
 		if err := rows.Scan(&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist, &e.Album, &e.Label, &e.Released, &e.Format,
-			&e.TrackNumber, &e.ArtworkPath, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed); err != nil {
+			&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed); err != nil {
 			return nil, err
 		}
+		e.UserConfirmed = confirmed == 1
 		entries = append(entries, e)
 	}
 	return entries, rows.Err()
@@ -227,13 +231,15 @@ func (l *LibraryDB) search(q string, limit int) ([]LibraryEntry, error) {
 // update patches editable fields for a single entry and cascades the changes
 // to any play_history rows linked to the same collection entry so the history
 // reflects corrected metadata (format badge, title, artwork, etc.) immediately.
-func (l *LibraryDB) update(id int64, title, artist, album, label, released, format, trackNumber, artworkPath string) error {
+func (l *LibraryDB) update(id int64, title, artist, album, label, released, format, trackNumber, artworkPath string, durationMs int) error {
 	_, err := l.db.Exec(`
 		UPDATE collection
 		SET title=?, artist=?, album=?, label=?, released=?, format=?, track_number=?, artwork_path=?,
+		    duration_ms=CASE WHEN ? > 0 THEN ? ELSE duration_ms END,
 		    user_confirmed=1
 		WHERE id=?`,
-		title, artist, album, label, released, format, trackNumber, artworkPath, id,
+		title, artist, album, label, released, format, trackNumber, artworkPath,
+		durationMs, durationMs, id,
 	)
 	if err != nil {
 		return err
@@ -252,10 +258,119 @@ func (l *LibraryDB) update(id int64, title, artist, album, label, released, form
 	return err
 }
 
-// deleteEntry removes a single entry by ID.
+// resolveStub merges an unconfirmed entry (stub) into an existing confirmed
+// target: play_history rows are repointed, play counts merged, provider IDs
+// copied if the target's fields are empty, then the stub is deleted.
+func (l *LibraryDB) resolveStub(stubID, targetID int64) (*LibraryEntry, error) {
+	if stubID <= 0 || targetID <= 0 {
+		return nil, fmt.Errorf("stub_id and target_id are required")
+	}
+	if stubID == targetID {
+		return nil, fmt.Errorf("stub_id and target_id must be different")
+	}
+
+	tx, err := l.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var stubPlayCount int
+	var stubLastPlayed, stubACRID, stubShazamID string
+	err = tx.QueryRow(`
+		SELECT play_count, last_played, COALESCE(acrid,''), COALESCE(shazam_id,'')
+		FROM collection
+		WHERE id = ? AND user_confirmed = 0`, stubID).
+		Scan(&stubPlayCount, &stubLastPlayed, &stubACRID, &stubShazamID)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("entry %d is not an unresolved stub", stubID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	target := &LibraryEntry{}
+	var confirmed int
+	err = tx.QueryRow(`
+		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist,
+		       COALESCE(album,''), play_count, last_played, COALESCE(user_confirmed,0)
+		FROM collection WHERE id = ?`, targetID).
+		Scan(&target.ID, &target.ACRID, &target.ShazamID, &target.Title, &target.Artist,
+			&target.Album, &target.PlayCount, &target.LastPlayed, &confirmed)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("target entry %d not found", targetID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	target.UserConfirmed = confirmed == 1
+
+	// Repoint play_history rows from stub to target.
+	if _, err := tx.Exec(`UPDATE play_history SET collection_id=? WHERE collection_id=?`, targetID, stubID); err != nil {
+		return nil, err
+	}
+
+	// Merge play count and last_played.
+	newCount := target.PlayCount + stubPlayCount
+	newLast := target.LastPlayed
+	if stubLastPlayed > newLast {
+		newLast = stubLastPlayed
+	}
+	if _, err := tx.Exec(`UPDATE collection SET play_count=?, last_played=? WHERE id=?`,
+		newCount, newLast, targetID); err != nil {
+		return nil, err
+	}
+
+	// Copy provider IDs to target only if target has none AND no other entry owns the ID.
+	// Skip silently if the ID already belongs to another confirmed entry (e.g. the stub
+	// was misidentified as a different track and carries that track's provider IDs).
+	if target.ACRID == "" && stubACRID != "" {
+		var clash int
+		_ = tx.QueryRow(`SELECT COUNT(*) FROM collection WHERE acrid=? AND id!=?`, stubACRID, targetID).Scan(&clash)
+		if clash == 0 {
+			if _, err := tx.Exec(`UPDATE collection SET acrid=? WHERE id=?`, stubACRID, targetID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if target.ShazamID == "" && stubShazamID != "" {
+		var clash int
+		_ = tx.QueryRow(`SELECT COUNT(*) FROM collection WHERE shazam_id=? AND id!=?`, stubShazamID, targetID).Scan(&clash)
+		if clash == 0 {
+			if _, err := tx.Exec(`UPDATE collection SET shazam_id=? WHERE id=?`, stubShazamID, targetID); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Delete the stub (play_history already repointed, no FK violation).
+	if _, err := tx.Exec(`DELETE FROM collection WHERE id=?`, stubID); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	target.PlayCount = newCount
+	target.LastPlayed = newLast
+	return target, nil
+}
+
+// deleteEntry removes a single entry by ID, nulling out any play_history
+// references first to satisfy the foreign-key constraint.
 func (l *LibraryDB) deleteEntry(id int64) error {
-	_, err := l.db.Exec(`DELETE FROM collection WHERE id=?`, id)
-	return err
+	tx, err := l.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE play_history SET collection_id=NULL WHERE collection_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM collection WHERE id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ── HTTP handlers ──────────────────────────────────────────────────────────
@@ -423,6 +538,8 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			handleUpdateEntry(w, r, lib, id, stateFilePath)
 		case sub == "" && r.Method == http.MethodDelete:
 			handleDeleteEntry(w, lib, id)
+		case sub == "resolve" && r.Method == http.MethodPost:
+			handleResolveStub(w, r, lib, id)
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
@@ -498,6 +615,7 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 		Format      string `json:"format"`
 		TrackNumber string `json:"track_number"`
 		ArtworkPath string `json:"artwork_path"`
+		DurationMs  int    `json:"duration_ms"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -520,7 +638,7 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 		body.Format = "Unknown"
 	}
 
-	if err := lib.update(id, body.Title, body.Artist, body.Album, body.Label, body.Released, body.Format, body.TrackNumber, body.ArtworkPath); err != nil {
+	if err := lib.update(id, body.Title, body.Artist, body.Album, body.Label, body.Released, body.Format, body.TrackNumber, body.ArtworkPath, body.DurationMs); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -601,4 +719,21 @@ func handleDeleteEntry(w http.ResponseWriter, lib *LibraryDB, id int64) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"ok":true}`))
+}
+
+func handleResolveStub(w http.ResponseWriter, r *http.Request, lib *LibraryDB, stubID int64) {
+	var body struct {
+		TargetID int64 `json:"target_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	target, err := lib.resolveStub(stubID, body.TargetID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(target)
 }

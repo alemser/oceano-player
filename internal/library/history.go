@@ -41,7 +41,6 @@ type PlayHistoryStats struct {
 	TopArtists         []PlayHistoryArtist `json:"top_artists"`
 	TopAlbums          []PlayHistoryAlbum  `json:"top_albums"`
 	PlaysBySource      map[string]int      `json:"plays_by_source"`
-	Heatmap            map[string]int      `json:"heatmap"` // "YYYY-MM-DD" → count (last 365 days)
 }
 
 // PlayHistoryArtist is one row in the top-artists list.
@@ -238,11 +237,10 @@ func (l *Library) ListPlayHistory(limit, offset int) ([]PlayHistoryEntry, int, e
 // GetPlayHistoryStats returns aggregated listening statistics.
 func (l *Library) GetPlayHistoryStats() (*PlayHistoryStats, error) {
 	if l == nil || l.db == nil {
-		return &PlayHistoryStats{PlaysBySource: map[string]int{}, Heatmap: map[string]int{}}, nil
+		return &PlayHistoryStats{PlaysBySource: map[string]int{}}, nil
 	}
 	stats := &PlayHistoryStats{
 		PlaysBySource: make(map[string]int),
-		Heatmap:       make(map[string]int),
 	}
 
 	// Total plays + listened hours — close rows before next query (MaxOpenConns=1)
@@ -290,23 +288,6 @@ func (l *Library) GetPlayHistoryStats() (*PlayHistoryStats, error) {
 			var cnt int
 			if rows.Scan(&src, &cnt) == nil {
 				stats.PlaysBySource[src] = cnt
-			}
-		}
-		rows.Close()
-	}
-
-	// Heatmap: last 365 days
-	rows, err = l.db.Query(`
-		SELECT date(started_at), COUNT(*)
-		FROM play_history
-		WHERE started_at >= datetime('now', '-365 days')
-		GROUP BY date(started_at)`)
-	if err == nil {
-		for rows.Next() {
-			var d string
-			var cnt int
-			if rows.Scan(&d, &cnt) == nil {
-				stats.Heatmap[d] = cnt
 			}
 		}
 		rows.Close()

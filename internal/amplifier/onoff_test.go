@@ -184,7 +184,7 @@ func TestInfer_DetectedOnAlwaysWins(t *testing.T) {
 	m := newMonitorForInfer(t, MonitorConfig{WarmUp: time.Hour})
 	m.NotifyPowerOff() // last command was off
 
-	got := m.infer(PowerStateOn, "off", time.Now(), m.config)
+	got := m.infer(PowerStateOn, "off", time.Now(), time.Time{}, m.config)
 	if got != PowerStateOn {
 		t.Errorf("infer(On, lastCmd=off) = %q, want %q", got, PowerStateOn)
 	}
@@ -194,7 +194,7 @@ func TestInfer_WarmingUpAfterPowerOn(t *testing.T) {
 	m := newMonitorForInfer(t, MonitorConfig{WarmUp: time.Hour})
 
 	// Power-on just sent, detected Unknown (DAC not yet enumerated).
-	got := m.infer(PowerStateUnknown, "on", time.Now(), m.config)
+	got := m.infer(PowerStateUnknown, "on", time.Now(), time.Time{}, m.config)
 	if got != PowerStateWarmingUp {
 		t.Errorf("infer = %q, want %q", got, PowerStateWarmingUp)
 	}
@@ -205,7 +205,7 @@ func TestInfer_WarmingUpWindowExpired(t *testing.T) {
 
 	// Power-on sent long enough ago that WarmUp has passed.
 	time.Sleep(5 * time.Millisecond)
-	got := m.infer(PowerStateUnknown, "on", time.Now().Add(-1*time.Hour), m.config)
+	got := m.infer(PowerStateUnknown, "on", time.Now().Add(-1*time.Hour), time.Time{}, m.config)
 	if got == PowerStateWarmingUp {
 		t.Errorf("infer = %q but warm-up window expired", got)
 	}
@@ -214,7 +214,7 @@ func TestInfer_WarmingUpWindowExpired(t *testing.T) {
 func TestInfer_UnknownAfterPowerOffCommand(t *testing.T) {
 	m := newMonitorForInfer(t, MonitorConfig{})
 
-	got := m.infer(PowerStateUnknown, "off", time.Now(), m.config)
+	got := m.infer(PowerStateUnknown, "off", time.Now(), time.Time{}, m.config)
 	if got != PowerStateUnknown {
 		t.Errorf("infer(Unknown, lastCmd=off) = %q, want %q", got, PowerStateUnknown)
 	}
@@ -223,7 +223,7 @@ func TestInfer_UnknownAfterPowerOffCommand(t *testing.T) {
 func TestInfer_UnknownWhenDetectedOff(t *testing.T) {
 	m := newMonitorForInfer(t, MonitorConfig{})
 
-	got := m.infer(PowerStateOff, "", time.Time{}, m.config)
+	got := m.infer(PowerStateOff, "", time.Time{}, time.Time{}, m.config)
 	if got != PowerStateUnknown {
 		t.Errorf("infer(Off, no history) = %q, want %q", got, PowerStateUnknown)
 	}
@@ -234,7 +234,7 @@ func TestInfer_UnknownAfterLongSilence(t *testing.T) {
 	m := newMonitorForInfer(t, cfg)
 
 	// Last audio detected long ago.
-	got := m.infer(PowerStateUnknown, "", time.Time{}, cfg)
+	got := m.infer(PowerStateUnknown, "", time.Time{}, time.Time{}, cfg)
 	if got != PowerStateUnknown {
 		t.Errorf("infer = %q, want %q", got, PowerStateUnknown)
 	}
@@ -244,16 +244,42 @@ func TestInfer_StandbyNotTriggeredWhenRecentAudio(t *testing.T) {
 	cfg := MonitorConfig{StandbyTimeout: 1 * time.Hour}
 	m := newMonitorForInfer(t, cfg)
 
-	got := m.infer(PowerStateUnknown, "", time.Time{}, cfg)
+	got := m.infer(PowerStateUnknown, "", time.Time{}, time.Time{}, cfg)
 	if got != PowerStateUnknown {
 		t.Errorf("infer = %q, want %q", got, PowerStateUnknown)
+	}
+}
+
+func TestInfer_StandbyAfterTimeout(t *testing.T) {
+	cfg := MonitorConfig{StandbyTimeout: 1 * time.Millisecond}
+	m := newMonitorForInfer(t, cfg)
+
+	// Simulate: amp was confirmed On, then silence for longer than StandbyTimeout.
+	lastAudioAt := time.Now().Add(-1 * time.Second)
+	time.Sleep(2 * time.Millisecond)
+
+	got := m.infer(PowerStateUnknown, "", time.Time{}, lastAudioAt, cfg)
+	if got != PowerStateStandby {
+		t.Errorf("infer = %q, want %q (standby timeout elapsed)", got, PowerStateStandby)
+	}
+}
+
+func TestInfer_StandbyNotTriggeredWithZeroLastAudio(t *testing.T) {
+	// Never confirmed On (lastAudioAt zero) — cannot infer Standby, must stay Unknown.
+	cfg := MonitorConfig{StandbyTimeout: 1 * time.Millisecond}
+	m := newMonitorForInfer(t, cfg)
+	time.Sleep(2 * time.Millisecond)
+
+	got := m.infer(PowerStateUnknown, "", time.Time{}, time.Time{}, cfg)
+	if got != PowerStateUnknown {
+		t.Errorf("infer = %q, want %q (never confirmed On, cannot infer Standby)", got, PowerStateUnknown)
 	}
 }
 
 func TestInfer_UnknownWhenNoHistory(t *testing.T) {
 	m := newMonitorForInfer(t, MonitorConfig{})
 
-	got := m.infer(PowerStateUnknown, "", time.Time{}, m.config)
+	got := m.infer(PowerStateUnknown, "", time.Time{}, time.Time{}, m.config)
 	if got != PowerStateUnknown {
 		t.Errorf("infer(Unknown, no history) = %q, want %q", got, PowerStateUnknown)
 	}
@@ -287,7 +313,7 @@ func TestInfer_CyclingProbeDisabledEvenWhenConfigured(t *testing.T) {
 	// never emit IR commands after automatic probing was removed.
 	time.Sleep(2 * time.Millisecond)
 
-	got := m.infer(PowerStateUnknown, "", time.Time{}, cfg)
+	got := m.infer(PowerStateUnknown, "", time.Time{}, time.Time{}, cfg)
 	if got != PowerStateUnknown {
 		t.Errorf("infer with cycling config = %q, want %q", got, PowerStateUnknown)
 	}
@@ -317,7 +343,7 @@ func TestInfer_DoesNotCycleEvenWhenUSBDACPresent(t *testing.T) {
 	cfg := MonitorConfig{}
 	m := NewPowerStateMonitor(amp, time.Hour, cfg)
 
-	got := m.infer(PowerStateUnknown, "", time.Time{}, cfg)
+	got := m.infer(PowerStateUnknown, "", time.Time{}, time.Time{}, cfg)
 
 	// Automatic cycling is disabled, so no IR should be sent and state remains unknown.
 	if len(mock.Sent) != 0 {

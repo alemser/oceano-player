@@ -334,6 +334,52 @@ type RecognitionConfig struct {
 	// ShazamPythonBin is the path to the Python binary with shazamio installed.
 	// Empty string disables Shazam in the recognition chain and continuity monitor.
 	ShazamPythonBin string `json:"shazam_python_bin"`
+
+	// --- Gapless / Continuity Tuning (Advanced) ---
+	// ContinuityCalibrationGraceSecs is how long to wait before the Shazam
+	// continuity monitor starts checking for track changes. During this grace
+	// period after recognition, the monitor is in "learning" mode.
+	// Lower = faster gapless detection (but more false positives).
+	// Typical: 45s for gapless albums, 120s for tolerance to mode switches.
+	ContinuityCalibrationGraceSecs int `json:"continuity_calibration_grace_secs"`
+	// ContinuityMismatchConfirmWindowSecs is the time window during which repeated
+	// sightings of the same track change (from→to pair) are counted toward
+	// confirmation. Each new sighting increments a counter; reaching the required
+	// threshold triggers re-recognition.
+	// Typical: 180s (3 min); longer = slower but less prone to interference.
+	ContinuityMismatchConfirmWindowSecs int `json:"continuity_mismatch_confirm_window_secs"`
+	// ContinuityRequiredSightingsCalibrated is the number of repeated sightings
+	// of the same track change that must be observed (when calibrated) before
+	// re-recognition is triggered. Higher = more stable but slower on gapless.
+	// Typical: 2 sightings.
+	ContinuityRequiredSightingsCalibrated int `json:"continuity_required_sightings_calibrated"`
+	// ContinuityRequiredSightingsUncalibrated is the stricter threshold used
+	// during the grace period (when the monitor is still learning). This prevents
+	// false positives on mode switches and UI noise.
+	// Typical: 3 sightings (higher = more confirmation needed).
+	ContinuityRequiredSightingsUncalibrated int `json:"continuity_required_sightings_uncalibrated"`
+	// EarlyCheckMarginSecs is how close to the end of the track the continuity
+	// monitor begins to anticipate a track change. When within this margin of
+	// the known duration, the next Shazam poll becomes more sensitive.
+	// Typical: 20s before end of track.
+	EarlyCheckMarginSecs int `json:"early_check_margin_secs"`
+	// DurationGuardBypassWindowSecs is the time window (after a potential false
+	// boundary is detected) during which the duration-based suppression guard is
+	// armed. If a new boundary is detected within this window, it is suppressed
+	// (treated as noise in a quiet passage of the same track).
+	// Typical: 20s; raise if you have long quiet intro/outro sections.
+	DurationGuardBypassWindowSecs int `json:"duration_guard_bypass_window_secs"`
+	// DurationPessimism is the temporal threshold (0.0–1.0) used to guard against
+	// false positive boundaries during quiet passages. If the detected duration
+	// since the last boundary is < DurationPessimism * KnownTrackDuration, the
+	// boundary is suppressed even outside the bypass window.
+	// Typical: 0.75 (suppress if < 75% of known duration elapsed).
+	DurationPessimism float64 `json:"duration_pessimism"`
+	// BoundaryRestoreMinSeekSecs is the minimum pre-boundary seek position
+	// required before the previous track metadata may be restored after a same-track
+	// re-confirmation. Higher values reduce false positives after manual needle
+	// repositioning. Typical: 60 s for vinyl-safe behavior.
+	BoundaryRestoreMinSeekSecs int `json:"boundary_restore_min_seek_secs"`
 }
 
 // AdvancedConfig holds paths and internal settings that rarely need
@@ -368,18 +414,26 @@ func defaultConfig() Config {
 			DeviceMatch: "",
 		},
 		Recognition: RecognitionConfig{
-			ACRCloudHost:                        "identify-eu-west-1.acrcloud.com",
-			CaptureDurationSecs:                 7,
-			MaxIntervalSecs:                     300,
-			RefreshIntervalSecs:                 120,
-			NoMatchBackoffSecs:                  15,
-			ConfirmationDelaySecs:               0,
-			ConfirmationCaptureDurationSecs:     4,
-			ConfirmationBypassScore:             95,
-			ShazamContinuityIntervalSecs:        8,
-			ShazamContinuityCaptureDurationSecs: 4,
-			RecognizerChain:                     "acrcloud_first",
-			ShazamPythonBin:                     "/opt/shazam-env/bin/python",
+			ACRCloudHost:                            "identify-eu-west-1.acrcloud.com",
+			CaptureDurationSecs:                     7,
+			MaxIntervalSecs:                         300,
+			RefreshIntervalSecs:                     120,
+			NoMatchBackoffSecs:                      15,
+			ConfirmationDelaySecs:                   0,
+			ConfirmationCaptureDurationSecs:         4,
+			ConfirmationBypassScore:                 95,
+			ShazamContinuityIntervalSecs:            8,
+			ShazamContinuityCaptureDurationSecs:     4,
+			RecognizerChain:                         "acrcloud_first",
+			ShazamPythonBin:                         "/opt/shazam-env/bin/python",
+			ContinuityCalibrationGraceSecs:          45,
+			ContinuityMismatchConfirmWindowSecs:     180,
+			ContinuityRequiredSightingsCalibrated:   2,
+			ContinuityRequiredSightingsUncalibrated: 3,
+			EarlyCheckMarginSecs:                    20,
+			DurationGuardBypassWindowSecs:           20,
+			DurationPessimism:                       0.75,
+			BoundaryRestoreMinSeekSecs:              60,
 		},
 		Advanced: AdvancedConfig{
 			VUSocket:                "/tmp/oceano-vu.sock",
@@ -560,6 +614,14 @@ func managerArgs(cfg Config) []string {
 		"--confirmation-bypass-score", fmt.Sprintf("%d", rec.ConfirmationBypassScore),
 		"--shazam-continuity-interval", fmt.Sprintf("%ds", rec.ShazamContinuityIntervalSecs),
 		"--shazam-continuity-capture-duration", fmt.Sprintf("%ds", rec.ShazamContinuityCaptureDurationSecs),
+		"--continuity-calibration-grace", fmt.Sprintf("%ds", rec.ContinuityCalibrationGraceSecs),
+		"--continuity-mismatch-confirm-window", fmt.Sprintf("%ds", rec.ContinuityMismatchConfirmWindowSecs),
+		"--continuity-required-sightings-calibrated", fmt.Sprintf("%d", rec.ContinuityRequiredSightingsCalibrated),
+		"--continuity-required-sightings-uncalibrated", fmt.Sprintf("%d", rec.ContinuityRequiredSightingsUncalibrated),
+		"--early-check-margin", fmt.Sprintf("%ds", rec.EarlyCheckMarginSecs),
+		"--duration-guard-bypass-window", fmt.Sprintf("%ds", rec.DurationGuardBypassWindowSecs),
+		"--duration-pessimism", fmt.Sprintf("%.2f", rec.DurationPessimism),
+		"--boundary-restore-min-seek", fmt.Sprintf("%ds", rec.BoundaryRestoreMinSeekSecs),
 		"--recognizer-chain", rec.RecognizerChain,
 	}
 	if adv.IdleDelaySecs > 0 {

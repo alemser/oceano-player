@@ -3,6 +3,7 @@
 // save so they are never accidentally reset to defaults.
 let _advancedConfig = {};
 let _recognitionConfig = {};
+let _audioInputConfig = {};
 
 async function loadConfig() {
   const r = await fetch('/api/config');
@@ -11,10 +12,9 @@ async function loadConfig() {
   await loadSPIDisplayCapabilities();
   await loadNowPlayingDisplayCapabilities();
 
+  _audioInputConfig = cfg.audio_input ?? {};
   set('inp-device',        cfg.audio_input?.device ?? '');
   set('inp-device-match',  cfg.audio_input?.device_match ?? '');
-  set('inp-silence',       cfg.audio_input?.silence_threshold ?? 0.025);
-  set('inp-debounce',      cfg.audio_input?.debounce_windows ?? 10);
 
   set('out-airplay-name',  cfg.audio_output?.airplay_name ?? '');
   set('out-device',        cfg.audio_output?.device ?? '');
@@ -385,10 +385,9 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
 
   const cfg = {
     audio_input: {
-      device:             val('inp-device'),
-      device_match:       val('inp-device-match'),
-      silence_threshold:  parseFloat(val('inp-silence')) || 0.025,
-      debounce_windows:   parseInt(val('inp-debounce'))  || 10,
+      ..._audioInputConfig,
+      device:        val('inp-device'),
+      device_match:  val('inp-device-match'),
     },
     audio_output: {
       airplay_name:  val('out-airplay-name'),
@@ -399,35 +398,8 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       enabled: document.getElementById('bt-enabled')?.checked ?? false,
       name:    val('bt-name'),
     },
-    recognition: {
-      ..._recognitionConfig,
-      acrcloud_host:        val('rec-host'),
-      acrcloud_access_key:  val('rec-access-key'),
-      acrcloud_secret_key:  val('rec-secret-key'),
-      recognizer_chain:     val('rec-chain') || 'acrcloud_first',
-      shazam_python_bin:    val('rec-shazam-python'),
-      capture_duration_secs:               intOr('rec-duration', 7),
-      max_interval_secs:                   intOr('rec-interval', 300),
-      refresh_interval_secs:               intOr('rec-refresh-interval', 120),
-      no_match_backoff_secs:               intOr('rec-no-match-backoff', 15),
-      confirmation_delay_secs:             intOr('rec-confirm-delay', 0),
-      confirmation_capture_duration_secs:  intOr('rec-confirm-duration', 4),
-      confirmation_bypass_score:           intOr('rec-confirm-bypass', 95),
-      shazam_continuity_interval_secs:          intOr('rec-continuity-interval', 8),
-      shazam_continuity_capture_duration_secs:  intOr('rec-continuity-capture', 4),
-    },
-    advanced: {
-      ..._advancedConfig,
-      library_db:     val('adv-library-db') || _advancedConfig.library_db || '',
-      idle_delay_secs: intOr('adv-idle-delay', 10),
-      session_gap_threshold_secs: intOr('adv-session-gap', 45),
-      vu_socket:      val('adv-vu-socket')     || _advancedConfig.vu_socket || '',
-      pcm_socket:     val('adv-pcm-socket')    || _advancedConfig.pcm_socket || '',
-      source_file:    val('adv-source-file')   || _advancedConfig.source_file || '',
-      state_file:     val('adv-state-file')    || _advancedConfig.state_file || '',
-      artwork_dir:    val('adv-artwork-dir')   || _advancedConfig.artwork_dir || '',
-      metadata_pipe:  val('adv-metadata-pipe') || _advancedConfig.metadata_pipe || '',
-    },
+    recognition: { ..._recognitionConfig },
+    advanced: { ..._advancedConfig },
     display: {
       ui_preset:                val('disp-preset'),
       cycle_time:               parseInt(val('disp-cycle-time')) || 30,
@@ -562,7 +534,6 @@ function detectCurrentLocationWeather() {
   );
 }
 
-document.getElementById('rec-chain')?.addEventListener('change', updateRecognitionUI);
 
 function toast(msg, isError = false) {
   const el = document.getElementById('toast');

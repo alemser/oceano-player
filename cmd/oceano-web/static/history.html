@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Oceano · History</title>
+  <title>Oceano · Metrics</title>
   <link rel="stylesheet" href="history.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
       Library
     </a>
-    <h1 id="page-title">Listening History</h1>
+    <h1 id="page-title">Listening Metrics</h1>
     <div id="header-right"></div>
   </header>
 
@@ -27,6 +27,7 @@
       <div class="stat-card">
         <div class="stat-value" id="stat-hours">—</div>
         <div class="stat-label">Hours all time</div>
+        <div class="stat-detail" id="stat-hours-detail"></div>
       </div>
       <div class="stat-card">
         <div class="stat-value" id="stat-top-artist">—</div>
@@ -38,42 +39,6 @@
       </div>
     </section>
 
-    <!-- Heatmap -->
-    <section id="heatmap-section" aria-label="Listening activity">
-      <div id="heatmap-header">
-        <span id="heatmap-title">Activity · Last 12 months</span>
-        <span id="heatmap-legend">
-          <span class="legend-label">Less</span>
-          <span class="legend-dot" data-level="0"></span>
-          <span class="legend-dot" data-level="1"></span>
-          <span class="legend-dot" data-level="2"></span>
-          <span class="legend-dot" data-level="3"></span>
-          <span class="legend-dot" data-level="4"></span>
-          <span class="legend-label">More</span>
-        </span>
-      </div>
-      <div id="heatmap-wrap">
-        <div id="heatmap-months"></div>
-        <div id="heatmap-grid"></div>
-      </div>
-    </section>
-
-    <!-- Timeline -->
-    <section id="timeline-section">
-      <div id="timeline-header">
-        <span id="timeline-title">Recent plays</span>
-        <select id="source-filter">
-          <option value="">All sources</option>
-          <option value="AirPlay">AirPlay</option>
-          <option value="Physical">Physical</option>
-          <option value="Bluetooth">Bluetooth</option>
-        </select>
-      </div>
-      <div id="timeline" role="list"></div>
-      <div id="load-more-wrap">
-        <button id="load-more-btn" class="load-more-btn" hidden>Load more</button>
-      </div>
-    </section>
 
   </main>
 

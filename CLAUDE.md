@@ -1,5 +1,10 @@
 # CLAUDE.md — Oceano Player
 
+## Language / Idioma
+
+The user communicates in **Portuguese**. Always respond in Portuguese.
+All generated artifacts (code, comments, documentation files, commit messages) must remain in **English**.
+
 ## Project overview
 
 Oceano Player is an audio backend for a **Raspberry Pi 5** connected to a **Magnat MR 780** amplifier via USB. It runs headlessly on the Pi and exposes audio state to a separate UI process.

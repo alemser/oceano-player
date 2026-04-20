@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recognition Configuration — Oceano</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 52 52'><rect x='0' y='16' width='8' height='20' rx='4' fill='%23888'/><rect x='11' y='9' width='8' height='34' rx='4' fill='%23888'/><rect x='22' y='3' width='8' height='46' rx='4' fill='%23888'/><rect x='33' y='12' width='8' height='28' rx='4' fill='%23888'/><rect x='44' y='17' width='8' height='18' rx='4' fill='%23888'/></svg>">
+  <link rel="stylesheet" href="index.css">
+  <style>
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+    .rec-page-header {
+      display: flex; align-items: center; gap: 14px;
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .rec-page-back {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: var(--accent); text-decoration: none;
+      font-size: 0.85rem; padding: 6px 10px;
+      border-radius: 6px; border: 1px solid var(--border);
+      background: transparent; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .rec-page-back:hover { background: var(--hover); }
+    .rec-page-title { font-size: 1rem; font-weight: 600; color: var(--text); flex: 1; }
+    .rec-page-body { max-width: 660px; margin: 0 auto; padding: 20px 20px 60px; }
+    .rec-page-actions { margin-top: 28px; display: flex; gap: 10px; justify-content: flex-end; }
+  </style>
+</head>
+<body>
+
+<div class="rec-page-header">
+  <a href="/" class="rec-page-back">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 18l-6-6 6-6"/>
+    </svg>
+    Back
+  </a>
+  <span class="rec-page-title">Recognition Configuration</span>
+</div>
+
+<div class="rec-page-body">
+
+  <!-- ── Capture — Advanced ─────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Capture — Advanced</div>
+    <p class="hint" style="margin-bottom:14px">Source detection thresholds for the ALSA capture card.</p>
+
+    <div class="field">
+      <label><span>Silence threshold</span></label>
+      <input type="number" id="inp-silence" step="0.001" min="0.001" max="0.5" placeholder="0.025">
+      <div class="hint">RMS below this = silence. Raise if phono hum causes source oscillation (calibrated: 0.025).</div>
+    </div>
+
+    <div class="field">
+      <label><span>Debounce windows</span></label>
+      <input type="number" id="inp-debounce" step="1" min="1" max="50" placeholder="10">
+      <div class="hint">Majority-vote window for source transitions. Higher = slower but more stable.</div>
+    </div>
+  </div>
+
+  <!-- ── Providers ──────────────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Providers</div>
+
+    <div class="field">
+      <label><span>Recognition chain</span></label>
+      <select id="rec-chain">
+        <option value="acrcloud_first">ACRCloud → Shazam (ACRCloud first, Shazam fallback)</option>
+        <option value="shazam_first">Shazam → ACRCloud (Shazam first, ACRCloud fallback)</option>
+        <option value="acrcloud_only">ACRCloud only</option>
+        <option value="shazam_only">Shazam only</option>
+      </select>
+      <div class="hint">Choose which online providers are active and in which order they run.</div>
+    </div>
+
+    <div id="acrcloud-config-group">
+      <div class="field">
+        <label><span>ACRCloud host</span></label>
+        <input type="text" id="rec-host" placeholder="identify-eu-west-1.acrcloud.com">
+      </div>
+      <div class="field">
+        <label><span>Access key</span></label>
+        <input type="text" id="rec-access-key" autocomplete="off" placeholder="0dc1dbb4…">
+      </div>
+      <div class="field">
+        <label><span>Secret key</span></label>
+        <input type="password" id="rec-secret-key" autocomplete="off" placeholder="••••••••">
+      </div>
+      <div class="hint" id="acrcloud-config-hint">Stored and used whenever the selected chain includes ACRCloud.</div>
+    </div>
+
+    <div class="field" style="margin-top:14px">
+      <label><span>Shazam Python binary</span></label>
+      <input type="text" id="rec-shazam-python" placeholder="/opt/shazam-env/bin/python">
+      <div class="hint">Path to Python binary with shazamio installed. Leave empty to disable Shazam in all roles (chain and continuity monitor).</div>
+    </div>
+
+    <div class="hint" style="margin-top:12px">Continuity monitoring always uses Shazam when available, independent of the selected chain.</div>
+  </div>
+
+  <!-- ── Statistics ─────────────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Recognition Statistics</div>
+    <div id="rec-stats-container" class="stats-grid">
+      <div class="hint">Loading statistics…</div>
+    </div>
+    <div class="hint" style="margin-top:10px">Lifetime counters for each recognition provider. <b>Shazam</b> counts chain-based identifications; <b>ShazamContinuity</b> counts the continuous polling used to detect track changes.</div>
+  </div>
+
+  <!-- ── Timing & Confirmation ──────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Timing &amp; Confirmation</div>
+
+    <div class="field">
+      <label><span>Capture duration (seconds)</span></label>
+      <input type="number" id="rec-duration" step="1" min="5" max="30" placeholder="7">
+      <div class="hint">Audio sent per recognition attempt. Recommended 6–8 s.</div>
+    </div>
+    <div class="field">
+      <label><span>Max re-recognition interval (seconds)</span></label>
+      <input type="number" id="rec-interval" step="30" min="60" placeholder="300">
+      <div class="hint">Fallback re-check interval when no track boundary is detected and no result is held.</div>
+    </div>
+    <div class="field">
+      <label><span>Refresh interval (seconds)</span></label>
+      <input type="number" id="rec-refresh-interval" step="10" min="0" placeholder="120">
+      <div class="hint">How soon to re-check after a successful recognition to catch gapless track changes. 0 = rely on Shazam continuity.</div>
+    </div>
+    <div class="field">
+      <label><span>No-match retry delay (seconds)</span></label>
+      <input type="number" id="rec-no-match-backoff" step="5" min="5" max="300" placeholder="15">
+      <div class="hint">Wait before retrying after the provider returns no result.</div>
+    </div>
+    <div class="field">
+      <label><span>Confirmation delay (seconds)</span></label>
+      <input type="number" id="rec-confirm-delay" step="1" min="0" max="30" placeholder="0">
+      <div class="hint">0 disables two-pass confirmation.</div>
+    </div>
+    <div class="field">
+      <label><span>Confirmation capture duration (seconds)</span></label>
+      <input type="number" id="rec-confirm-duration" step="1" min="2" max="20" placeholder="4">
+      <div class="hint">Shorter second capture to speed up confirmation.</div>
+    </div>
+    <div class="field">
+      <label><span>Confirmation bypass score</span></label>
+      <input type="number" id="rec-confirm-bypass" step="1" min="0" max="100" placeholder="95">
+      <div class="hint">Skip confirmation when the initial provider score is at or above this value. 0 = always confirm.</div>
+    </div>
+  </div>
+
+  <!-- ── Shazam Continuity ──────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Shazam Continuity</div>
+    <p class="hint" style="margin-bottom:14px">Periodic Shazam checks that detect track changes missed by the silence/energy detector (e.g. gapless albums, very short inter-track silence).</p>
+
+    <div class="field">
+      <label><span>Check interval (seconds)</span></label>
+      <input type="number" id="rec-continuity-interval" step="1" min="4" max="60" placeholder="8">
+      <div class="hint">How often Shazam polls the current physical track. Lower values detect changes faster at the cost of more API calls.</div>
+    </div>
+    <div class="field">
+      <label><span>Capture duration (seconds)</span></label>
+      <input type="number" id="rec-continuity-capture" step="1" min="2" max="10" placeholder="4">
+      <div class="hint">Audio captured per continuity check. 4 s is usually enough for a confident Shazam match.</div>
+    </div>
+  </div>
+
+  <!-- ── Gapless & Continuity Tuning — Advanced ────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Gapless &amp; Continuity Tuning — Advanced</div>
+    <p class="hint" style="margin-bottom:14px">Fine-tune the Shazam continuity monitor and boundary detection guard. These affect how the system detects track changes in gapless albums and quiet passages.</p>
+
+    <div class="field">
+      <label><span>Tuning preset</span></label>
+      <select id="rec-tuning-preset">
+        <option value="custom">Custom (do not change values)</option>
+        <option value="vinyl_safe">Vinyl Safe (recommended)</option>
+        <option value="balanced">Balanced</option>
+        <option value="gapless_aggressive">Gapless Aggressive</option>
+      </select>
+      <div class="hint">Quickly apply a known-safe profile. Vinyl Safe prioritizes avoiding false positives after manual needle repositioning.</div>
+      <div style="margin-top:8px">
+        <button type="button" class="btn-secondary" onclick="applyTuningPreset()">Apply Preset</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label><span>Calibration grace period (seconds)</span></label>
+      <input type="number" id="rec-continuity-grace" step="5" min="10" max="300" placeholder="45">
+      <div class="hint">Time to wait after recognition before continuity monitor starts checking for changes (learning phase). Lower = faster gapless detection; higher = more tolerance for format switches. <b>Gapless albums:</b> keep ≤ 60 s.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Mismatch confirmation window (seconds)</span></label>
+      <input type="number" id="rec-continuity-mismatch-window" step="30" min="60" max="600" placeholder="180">
+      <div class="hint">Time window during which repeated sightings of the same track change are counted. Longer = fewer false positives at the cost of slower detection. Typical: 3 min (180 s).</div>
+    </div>
+
+    <div class="field">
+      <label><span>Required sightings (calibrated)</span></label>
+      <input type="number" id="rec-continuity-sightings-cal" step="1" min="1" max="5" placeholder="2">
+      <div class="hint">Number of repeated Shazam observations of the same track change before re-recognition triggers (when calibrated/learning complete). Typical: 2.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Required sightings (uncalibrated)</span></label>
+      <input type="number" id="rec-continuity-sightings-uncal" step="1" min="2" max="10" placeholder="3">
+      <div class="hint">Stricter threshold while in the calibration grace period to prevent false positives. Typical: 3. Higher = more confirmation needed.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Early check margin (seconds)</span></label>
+      <input type="number" id="rec-early-check-margin" step="5" min="5" max="60" placeholder="20">
+      <div class="hint">How close to the track end the monitor becomes more sensitive. When within this time of the known duration, the next poll is more sensitive. Typical: 20 s before end.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Duration guard bypass window (seconds)</span></label>
+      <input type="number" id="rec-duration-guard-bypass" step="5" min="5" max="60" placeholder="20">
+      <div class="hint">Arm the duration suppression guard for this long after a potential boundary (quiet passage detection). Suppresses false positives in silence/dips. Raise if your tracks have long intro/outro sections. Typical: 20 s.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Duration pessimism threshold (0.0–1.0)</span></label>
+      <input type="number" id="rec-duration-pessimism" step="0.05" min="0.5" max="1.0" placeholder="0.75">
+      <div class="hint">Suppress boundaries if elapsed time &lt; this ratio × known track duration. Prevents false positives in quiet passages of the same track. Typical: 0.75 (suppress if &lt; 75% of duration elapsed).</div>
+    </div>
+
+    <div class="field">
+      <label><span>Minimum seek to restore previous track (seconds)</span></label>
+      <input type="number" id="rec-boundary-restore-min-seek" step="5" min="20" max="180" placeholder="60">
+      <div class="hint">After a boundary event, previous metadata is restored only when previous seek is at least this value. Higher values reduce false positives when lifting and replacing the needle. Typical: 60 s.</div>
+    </div>
+  </div>
+
+  <!-- ── Save ──────────────────────────────────────────────────────────── -->
+  <div class="rec-page-actions">
+    <button type="button" class="btn-save" id="btn-rec-page-save" onclick="saveRecognitionPage()">Save &amp; Restart Services</button>
+  </div>
+
+</div><!-- .rec-page-body -->
+
+<div id="toast"></div>
+
+<script src="recognition_page.js"></script>
+
+</body>
+</html>

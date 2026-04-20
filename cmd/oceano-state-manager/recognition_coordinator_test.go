@@ -251,6 +251,194 @@ func TestResolvedRefreshIntervalUsesExplicitRefresh(t *testing.T) {
 	}
 }
 
+func TestRecoverSeekMSFromSnapshot_AdvancesWithWallClock(t *testing.T) {
+	now := time.Now()
+	updatedAt := now.Add(-5 * time.Second)
+
+	got := recoverSeekMSFromSnapshot(120000, updatedAt, now)
+	if got < 125000 {
+		t.Fatalf("recoverSeekMSFromSnapshot = %d, want >= 125000", got)
+	}
+}
+
+func TestRecoverSeekMSFromSnapshot_ZeroTimestampKeepsBase(t *testing.T) {
+	got := recoverSeekMSFromSnapshot(42000, time.Time{}, time.Now())
+	if got != 42000 {
+		t.Fatalf("recoverSeekMSFromSnapshot = %d, want 42000", got)
+	}
+}
+
+func TestShouldRestorePreBoundaryResult(t *testing.T) {
+	tests := []struct {
+		name              string
+		isHardBoundary    bool
+		preBoundarySeekMS int64
+		minSeek           time.Duration
+		wantRestore       bool
+		wantReason        string
+	}{
+		{
+			name:              "hard boundary always blocks",
+			isHardBoundary:    true,
+			preBoundarySeekMS: 120000,
+			minSeek:           60 * time.Second,
+			wantRestore:       false,
+			wantReason:        "hard boundary",
+		},
+		{
+			name:              "soft boundary blocks short seek",
+			isHardBoundary:    false,
+			preBoundarySeekMS: 30000,
+			minSeek:           60 * time.Second,
+			wantRestore:       false,
+			wantReason:        "seek too short",
+		},
+		{
+			name:              "soft boundary allows mature seek",
+			isHardBoundary:    false,
+			preBoundarySeekMS: 90000,
+			minSeek:           60 * time.Second,
+			wantRestore:       true,
+			wantReason:        "",
+		},
+		{
+			name:              "invalid min seek falls back to 60s",
+			isHardBoundary:    false,
+			preBoundarySeekMS: 45000,
+			minSeek:           0,
+			wantRestore:       false,
+			wantReason:        "seek too short",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotRestore, gotReason := shouldRestorePreBoundaryResult(tt.isHardBoundary, tt.preBoundarySeekMS, tt.minSeek)
+			if gotRestore != tt.wantRestore {
+				t.Fatalf("shouldRestorePreBoundaryResult() restore=%v, want %v", gotRestore, tt.wantRestore)
+			}
+			if gotReason != tt.wantReason {
+				t.Fatalf("shouldRestorePreBoundaryResult() reason=%q, want %q", gotReason, tt.wantReason)
+			}
+		})
+	}
+}
+
+func TestTriggerHelpers(t *testing.T) {
+	periodic := triggerPeriodicRecognition()
+	if periodic.isBoundary {
+		t.Fatal("periodic trigger must not be boundary")
+	}
+	if periodic.isHardBoundary {
+		t.Fatal("periodic trigger must not be hard boundary")
+	}
+	if !periodic.detectedAt.IsZero() {
+		t.Fatal("periodic trigger must not carry a detectedAt timestamp")
+	}
+
+	soft := triggerBoundaryRecognition(false)
+	if !soft.isBoundary {
+		t.Fatal("boundary trigger must be boundary")
+	}
+	if soft.isHardBoundary {
+		t.Fatal("soft boundary trigger must not be hard")
+	}
+	if !soft.detectedAt.IsZero() {
+		t.Fatal("VU/SIGUSR1 soft boundary must not carry a detectedAt timestamp")
+	}
+
+	hard := triggerBoundaryRecognition(true)
+	if !hard.isBoundary {
+		t.Fatal("hard boundary trigger must be boundary")
+	}
+	if !hard.isHardBoundary {
+		t.Fatal("hard boundary trigger must be hard")
+	}
+	if !hard.detectedAt.IsZero() {
+		t.Fatal("VU hard boundary must not carry a detectedAt timestamp")
+	}
+}
+
+// TestCaptureSkipDuration verifies that only hard boundaries (silence→audio)
+// produce a non-zero skip — soft transitions play clean audio from the start.
+func TestCaptureSkipDuration(t *testing.T) {
+	if got := captureSkipDuration(true); got != 2*time.Second {
+		t.Fatalf("captureSkipDuration(hard) = %s, want 2s", got)
+	}
+	if got := captureSkipDuration(false); got != 0 {
+		t.Fatalf("captureSkipDuration(soft) = %s, want 0", got)
+	}
+}
+
+// TestContinuityTrigger_CarriesFirstSightingTime verifies that a continuity
+// trigger carries detectedAt (first sighting) and is a soft boundary.
+func TestContinuityTrigger_CarriesFirstSightingTime(t *testing.T) {
+	firstSighting := time.Now().Add(-10 * time.Second)
+	trig := recognizeTrigger{isBoundary: true, detectedAt: firstSighting}
+
+	if !trig.isBoundary {
+		t.Fatal("continuity trigger must be boundary")
+	}
+	if trig.isHardBoundary {
+		t.Fatal("continuity trigger must not be hard boundary")
+	}
+	if trig.detectedAt != firstSighting {
+		t.Fatalf("detectedAt = %v, want %v", trig.detectedAt, firstSighting)
+	}
+	if captureSkipDuration(trig.isHardBoundary) != 0 {
+		t.Fatal("continuity trigger must produce skip=0")
+	}
+}
+
+// TestComputeRecognizedSeekMS_BoundaryUsesFirstSightingAsAnchor verifies that
+// when a continuity trigger's firstSightingAt is used as lastBoundaryForSeek,
+// the seek estimate reflects the earlier detection time rather than the
+// trigger-fire time, avoiding over-estimating elapsed time in the new track.
+func TestComputeRecognizedSeekMS_BoundaryUsesFirstSightingAsAnchor(t *testing.T) {
+	now := time.Now()
+	captureStartedAt := now.Add(-10 * time.Second) // 10 s capture
+
+	// Simulate the continuity monitor's firstSightingAt being 12 s ago
+	// (first sighting at t-12s, confirmation at t-0s after 2 polls of 8s... but
+	// in this simplified scenario the coordinator sets lastBoundaryAt=firstSightingAt).
+	firstSightingAt := now.Add(-12 * time.Second)
+
+	result := &RecognitionResult{ACRID: "acr-new", Title: "New Track", Artist: "Artist"}
+
+	// With firstSightingAt as lastBoundaryForSeek, seek = max(captureDelta, boundaryDelta)
+	// = max(10s, 12s) = 12s.
+	seekMS, _ := computeRecognizedSeekMS(true, captureStartedAt, now, firstSightingAt, time.Time{}, nil, result)
+	if seekMS < 12000 {
+		t.Fatalf("seekMS = %d, want >= 12000 (should use first-sighting anchor)", seekMS)
+	}
+
+	// Without the anchor (zero lastBoundaryForSeek), seek = captureDelta = 10s.
+	seekMSNoAnchor, _ := computeRecognizedSeekMS(true, captureStartedAt, now, time.Time{}, time.Time{}, nil, result)
+	if seekMSNoAnchor > 11000 {
+		t.Fatalf("seekMSNoAnchor = %d, want ~10000 (only capture elapsed)", seekMSNoAnchor)
+	}
+
+	if seekMS <= seekMSNoAnchor {
+		t.Fatalf("first-sighting anchor (%d ms) should produce larger seek than no anchor (%d ms)", seekMS, seekMSNoAnchor)
+	}
+}
+
+func TestMergeMissingProviderIDs_FillsOnlyMissing(t *testing.T) {
+	dst := &RecognitionResult{ACRID: "", ShazamID: "shz-old"}
+	src := &RecognitionResult{ACRID: "acr-new", ShazamID: "shz-new"}
+
+	changed := mergeMissingProviderIDs(dst, src)
+	if !changed {
+		t.Fatal("expected mergeMissingProviderIDs to report changed=true")
+	}
+	if dst.ACRID != "acr-new" {
+		t.Fatalf("dst.ACRID = %q, want acr-new", dst.ACRID)
+	}
+	if dst.ShazamID != "shz-old" {
+		t.Fatalf("dst.ShazamID = %q, want shz-old (existing ID must be preserved)", dst.ShazamID)
+	}
+}
+
 // physicalSeekUpdatedAt is set to a recent time.
 func TestApplyRecognizedResult_SetsPhysicalSeek(t *testing.T) {
 	m := newTestMgr()
@@ -280,6 +468,38 @@ func TestApplyRecognizedResult_SetsPhysicalSeek(t *testing.T) {
 	}
 	if time.Since(seekUpdatedAt) > 2*time.Second {
 		t.Errorf("physicalSeekUpdatedAt is too old: %s", time.Since(seekUpdatedAt))
+	}
+}
+
+func TestComputeRecognizedSeekMS_NonBoundaryTrackChangeDoesNotReuseOldSessionElapsed(t *testing.T) {
+	now := time.Now()
+	captureStartedAt := now.Add(-4 * time.Second)
+	physStartedAt := now.Add(-3 * time.Minute)
+	previous := &RecognitionResult{ACRID: "old-acr", Title: "Old", Artist: "Artist"}
+	current := &RecognitionResult{ACRID: "new-acr", Title: "New", Artist: "Artist"}
+
+	seekMS, resetStart := computeRecognizedSeekMS(false, captureStartedAt, now, time.Time{}, physStartedAt, previous, current)
+	if seekMS < 4000 || seekMS > 10000 {
+		t.Fatalf("computeRecognizedSeekMS() seek=%d, want close to capture elapsed only", seekMS)
+	}
+	if !resetStart {
+		t.Fatal("expected non-boundary track change to request physicalStartedAt reset")
+	}
+}
+
+func TestComputeRecognizedSeekMS_NonBoundarySameTrackCanReuseSessionElapsed(t *testing.T) {
+	now := time.Now()
+	captureStartedAt := now.Add(-4 * time.Second)
+	physStartedAt := now.Add(-90 * time.Second)
+	previous := &RecognitionResult{ACRID: "same-acr", Title: "Same", Artist: "Artist"}
+	current := &RecognitionResult{ACRID: "same-acr", Title: "Same", Artist: "Artist"}
+
+	seekMS, resetStart := computeRecognizedSeekMS(false, captureStartedAt, now, time.Time{}, physStartedAt, previous, current)
+	if seekMS < 90000 {
+		t.Fatalf("computeRecognizedSeekMS() seek=%d, want reused session elapsed", seekMS)
+	}
+	if resetStart {
+		t.Fatal("expected same-track re-confirmation not to reset physicalStartedAt")
 	}
 }
 

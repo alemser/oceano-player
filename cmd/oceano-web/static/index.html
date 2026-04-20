@@ -254,15 +254,13 @@
       </div>
     </div>
 
-    <!-- Track Recognition (includes capture device — Audio Input feeds exclusively into recognition) -->
+    <!-- Track Recognition -->
     <div class="section">
       <div class="section-title">Track Recognition</div>
-      <p class="hint" style="margin-bottom:14px">Physical media identification: capture device, provider chain, and timing.</p>
+      <p class="hint" style="margin-bottom:14px">Physical media identification via ALSA capture card connected to amplifier REC OUT.</p>
 
       <div class="config-subsection">
         <div class="config-subtitle">Capture Device</div>
-        <p class="hint" style="margin-bottom:10px">ALSA capture card connected to amplifier REC OUT. Audio from this device is used for source detection and track identification.</p>
-
         <div class="field">
           <label><span>Device</span></label>
           <div class="device-picker-wrap">
@@ -275,155 +273,20 @@
           </div>
           <div class="hint">Leave empty to auto-detect by name. Or enter an explicit device (e.g. <code>plughw:3,0</code>).</div>
         </div>
-
         <div class="field">
           <label><span>Auto-detect name</span></label>
           <input type="text" id="inp-device-match" name="inp-device-match"
                  placeholder="USB Microphone">
           <div class="hint">Substring matched in /proc/asound/cards when device is empty.</div>
         </div>
-
-        <div class="field">
-          <label><span>Silence threshold</span></label>
-          <input type="number" id="inp-silence" name="inp-silence"
-                 step="0.001" min="0.001" max="0.5" placeholder="0.025">
-          <div class="hint">RMS below this = silence. Raise if phono hum causes source oscillation (calibrated: 0.025).</div>
-        </div>
-
-        <div class="field">
-          <label><span>Debounce windows</span></label>
-          <input type="number" id="inp-debounce" name="inp-debounce"
-                 step="1" min="1" max="50" placeholder="10">
-          <div class="hint">Majority-vote window for source transitions. Higher = slower but more stable.</div>
+        <div class="field" style="margin-top:12px">
+          <a href="/recognition.html" class="detect-btn" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+            Configure Recognition &amp; Providers ↗
+          </a>
+          <div class="hint">Chain, credentials, timing, Shazam continuity and statistics.</div>
         </div>
       </div>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">Providers</div>
-
-        <div class="field">
-          <label><span>Recognition chain</span></label>
-          <select id="rec-chain" name="rec-chain">
-            <option value="acrcloud_first">ACRCloud → Shazam (ACRCloud first, Shazam fallback)</option>
-            <option value="shazam_first">Shazam → ACRCloud (Shazam first, ACRCloud fallback)</option>
-            <option value="acrcloud_only">ACRCloud only</option>
-            <option value="shazam_only">Shazam only</option>
-          </select>
-          <div class="hint">Choose which online providers are active and in which order they run.</div>
-        </div>
-
-        <div id="acrcloud-config-group">
-          <div class="field">
-            <label><span>ACRCloud host</span></label>
-            <input type="text" id="rec-host" name="rec-host"
-                   placeholder="identify-eu-west-1.acrcloud.com">
-          </div>
-
-          <div class="field">
-            <label><span>Access key</span></label>
-            <input type="text" id="rec-access-key" name="rec-access-key"
-                   autocomplete="off" placeholder="0dc1dbb4…">
-          </div>
-
-          <div class="field">
-            <label><span>Secret key</span></label>
-            <input type="password" id="rec-secret-key" name="rec-secret-key"
-                   autocomplete="off" placeholder="••••••••">
-          </div>
-
-          <div class="hint" id="acrcloud-config-hint">Stored and used whenever the selected chain includes ACRCloud.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Shazam Python binary</span></label>
-          <input type="text" id="rec-shazam-python" name="rec-shazam-python"
-                 placeholder="/opt/shazam-env/bin/python">
-          <div class="hint">Path to Python binary with shazamio installed. Leave empty to disable Shazam in all roles (chain and continuity monitor).</div>
-        </div>
-
-        <div class="hint" style="margin-top:12px">Continuity monitoring always uses Shazam when available, independent of the selected chain.</div>
-      </div>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">Recognition Statistics</div>
-        <div id="rec-stats-container" class="stats-grid">
-          <div class="hint">Loading statistics...</div>
-        </div>
-        <div class="hint" style="margin-top:10px">Lifetime counters for each recognition provider. <b>Shazam</b> counts chain-based identifications; <b>ShazamContinuity</b> counts the continuous polling used to detect track changes.</div>
-      </div>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">Timing &amp; Confirmation</div>
-
-        <div class="field">
-          <label><span>Capture duration (seconds)</span></label>
-          <input type="number" id="rec-duration" name="rec-duration"
-                 step="1" min="5" max="30" placeholder="7">
-          <div class="hint">Audio sent per recognition attempt. Recommended 6–8 s.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Max re-recognition interval (seconds)</span></label>
-          <input type="number" id="rec-interval" name="rec-interval"
-                 step="30" min="60" placeholder="300">
-          <div class="hint">Fallback re-check interval when no track boundary is detected and no result is held.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Refresh interval (seconds)</span></label>
-          <input type="number" id="rec-refresh-interval" name="rec-refresh-interval"
-                 step="10" min="0" placeholder="120">
-          <div class="hint">How soon to re-check after a successful recognition to catch gapless track changes. 0 disables periodic refresh (rely on Shazam continuity instead).</div>
-        </div>
-
-        <div class="field">
-          <label><span>No-match retry delay (seconds)</span></label>
-          <input type="number" id="rec-no-match-backoff" name="rec-no-match-backoff"
-                 step="5" min="5" max="300" placeholder="15">
-          <div class="hint">Wait before retrying after the provider returns no result. Lower values identify tracks faster at the cost of more API calls.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Confirmation delay (seconds)</span></label>
-          <input type="number" id="rec-confirm-delay" name="rec-confirm-delay"
-                 step="1" min="0" max="30" placeholder="0">
-          <div class="hint">Wait before the confirmation capture. 0 disables two-pass confirmation.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Confirmation capture duration (seconds)</span></label>
-          <input type="number" id="rec-confirm-duration" name="rec-confirm-duration"
-                 step="1" min="2" max="20" placeholder="4">
-          <div class="hint">Shorter second capture to speed up confirmation.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Confirmation bypass score</span></label>
-          <input type="number" id="rec-confirm-bypass" name="rec-confirm-bypass"
-                 step="1" min="0" max="100" placeholder="95">
-          <div class="hint">Skip confirmation when the initial provider score is at or above this value. 0 = always confirm.</div>
-        </div>
-      </div>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">Shazam Continuity</div>
-        <p class="hint" style="margin-bottom:10px">Periodic Shazam checks that detect track changes missed by the silence/energy detector (e.g. gapless albums, very short inter-track silence).</p>
-
-        <div class="field">
-          <label><span>Check interval (seconds)</span></label>
-          <input type="number" id="rec-continuity-interval" name="rec-continuity-interval"
-                 step="1" min="4" max="60" placeholder="8">
-          <div class="hint">How often Shazam polls the current physical track. Lower values detect changes faster at the cost of more API calls.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Capture duration (seconds)</span></label>
-          <input type="number" id="rec-continuity-capture" name="rec-continuity-capture"
-                 step="1" min="2" max="10" placeholder="4">
-          <div class="hint">Audio captured per continuity check. 4 s is usually enough for a confident Shazam match.</div>
-        </div>
-      </div>
-
     </div>
 
     <!-- Amplifier Control -->
@@ -546,71 +409,12 @@
     <!-- Advanced -->
     <div class="section">
       <div class="section-title">Advanced</div>
-      <p class="hint" style="margin-bottom:14px">Internal paths and timing settings. Only change these if you know what you're doing.</p>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">Library &amp; Idle</div>
-
-        <div class="field">
-          <label><span>Library database path</span></label>
-          <input type="text" id="adv-library-db" name="adv-library-db"
-                 placeholder="/var/lib/oceano/library.db">
-          <div class="hint">SQLite database for physical-media plays. Leave empty to disable library features.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Idle delay (seconds)</span></label>
-          <input type="number" id="adv-idle-delay" name="adv-idle-delay"
-                 step="1" min="0" max="120" placeholder="10">
-          <div class="hint">How long to keep showing the last physical track after audio stops before switching to the idle screen.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Session gap threshold (seconds)</span></label>
-          <input type="number" id="adv-session-gap" name="adv-session-gap"
-                 step="1" min="5" max="300" placeholder="45">
-          <div class="hint">Max silence between tracks treated as an inter-track pause. Gaps longer than this start a new recognition session. Increase if the display resets to "identifying" between tracks on the same side.</div>
-        </div>
-      </div>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">Socket &amp; File Paths</div>
-
-        <div class="field">
-          <label><span>VU socket</span></label>
-          <input type="text" id="adv-vu-socket" name="adv-vu-socket"
-                 placeholder="/tmp/oceano-vu.sock">
-        </div>
-
-        <div class="field">
-          <label><span>PCM socket</span></label>
-          <input type="text" id="adv-pcm-socket" name="adv-pcm-socket"
-                 placeholder="/tmp/oceano-pcm.sock">
-        </div>
-
-        <div class="field">
-          <label><span>Source file</span></label>
-          <input type="text" id="adv-source-file" name="adv-source-file"
-                 placeholder="/tmp/oceano-source.json">
-        </div>
-
-        <div class="field">
-          <label><span>State file</span></label>
-          <input type="text" id="adv-state-file" name="adv-state-file"
-                 placeholder="/tmp/oceano-state.json">
-        </div>
-
-        <div class="field">
-          <label><span>Artwork directory</span></label>
-          <input type="text" id="adv-artwork-dir" name="adv-artwork-dir"
-                 placeholder="/var/lib/oceano/artwork">
-        </div>
-
-        <div class="field">
-          <label><span>shairport-sync metadata pipe</span></label>
-          <input type="text" id="adv-metadata-pipe" name="adv-metadata-pipe"
-                 placeholder="/tmp/shairport-sync-metadata">
-        </div>
+      <div class="field" style="margin-top:4px">
+        <a href="/advanced.html" class="detect-btn" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14M8.46 15.54a5 5 0 0 1 0-7.07"/></svg>
+          Configure Advanced Settings ↗
+        </a>
+        <div class="hint">Library, idle delay, session gap, socket paths and streaming USB guard.</div>
       </div>
     </div>
 
@@ -656,8 +460,8 @@
 
 <div id="lib-panel">
   <div class="lib-toolbar">
-    <input type="text" class="lib-filter" id="lib-search" placeholder="Search title or artist…" oninput="renderLibrary()">
-    <select class="lib-format-filter" id="lib-format-filter" onchange="renderLibrary()">
+    <input type="text" class="lib-filter" id="lib-search" placeholder="Search title or artist…" oninput="onLibraryFilterChanged()">
+    <select class="lib-format-filter" id="lib-format-filter" onchange="onLibraryFilterChanged()">
       <option value="">All formats</option>
       <option value="Vinyl">Vinyl</option>
       <option value="CD">CD</option>
@@ -666,10 +470,13 @@
     <span class="lib-count" id="lib-count"></span>
     <a href="/history.html" class="lib-history-link">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      History
+      Metrics
     </a>
   </div>
-  <div class="lib-grid" id="lib-grid"></div>
+  <div class="lib-list" id="lib-list"></div>
+  <div class="lib-more-wrap" id="lib-more-wrap" style="display:none">
+    <button type="button" class="lib-more-btn" id="lib-more-btn" onclick="loadMoreLibraryItems()">Load more</button>
+  </div>
 </div><!-- #lib-panel -->
 
 <!-- Edit modal -->
@@ -732,9 +539,22 @@
         <label>Track №  <span style="color:var(--muted);font-weight:400">(e.g. 1, 2, 1A, 2B)</span></label>
         <input type="text" id="modal-track-number" placeholder="optional" oninput="this.value = this.value.toUpperCase()">
       </div>
+      <div class="modal-field">
+        <label>Duration  <span style="color:var(--muted);font-weight:400">(M:SS)</span></label>
+        <input type="text" id="modal-duration" placeholder="e.g. 3:45" pattern="[0-9]+:[0-5][0-9]">
+      </div>
+    </div>
+    <div class="resolve-wrap" id="resolve-wrap" style="display:none">
+      <div class="resolve-title">Link to existing track</div>
+      <input type="text" id="resolve-search" class="resolve-input" placeholder="Search by title, artist or album" oninput="searchResolveTargets()">
+      <div class="resolve-results" id="resolve-results"></div>
     </div>
     <div class="modal-actions">
       <div class="actions-left">
+        <button type="button" class="btn-modal-resolve" id="btn-resolve-stub" onclick="toggleResolvePanel()" style="display:none" title="Link to an existing confirmed track">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          <span>Link</span>
+        </button>        
         <button type="button" class="btn-modal-delete" onclick="deleteEntry()" title="Delete track">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           <span>Delete</span>
@@ -755,6 +575,7 @@
 </div>
 
 <div id="toast"></div>
+
 
 <script src="index.shared.js"></script>
 <script src="index.library.js"></script>

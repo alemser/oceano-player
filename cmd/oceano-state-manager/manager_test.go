@@ -282,7 +282,6 @@ func TestBuildState_PhysicalWithRecognitionResult_FormatTrimmedAndCaseInsensitiv
 	}
 }
 
-
 // ── Confirmation pattern ──────────────────────────────────────────────────────
 
 // confirmationNeeded encapsulates the condition used in runRecognizer to decide
@@ -502,5 +501,44 @@ func TestBuildState_Physical_NoSeekWhenNotSet(t *testing.T) {
 	}
 	if s.Track.SeekUpdatedAt != "" {
 		t.Errorf("SeekUpdatedAt = %q, want empty when physicalSeekUpdatedAt is zero", s.Track.SeekUpdatedAt)
+	}
+}
+
+func TestSyncFromLibrary_ResetsStaleSeekWhenDurationArrivesLate(t *testing.T) {
+	lib := openTestLibrary(t)
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := lib.DB().Exec(`
+		INSERT INTO collection
+			(acrid, shazam_id, title, artist, score, play_count, first_played, last_played, user_confirmed, duration_ms)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "acr-late-duration", "", "Late Duration", "Artist", 80, 1, now, now, 1, 180000)
+	if err != nil {
+		t.Fatalf("insert collection row: %v", err)
+	}
+
+	m := newTestMgr()
+	m.lib = lib
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{ACRID: "acr-late-duration", Title: "Late Duration", Artist: "Artist", DurationMs: 0}
+	m.physicalSeekMS = 240000
+	m.physicalSeekUpdatedAt = time.Now()
+	m.mu.Unlock()
+
+	m.syncFromLibrary(lib)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recognitionResult == nil {
+		t.Fatal("expected recognition result after sync")
+	}
+	if m.recognitionResult.DurationMs != 180000 {
+		t.Fatalf("DurationMs = %d, want 180000", m.recognitionResult.DurationMs)
+	}
+	if m.physicalSeekMS != 0 {
+		t.Fatalf("physicalSeekMS = %d, want 0 after incompatible late duration update", m.physicalSeekMS)
+	}
+	if !m.physicalSeekUpdatedAt.IsZero() {
+		t.Fatalf("physicalSeekUpdatedAt = %s, want zero after incompatible late duration update", m.physicalSeekUpdatedAt)
 	}
 }

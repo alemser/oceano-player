@@ -159,35 +159,91 @@ type Config struct {
 	// ConfirmationBypassScore skips the second confirmation call when the initial
 	// provider score is already very high. Set to 0 to always require confirmation.
 	ConfirmationBypassScore int
+	// ContinuityCalibrationGrace is the duration to wait before the Shazam continuity
+	// monitor starts checking for track changes. During this grace period after a
+	// successful recognition, the monitor is in "learning" mode. Lower values = faster
+	// gapless detection but more false positives. Default: 45 seconds.
+	ContinuityCalibrationGrace time.Duration
+	// ContinuityMismatchConfirmWindow is the time window during which repeated sightings
+	// of the same track change (from→to pair) are counted toward confirmation. Default: 3 minutes.
+	ContinuityMismatchConfirmWindow time.Duration
+	// ContinuityRequiredSightingsCalibrated is the number of repeated sightings of the
+	// same track change that must be observed (when calibrated) before re-recognition
+	// is triggered. Default: 2 sightings.
+	ContinuityRequiredSightingsCalibrated int
+	// ContinuityRequiredSightingsUncalibrated is the stricter threshold used during the
+	// grace period (when the monitor is still learning). Default: 3 sightings.
+	ContinuityRequiredSightingsUncalibrated int
+	// EarlyCheckMargin is how close to the end of the known track duration the continuity
+	// monitor becomes more sensitive. When within this margin, the next Shazam poll is
+	// more sensitive to detect an upcoming track change. Default: 20 seconds.
+	EarlyCheckMargin time.Duration
+	// DurationGuardBypassWindow is the time window (after a potential false boundary is
+	// detected) during which the duration-based suppression guard is armed. If a new
+	// boundary is detected within this window, it is suppressed. Default: 20 seconds.
+	DurationGuardBypassWindow time.Duration
+	// DurationPessimism is the temporal threshold (0.0–1.0) used to guard against
+	// false positive boundaries during quiet passages. If the detected duration since
+	// the last boundary is < DurationPessimism * KnownTrackDuration, the boundary is
+	// suppressed. Default: 0.75 (suppress if < 75% of known duration elapsed).
+	DurationPessimism float64
+	// BoundaryRestoreMinSeek is the minimum pre-boundary seek position required
+	// before the coordinator is allowed to restore a pre-boundary recognition
+	// result after a same-track re-confirmation. Lower values favor continuity;
+	// higher values reduce false positives after manual needle repositioning.
+	BoundaryRestoreMinSeek time.Duration
 }
 
 func defaultConfig() Config {
 	return Config{
-		MetadataPipe:                    "/tmp/shairport-sync-metadata",
-		SourceFile:                      "/tmp/oceano-source.json",
-		OutputFile:                      "/tmp/oceano-state.json",
-		ArtworkDir:                      "/var/lib/oceano/artwork",
-		PCMSocket:                       "/tmp/oceano-pcm.sock",
-		VUSocket:                        "/tmp/oceano-vu.sock",
-		RecognizerCaptureDuration:       10 * time.Second,
-		RecognizerMaxInterval:           5 * time.Minute,
-		RecognizerRefreshInterval:       2 * time.Minute,
-		NoMatchBackoff:                  15 * time.Second,
-		IdleDelay:                       10 * time.Second,
-		SessionGapThreshold:             45 * time.Second,
-		LibraryDB:                       "/var/lib/oceano/library.db",
-		ConfirmationDelay:               0,
-		ConfirmationCaptureDuration:     4 * time.Second,
-		ConfirmationBypassScore:         95,
-		ShazamPythonBin:                 "/opt/shazam-env/bin/python",
-		ShazamContinuityInterval:        8 * time.Second,
-		ShazamContinuityCaptureDuration: 4 * time.Second,
-		RecognizerChain:                 "acrcloud_first",
+		MetadataPipe:                            "/tmp/shairport-sync-metadata",
+		SourceFile:                              "/tmp/oceano-source.json",
+		OutputFile:                              "/tmp/oceano-state.json",
+		ArtworkDir:                              "/var/lib/oceano/artwork",
+		PCMSocket:                               "/tmp/oceano-pcm.sock",
+		VUSocket:                                "/tmp/oceano-vu.sock",
+		RecognizerCaptureDuration:               10 * time.Second,
+		RecognizerMaxInterval:                   5 * time.Minute,
+		RecognizerRefreshInterval:               2 * time.Minute,
+		NoMatchBackoff:                          15 * time.Second,
+		IdleDelay:                               10 * time.Second,
+		SessionGapThreshold:                     45 * time.Second,
+		LibraryDB:                               "/var/lib/oceano/library.db",
+		ConfirmationDelay:                       0,
+		ConfirmationCaptureDuration:             4 * time.Second,
+		ConfirmationBypassScore:                 95,
+		ShazamPythonBin:                         "/opt/shazam-env/bin/python",
+		ShazamContinuityInterval:                8 * time.Second,
+		ShazamContinuityCaptureDuration:         4 * time.Second,
+		BoundaryRestoreMinSeek:                  60 * time.Second,
+		RecognizerChain:                         "acrcloud_first",
+		ContinuityCalibrationGrace:              45 * time.Second,
+		ContinuityMismatchConfirmWindow:         3 * time.Minute,
+		ContinuityRequiredSightingsCalibrated:   2,
+		ContinuityRequiredSightingsUncalibrated: 3,
+		EarlyCheckMargin:                        20 * time.Second,
+		DurationGuardBypassWindow:               20 * time.Second,
+		DurationPessimism:                       0.75,
 	}
 }
 
 type recognizeTrigger struct {
-	isBoundary bool
+	isBoundary     bool
+	isHardBoundary bool
+	// detectedAt is the time the transition was first observed. Non-zero only
+	// for continuity-monitor triggers, where the track change happened one or
+	// more poll intervals before the confirmation fires. The coordinator uses
+	// it as the seek anchor instead of time.Now() to avoid over-estimating
+	// elapsed time in the new track.
+	detectedAt time.Time
+}
+
+func triggerPeriodicRecognition() recognizeTrigger {
+	return recognizeTrigger{}
+}
+
+func triggerBoundaryRecognition(isHard bool) recognizeTrigger {
+	return recognizeTrigger{isBoundary: true, isHardBoundary: isHard}
 }
 
 // --- Manager ---
@@ -291,11 +347,13 @@ type mgr struct {
 	// continuityMismatchConfirmWindow before a re-recognition trigger fires.
 	// This prevents a single Shazam mis-identification (common when running
 	// without prior alignment confirmation) from causing a spurious track change.
+	// While not calibrated, the monitor requires 3 sightings of the same pair.
 	// lastContinuityMismatchAt records when the *first* sighting of the current
 	// from→to pair occurred; the pair is stored in the two string fields below.
-	lastContinuityMismatchAt   time.Time
-	lastContinuityMismatchFrom string
-	lastContinuityMismatchTo   string
+	lastContinuityMismatchAt    time.Time
+	lastContinuityMismatchFrom  string
+	lastContinuityMismatchTo    string
+	lastContinuityMismatchCount int
 }
 
 func newMgr(cfg Config) *mgr {
@@ -398,11 +456,27 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 	if captureDur <= 0 {
 		captureDur = 4 * time.Second
 	}
-	// A mismatch pair must be seen twice within this window to fire a trigger.
-	// At the default 8 s check interval this means confirmation in ~8–16 s for
-	// a real track change, while a single erroneous Shazam result is silently
-	// discarded. 3 min covers several missed cycles without resetting too eagerly.
-	const continuityMismatchConfirmWindow = 3 * time.Minute
+	// Use config values for calibration grace and mismatch confirmation window.
+	calibrationGrace := m.cfg.ContinuityCalibrationGrace
+	if calibrationGrace <= 0 {
+		calibrationGrace = 45 * time.Second // fallback if not set
+	}
+	mismatchConfirmWindow := m.cfg.ContinuityMismatchConfirmWindow
+	if mismatchConfirmWindow <= 0 {
+		mismatchConfirmWindow = 3 * time.Minute // fallback if not set
+	}
+	earlyCheckMargin := m.cfg.EarlyCheckMargin
+	if earlyCheckMargin <= 0 {
+		earlyCheckMargin = 20 * time.Second // fallback if not set
+	}
+	requiredSightingsCal := m.cfg.ContinuityRequiredSightingsCalibrated
+	if requiredSightingsCal <= 0 {
+		requiredSightingsCal = 2 // fallback if not set
+	}
+	requiredSightingsUncal := m.cfg.ContinuityRequiredSightingsUncalibrated
+	if requiredSightingsUncal <= 0 {
+		requiredSightingsUncal = 3 // fallback if not set
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -438,11 +512,6 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 		// need to poll Shazam — we are certain the same track is still playing.
 		// Only activate this optimisation once the monitor is calibrated (ready),
 		// so the calibration phase still runs at the normal cadence.
-		//
-		// earlyCheckMargin leaves time for: one 4 s capture + one 8 s recognition
-		// round-trip + one poll cycle before the track ends, so the monitor can
-		// still detect the new track arriving right on schedule.
-		const earlyCheckMargin = 20 * time.Second
 		if ready && current.DurationMs > 0 {
 			trackDuration := time.Duration(current.DurationMs) * time.Millisecond
 			elapsed := time.Since(lastRecognizedAt)
@@ -451,26 +520,10 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 			}
 		}
 
-		// While the monitor is not yet calibrated (Shazam has not agreed with
-		// ACRCloud at least once for the current track), wait for tryEnableShazamContinuity
-		// to succeed. After continuityCalibrationTimeout passes without any
-		// agreeing poll, abandon the monitor for this track entirely rather than
-		// running uncalibrated: an uncalibrated monitor is at risk of the
-		// two-sighting confirmation confirming the *same wrong result* twice,
-		// causing spurious triggers every ~3 min.
-		const continuityCalibrationTimeout = 5 * time.Minute
-		if !ready {
-			if time.Since(lastRecognizedAt) < continuityCalibrationTimeout {
-				continue
-			}
-			// Deadline exceeded without any agreeing poll — abandon for this track.
-			m.mu.Lock()
-			if !m.shazamContinuityReady && !m.shazamContinuityAbandoned {
-				m.shazamContinuityAbandoned = true
-				log.Printf("shazam continuity: Shazam did not confirm current track within %s — disabling continuity monitor for this track (VU monitor + fallback timer remain active)",
-					continuityCalibrationTimeout)
-			}
-			m.mu.Unlock()
+		// While not calibrated, wait a short grace period for a clean alignment.
+		// After grace expires, continue monitoring in uncalibrated mode (stricter
+		// mismatch confirmation) so gapless transitions are still detectable.
+		if !ready && time.Since(lastRecognizedAt) < calibrationGrace {
 			continue
 		}
 
@@ -494,6 +547,10 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 			m.mu.Lock()
 			if m.recognitionResult != nil && sameTrackByProviderIDs(m.recognitionResult, &current) {
 				m.lastRecognizedAt = time.Now()
+				m.lastContinuityMismatchAt = time.Time{}
+				m.lastContinuityMismatchFrom = ""
+				m.lastContinuityMismatchTo = ""
+				m.lastContinuityMismatchCount = 0
 				if m.recognitionResult.ShazamID == "" && shRes.ShazamID != "" {
 					m.recognitionResult.ShazamID = shRes.ShazamID
 				}
@@ -515,34 +572,49 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 			m.mu.Unlock()
 			continue
 		}
-		// Require two consecutive sightings of the same from→to mismatch pair
-		// before firing a trigger. On the first sighting we record the pair and
-		// wait; on the second (within the confirm window) we trigger. This
-		// prevents a single Shazam mis-identification — especially likely when
-		// running without prior alignment confirmation (grace period) — from
-		// causing a spurious track-change event.
-		isConfirmed := m.lastContinuityMismatchFrom == fromKey &&
-			m.lastContinuityMismatchTo == toKey &&
-			now.Sub(m.lastContinuityMismatchAt) < continuityMismatchConfirmWindow
-		if !isConfirmed {
+		// Require repeated sightings of the same from→to mismatch pair before
+		// firing a trigger. In calibrated mode we require fewer sightings; while
+		// uncalibrated we require more sightings to reduce false positives. On the
+		// first sighting we record the pair and wait; subsequent sightings within
+		// the confirm window increment the confirmation count. This prevents a
+		// single Shazam mis-identification — especially likely when running without
+		// prior alignment confirmation (grace period) — from causing a spurious
+		// track-change event.
+		requiredSightings := requiredSightingsCal
+		if !ready {
+			requiredSightings = requiredSightingsUncal
+		}
+		samePair := m.lastContinuityMismatchFrom == fromKey && m.lastContinuityMismatchTo == toKey
+		withinWindow := now.Sub(m.lastContinuityMismatchAt) < mismatchConfirmWindow
+		if samePair && withinWindow {
+			m.lastContinuityMismatchCount++
+		} else {
 			m.lastContinuityMismatchAt = now
 			m.lastContinuityMismatchFrom = fromKey
 			m.lastContinuityMismatchTo = toKey
+			m.lastContinuityMismatchCount = 1
+		}
+		if m.lastContinuityMismatchCount < requiredSightings {
 			m.mu.Unlock()
-			log.Printf("shazam continuity: mismatch candidate (%s — %s vs %s — %s) — awaiting confirmation",
-				current.Artist, current.Title, shRes.Artist, shRes.Title)
+			log.Printf("shazam continuity: mismatch candidate (%s — %s vs %s — %s) — awaiting confirmation (%d/%d)",
+				current.Artist, current.Title, shRes.Artist, shRes.Title, m.lastContinuityMismatchCount, requiredSightings)
 			continue
 		}
-		// Second sighting confirmed — reset so the next change also requires two sightings.
+		// Required sightings confirmed — reset so the next change starts clean.
+		// Save the first-sighting time before clearing it: the coordinator uses
+		// it as the seek anchor so the new track's elapsed time is not inflated
+		// by the confirmation delay (1–2 poll intervals = 8–16 s).
+		firstDetectedAt := m.lastContinuityMismatchAt
 		m.lastContinuityMismatchAt = time.Time{}
 		m.lastContinuityMismatchFrom = ""
 		m.lastContinuityMismatchTo = ""
+		m.lastContinuityMismatchCount = 0
 		m.mu.Unlock()
 
 		log.Printf("shazam continuity: mismatch confirmed (%s — %s vs %s — %s) — triggering immediate re-recognition",
 			current.Artist, current.Title, shRes.Artist, shRes.Title)
 		select {
-		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true}:
+		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true, detectedAt: firstDetectedAt}:
 		default:
 		}
 	}
@@ -575,6 +647,14 @@ func main() {
 	flag.StringVar(&cfg.ShazamPythonBin, "shazam-python", cfg.ShazamPythonBin, "path to Python binary with shazamio installed (empty to disable Shazam fallback)")
 	flag.DurationVar(&cfg.ShazamContinuityInterval, "shazam-continuity-interval", cfg.ShazamContinuityInterval, "how often to run Shazam continuity checks for the current track")
 	flag.DurationVar(&cfg.ShazamContinuityCaptureDuration, "shazam-continuity-capture-duration", cfg.ShazamContinuityCaptureDuration, "audio capture duration per periodic Shazam continuity check")
+	flag.DurationVar(&cfg.ContinuityCalibrationGrace, "continuity-calibration-grace", cfg.ContinuityCalibrationGrace, "grace period (after recognition) during which continuity monitor is in learning mode")
+	flag.DurationVar(&cfg.ContinuityMismatchConfirmWindow, "continuity-mismatch-confirm-window", cfg.ContinuityMismatchConfirmWindow, "time window for counting repeated track-change sightings toward confirmation")
+	flag.IntVar(&cfg.ContinuityRequiredSightingsCalibrated, "continuity-required-sightings-calibrated", cfg.ContinuityRequiredSightingsCalibrated, "number of repeated sightings of same track change (when calibrated) before re-recognition triggers")
+	flag.IntVar(&cfg.ContinuityRequiredSightingsUncalibrated, "continuity-required-sightings-uncalibrated", cfg.ContinuityRequiredSightingsUncalibrated, "stricter threshold during calibration grace period to prevent false positives")
+	flag.DurationVar(&cfg.EarlyCheckMargin, "early-check-margin", cfg.EarlyCheckMargin, "how close to track end the continuity monitor becomes more sensitive")
+	flag.DurationVar(&cfg.DurationGuardBypassWindow, "duration-guard-bypass-window", cfg.DurationGuardBypassWindow, "time window after potential false boundary during which duration suppression guard is armed")
+	flag.Float64Var(&cfg.DurationPessimism, "duration-pessimism", cfg.DurationPessimism, "temporal threshold (0.0–1.0) for suppressing false boundaries in quiet passages")
+	flag.DurationVar(&cfg.BoundaryRestoreMinSeek, "boundary-restore-min-seek", cfg.BoundaryRestoreMinSeek, "minimum pre-boundary seek required before restoring pre-boundary track metadata after same-track re-confirmation")
 	flag.StringVar(&cfg.RecognizerChain, "recognizer-chain", cfg.RecognizerChain, "recognition chain order: acrcloud_first | shazam_first | acrcloud_only | shazam_only (continuity always uses Shazam when available)")
 	flag.Parse()
 
@@ -623,7 +703,7 @@ func main() {
 			case <-usr1Ch:
 				log.Printf("recognizer: SIGUSR1 received — forcing immediate recognition")
 				select {
-				case m.recognizeTrigger <- recognizeTrigger{isBoundary: true}:
+				case m.recognizeTrigger <- triggerBoundaryRecognition(false):
 				default:
 				}
 			}
