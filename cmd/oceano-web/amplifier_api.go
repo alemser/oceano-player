@@ -61,7 +61,7 @@ type pairingAttempt struct {
 
 // registerAmplifierRoutes wires all /api/amplifier/* endpoints.
 // amp and monitor may be nil; affected endpoints return 404 in that case.
-func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifier, monitor *amplifier.PowerStateMonitor, configPath string) *amplifierServer {
+func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifier, monitor *amplifier.PowerStateMonitor, configPath string) {
 	s := &amplifierServer{
 		configPath: configPath,
 		amp:        amp,
@@ -89,8 +89,6 @@ func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifi
 	mux.HandleFunc("/api/amplifier/profiles/import", s.handleAmplifierProfileImport)
 	mux.HandleFunc("/api/broadlink/learn-start", s.handleLearnStart)
 	mux.HandleFunc("/api/broadlink/learn-status", s.handleLearnStatus)
-
-	return s
 }
 
 // --- response types ---

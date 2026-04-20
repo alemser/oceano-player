@@ -215,6 +215,11 @@ Frame rate: ~22 fps (2048-sample buffer at 44.1 kHz ≈ 46 ms per frame).
 
 The silence threshold is too close to the noise floor at the current capture volume. In the web UI under **Audio Input**, raise **Silence Threshold** to `0.025`.
 
+### Legacy `streaming_usb_guard_enabled` in config
+
+`advanced.streaming_usb_guard_enabled` was used by the removed Streaming USB Guard feature.
+If this key still exists in `/etc/oceano/config.json` from older installs, it is ignored.
+
 ---
 
 ### Track info stays on screen after record is changed

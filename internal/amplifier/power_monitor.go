@@ -173,11 +173,10 @@ func (m *PowerStateMonitor) detect(ctx context.Context) {
 	m.mu.RLock()
 	lastCmd := m.lastCommand
 	lastCmdAt := m.lastCommandAt
-	lastAudioAt := m.lastAudioAt
 	cfg := m.config
 	m.mu.RUnlock()
 
-	state := m.infer(ctx, detected, lastCmd, lastCmdAt, lastAudioAt, cfg)
+	state := m.infer(detected, lastCmd, lastCmdAt, cfg)
 
 	m.mu.Lock()
 	if detected == PowerStateOn {
@@ -195,14 +194,11 @@ func (m *PowerStateMonitor) detect(ctx context.Context) {
 }
 
 func (m *PowerStateMonitor) infer(
-	ctx context.Context,
 	detected PowerState,
 	lastCmd string,
-	lastCmdAt, lastAudioAt time.Time,
+	lastCmdAt time.Time,
 	cfg MonitorConfig,
 ) PowerState {
-	_ = ctx
-	_ = lastAudioAt
 	now := time.Now()
 
 	if detected == PowerStateOn {
