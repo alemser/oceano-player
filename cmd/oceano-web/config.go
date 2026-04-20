@@ -343,9 +343,6 @@ type AdvancedConfig struct {
 	PCMSocket  string `json:"pcm_socket"`
 	SourceFile string `json:"source_file"`
 	StateFile  string `json:"state_file"`
-	// StreamingUSBGuardEnabled toggles the automatic background flow that
-	// forces the amplifier back to USB while AirPlay/Bluetooth playback is active.
-	StreamingUSBGuardEnabled bool   `json:"streaming_usb_guard_enabled"`
 	ArtworkDir               string `json:"artwork_dir"`
 	MetadataPipe             string `json:"metadata_pipe"`
 	// IdleDelaySecs is how long to keep showing the last physical track after
@@ -385,16 +382,15 @@ func defaultConfig() Config {
 			ShazamPythonBin:                     "/opt/shazam-env/bin/python",
 		},
 		Advanced: AdvancedConfig{
-			VUSocket:                 "/tmp/oceano-vu.sock",
-			PCMSocket:                "/tmp/oceano-pcm.sock",
-			SourceFile:               "/tmp/oceano-source.json",
-			StateFile:                "/tmp/oceano-state.json",
-			StreamingUSBGuardEnabled: true,
-			ArtworkDir:               "/var/lib/oceano/artwork",
-			MetadataPipe:             "/tmp/shairport-sync-metadata",
-			IdleDelaySecs:            10,
-			SessionGapThresholdSecs:  45,
-			LibraryDB:                "/var/lib/oceano/library.db",
+			VUSocket:                "/tmp/oceano-vu.sock",
+			PCMSocket:               "/tmp/oceano-pcm.sock",
+			SourceFile:              "/tmp/oceano-source.json",
+			StateFile:               "/tmp/oceano-state.json",
+			ArtworkDir:              "/var/lib/oceano/artwork",
+			MetadataPipe:            "/tmp/shairport-sync-metadata",
+			IdleDelaySecs:           10,
+			SessionGapThresholdSecs: 45,
+			LibraryDB:               "/var/lib/oceano/library.db",
 		},
 		Display: SPIDisplayConfig{
 			UIPreset:               "high_contrast_rotate",

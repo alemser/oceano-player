@@ -20,15 +20,6 @@ type MonitorConfig struct {
 	// silence (no PowerStateOn detected), the monitor infers PowerStateStandby.
 	// Zero disables standby inference.
 	StandbyTimeout time.Duration
-
-	// CyclingEnabled enables the active input-cycling probe when passive
-	// detection is inconclusive and silence exceeds CyclingMinSilence.
-	// The amp must implement InputCycler for this to take effect.
-	CyclingEnabled bool
-
-	// CyclingMinSilence is the minimum duration of silence required before
-	// input cycling is attempted. Prevents interrupting active playback.
-	CyclingMinSilence time.Duration
 }
 
 // PowerStateMonitor polls DetectPowerState on a fixed interval, applies
@@ -178,7 +169,7 @@ func (m *PowerStateMonitor) detect(ctx context.Context) {
 		detected = PowerStateUnknown
 	}
 
-	// Read shared state before inference (no lock held during inference/cycling).
+	// Read shared state before inference.
 	m.mu.RLock()
 	lastCmd := m.lastCommand
 	lastCmdAt := m.lastCommandAt
@@ -210,6 +201,8 @@ func (m *PowerStateMonitor) infer(
 	lastCmdAt, lastAudioAt time.Time,
 	cfg MonitorConfig,
 ) PowerState {
+	_ = ctx
+	_ = lastAudioAt
 	now := time.Now()
 
 	if detected == PowerStateOn {
@@ -219,15 +212,6 @@ func (m *PowerStateMonitor) infer(
 	// Within warm-up window after a power-on command.
 	if lastCmd == "on" && cfg.WarmUp > 0 && !lastCmdAt.IsZero() && now.Sub(lastCmdAt) < cfg.WarmUp {
 		return PowerStateWarmingUp
-	}
-
-	// Active cycling probe: only when silence has persisted long enough.
-	if cfg.CyclingEnabled && !lastAudioAt.IsZero() && now.Sub(lastAudioAt) >= cfg.CyclingMinSilence {
-		if cycler, ok := m.amp.(InputCycler); ok {
-			if result, err := cycler.ProbeWithInputCycling(ctx); err == nil && result == PowerStateOn {
-				return PowerStateOn
-			}
-		}
 	}
 
 	return PowerStateUnknown

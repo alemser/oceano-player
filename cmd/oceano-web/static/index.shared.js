@@ -44,8 +44,6 @@ async function loadConfig() {
   set('adv-library-db',     cfg.advanced?.library_db ?? '');
   set('adv-idle-delay',     cfg.advanced?.idle_delay_secs ?? 10);
   set('adv-session-gap',    cfg.advanced?.session_gap_threshold_secs ?? 45);
-  const guardEnabledEl = document.getElementById('adv-streaming-usb-guard-enabled');
-  if (guardEnabledEl) guardEnabledEl.checked = cfg.advanced?.streaming_usb_guard_enabled ?? true;
   set('adv-vu-socket',      cfg.advanced?.vu_socket ?? '');
   set('adv-pcm-socket',     cfg.advanced?.pcm_socket ?? '');
   set('adv-source-file',    cfg.advanced?.source_file ?? '');
@@ -423,7 +421,6 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       library_db:     val('adv-library-db') || _advancedConfig.library_db || '',
       idle_delay_secs: intOr('adv-idle-delay', 10),
       session_gap_threshold_secs: intOr('adv-session-gap', 45),
-      streaming_usb_guard_enabled: document.getElementById('adv-streaming-usb-guard-enabled')?.checked ?? (_advancedConfig.streaming_usb_guard_enabled ?? true),
       vu_socket:      val('adv-vu-socket')     || _advancedConfig.vu_socket || '',
       pcm_socket:     val('adv-pcm-socket')    || _advancedConfig.pcm_socket || '',
       source_file:    val('adv-source-file')   || _advancedConfig.source_file || '',

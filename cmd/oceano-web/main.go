@@ -187,12 +187,7 @@ func main() {
 		monitor = amplifier.NewPowerStateMonitor(amp, 30*time.Second, monitorConfigFromAmplifierConfig(cfg.Amplifier))
 		go monitor.Start(context.Background())
 	}
-	ampServer := registerAmplifierRoutes(mux, amp, monitor, *configPath)
-	if cfg.Advanced.StreamingUSBGuardEnabled {
-		startStreamingUSBGuard(context.Background(), cfg.Advanced.StateFile, ampServer)
-	} else {
-		log.Printf("streaming USB guard: disabled by config")
-	}
+	registerAmplifierRoutes(mux, amp, monitor, *configPath)
 
 	// Scheduled backup: generate a fresh timestamped backup every 24 hours.
 	// Backups land in the same directory as the library database.

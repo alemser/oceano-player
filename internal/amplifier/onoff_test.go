@@ -261,7 +261,7 @@ func TestInfer_UnknownWhenNoHistory(t *testing.T) {
 	}
 }
 
-func TestInfer_CyclingProbeFindsUSB(t *testing.T) {
+func TestInfer_CyclingProbeDisabledEvenWhenConfigured(t *testing.T) {
 	var callCount int32
 	orig := usbDACProbe
 	usbDACProbe = func(_ context.Context, _ string) bool {
@@ -282,10 +282,7 @@ func TestInfer_CyclingProbeFindsUSB(t *testing.T) {
 		},
 	})
 
-	cfg := MonitorConfig{
-		CyclingEnabled:    true,
-		CyclingMinSilence: 1 * time.Millisecond,
-	}
+	cfg := MonitorConfig{}
 	m := NewPowerStateMonitor(amp, time.Hour, cfg)
 
 	// Silence long enough to allow cycling.
@@ -293,8 +290,11 @@ func TestInfer_CyclingProbeFindsUSB(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 
 	got := m.infer(context.Background(), PowerStateUnknown, "", time.Time{}, lastAudioAt, cfg)
-	if got != PowerStateOn {
-		t.Errorf("infer with cycling = %q, want %q", got, PowerStateOn)
+	if got != PowerStateUnknown {
+		t.Errorf("infer with cycling config = %q, want %q", got, PowerStateUnknown)
+	}
+	if len(mock.Sent) != 0 {
+		t.Errorf("expected no IR sends, got %d", len(mock.Sent))
 	}
 }
 
@@ -316,10 +316,7 @@ func TestInfer_CyclingSkippedWhenSilenceTooShort(t *testing.T) {
 		},
 	})
 
-	cfg := MonitorConfig{
-		CyclingEnabled:    true,
-		CyclingMinSilence: 1 * time.Hour, // silence window not yet passed
-	}
+	cfg := MonitorConfig{}
 	m := NewPowerStateMonitor(amp, time.Hour, cfg)
 
 	lastAudioAt := time.Now() // very recent — should NOT trigger cycling
