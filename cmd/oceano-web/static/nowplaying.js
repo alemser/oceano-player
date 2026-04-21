@@ -175,6 +175,7 @@ let _lastState = null;
 
 function applyState(state) {
   const source  = state.source  || 'None';
+  const stateFormat = String(state.format || '').trim();
   const playing = state.state === 'playing';
   const track   = state.track   || null;
 
@@ -232,6 +233,13 @@ function applyState(state) {
   $chips.textContent = '';
 
   if (track) {
+    const normalizedSource = String(source || '').trim();
+    const normalizedFormat = stateFormat.toLowerCase();
+    const sourceLooksVinyl = normalizedSource.toLowerCase() === 'vinyl';
+    const sourceLooksCD = normalizedSource.toLowerCase() === 'cd';
+    const physicalWithVinylFormat = normalizedSource.toLowerCase() === 'physical' && normalizedFormat === 'vinyl';
+    const physicalWithCDFormat = normalizedSource.toLowerCase() === 'physical' && normalizedFormat === 'cd';
+
     // Streaming: sample rate + bit depth merged into one chip
     if (track.samplerate || track.bitdepth) {
       const fmtLabel = [track.samplerate, track.bitdepth].filter(Boolean).join(' · ');
@@ -253,8 +261,10 @@ function applyState(state) {
     if (track.track_number) {
       const trackRef = String(track.track_number).trim();
       const vinylRef = parseVinylTrackRef(trackRef);
+      const shouldRenderVinyl = sourceLooksVinyl || physicalWithVinylFormat || (!!vinylRef && normalizedSource.toLowerCase() === 'physical');
+      const shouldRenderCD = sourceLooksCD || physicalWithCDFormat;
 
-      if (source === 'Vinyl') {
+      if (shouldRenderVinyl) {
         if (vinylRef) {
           $chips.appendChild(makeChip(
             chipSVG('M6 1 A5 5 0 1 1 6 11 A5 5 0 1 1 6 1 M6 1 V11'),
@@ -270,7 +280,7 @@ function applyState(state) {
             'Track ' + trackRef
           ));
         }
-      } else if (source === 'CD' || source === 'Physical') {
+      } else if (shouldRenderCD || normalizedSource.toLowerCase() === 'physical') {
         $chips.appendChild(makeChip(
           chipSVG('M2 6 Q2 2 6 2 Q10 2 10 6 Q10 10 6 10 Q2 10 2 6'),
           'Track ' + trackRef

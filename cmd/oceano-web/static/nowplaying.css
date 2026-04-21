@@ -295,8 +295,8 @@ body::after {
 /* Right: stats */
 #idle-meta-stats { display: flex; align-items: center; gap: clamp(18px, 3.5vw, 40px); }
 .idle-stat { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-.idle-stat-lbl { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #2e3a52; }
-.idle-stat-val { font-size: 0.92rem; font-weight: 400; color: #566280; font-variant-numeric: tabular-nums; }
+.idle-stat-lbl { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #3e4e6a; }
+.idle-stat-val { font-size: 0.92rem; font-weight: 400; color: #6e82a8; font-variant-numeric: tabular-nums; }
 
 /* ─── Main section ─────────────────────────────────────────── */
 #idle-main {
@@ -309,8 +309,11 @@ body::after {
 
 /* Clock */
 #idle-clock-widget { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; flex-shrink: 0; }
-#idle-time { font-size: clamp(5rem, 17vw, 11.5rem); font-weight: 100; letter-spacing: -0.025em; color: #b8c6e8; font-variant-numeric: tabular-nums; line-height: 0.86; white-space: nowrap; }
+#idle-time-row { display: flex; align-items: baseline; gap: clamp(6px, 1.2vw, 14px); line-height: 1; }
+#idle-time { font-size: clamp(5rem, 17vw, 11.5rem); font-weight: 200; letter-spacing: -0.025em; color: #c8d6f0; font-variant-numeric: tabular-nums; line-height: 0.86; white-space: nowrap; }
+#idle-seconds { font-size: clamp(1.6rem, 4.5vw, 3.8rem); font-weight: 200; letter-spacing: -0.01em; color: #3a5278; font-variant-numeric: tabular-nums; padding-bottom: 0.12em; white-space: nowrap; }
 #idle-date { font-size: clamp(0.96rem, 2.1vw, 1.3rem); font-weight: 400; letter-spacing: 0.14em; text-transform: uppercase; color: #5a6e94; white-space: nowrap; }
+
 
 /* Weather icon (centre) */
 #idle-weather-icon-wrap { flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
@@ -318,8 +321,10 @@ body::after {
 #idle-weather-icon-wrap svg { width: clamp(72px, 14vw, 140px); height: clamp(72px, 14vw, 140px); color: #3a5278; }
 #idle-weather-icon { font-size: clamp(72px, 14vw, 140px); }
 
-/* Temperature */
-#idle-weather-temp { font-size: clamp(3.2rem, 9vw, 6.5rem); font-weight: 200; letter-spacing: -0.02em; color: #7a90bc; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; flex-shrink: 0; }
+/* Temperature group */
+#idle-temp-group { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; gap: 4px; }
+#idle-weather-temp { font-size: clamp(3.2rem, 9vw, 6.5rem); font-weight: 200; letter-spacing: -0.02em; color: #7a90bc; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; }
+#idle-weather-feels { font-size: clamp(1.1rem, 2.2vw, 1.5rem); font-weight: 300; letter-spacing: 0.04em; color: #4a5e82; white-space: nowrap; }
 
 /* ─── 7-day forecast strip ─────────────────────────────────── */
 #idle-forecast {
@@ -340,6 +345,15 @@ body::after {
 .idle-fc-icon svg { width: 100%; height: 100%; display: block; }
 .idle-fc-max { font-size: clamp(0.88rem, 1.6vw, 1.08rem); font-weight: 500; color: #6a80a8; font-variant-numeric: tabular-nums; }
 .idle-fc-min { font-size: clamp(0.74rem, 1.2vw, 0.88rem); font-weight: 400; color: #3a4a68; font-variant-numeric: tabular-nums; }
+.idle-fc-precip { font-size: clamp(0.62rem, 1vw, 0.72rem); font-weight: 500; color: #4a7acc; letter-spacing: 0.03em; }
+
+/* ─── Night dimming (23:00–06:00) ─────────────────────────────── */
+/* Safe: requires BOTH body.night-mode AND #idle-screen.visible.
+   When play screen is active, .visible is absent → rule never fires. */
+body.night-mode #idle-screen.visible {
+  opacity: 0.22;
+  transition: opacity 2s ease;
+}
 
 /* Media Queries */
 @media (max-width: 900px) {

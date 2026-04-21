@@ -43,39 +43,19 @@
 
 <div class="adv-page-body">
 
-  <!-- ── Library & Idle ──────────────────────────────────────────────────── -->
+  <!-- ── Socket & File Paths ────────────────────────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
-    <div class="section-title">Library &amp; Idle</div>
-    <p class="hint" style="margin-bottom:14px">Only change these if you know what you're doing.</p>
-
-    <div class="field">
-      <label class="check"><input type="checkbox" id="adv-streaming-usb-guard-enabled"> Enable Streaming USB Guard</label>
-      <div class="hint">Automatically returns amplifier input to USB while AirPlay/Bluetooth is playing. Disable to prevent any background IR input switching.</div>
-    </div>
+    <div class="section-title">Socket &amp; File Paths</div>
 
     <div class="field">
       <label><span>Library database path</span></label>
       <input type="text" id="adv-library-db" placeholder="/var/lib/oceano/library.db">
       <div class="hint">SQLite database for physical-media plays. Leave empty to disable library features.</div>
     </div>
-
     <div class="field">
-      <label><span>Idle delay (seconds)</span></label>
-      <input type="number" id="adv-idle-delay" step="1" min="0" max="120" placeholder="10">
-      <div class="hint">How long to keep showing the last physical track after audio stops before switching to the idle screen.</div>
+      <label><span>Artwork directory</span></label>
+      <input type="text" id="adv-artwork-dir" placeholder="/var/lib/oceano/artwork">
     </div>
-
-    <div class="field">
-      <label><span>Session gap threshold (seconds)</span></label>
-      <input type="number" id="adv-session-gap" step="1" min="5" max="300" placeholder="45">
-      <div class="hint">Max silence between tracks treated as an inter-track pause. Gaps longer than this start a new recognition session.</div>
-    </div>
-  </div>
-
-  <!-- ── Socket & File Paths ────────────────────────────────────────────── -->
-  <div class="section" style="margin-bottom:24px">
-    <div class="section-title">Socket &amp; File Paths</div>
-
     <div class="field">
       <label><span>VU socket</span></label>
       <input type="text" id="adv-vu-socket" placeholder="/tmp/oceano-vu.sock">
@@ -91,10 +71,6 @@
     <div class="field">
       <label><span>State file</span></label>
       <input type="text" id="adv-state-file" placeholder="/tmp/oceano-state.json">
-    </div>
-    <div class="field">
-      <label><span>Artwork directory</span></label>
-      <input type="text" id="adv-artwork-dir" placeholder="/var/lib/oceano/artwork">
     </div>
     <div class="field">
       <label><span>shairport-sync metadata pipe</span></label>

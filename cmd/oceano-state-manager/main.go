@@ -134,6 +134,12 @@ type Config struct {
 	// The state manager subscribes to detect silence→audio transitions (track boundaries)
 	// and uses them to trigger recognition at the right moment.
 	VUSocket string
+	// VUSilenceThreshold is the RMS threshold used by the VU monitor to classify
+	// frames as silence vs active audio for boundary detection.
+	VUSilenceThreshold float64
+	// CalibrationConfigPath points to oceano-web config.json containing
+	// advanced.calibration_profiles and amplifier_runtime.last_known_input_id.
+	CalibrationConfigPath string
 	// IdleDelay is how long to keep showing the last physical track after audio stops
 	// before switching to the idle screen. Defaults to 10 seconds.
 	IdleDelay time.Duration
@@ -202,6 +208,8 @@ func defaultConfig() Config {
 		ArtworkDir:                              "/var/lib/oceano/artwork",
 		PCMSocket:                               "/tmp/oceano-pcm.sock",
 		VUSocket:                                "/tmp/oceano-vu.sock",
+		VUSilenceThreshold:                      0.0095,
+		CalibrationConfigPath:                   "/etc/oceano/config.json",
 		RecognizerCaptureDuration:               10 * time.Second,
 		RecognizerMaxInterval:                   5 * time.Minute,
 		RecognizerRefreshInterval:               2 * time.Minute,
@@ -634,6 +642,8 @@ func main() {
 	flag.StringVar(&cfg.ACRCloudSecretKey, "acrcloud-secret-key", cfg.ACRCloudSecretKey, "ACRCloud secret key")
 	flag.StringVar(&cfg.PCMSocket, "pcm-socket", cfg.PCMSocket, "Unix socket for raw PCM from oceano-source-detector")
 	flag.StringVar(&cfg.VUSocket, "vu-socket", cfg.VUSocket, "Unix socket for VU frames from oceano-source-detector")
+	flag.Float64Var(&cfg.VUSilenceThreshold, "vu-silence-threshold", cfg.VUSilenceThreshold, "RMS threshold for VU monitor silence detection (track-boundary detection)")
+	flag.StringVar(&cfg.CalibrationConfigPath, "calibration-config", cfg.CalibrationConfigPath, "path to oceano-web config JSON used to load calibration profiles")
 	flag.DurationVar(&cfg.RecognizerCaptureDuration, "recognizer-capture-duration", cfg.RecognizerCaptureDuration, "audio capture duration per recognition attempt")
 	flag.DurationVar(&cfg.RecognizerMaxInterval, "recognizer-max-interval", cfg.RecognizerMaxInterval, "fallback re-recognition interval when no track boundary is detected and no result is held")
 	flag.DurationVar(&cfg.RecognizerRefreshInterval, "recognizer-refresh-interval", cfg.RecognizerRefreshInterval, "how soon to re-check after a successful recognition to catch gapless track changes (0 = disabled)")
@@ -653,7 +663,7 @@ func main() {
 	flag.IntVar(&cfg.ContinuityRequiredSightingsUncalibrated, "continuity-required-sightings-uncalibrated", cfg.ContinuityRequiredSightingsUncalibrated, "stricter threshold during calibration grace period to prevent false positives")
 	flag.DurationVar(&cfg.EarlyCheckMargin, "early-check-margin", cfg.EarlyCheckMargin, "how close to track end the continuity monitor becomes more sensitive")
 	flag.DurationVar(&cfg.DurationGuardBypassWindow, "duration-guard-bypass-window", cfg.DurationGuardBypassWindow, "time window after potential false boundary during which duration suppression guard is armed")
-	flag.Float64Var(&cfg.DurationPessimism, "duration-pessimism", cfg.DurationPessimism, "temporal threshold (0.0–1.0) for suppressing false boundaries in quiet passages")
+	flag.Float64Var(&cfg.DurationPessimism, "duration-pessimism", cfg.DurationPessimism, "temporal threshold (0.0–1.0): below threshold VU boundaries are guarded, at/above threshold VU boundaries are ignored")
 	flag.DurationVar(&cfg.BoundaryRestoreMinSeek, "boundary-restore-min-seek", cfg.BoundaryRestoreMinSeek, "minimum pre-boundary seek required before restoring pre-boundary track metadata after same-track re-confirmation")
 	flag.StringVar(&cfg.RecognizerChain, "recognizer-chain", cfg.RecognizerChain, "recognition chain order: acrcloud_first | shazam_first | acrcloud_only | shazam_only (continuity always uses Shazam when available)")
 	flag.Parse()

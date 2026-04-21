@@ -27,10 +27,11 @@ const (
 	managerBinary  = "/usr/local/bin/oceano-state-manager"
 	detectorUnit   = "oceano-source-detector.service"
 	managerUnit    = "oceano-state-manager.service"
-	displayUnit    = "oceano-display.service"
-	detectorSvc    = "/etc/systemd/system/" + detectorUnit
-	managerSvc     = "/etc/systemd/system/" + managerUnit
-	displayEnvPath = "/etc/oceano/display.env"
+	displayUnit       = "oceano-display.service"
+	spiDisplayUnit    = "oceano-now-playing.service"
+	detectorSvc       = "/etc/systemd/system/" + detectorUnit
+	managerSvc        = "/etc/systemd/system/" + managerUnit
+	displayEnvPath    = "/etc/oceano/display.env"
 )
 
 // ALSADevice is a detected ALSA sound card.
@@ -177,9 +178,11 @@ func main() {
 	registerBackupRoutes(mux, *libraryDB, cfg.Advanced.ArtworkDir, *configPath)
 	registerHistoryRoutes(mux, *libraryDB)
 	registerStylusRoutes(mux, *libraryDB)
+	registerCalibrationRoutes(mux, cfg.Advanced.VUSocket)
 
 	// API: amplifier IR control.
-	amp, err := buildAmplifierFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket, cfg.AudioOutput.DeviceMatch)
+	powerCal := powerCalibrationForConfiguredInput(cfg.Advanced, cfg.AmplifierRuntime)
+	amp, err := buildAmplifierFromConfig(cfg.Amplifier, cfg.Advanced.VUSocket, cfg.AudioOutput.DeviceMatch, powerCal)
 	if err != nil {
 		log.Printf("amplifier config error: %v (amplifier control disabled)", err)
 	}
@@ -275,13 +278,15 @@ func main() {
 	})
 	mux.HandleFunc("/api/display/restart", handleDisplayServiceRestart)
 
-	// API: report whether the SPI now-playing service is installed.
+	// API: report whether the SPI now-playing service is installed and a
+	// framebuffer device is present (indicates an active SPI/DRM display).
 	mux.HandleFunc("/api/spi-display-installed", func(w http.ResponseWriter, r *http.Request) {
-		svcPath := "/etc/systemd/system/" + displayUnit
-		_, err := os.Stat(svcPath)
+		svcPath := "/etc/systemd/system/" + spiDisplayUnit
+		_, svcErr := os.Stat(svcPath)
+		_, fbErr := os.Stat("/dev/fb0")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"installed": err == nil,
+			"installed": svcErr == nil && fbErr == nil,
 		})
 	})
 
@@ -441,7 +446,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	// paths changed — audio input edits leave the manager untouched.
 	if managerChanged {
 		if _, err := os.Stat(managerSvc); err == nil {
-			if err := writeManagerService(cfg); err != nil {
+			if err := writeManagerService(cfg, configPath); err != nil {
 				results = append(results, "manager service write: "+err.Error())
 				hadError = true
 			} else if err := restartService(managerUnit); err != nil {
@@ -658,8 +663,8 @@ WantedBy=multi-user.target
 }
 
 // writeManagerService rewrites the oceano-state-manager systemd unit.
-func writeManagerService(cfg Config) error {
-	execStart := formatExecStart(managerBinary, managerArgs(cfg))
+func writeManagerService(cfg Config, configPath string) error {
+	execStart := formatExecStart(managerBinary, managerArgs(cfg, configPath))
 	unit := fmt.Sprintf(`[Unit]
 Description=Oceano State Manager (unified playback state + ACRCloud recognition)
 After=shairport-sync.service oceano-source-detector.service

@@ -504,7 +504,7 @@ func TestBuildState_Physical_NoSeekWhenNotSet(t *testing.T) {
 	}
 }
 
-func TestSyncFromLibrary_ResetsStaleSeekWhenDurationArrivesLate(t *testing.T) {
+func TestSyncFromLibrary_PreservesSeekWhenDurationArrivesLate(t *testing.T) {
 	lib := openTestLibrary(t)
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := lib.DB().Exec(`
@@ -535,10 +535,10 @@ func TestSyncFromLibrary_ResetsStaleSeekWhenDurationArrivesLate(t *testing.T) {
 	if m.recognitionResult.DurationMs != 180000 {
 		t.Fatalf("DurationMs = %d, want 180000", m.recognitionResult.DurationMs)
 	}
-	if m.physicalSeekMS != 0 {
-		t.Fatalf("physicalSeekMS = %d, want 0 after incompatible late duration update", m.physicalSeekMS)
+	if m.physicalSeekMS != 240000 {
+		t.Fatalf("physicalSeekMS = %d, want preserved seek after late duration update", m.physicalSeekMS)
 	}
-	if !m.physicalSeekUpdatedAt.IsZero() {
-		t.Fatalf("physicalSeekUpdatedAt = %s, want zero after incompatible late duration update", m.physicalSeekUpdatedAt)
+	if m.physicalSeekUpdatedAt.IsZero() {
+		t.Fatalf("physicalSeekUpdatedAt should stay set after late duration update")
 	}
 }

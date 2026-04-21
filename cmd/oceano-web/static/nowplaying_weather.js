@@ -1,7 +1,9 @@
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
 const $idleWeather      = document.getElementById('idle-weather-icon-wrap'); // used for visibility
 const $idleWeatherIcon  = document.getElementById('idle-weather-icon');
+const $idleTempGroup    = document.getElementById('idle-temp-group');
 const $idleWeatherTemp  = document.getElementById('idle-weather-temp');
+const $idleWeatherFeels = document.getElementById('idle-weather-feels');
 const $idleWeatherCond  = document.getElementById('idle-weather-cond');
 const $idleLocationLbl  = document.getElementById('idle-location-label');
 const $idleSunrise      = document.getElementById('idle-sunrise');
@@ -90,16 +92,20 @@ function renderWeather(data) {
   const daily   = data && data.daily   ? data.daily   : null;
 
   // Current temp + condition + icon
-  const temp    = current ? Number(current.temperature_2m) : NaN;
-  const code    = current ? current.weather_code : null;
-  const isDay   = current ? current.is_day !== 0 : true;
-  const pressure = current ? Math.round(Number(current.surface_pressure)) : null;
+  const temp        = current ? Number(current.temperature_2m) : NaN;
+  const feelsLike   = current ? Number(current.apparent_temperature) : NaN;
+  const code        = current ? current.weather_code : null;
+  const isDay       = current ? current.is_day !== 0 : true;
+  const pressure    = current ? Math.round(Number(current.surface_pressure)) : null;
 
   if ($idleWeatherIcon) {
     $idleWeatherIcon.innerHTML = weatherIconSVG(weatherIconKind(code, isDay));
   }
   if ($idleWeatherTemp) {
     $idleWeatherTemp.textContent = Number.isFinite(temp) ? Math.round(temp) + '°C' : '—°C';
+  }
+  if ($idleWeatherFeels) {
+    $idleWeatherFeels.textContent = Number.isFinite(feelsLike) ? 'Feels like ' + Math.round(feelsLike) + '°' : '';
   }
   if ($idleWeatherCond) {
     $idleWeatherCond.textContent = weatherLabelFromCode(code);
@@ -129,12 +135,15 @@ function renderWeather(data) {
       const maxT    = fmtTemp(daily.temperature_2m_max ? daily.temperature_2m_max[i] : null);
       const minT    = fmtTemp(daily.temperature_2m_min ? daily.temperature_2m_min[i] : null);
       const icon    = weatherIconSVG(weatherIconKind(daily.weather_code ? daily.weather_code[i] : null));
+      const precip  = daily.precipitation_probability_max ? Number(daily.precipitation_probability_max[i]) : 0;
+      const precipHTML = precip >= 20 ? `<span class="idle-fc-precip">${Math.round(precip)}%</span>` : '';
 
       return `<div class="idle-fc-day">
         <span class="idle-fc-name${isToday ? ' today' : ''}">${dayName}</span>
         <span class="idle-fc-icon">${icon}</span>
         <span class="idle-fc-max">${maxT}</span>
         <span class="idle-fc-min">${minT}</span>
+        ${precipHTML}
       </div>`;
     }).join('');
   }
@@ -152,7 +161,7 @@ function renderWeatherOffline() {
 // ─── Visibility ────────────────────────────────────────────────────────────────
 function applyWeatherVisibility() {
   const show = WEATHER_CONFIG.enabled;
-  [$idleWeather, $idleWeatherTemp, $idleMetaStats, $idleLocationCond, $idleForecast].forEach(el => {
+  [$idleWeather, $idleTempGroup, $idleMetaStats, $idleLocationCond, $idleForecast].forEach(el => {
     if (el) el.style.display = show ? '' : 'none';
   });
 }
@@ -191,8 +200,8 @@ async function refreshWeather() {
   const query = new URLSearchParams({
     latitude:     String(WEATHER_CONFIG.latitude),
     longitude:    String(WEATHER_CONFIG.longitude),
-    current:      'temperature_2m,weather_code,surface_pressure,is_day',
-    daily:        'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset',
+    current:      'temperature_2m,apparent_temperature,weather_code,surface_pressure,is_day',
+    daily:        'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset',
     forecast_days: '7',
     timezone:     'auto',
   });

@@ -27,6 +27,40 @@
     .rec-page-title { font-size: 1rem; font-weight: 600; color: var(--text); flex: 1; }
     .rec-page-body { max-width: 660px; margin: 0 auto; padding: 20px 20px 60px; }
     .rec-page-actions { margin-top: 28px; display: flex; gap: 10px; justify-content: flex-end; }
+    .cal-current-values {
+      margin: 14px 0 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      line-height: 1.45;
+    }
+    .cal-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 10px 0 14px;
+    }
+    .cal-feedback {
+      display: grid;
+      gap: 8px;
+      margin-top: 4px;
+      line-height: 1.45;
+    }
+    .cal-feedback > .hint {
+      margin: 0;
+    }
+    .cal-vinyl-block {
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+    .cal-vinyl-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 8px 0;
+    }
   </style>
 </head>
 <body>
@@ -43,21 +77,60 @@
 
 <div class="rec-page-body">
 
-  <!-- ── Capture — Advanced ─────────────────────────────────────────────── -->
+  <!-- ── Calibration Wizard ─────────────────────────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
-    <div class="section-title">Capture — Advanced</div>
-    <p class="hint" style="margin-bottom:14px">Source detection thresholds for the ALSA capture card.</p>
+    <div class="section-title">Calibration Wizard</div>
+    <p class="hint" style="margin-bottom:14px">Guided RMS sampling to tune silence thresholds for your current amplifier and sources. Run this with normal listening volume and no one touching volume/gain during each capture.</p>
+
+    <!-- Internal state fields updated by the wizard and persisted on Save. -->
+    <input type="hidden" id="inp-silence">
 
     <div class="field">
-      <label><span>Silence threshold</span></label>
-      <input type="number" id="inp-silence" step="0.001" min="0.001" max="0.5" placeholder="0.025">
-      <div class="hint">RMS below this = silence. Raise if phono hum causes source oscillation (calibrated: 0.025).</div>
+      <label><span>Input under calibration</span></label>
+      <select id="cal-input-select"></select>
+      <div class="hint">Select the source input you want to calibrate (CD or Phono recommended). This is informational in this beta; you can switch input manually on the amplifier.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Capture duration per step (seconds)</span></label>
+      <input type="number" id="cal-duration-secs" step="1" min="2" max="20" value="6">
     </div>
 
     <div class="field">
       <label><span>Debounce windows</span></label>
       <input type="number" id="inp-debounce" step="1" min="1" max="50" placeholder="10">
       <div class="hint">Majority-vote window for source transitions. Higher = slower but more stable.</div>
+    </div>
+
+    <div id="cal-current-values-hint" class="hint cal-current-values">No calibration saved for this input yet.</div>
+
+    <div class="field cal-actions">
+      <button type="button" class="btn-secondary" onclick="captureCalibrationSample('off')">Capture OFF silence</button>
+      <button type="button" class="btn-secondary" onclick="captureCalibrationSample('on')">Capture ON silence</button>
+      <button type="button" class="btn-secondary" onclick="applyCalibrationRecommendations()">Apply recommendations</button>
+    </div>
+
+    <div class="cal-feedback">
+      <div id="cal-wizard-status" class="hint">Capture OFF first (source powered off), then ON (source powered on but no music).</div>
+      <div id="cal-off-result" class="hint"></div>
+      <div id="cal-on-result" class="hint"></div>
+      <div id="cal-recommendation" class="hint"></div>
+    </div>
+
+    <div id="cal-vinyl-step" class="field cal-vinyl-block" style="display:none">
+      <label><span>Vinyl transition calibration (optional)</span></label>
+      <div class="hint" style="margin-bottom:8px">For Phono only: start capture, place the needle near the end of a track with a quiet transition, and let it pass into the next track. Capture duration is 3x the step duration (default: 18s) and gap duration is estimated automatically from the RMS curve.</div>
+      <div class="cal-vinyl-actions">
+        <button type="button" class="btn-secondary" onclick="captureVinylTransitionSample()">Capture vinyl transition</button>
+      </div>
+      <div id="cal-vinyl-result" class="hint"></div>
+      <div id="cal-vinyl-recommendation" class="hint"></div>
+    </div>
+
+    <div class="field" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+      <label><span>VU silence threshold (RMS)</span></label>
+      <input type="number" id="rec-vu-silence-threshold" min="0.0010" max="0.0500" step="0.0001" placeholder="0.0095">
+      <div class="hint">Fallback threshold used when no calibration profile is active for the current input. Set automatically by <em>Apply recommendations</em>. Typical range: 0.0070–0.0120 for Magnat MR 780 REC OUT setups.</div>
     </div>
   </div>
 
@@ -87,7 +160,7 @@
       </div>
       <div class="field">
         <label><span>Secret key</span></label>
-        <input type="password" id="rec-secret-key" autocomplete="off" placeholder="••••••••">
+        <input type="password" id="rec-secret-key" autocomplete="new-password" placeholder="••••••••">
       </div>
       <div class="hint" id="acrcloud-config-hint">Stored and used whenever the selected chain includes ACRCloud.</div>
     </div>
@@ -226,13 +299,25 @@
     <div class="field">
       <label><span>Duration pessimism threshold (0.0–1.0)</span></label>
       <input type="number" id="rec-duration-pessimism" step="0.05" min="0.5" max="1.0" placeholder="0.75">
-      <div class="hint">Suppress boundaries if elapsed time &lt; this ratio × known track duration. Prevents false positives in quiet passages of the same track. Typical: 0.75 (suppress if &lt; 75% of duration elapsed).</div>
+      <div class="hint">Suppress VU boundary triggers while elapsed time is below this ratio × known track duration (false-positive guard). At or above this threshold, VU boundary triggers are ignored and track changes rely on continuity/fallback recognition paths. Typical: 0.75.</div>
     </div>
 
     <div class="field">
       <label><span>Minimum seek to restore previous track (seconds)</span></label>
       <input type="number" id="rec-boundary-restore-min-seek" step="5" min="20" max="180" placeholder="60">
       <div class="hint">After a boundary event, previous metadata is restored only when previous seek is at least this value. Higher values reduce false positives when lifting and replacing the needle. Typical: 60 s.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Session gap threshold (seconds)</span></label>
+      <input type="number" id="rec-session-gap" step="1" min="5" max="300" placeholder="45">
+      <div class="hint">Max silence between tracks treated as an inter-track pause. Gaps longer than this start a new recognition session, clearing the current track and triggering fresh recognition. Raising this reduces false session resets during very long quiet passages. Typical: 45 s.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Idle delay (seconds)</span></label>
+      <input type="number" id="rec-idle-delay" step="1" min="0" max="120" placeholder="10">
+      <div class="hint">How long to keep showing the last recognised track after audio stops before switching to the idle screen. Increase if your turntable has residual hum that causes brief source dropouts. Typical: 10 s.</div>
     </div>
   </div>
 

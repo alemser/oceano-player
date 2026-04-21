@@ -56,6 +56,7 @@ type playHistoryListResponse struct {
 }
 
 type playHistoryStatsResponse struct {
+	PeriodDays         int                     `json:"period_days"`
 	TotalPlays         int                     `json:"total_plays"`
 	TotalListenedHours float64                 `json:"total_listened_hours"`
 	TopArtists         []playHistoryArtistStat `json:"top_artists"`
@@ -124,7 +125,13 @@ func registerHistoryRoutes(mux *http.ServeMux, dbPath string) {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		stats, err := h.getStats()
+		days := 30
+		if dStr := r.URL.Query().Get("days"); dStr != "" {
+			if d, err := strconv.Atoi(dStr); err == nil && d >= 0 {
+				days = d
+			}
+		}
+		stats, err := h.getStats(days)
 		if err != nil {
 			jsonError(w, "db error", http.StatusInternalServerError)
 			return
@@ -198,19 +205,37 @@ const mediaKeySQLExpr = `CASE
 		ELSE source
 	END`
 
-func (h *historyDB) getStats() (*playHistoryStatsResponse, error) {
+func (h *historyDB) getStats(days int) (*playHistoryStatsResponse, error) {
 	stats := &playHistoryStatsResponse{
+		PeriodDays:    days,
 		PlaysBySource: make(map[string]int),
 		HoursBySource: make(map[string]float64),
 	}
 
+	periodCond := ""
+	if days > 0 {
+		periodCond = fmt.Sprintf("started_at >= datetime('now','-%d days')", days)
+	}
+	whereAnd := func(extra string) string {
+		if periodCond == "" {
+			if extra == "" {
+				return ""
+			}
+			return "WHERE " + extra
+		}
+		if extra == "" {
+			return "WHERE " + periodCond
+		}
+		return "WHERE " + periodCond + " AND " + extra
+	}
+
 	h.db.QueryRow(`
 		SELECT COUNT(*), COALESCE(SUM(listened_seconds),0) / 3600.0
-		FROM play_history`).Scan(&stats.TotalPlays, &stats.TotalListenedHours)
+		FROM play_history ` + whereAnd("")).Scan(&stats.TotalPlays, &stats.TotalListenedHours)
 
 	rows, err := h.db.Query(`
 		SELECT artist, COUNT(*) AS cnt FROM play_history
-		WHERE artist != '' AND started_at >= datetime('now','-30 days')
+		` + whereAnd("artist != ''") + `
 		GROUP BY artist ORDER BY cnt DESC LIMIT 5`)
 	if err == nil {
 		for rows.Next() {
@@ -223,7 +248,7 @@ func (h *historyDB) getStats() (*playHistoryStatsResponse, error) {
 
 	rows, err = h.db.Query(`
 		SELECT album, artist, COUNT(*) AS cnt FROM play_history
-		WHERE album != '' AND started_at >= datetime('now','-30 days')
+		` + whereAnd("album != ''") + `
 		GROUP BY album, artist ORDER BY cnt DESC LIMIT 5`)
 	if err == nil {
 		for rows.Next() {
@@ -240,6 +265,7 @@ func (h *historyDB) getStats() (*playHistoryStatsResponse, error) {
 		       COUNT(*),
 		       COALESCE(SUM(listened_seconds),0) / 3600.0
 		FROM play_history
+		` + whereAnd("") + `
 		GROUP BY src_key`)
 	if err == nil {
 		for rows.Next() {

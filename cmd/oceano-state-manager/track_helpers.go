@@ -96,6 +96,16 @@ func sameTrackByProviderIDs(a, b *RecognitionResult) bool {
 	return tracksEquivalent(a.Title, a.Artist, b.Title, b.Artist)
 }
 
+func sameTrackForStateContinuity(a, b *RecognitionResult) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if sameTrackByProviderIDs(a, b) {
+		return true
+	}
+	return tracksEquivalent(a.Title, a.Artist, b.Title, b.Artist)
+}
+
 func canonicalTrackKey(r *RecognitionResult) string {
 	if r == nil {
 		return ""

@@ -263,12 +263,10 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 			if entry.DurationMs > 0 && m.recognitionResult.DurationMs != entry.DurationMs {
 				previousDuration := m.recognitionResult.DurationMs
 				m.recognitionResult.DurationMs = entry.DurationMs
-				// If duration becomes known later (e.g. user-entered in the library)
-				// and the current seek is clearly incompatible, drop the seek anchor
-				// rather than rendering a progress bar that starts already complete.
-				if previousDuration <= 0 && m.physicalSeekMS > int64(entry.DurationMs)+15000 {
-					m.physicalSeekMS = 0
-					m.physicalSeekUpdatedAt = time.Time{}
+				// Duration can arrive late and differ across providers for the same
+				// track. Keep seek monotonic to avoid mid-track progress resets.
+				if previousDuration <= 0 && m.physicalSeekMS > int64(entry.DurationMs)+15000 && m.cfg.Verbose {
+					log.Printf("library sync: preserving seek despite late duration update (seek=%dms duration=%dms)", m.physicalSeekMS, entry.DurationMs)
 				}
 				changed = true
 			}

@@ -13,7 +13,13 @@
       Library
     </a>
     <h1 id="page-title">Listening Metrics</h1>
-    <div id="header-right"></div>
+    <div id="header-right">
+      <div class="period-toggle" role="group" aria-label="Time period">
+        <button class="period-btn" data-days="7"  onclick="setPeriod(7)">7d</button>
+        <button class="period-btn" data-days="30" onclick="setPeriod(30)">30d</button>
+        <button class="period-btn" data-days="0"  onclick="setPeriod(0)">All</button>
+      </div>
+    </div>
   </header>
 
   <main id="page-main">
@@ -22,20 +28,20 @@
     <section id="stats-grid" aria-label="Statistics">
       <div class="stat-card">
         <div class="stat-value" id="stat-plays">—</div>
-        <div class="stat-label">Plays this week</div>
+        <div class="stat-label" id="stat-plays-label">Plays</div>
       </div>
       <div class="stat-card">
         <div class="stat-value" id="stat-hours">—</div>
-        <div class="stat-label">Hours all time</div>
-        <div class="stat-detail" id="stat-hours-detail"></div>
+        <div class="stat-label" id="stat-hours-label">Hours</div>
+        <div id="stat-hours-detail"></div>
       </div>
       <div class="stat-card">
-        <div class="stat-value" id="stat-top-artist">—</div>
-        <div class="stat-label">Top artist · 30 days</div>
+        <div class="top-artists-list" id="stat-top-artist"></div>
+        <div class="stat-label" id="stat-artists-label">Top artists</div>
       </div>
       <div class="stat-card" id="stat-sources-card">
-        <div class="stat-value" id="stat-sources">—</div>
         <div class="stat-label">Sources</div>
+        <div id="stat-sources-chart"></div>
       </div>
       <div class="stat-card" id="stat-stylus-card">
         <div class="stat-value" id="stat-stylus-title">Stylus tracking</div>

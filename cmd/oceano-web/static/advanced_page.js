@@ -23,12 +23,7 @@ async function loadAdvancedPage() {
     return;
   }
 
-  const guard = document.getElementById('adv-streaming-usb-guard-enabled');
-  if (guard) guard.checked = cfg.advanced?.streaming_usb_guard_enabled ?? true;
-
   _aset('adv-library-db',  cfg.advanced?.library_db ?? '');
-  _aset('adv-idle-delay',  cfg.advanced?.idle_delay_secs ?? 10);
-  _aset('adv-session-gap', cfg.advanced?.session_gap_threshold_secs ?? 45);
   _aset('adv-vu-socket',   cfg.advanced?.vu_socket ?? '');
   _aset('adv-pcm-socket',  cfg.advanced?.pcm_socket ?? '');
   _aset('adv-source-file', cfg.advanced?.source_file ?? '');
@@ -52,14 +47,10 @@ async function saveAdvancedPage() {
     return;
   }
 
-  const guard = document.getElementById('adv-streaming-usb-guard-enabled');
   fullCfg.advanced = {
     ...(fullCfg.advanced ?? {}),
-    streaming_usb_guard_enabled: guard?.checked ?? (fullCfg.advanced?.streaming_usb_guard_enabled ?? true),
-    library_db:     _aval('adv-library-db')   || fullCfg.advanced?.library_db   || '',
-    idle_delay_secs:            _aint('adv-idle-delay', 10),
-    session_gap_threshold_secs: _aint('adv-session-gap', 45),
-    vu_socket:      _aval('adv-vu-socket')    || fullCfg.advanced?.vu_socket    || '',
+    library_db: _aval('adv-library-db') || fullCfg.advanced?.library_db || '',
+    vu_socket:  _aval('adv-vu-socket')  || fullCfg.advanced?.vu_socket  || '',
     pcm_socket:     _aval('adv-pcm-socket')   || fullCfg.advanced?.pcm_socket   || '',
     source_file:    _aval('adv-source-file')  || fullCfg.advanced?.source_file  || '',
     state_file:     _aval('adv-state-file')   || fullCfg.advanced?.state_file   || '',

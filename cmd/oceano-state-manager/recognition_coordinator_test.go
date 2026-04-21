@@ -59,7 +59,7 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 
 	var backoffUntil time.Time
 	backoffRateLimited := false
-	coordinator.handleNoMatch(true, &backoffUntil, &backoffRateLimited)
+	coordinator.handleNoMatch(true, true, &backoffUntil, &backoffRateLimited)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -73,6 +73,43 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 	}
 	if m.shazamContinuityReady {
 		t.Fatal("expected shazamContinuityReady to be cleared on boundary no-match")
+	}
+	if backoffUntil.IsZero() {
+		t.Fatal("expected no-match backoff to be scheduled")
+	}
+	if backoffRateLimited {
+		t.Fatal("expected non-rate-limit backoff")
+	}
+}
+
+func TestHandleNoMatch_SoftBoundaryPreservesRecognition(t *testing.T) {
+	m := newTestMgr()
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{
+		ACRID:  "acr-existing",
+		Title:  "Existing Track",
+		Artist: "Existing Artist",
+	}
+	m.physicalArtworkPath = "/tmp/existing.jpg"
+	m.mu.Unlock()
+
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Primary"}, nil, nil, nil)
+
+	var backoffUntil time.Time
+	backoffRateLimited := false
+	coordinator.handleNoMatch(true, false, &backoffUntil, &backoffRateLimited)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recognitionResult == nil {
+		t.Fatal("expected recognitionResult to be preserved on soft boundary no-match")
+	}
+	if m.recognitionResult.Title != "Existing Track" {
+		t.Fatalf("unexpected recognitionResult title = %q", m.recognitionResult.Title)
+	}
+	if m.physicalArtworkPath != "/tmp/existing.jpg" {
+		t.Fatalf("expected artwork to remain set, got %q", m.physicalArtworkPath)
 	}
 	if backoffUntil.IsZero() {
 		t.Fatal("expected no-match backoff to be scheduled")
@@ -222,6 +259,40 @@ func TestRecognitionCoordinator_PrimaryRecognizerUsesChainPrimary(t *testing.T) 
 	}
 }
 
+func TestComputeRecognizedSeekMS_NonBoundaryEquivalentMetadataKeepsProgress(t *testing.T) {
+	now := time.Now()
+	physStartedAt := now.Add(-2 * time.Minute)
+	captureStartedAt := now.Add(-6 * time.Second)
+
+	previous := &RecognitionResult{ACRID: "acr-old", Title: "Shine On You Crazy Diamond", Artist: "Pink Floyd"}
+	current := &RecognitionResult{ACRID: "acr-new", Title: "Shine On You Crazy Diamond", Artist: "Pink Floyd"}
+
+	seekMS, resetStartedAt := computeRecognizedSeekMS(false, captureStartedAt, now, time.Time{}, physStartedAt, previous, current)
+	if resetStartedAt {
+		t.Fatal("expected physicalStartedAt to be preserved for same-track metadata")
+	}
+	if seekMS < 110000 {
+		t.Fatalf("seekMS = %d, expected preserved monotonic progress", seekMS)
+	}
+}
+
+func TestComputeRecognizedSeekMS_NonBoundaryDifferentMetadataResetsProgress(t *testing.T) {
+	now := time.Now()
+	physStartedAt := now.Add(-2 * time.Minute)
+	captureStartedAt := now.Add(-6 * time.Second)
+
+	previous := &RecognitionResult{ACRID: "acr-old", Title: "Shine On You Crazy Diamond", Artist: "Pink Floyd"}
+	current := &RecognitionResult{ACRID: "acr-new", Title: "Wish You Were Here", Artist: "Pink Floyd"}
+
+	seekMS, resetStartedAt := computeRecognizedSeekMS(false, captureStartedAt, now, time.Time{}, physStartedAt, previous, current)
+	if !resetStartedAt {
+		t.Fatal("expected physicalStartedAt reset for different track")
+	}
+	if seekMS > 20000 {
+		t.Fatalf("seekMS = %d, expected near-capture seek for new track", seekMS)
+	}
+}
+
 func TestRecognitionCoordinator_PrimaryRecognizerReturnsRecognizerAsIs(t *testing.T) {
 	rec := &stubRecognizer{name: "ACRCloud"}
 	coordinator := newRecognitionCoordinator(newTestMgr(), rec, nil, nil, nil)
@@ -270,50 +341,94 @@ func TestRecoverSeekMSFromSnapshot_ZeroTimestampKeepsBase(t *testing.T) {
 
 func TestShouldRestorePreBoundaryResult(t *testing.T) {
 	tests := []struct {
-		name              string
-		isHardBoundary    bool
-		preBoundarySeekMS int64
-		minSeek           time.Duration
-		wantRestore       bool
-		wantReason        string
+		name                 string
+		isHardBoundary       bool
+		preBoundarySeekMS    int64
+		preBoundaryElapsedMS int64
+		knownDurationMS      int
+		minSeek              time.Duration
+		durationPessimism    float64
+		wantRestore          bool
+		wantReason           string
 	}{
 		{
-			name:              "hard boundary always blocks",
-			isHardBoundary:    true,
-			preBoundarySeekMS: 120000,
-			minSeek:           60 * time.Second,
-			wantRestore:       false,
-			wantReason:        "hard boundary",
+			name:                 "hard boundary restores when before threshold",
+			isHardBoundary:       true,
+			preBoundarySeekMS:    120000,
+			preBoundaryElapsedMS: 50000,
+			knownDurationMS:      240000,
+			minSeek:              60 * time.Second,
+			durationPessimism:    0.75,
+			wantRestore:          true,
+			wantReason:           "",
 		},
 		{
-			name:              "soft boundary blocks short seek",
-			isHardBoundary:    false,
-			preBoundarySeekMS: 30000,
-			minSeek:           60 * time.Second,
-			wantRestore:       false,
-			wantReason:        "seek too short",
+			name:                 "hard boundary blocks at or after threshold",
+			isHardBoundary:       true,
+			preBoundarySeekMS:    120000,
+			preBoundaryElapsedMS: 180000,
+			knownDurationMS:      240000,
+			minSeek:              60 * time.Second,
+			durationPessimism:    0.75,
+			wantRestore:          false,
+			wantReason:           "hard boundary",
 		},
 		{
-			name:              "soft boundary allows mature seek",
-			isHardBoundary:    false,
-			preBoundarySeekMS: 90000,
-			minSeek:           60 * time.Second,
-			wantRestore:       true,
-			wantReason:        "",
+			name:                 "hard boundary blocks when duration unknown",
+			isHardBoundary:       true,
+			preBoundarySeekMS:    120000,
+			preBoundaryElapsedMS: 50000,
+			knownDurationMS:      0,
+			minSeek:              60 * time.Second,
+			durationPessimism:    0.75,
+			wantRestore:          false,
+			wantReason:           "hard boundary",
 		},
 		{
-			name:              "invalid min seek falls back to 60s",
-			isHardBoundary:    false,
-			preBoundarySeekMS: 45000,
-			minSeek:           0,
-			wantRestore:       false,
-			wantReason:        "seek too short",
+			name:                 "soft boundary restores even with short seek",
+			isHardBoundary:       false,
+			preBoundarySeekMS:    30000,
+			preBoundaryElapsedMS: 30000,
+			knownDurationMS:      240000,
+			minSeek:              60 * time.Second,
+			durationPessimism:    0.75,
+			wantRestore:          true,
+			wantReason:           "",
+		},
+		{
+			name:                 "soft boundary restores with mature seek",
+			isHardBoundary:       false,
+			preBoundarySeekMS:    90000,
+			preBoundaryElapsedMS: 90000,
+			knownDurationMS:      240000,
+			minSeek:              60 * time.Second,
+			durationPessimism:    0.75,
+			wantRestore:          true,
+			wantReason:           "",
+		},
+		{
+			name:                 "invalid min seek still restores on soft boundary",
+			isHardBoundary:       false,
+			preBoundarySeekMS:    45000,
+			preBoundaryElapsedMS: 45000,
+			knownDurationMS:      240000,
+			minSeek:              0,
+			durationPessimism:    0.75,
+			wantRestore:          true,
+			wantReason:           "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotRestore, gotReason := shouldRestorePreBoundaryResult(tt.isHardBoundary, tt.preBoundarySeekMS, tt.minSeek)
+			gotRestore, gotReason := shouldRestorePreBoundaryResult(
+				tt.isHardBoundary,
+				tt.preBoundarySeekMS,
+				tt.preBoundaryElapsedMS,
+				tt.knownDurationMS,
+				tt.minSeek,
+				tt.durationPessimism,
+			)
 			if gotRestore != tt.wantRestore {
 				t.Fatalf("shouldRestorePreBoundaryResult() restore=%v, want %v", gotRestore, tt.wantRestore)
 			}

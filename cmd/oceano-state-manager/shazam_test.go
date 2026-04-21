@@ -269,6 +269,22 @@ func TestTracksEquivalent_BobMarleyVariant_Matches(t *testing.T) {
 	}
 }
 
+func TestSameTrackForStateContinuity_MetadataEquivalentWithDifferentIDs(t *testing.T) {
+	a := &RecognitionResult{ACRID: "acr-111", Title: "Shine On You Crazy Diamond", Artist: "Pink Floyd"}
+	b := &RecognitionResult{ACRID: "acr-222", Title: "Shine On You Crazy Diamond", Artist: "Pink Floyd"}
+	if !sameTrackForStateContinuity(a, b) {
+		t.Fatal("expected same-track continuity for equivalent metadata despite different IDs")
+	}
+}
+
+func TestSameTrackForStateContinuity_DifferentTrack(t *testing.T) {
+	a := &RecognitionResult{ACRID: "acr-111", Title: "Shine On You Crazy Diamond", Artist: "Pink Floyd"}
+	b := &RecognitionResult{ACRID: "acr-222", Title: "Money", Artist: "Pink Floyd"}
+	if sameTrackForStateContinuity(a, b) {
+		t.Fatal("different tracks must not be treated as same continuity")
+	}
+}
+
 func TestCrossServiceMatch_DifferentTitle(t *testing.T) {
 	r := &RecognitionResult{Title: "Exodus", Artist: "Bob Marley"}
 	c := &RecognitionResult{Title: "Jamming", Artist: "Bob Marley"}

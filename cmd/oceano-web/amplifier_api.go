@@ -1030,12 +1030,37 @@ func broadlinkClientFromConfig(host string) amplifier.BroadlinkClient {
 	return &amplifier.PythonBroadlinkClient{BridgePath: bridgePath, Host: host}
 }
 
+func powerCalibrationForConfiguredInput(advanced AdvancedConfig, runtime AmplifierRuntimeConfig) *amplifier.NoiseFloorCalibration {
+	inputID := strings.TrimSpace(string(runtime.LastKnownInputID))
+	if inputID == "" {
+		return nil
+	}
+	profile, ok := advanced.CalibrationProfiles[inputID]
+	if !ok || profile.Off == nil || profile.On == nil {
+		return nil
+	}
+	off := profile.Off.AvgRMS
+	on := profile.On.AvgRMS
+	if on <= 0 || off < 0 || on <= off {
+		return nil
+	}
+	return &amplifier.NoiseFloorCalibration{
+		InputID: inputID,
+		OffRMS:  off,
+		OnRMS:   on,
+	}
+}
+
 // buildAmplifierFromConfig constructs a BroadlinkAmplifier from AmplifierConfig.
 // Returns nil, nil when the amplifier is disabled or not yet configured.
-func buildAmplifierFromConfig(cfg AmplifierConfig, vuSocketPath, outputDeviceMatch string) (*amplifier.BroadlinkAmplifier, error) {
+func buildAmplifierFromConfig(cfg AmplifierConfig, vuSocketPath, outputDeviceMatch string, powerCal ...*amplifier.NoiseFloorCalibration) (*amplifier.BroadlinkAmplifier, error) {
 	cfg = resolveAmplifierConfig(cfg)
 	if !cfg.Enabled || cfg.Maker == "" || cfg.Model == "" {
 		return nil, nil
+	}
+	var selectedCal *amplifier.NoiseFloorCalibration
+	if len(powerCal) > 0 {
+		selectedCal = powerCal[0]
 	}
 	return amplifier.NewBroadlinkAmplifier(
 		broadlinkClientFromConfig(cfg.Broadlink.Host),
@@ -1054,6 +1079,7 @@ func buildAmplifierFromConfig(cfg AmplifierConfig, vuSocketPath, outputDeviceMat
 				StepWait:   time.Duration(cfg.InputCycling.StepWaitSecs) * time.Second,
 				MinSilence: time.Duration(cfg.InputCycling.MinSilenceSecs) * time.Second,
 			},
+			PowerNoiseFloor: selectedCal,
 		},
 	)
 }

@@ -24,6 +24,15 @@ type InputCyclingSettings struct {
 	MinSilence time.Duration
 }
 
+// NoiseFloorCalibration stores OFF/ON RMS references for one configured input.
+// It is used by DetectPowerState to classify "amp on, silent" more reliably
+// than a single global threshold.
+type NoiseFloorCalibration struct {
+	InputID string
+	OffRMS  float64
+	OnRMS   float64
+}
+
 // AmplifierSettings holds all configuration needed to construct a BroadlinkAmplifier.
 type AmplifierSettings struct {
 	Maker string
@@ -50,6 +59,10 @@ type AmplifierSettings struct {
 
 	// InputCycling controls the optional last-resort cycling probe.
 	InputCycling InputCyclingSettings
+
+	// PowerNoiseFloor optionally overrides the fixed RMS threshold with a
+	// calibration derived from the selected amplifier input.
+	PowerNoiseFloor *NoiseFloorCalibration
 }
 
 // BroadlinkAmplifier implements Amplifier for any IR-controlled amplifier
@@ -194,7 +207,7 @@ func (a *BroadlinkAmplifier) DetectPowerState(ctx context.Context) (PowerState, 
 	if a.settings.VUSocketPath != "" {
 		rms, err := checkNoiseFloor(ctx, a.settings.VUSocketPath)
 		if err == nil {
-			if s := classifyNoiseFloor(rms); s != PowerStateUnknown {
+			if s := classifyNoiseFloorWithCalibration(rms, a.settings.PowerNoiseFloor); s != PowerStateUnknown {
 				return s, nil
 			}
 		}

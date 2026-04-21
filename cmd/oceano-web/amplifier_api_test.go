@@ -617,6 +617,41 @@ func TestBuildAmplifierFromConfig_ProfileResolved(t *testing.T) {
 	}
 }
 
+func TestPowerCalibrationForConfiguredInput_UsesLastKnownOnly(t *testing.T) {
+	advanced := AdvancedConfig{
+		CalibrationProfiles: map[string]CalibrationProfile{
+			"20": {Off: &CalibrationSample{AvgRMS: 0.007}, On: &CalibrationSample{AvgRMS: 0.013}},
+			"30": {Off: &CalibrationSample{AvgRMS: 0.010}, On: &CalibrationSample{AvgRMS: 0.016}},
+		},
+	}
+	runtime := AmplifierRuntimeConfig{LastKnownInputID: AmplifierInputID("30")}
+
+	cal := powerCalibrationForConfiguredInput(advanced, runtime)
+	if cal == nil {
+		t.Fatal("expected non-nil calibration")
+	}
+	if cal.InputID != "30" {
+		t.Fatalf("InputID = %q, want 30", cal.InputID)
+	}
+	if cal.OffRMS != 0.010 || cal.OnRMS != 0.016 {
+		t.Fatalf("unexpected calibration values: off=%.4f on=%.4f", cal.OffRMS, cal.OnRMS)
+	}
+}
+
+func TestPowerCalibrationForConfiguredInput_NoFallbackToOtherInputs(t *testing.T) {
+	advanced := AdvancedConfig{
+		CalibrationProfiles: map[string]CalibrationProfile{
+			"20": {Off: &CalibrationSample{AvgRMS: 0.007}, On: &CalibrationSample{AvgRMS: 0.013}},
+		},
+	}
+	runtime := AmplifierRuntimeConfig{LastKnownInputID: AmplifierInputID("30")}
+
+	cal := powerCalibrationForConfiguredInput(advanced, runtime)
+	if cal != nil {
+		t.Fatalf("expected nil calibration when configured input has no profile, got %+v", cal)
+	}
+}
+
 func TestResolveAmplifierConfig_LegacyNoProfilePreserved(t *testing.T) {
 	legacy := AmplifierConfig{
 		Enabled:            true,

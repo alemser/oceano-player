@@ -255,7 +255,7 @@ func (l *LibraryDB) generateBackup(destPath, artworkDir, configPath string) erro
 }
 
 // shellQuote returns s wrapped in single quotes, safe for use in bash scripts.
-// Any single quotes inside s are escaped as '\''.
+// Any single quotes inside s are escaped as '\”.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
@@ -404,11 +404,11 @@ func restoreFromBackup(backupPath, scope, libraryDBPath, artworkDir, configPath 
 
 // registerBackupRoutes wires all backup and restore API endpoints into mux.
 //
-//   GET  /api/backups              — list available backups (JSON array)
-//   GET  /api/backups/download     — download a specific backup (?file=<name>)
-//   POST /api/backups/run          — trigger an immediate backup
-//   POST /api/backups/restore      — restore from a backup (body: {file, scope})
-//   GET  /api/library/export/backup — legacy redirect to latest backup download
+//	GET  /api/backups              — list available backups (JSON array)
+//	GET  /api/backups/download     — download a specific backup (?file=<name>)
+//	POST /api/backups/run          — trigger an immediate backup
+//	POST /api/backups/restore      — restore from a backup (body: {file, scope})
+//	GET  /api/library/export/backup — legacy redirect to latest backup download
 func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configPath string) {
 	backupDir := filepath.Dir(libraryDBPath)
 
@@ -540,7 +540,7 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 					}
 				}
 				if _, err := os.Stat(managerSvc); err == nil {
-					if wErr := writeManagerService(newCfg); wErr == nil {
+					if wErr := writeManagerService(newCfg, configPath); wErr == nil {
 						if rErr := restartService(managerUnit); rErr == nil {
 							msgs = append(msgs, "oceano-state-manager restarted")
 						} else {
@@ -618,7 +618,7 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 					}
 				}
 				if _, err := os.Stat(managerSvc); err == nil {
-					if wErr := writeManagerService(newCfg); wErr == nil {
+					if wErr := writeManagerService(newCfg, configPath); wErr == nil {
 						if rErr := restartService(managerUnit); rErr == nil {
 							msgs = append(msgs, "oceano-state-manager restarted")
 						} else {

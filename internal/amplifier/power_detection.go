@@ -49,6 +49,23 @@ func checkUSBDAC(model string) bool {
 	return checkUSBDACWithContext(context.Background(), model)
 }
 
+func calibratedOnThreshold(cal *NoiseFloorCalibration) (float64, bool) {
+	if cal == nil {
+		return 0, false
+	}
+	off := cal.OffRMS
+	on := cal.OnRMS
+	if on <= 0 || off < 0 || on <= off {
+		return 0, false
+	}
+	gap := on - off
+	threshold := off + gap*0.55
+	if threshold < noiseFloorOnThreshold {
+		threshold = noiseFloorOnThreshold
+	}
+	return threshold, true
+}
+
 // checkNoiseFloor connects to the VU Unix socket, reads frames for
 // vuSampleDuration (or until ctx is cancelled), and returns the average RMS.
 // Returns an error if the socket cannot be reached or yields no frames.
@@ -94,6 +111,16 @@ func checkNoiseFloor(ctx context.Context, socketPath string) (float64, error) {
 // classifyNoiseFloor maps an average RMS value to a PowerState.
 // Exposed for unit testing without requiring a live VU socket.
 func classifyNoiseFloor(rms float64) PowerState {
+	return classifyNoiseFloorWithCalibration(rms, nil)
+}
+
+func classifyNoiseFloorWithCalibration(rms float64, cal *NoiseFloorCalibration) PowerState {
+	if threshold, ok := calibratedOnThreshold(cal); ok {
+		if rms >= threshold {
+			return PowerStateOn
+		}
+		return PowerStateUnknown
+	}
 	if rms >= noiseFloorOnThreshold {
 		return PowerStateOn
 	}

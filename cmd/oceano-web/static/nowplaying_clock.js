@@ -1,18 +1,41 @@
 // ─── DOM refs for clock ──────────────────────────────────────────────────────
-const $idleTime = document.getElementById('idle-time');
-const $idleDate = document.getElementById('idle-date');
+const $idleTime    = document.getElementById('idle-time');
+const $idleSeconds = document.getElementById('idle-seconds');
+const $idleDate    = document.getElementById('idle-date');
 
 const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-// ─── Idle clock logic ────────────────────────────────────────────────────────
+// ─── Tick: called every second ───────────────────────────────────────────────
 function tickClock() {
   const now = new Date();
-  const h = String(now.getHours()).padStart(2, '0');
-  const m = String(now.getMinutes()).padStart(2, '0');
-  if ($idleTime) $idleTime.textContent = h + ':' + m;
-  if ($idleDate) $idleDate.textContent = DAYS[now.getDay()] + ', ' + now.getDate() + ' ' + MONTHS[now.getMonth()];
+  const h = now.getHours();
+  const m = now.getMinutes();
+  const s = now.getSeconds();
+
+  if ($idleTime) {
+    $idleTime.textContent =
+      String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  }
+  if ($idleSeconds) {
+    $idleSeconds.textContent = String(s).padStart(2, '0');
+  }
+  if ($idleDate) {
+    $idleDate.textContent =
+      DAYS[now.getDay()] + ', ' + now.getDate() + ' ' + MONTHS[now.getMonth()];
+  }
+
+  document.body.classList.toggle('night-mode', h >= 23 || h < 6);
+}
+
+// ─── Precise scheduling: sync to wall-clock seconds ──────────────────────────
+function scheduleNextTick() {
+  const msUntilNextSecond = 1000 - (Date.now() % 1000);
+  setTimeout(() => {
+    tickClock();
+    setInterval(tickClock, 1000);
+  }, msUntilNextSecond);
 }
 
 tickClock();
-setInterval(tickClock, 10_000);
+scheduleNextTick();

@@ -41,10 +41,8 @@ async function loadConfig() {
   set('rec-continuity-capture',  cfg.recognition?.shazam_continuity_capture_duration_secs ?? 4);
   _recognitionConfig = cfg.recognition ?? {};
 
-  set('adv-library-db',     cfg.advanced?.library_db ?? '');
-  set('adv-idle-delay',     cfg.advanced?.idle_delay_secs ?? 10);
-  set('adv-session-gap',    cfg.advanced?.session_gap_threshold_secs ?? 45);
-  set('adv-vu-socket',      cfg.advanced?.vu_socket ?? '');
+  set('adv-library-db', cfg.advanced?.library_db ?? '');
+  set('adv-vu-socket',  cfg.advanced?.vu_socket  ?? '');
   set('adv-pcm-socket',     cfg.advanced?.pcm_socket ?? '');
   set('adv-source-file',    cfg.advanced?.source_file ?? '');
   set('adv-state-file',     cfg.advanced?.state_file ?? '');

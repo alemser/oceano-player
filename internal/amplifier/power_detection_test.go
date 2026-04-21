@@ -65,6 +65,28 @@ func TestClassifyNoiseFloor_PhonoLikeSignalNotOff(t *testing.T) {
 	}
 }
 
+func TestClassifyNoiseFloorWithCalibration_OnWhenAboveCalibratedThreshold(t *testing.T) {
+	cal := &NoiseFloorCalibration{InputID: "20", OffRMS: 0.0075, OnRMS: 0.0135}
+	if got := classifyNoiseFloorWithCalibration(0.0125, cal); got != PowerStateOn {
+		t.Fatalf("classifyNoiseFloorWithCalibration = %q, want %q", got, PowerStateOn)
+	}
+}
+
+func TestClassifyNoiseFloorWithCalibration_DoesNotFallbackToDefaultThreshold(t *testing.T) {
+	cal := &NoiseFloorCalibration{InputID: "30", OffRMS: 0.014, OnRMS: 0.018}
+	// Above legacy fixed threshold (0.012) but below calibrated threshold.
+	if got := classifyNoiseFloorWithCalibration(0.0132, cal); got != PowerStateUnknown {
+		t.Fatalf("classifyNoiseFloorWithCalibration = %q, want %q", got, PowerStateUnknown)
+	}
+}
+
+func TestClassifyNoiseFloorWithCalibration_InvalidCalibrationFallsBack(t *testing.T) {
+	invalid := &NoiseFloorCalibration{InputID: "20", OffRMS: 0.015, OnRMS: 0.010}
+	if got := classifyNoiseFloorWithCalibration(noiseFloorOnThreshold+0.001, invalid); got != PowerStateOn {
+		t.Fatalf("classifyNoiseFloorWithCalibration = %q, want %q", got, PowerStateOn)
+	}
+}
+
 // --- checkNoiseFloor via mock VU socket ---
 
 // startMockVUSocket starts a Unix socket server that sends frames with the

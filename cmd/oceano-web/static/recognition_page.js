@@ -1,5 +1,138 @@
 'use strict';
 
+const _calibrationState = {
+  off: null,
+  on: null,
+  vinylTransition: null,
+  cfg: null,
+  byInput: {},
+};
+
+function _normalizeCalibrationSample(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const avg = Number(raw.avg_rms);
+  const min = Number(raw.min_rms);
+  const max = Number(raw.max_rms);
+  const samples = Number(raw.samples);
+  if (!Number.isFinite(avg) || !Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(samples)) {
+    return null;
+  }
+  return {
+    avg_rms: avg,
+    min_rms: min,
+    max_rms: max,
+    samples,
+  };
+}
+
+function _normalizeCalibrationProfiles(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [key, profile] of Object.entries(raw)) {
+    if (!key || key === '__manual__') continue;
+    if (!profile || typeof profile !== 'object') continue;
+    out[key] = {
+      off: _normalizeCalibrationSample(profile.off),
+      on: _normalizeCalibrationSample(profile.on),
+      vinyl_transition: _normalizeVinylTransition(profile.vinyl_transition),
+    };
+  }
+  return out;
+}
+
+function _normalizeVinylTransition(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const tail = Number(raw.tail_avg_rms);
+  const gap = Number(raw.gap_avg_rms);
+  const attack = Number(raw.attack_avg_rms);
+  const gapSecs = Number(raw.gap_duration_secs);
+  const sps = Number(raw.samples_per_sec);
+  const samples = Number(raw.samples);
+  if (!Number.isFinite(tail) || !Number.isFinite(gap) || !Number.isFinite(attack) || !Number.isFinite(gapSecs) || !Number.isFinite(sps) || !Number.isFinite(samples)) {
+    return null;
+  }
+  return {
+    tail_avg_rms: tail,
+    gap_avg_rms: gap,
+    attack_avg_rms: attack,
+    gap_duration_secs: gapSecs,
+    samples_per_sec: sps,
+    samples,
+  };
+}
+
+function _calibrationSelectedInputKey() {
+  const raw = _rval('cal-input-select');
+  return raw || '__manual__';
+}
+
+function _syncCalibrationContextFromSelection() {
+  const key = _calibrationSelectedInputKey();
+  const slot = _calibrationState.byInput[key] || { off: null, on: null, vinyl_transition: null };
+  _calibrationState.off = slot.off;
+  _calibrationState.on = slot.on;
+  _calibrationState.vinylTransition = slot.vinyl_transition || null;
+  renderCalibrationResult('off', _calibrationState.off);
+  renderCalibrationResult('on', _calibrationState.on);
+  renderVinylTransitionResult(_calibrationState.vinylTransition);
+  renderVinylTransitionVisibility();
+  renderCalibrationRecommendation();
+  _renderCurrentValuesHint();
+}
+
+function _selectedInputLabel() {
+  const el = document.getElementById('cal-input-select');
+  if (!el) return '';
+  const idx = el.selectedIndex;
+  if (idx < 0) return '';
+  return (el.options[idx]?.textContent || '').trim();
+}
+
+function _isVinylInputSelected() {
+  const key = _calibrationSelectedInputKey();
+  const label = _selectedInputLabel().toLowerCase();
+  return key === '10' || label.includes('phono') || label.includes('vinyl') || label.includes('vinil');
+}
+
+function _renderCurrentValuesHint() {
+  const el = document.getElementById('cal-current-values-hint');
+  if (!el) return;
+
+  const key = _calibrationSelectedInputKey();
+  const slot = _calibrationState.byInput[key];
+  if (!slot || (!slot.off && !slot.on && !slot.vinyl_transition)) {
+    el.textContent = 'No calibration saved for this input yet.';
+    return;
+  }
+
+  const rec = calibrationRecommendation();
+  if (!rec || !rec.ok) {
+    el.textContent = 'Calibration data exists for this input, but recommendation is incomplete. Capture OFF and ON again.';
+    return;
+  }
+
+  const parts = [];
+  if (rec.detectorThreshold != null) {
+    parts.push(`source=${rec.detectorThreshold.toFixed(4)}`);
+  }
+  if (rec.vuThreshold != null) {
+    parts.push(`vu=${rec.vuThreshold.toFixed(4)}`);
+  }
+  if (Number.isFinite(rec.gap)) {
+    parts.push(`off/on-gap=${rec.gap.toFixed(4)}`);
+  }
+  if (_calibrationState.vinylTransition && Number.isFinite(Number(_calibrationState.vinylTransition.gap_duration_secs))) {
+    parts.push(`vinyl-gap=${Number(_calibrationState.vinylTransition.gap_duration_secs).toFixed(2)}s`);
+  }
+  el.textContent = `Current calibrated values for this input: ${parts.join(' | ')}.`;
+}
+
+function renderVinylTransitionVisibility() {
+  const box = document.getElementById('cal-vinyl-step');
+  if (!box) return;
+  box.style.display = _isVinylInputSelected() ? '' : 'none';
+}
+
 function _rval(id) {
   return (document.getElementById(id)?.value ?? '').trim();
 }
@@ -97,6 +230,9 @@ async function loadRecognitionPage() {
 
   _rset('inp-silence',  cfg.audio_input?.silence_threshold ?? 0.025);
   _rset('inp-debounce', cfg.audio_input?.debounce_windows  ?? 10);
+  _rset('rec-vu-silence-threshold', cfg.advanced?.vu_silence_threshold ?? 0.0095);
+  _rset('rec-session-gap',  cfg.advanced?.session_gap_threshold_secs ?? 45);
+  _rset('rec-idle-delay',   cfg.advanced?.idle_delay_secs ?? 10);
 
   _rset('rec-chain',            cfg.recognition?.recognizer_chain        ?? 'acrcloud_first');
   _rset('rec-host',             cfg.recognition?.acrcloud_host           ?? '');
@@ -121,8 +257,298 @@ async function loadRecognitionPage() {
   _rset('rec-duration-pessimism', cfg.recognition?.duration_pessimism);
   _rset('rec-boundary-restore-min-seek', cfg.recognition?.boundary_restore_min_seek_secs);
 
+  _calibrationState.cfg = cfg;
+  _calibrationState.byInput = _normalizeCalibrationProfiles(cfg.advanced?.calibration_profiles);
+  fillCalibrationInputOptions(cfg);
+  _renderCurrentValuesHint();
+
   updateRecognitionUI();
   loadRecognitionStats();
+}
+
+function fillCalibrationInputOptions(cfg) {
+  const select = document.getElementById('cal-input-select');
+  if (!select) return;
+  select.innerHTML = '';
+
+  const inputs = Array.isArray(cfg?.amplifier?.inputs) ? cfg.amplifier.inputs : [];
+  const visible = inputs.filter((i) => i && i.visible !== false);
+
+  if (!visible.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'Manual selection on amplifier';
+    select.appendChild(opt);
+    _syncCalibrationContextFromSelection();
+    return;
+  }
+
+  for (const input of visible) {
+    const opt = document.createElement('option');
+    opt.value = String(input.id || '');
+    opt.textContent = input.logical_name || `Input ${input.id}`;
+    select.appendChild(opt);
+  }
+
+  _syncCalibrationContextFromSelection();
+}
+
+function renderCalibrationResult(kind, data) {
+  const target = document.getElementById(kind === 'off' ? 'cal-off-result' : 'cal-on-result');
+  if (!target) return;
+  if (!data) {
+    target.textContent = '';
+    return;
+  }
+  const label = kind === 'off' ? 'OFF sample' : 'ON sample';
+  target.textContent = `${label}: avg=${data.avg_rms.toFixed(4)} min=${data.min_rms.toFixed(4)} max=${data.max_rms.toFixed(4)} samples=${data.samples}`;
+}
+
+function calibrationRecommendation() {
+  const off = _calibrationState.off;
+  const on = _calibrationState.on;
+  const vinyl = _calibrationState.vinylTransition;
+  let detectorThreshold = null;
+  let vuThreshold = null;
+  let gap = null;
+  let offRMS = null;
+  let onRMS = null;
+
+  if (off && on) {
+    offRMS = Number(off.avg_rms || 0);
+    onRMS = Number(on.avg_rms || 0);
+    if (!(onRMS > offRMS)) {
+      return {
+        ok: false,
+        message: 'ON RMS is not above OFF RMS. Repeat captures with stable volume and no playback.',
+      };
+    }
+    gap = onRMS - offRMS;
+    detectorThreshold = offRMS + gap * 0.65;
+    vuThreshold = offRMS + gap * 0.50;
+  }
+
+  if (vinyl) {
+    const tail = Number(vinyl.tail_avg_rms || 0);
+    const gapRMS = Number(vinyl.gap_avg_rms || 0);
+    const attack = Number(vinyl.attack_avg_rms || 0);
+    const minMusic = Math.min(tail, attack);
+    if (Number.isFinite(minMusic) && Number.isFinite(gapRMS) && minMusic > gapRMS) {
+      const vinylVuThreshold = gapRMS + (minMusic - gapRMS) * 0.35;
+      vuThreshold = vuThreshold == null ? vinylVuThreshold : Math.min(vuThreshold, vinylVuThreshold);
+    }
+  }
+
+  if (detectorThreshold == null && vuThreshold == null) {
+    return null;
+  }
+
+  const parts = [];
+  if (detectorThreshold != null) {
+    parts.push(`source silence threshold ${detectorThreshold.toFixed(4)}`);
+  }
+  if (vuThreshold != null) {
+    parts.push(`VU silence threshold ${vuThreshold.toFixed(4)}`);
+  }
+  if (vinyl && Number.isFinite(Number(vinyl.gap_duration_secs))) {
+    parts.push(`vinyl gap ~${Number(vinyl.gap_duration_secs).toFixed(2)}s`);
+  }
+
+  return {
+    ok: true,
+    detectorThreshold,
+    vuThreshold,
+    offRMS,
+    onRMS,
+    gap,
+    message: `Recommended: ${parts.join(', ')}.`,
+  };
+}
+
+function renderCalibrationRecommendation() {
+  const el = document.getElementById('cal-recommendation');
+  if (!el) return;
+  const rec = calibrationRecommendation();
+  if (!rec) {
+    el.textContent = 'Capture OFF/ON samples, and for Phono optionally capture a vinyl transition sample, to compute recommendations.';
+    return;
+  }
+  if (!rec.ok) {
+    el.textContent = rec.message;
+    return;
+  }
+  el.textContent = rec.message;
+}
+
+async function captureCalibrationSample(kind) {
+  const status = document.getElementById('cal-wizard-status');
+  const secs = _rint('cal-duration-secs', 6);
+  const captureSecs = Math.max(2, Math.min(20, secs));
+  const inputKey = _calibrationSelectedInputKey();
+  if (status) status.textContent = `Capturing ${kind.toUpperCase()} sample for ${captureSecs}s...`;
+
+  try {
+    const res = await fetch('/api/calibration/vu-sample', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seconds: captureSecs }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (status) status.textContent = body.error || 'Calibration capture failed.';
+      toast(body.error || 'Calibration capture failed.', true);
+      return;
+    }
+    if (!_calibrationState.byInput[inputKey]) {
+      _calibrationState.byInput[inputKey] = { off: null, on: null, vinyl_transition: null };
+    }
+    _calibrationState.byInput[inputKey][kind] = body;
+    _calibrationState[kind] = body;
+    renderCalibrationResult(kind, body);
+    renderCalibrationRecommendation();
+    _renderCurrentValuesHint();
+    if (status) status.textContent = `${kind.toUpperCase()} sample captured.`;
+    toast(`${kind.toUpperCase()} sample captured.`, false);
+  } catch {
+    if (status) status.textContent = 'Calibration capture failed.';
+    toast('Calibration capture failed.', true);
+  }
+}
+
+function _meanRange(values, start, end) {
+  const s = Math.max(0, Math.min(values.length, start));
+  const e = Math.max(s + 1, Math.min(values.length, end));
+  let sum = 0;
+  for (let i = s; i < e; i++) {
+    sum += Number(values[i]) || 0;
+  }
+  return sum / (e - s);
+}
+
+function analyzeVinylTransitionSequence(body) {
+  const rms = Array.isArray(body?.rms) ? body.rms.map((v) => Number(v) || 0) : [];
+  if (rms.length < 12) {
+    return null;
+  }
+
+  const sps = Number(body.samples_per_sec) > 0 ? Number(body.samples_per_sec) : (rms.length / Math.max(1, Number(body.seconds) || 1));
+  let minIdx = 0;
+  for (let i = 1; i < rms.length; i++) {
+    if (rms[i] < rms[minIdx]) minIdx = i;
+  }
+
+  const tailSpan = Math.max(3, Math.round(sps * 2.5));
+  const gapSpan = Math.max(3, Math.round(sps * 0.8));
+  const attackSpan = Math.max(3, Math.round(sps * 2.0));
+
+  const tailStart = Math.max(0, minIdx - tailSpan);
+  const tailEnd = Math.max(tailStart + 1, minIdx - Math.max(1, Math.round(sps * 0.2)));
+  const gapStart = Math.max(0, minIdx - Math.floor(gapSpan / 2));
+  const gapEnd = Math.min(rms.length, gapStart + gapSpan);
+  const attackStart = Math.min(rms.length - 1, minIdx + Math.max(1, Math.round(sps * 0.4)));
+  const attackEnd = Math.min(rms.length, attackStart + attackSpan);
+
+  const tailAvg = _meanRange(rms, tailStart, tailEnd);
+  const gapAvg = _meanRange(rms, gapStart, gapEnd);
+  const attackAvg = _meanRange(rms, attackStart, attackEnd);
+
+  const nearGap = gapAvg * 1.2;
+  let gapCount = 0;
+  for (const v of rms) {
+    if (v <= nearGap) gapCount++;
+  }
+  const gapDurationSecs = sps > 0 ? (gapCount / sps) : 0;
+
+  return {
+    tail_avg_rms: tailAvg,
+    gap_avg_rms: gapAvg,
+    attack_avg_rms: attackAvg,
+    gap_duration_secs: gapDurationSecs,
+    samples_per_sec: sps,
+    samples: rms.length,
+  };
+}
+
+function renderVinylTransitionResult(data) {
+  const result = document.getElementById('cal-vinyl-result');
+  const hint = document.getElementById('cal-vinyl-recommendation');
+  if (result) {
+    if (!data) {
+      result.textContent = '';
+    } else {
+      result.textContent = `Vinyl transition: tail=${data.tail_avg_rms.toFixed(4)} gap=${data.gap_avg_rms.toFixed(4)} attack=${data.attack_avg_rms.toFixed(4)} gapDur=${data.gap_duration_secs.toFixed(2)}s samples=${data.samples}`;
+    }
+  }
+  if (hint) {
+    if (!data) {
+      hint.textContent = '';
+    } else {
+      hint.textContent = 'Transition profile saved for this input and used to make VU threshold recommendation more conservative.';
+    }
+  }
+}
+
+async function captureVinylTransitionSample() {
+  const status = document.getElementById('cal-wizard-status');
+  if (!_isVinylInputSelected()) {
+    toast('Vinyl transition capture is only available for Phono inputs.', true);
+    return;
+  }
+  const secs = _rint('cal-duration-secs', 6);
+  const captureSecs = Math.max(6, Math.min(30, secs * 3));
+  const inputKey = _calibrationSelectedInputKey();
+  if (status) status.textContent = `Capturing vinyl transition sequence for ${captureSecs}s...`;
+
+  try {
+    const res = await fetch('/api/calibration/vu-sequence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seconds: captureSecs }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (status) status.textContent = body.error || 'Vinyl transition capture failed.';
+      toast(body.error || 'Vinyl transition capture failed.', true);
+      return;
+    }
+
+    const transition = analyzeVinylTransitionSequence(body);
+    if (!transition) {
+      if (status) status.textContent = 'Vinyl transition sample too short. Repeat with a longer transition.';
+      toast('Vinyl transition sample too short. Repeat capture.', true);
+      return;
+    }
+
+    if (!_calibrationState.byInput[inputKey]) {
+      _calibrationState.byInput[inputKey] = { off: null, on: null, vinyl_transition: null };
+    }
+    _calibrationState.byInput[inputKey].vinyl_transition = transition;
+    _calibrationState.vinylTransition = transition;
+    renderVinylTransitionResult(transition);
+    renderCalibrationRecommendation();
+    _renderCurrentValuesHint();
+    if (status) status.textContent = 'Vinyl transition sample captured.';
+    toast('Vinyl transition sample captured.', false);
+  } catch {
+    if (status) status.textContent = 'Vinyl transition capture failed.';
+    toast('Vinyl transition capture failed.', true);
+  }
+}
+
+function applyCalibrationRecommendations() {
+  const rec = calibrationRecommendation();
+  if (!rec || !rec.ok) {
+    toast('Capture calibration samples first.', true);
+    return;
+  }
+  if (rec.detectorThreshold != null) {
+    _rset('inp-silence', rec.detectorThreshold.toFixed(4));
+  }
+  if (rec.vuThreshold != null) {
+    _rset('rec-vu-silence-threshold', rec.vuThreshold.toFixed(4));
+  }
+  _renderCurrentValuesHint();
+  toast('Calibration recommendations applied to fields. Save to persist.', false);
 }
 
 async function loadRecognitionStats() {
@@ -200,6 +626,14 @@ async function saveRecognitionPage() {
     debounce_windows:  _rint('inp-debounce', _cfgInt(fullCfg.audio_input?.debounce_windows, 10)),
   };
 
+  fullCfg.advanced = {
+    ...(fullCfg.advanced ?? {}),
+    vu_silence_threshold:       _rfloat('rec-vu-silence-threshold', _cfgFloat(fullCfg.advanced?.vu_silence_threshold, 0.0095)),
+    session_gap_threshold_secs: _rint('rec-session-gap',  _cfgInt(fullCfg.advanced?.session_gap_threshold_secs, 45)),
+    idle_delay_secs:            _rint('rec-idle-delay',   _cfgInt(fullCfg.advanced?.idle_delay_secs, 10)),
+    calibration_profiles:       _normalizeCalibrationProfiles(_calibrationState.byInput),
+  };
+
   const recCurrent = fullCfg.recognition ?? {};
 
   fullCfg.recognition = {
@@ -257,4 +691,7 @@ function toast(msg, isError = false) {
 }
 
 document.getElementById('rec-chain')?.addEventListener('change', updateRecognitionUI);
-document.addEventListener('DOMContentLoaded', loadRecognitionPage);
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('cal-input-select')?.addEventListener('change', _syncCalibrationContextFromSelection);
+  loadRecognitionPage();
+});

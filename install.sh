@@ -957,17 +957,14 @@ EOF
   # Use --machine=user@.host so systemd connects directly to the user's bus
   # without needing DBUS_SESSION_BUS_ADDRESS or XDG_RUNTIME_DIR in the root
   # environment. This is the correct way to manage user services from root.
-  local started=false
   if systemctl --user -M "${audio_user}@.host" daemon-reload 2>&1 && \
      systemctl --user -M "${audio_user}@.host" enable \
-       oceano-pipewire-default-sink.service 2>&1 && \
-     systemctl --user -M "${audio_user}@.host" restart \
        oceano-pipewire-default-sink.service 2>&1; then
-    started=true
-  fi
-
-  if ${started}; then
-    log_ok "PipeWire: DAC set as default sink (Bluetooth audio will route to DAC)."
+    # Start without blocking — the DAC may not be connected yet; the service
+    # retries on failure and runs again on every boot via WantedBy=default.target.
+    systemctl --user -M "${audio_user}@.host" restart --no-block \
+      oceano-pipewire-default-sink.service 2>/dev/null || true
+    log_ok "PipeWire routing service enabled — will set DAC as default sink when detected."
   else
     log_warn "PipeWire routing service installed — will activate on next boot (linger enabled)."
     log_info "To apply immediately (as ${audio_user}):"

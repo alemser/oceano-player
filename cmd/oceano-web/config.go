@@ -369,11 +369,11 @@ type RecognitionConfig struct {
 	// (treated as noise in a quiet passage of the same track).
 	// Typical: 20s; raise if you have long quiet intro/outro sections.
 	DurationGuardBypassWindowSecs int `json:"duration_guard_bypass_window_secs"`
-	// DurationPessimism is the temporal threshold (0.0–1.0) used to guard against
-	// false positive boundaries during quiet passages. If the detected duration
-	// since the last boundary is < DurationPessimism * KnownTrackDuration, the
-	// boundary is suppressed even outside the bypass window.
-	// Typical: 0.75 (suppress if < 75% of known duration elapsed).
+	// DurationPessimism is the temporal threshold (0.0–1.0) used to split VU
+	// boundary behavior by progress: below threshold, boundaries are guarded
+	// against false positives; at/above threshold, VU boundaries are ignored and
+	// track changes rely on continuity/fallback recognition paths.
+	// Typical: 0.75.
 	DurationPessimism float64 `json:"duration_pessimism"`
 	// BoundaryRestoreMinSeekSecs is the minimum pre-boundary seek position
 	// required before the previous track metadata may be restored after a same-track
@@ -389,8 +389,11 @@ type AdvancedConfig struct {
 	PCMSocket  string `json:"pcm_socket"`
 	SourceFile string `json:"source_file"`
 	StateFile  string `json:"state_file"`
-	ArtworkDir               string `json:"artwork_dir"`
-	MetadataPipe             string `json:"metadata_pipe"`
+	// VUSilenceThreshold is the RMS threshold used by oceano-state-manager
+	// VU monitor to classify silence vs active audio for track-boundary detection.
+	VUSilenceThreshold float64 `json:"vu_silence_threshold"`
+	ArtworkDir         string  `json:"artwork_dir"`
+	MetadataPipe       string  `json:"metadata_pipe"`
 	// IdleDelaySecs is how long to keep showing the last physical track after
 	// audio stops before switching to the idle screen.
 	IdleDelaySecs int `json:"idle_delay_secs"`
@@ -400,6 +403,37 @@ type AdvancedConfig struct {
 	// LibraryDB is the path to the SQLite database used to record physical-media
 	// plays. Empty string disables library features.
 	LibraryDB string `json:"library_db"`
+	// CalibrationProfiles stores per-input RMS capture snapshots used by the
+	// recognition calibration wizard. Keys are amplifier input IDs (for example
+	// "10"=Phono, "20"=CD).
+	CalibrationProfiles map[string]CalibrationProfile `json:"calibration_profiles,omitempty"`
+}
+
+// CalibrationProfile stores OFF/ON RMS snapshots captured by the recognition
+// calibration wizard for a specific amplifier input.
+type CalibrationProfile struct {
+	Off             *CalibrationSample          `json:"off,omitempty"`
+	On              *CalibrationSample          `json:"on,omitempty"`
+	VinylTransition *VinylTransitionCalibration `json:"vinyl_transition,omitempty"`
+}
+
+// CalibrationSample mirrors the RMS summary returned by /api/calibration/vu-sample.
+type CalibrationSample struct {
+	AvgRMS  float64 `json:"avg_rms"`
+	MinRMS  float64 `json:"min_rms"`
+	MaxRMS  float64 `json:"max_rms"`
+	Samples int     `json:"samples"`
+}
+
+// VinylTransitionCalibration stores RMS transition metrics captured during
+// the optional vinyl-specific transition wizard step.
+type VinylTransitionCalibration struct {
+	TailAvgRMS      float64 `json:"tail_avg_rms"`
+	GapAvgRMS       float64 `json:"gap_avg_rms"`
+	AttackAvgRMS    float64 `json:"attack_avg_rms"`
+	GapDurationSecs float64 `json:"gap_duration_secs"`
+	SamplesPerSec   float64 `json:"samples_per_sec"`
+	Samples         int     `json:"samples"`
 }
 
 func defaultConfig() Config {
@@ -440,11 +474,50 @@ func defaultConfig() Config {
 			PCMSocket:               "/tmp/oceano-pcm.sock",
 			SourceFile:              "/tmp/oceano-source.json",
 			StateFile:               "/tmp/oceano-state.json",
+			VUSilenceThreshold:      0.0095,
 			ArtworkDir:              "/var/lib/oceano/artwork",
 			MetadataPipe:            "/tmp/shairport-sync-metadata",
 			IdleDelaySecs:           10,
 			SessionGapThresholdSecs: 45,
 			LibraryDB:               "/var/lib/oceano/library.db",
+			CalibrationProfiles: map[string]CalibrationProfile{
+				"20": {
+					Off: &CalibrationSample{
+						AvgRMS:  0.007480857607263785,
+						MinRMS:  0.007177495863288641,
+						MaxRMS:  0.007710550911724567,
+						Samples: 130,
+					},
+					On: &CalibrationSample{
+						AvgRMS:  0.013316057278559758,
+						MinRMS:  0.012336097657680511,
+						MaxRMS:  0.014985771849751472,
+						Samples: 130,
+					},
+					VinylTransition: &VinylTransitionCalibration{
+						TailAvgRMS:      0.054589079916477205,
+						GapAvgRMS:       0.0398659204297206,
+						AttackAvgRMS:    0.08642621910156206,
+						GapDurationSecs: 2.690721649484536,
+						SamplesPerSec:   21.555555555555557,
+						Samples:         388,
+					},
+				},
+				"30": {
+					Off: &CalibrationSample{
+						AvgRMS:  0.013572221227849905,
+						MinRMS:  0.012560552917420864,
+						MaxRMS:  0.015231011435389519,
+						Samples: 130,
+					},
+					On: &CalibrationSample{
+						AvgRMS:  0.014302720487690889,
+						MinRMS:  0.013033092953264713,
+						MaxRMS:  0.01617470011115074,
+						Samples: 130,
+					},
+				},
+			},
 		},
 		Display: SPIDisplayConfig{
 			UIPreset:               "high_contrast_rotate",
@@ -595,7 +668,7 @@ func detectorArgs(cfg Config) []string {
 
 // managerArgs translates Recognition and Advanced config into
 // ExecStart arguments for oceano-state-manager.service.
-func managerArgs(cfg Config) []string {
+func managerArgs(cfg Config, configPath string) []string {
 	rec := cfg.Recognition
 	adv := cfg.Advanced
 	args := []string{
@@ -604,6 +677,8 @@ func managerArgs(cfg Config) []string {
 		"--output", adv.StateFile,
 		"--artwork-dir", adv.ArtworkDir,
 		"--vu-socket", adv.VUSocket,
+		"--vu-silence-threshold", fmt.Sprintf("%.4f", adv.VUSilenceThreshold),
+		"--calibration-config", configPath,
 		"--pcm-socket", adv.PCMSocket,
 		"--recognizer-capture-duration", fmt.Sprintf("%ds", rec.CaptureDurationSecs),
 		"--recognizer-max-interval", fmt.Sprintf("%ds", rec.MaxIntervalSecs),
