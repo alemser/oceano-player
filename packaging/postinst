@@ -1,0 +1,55 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    configure)
+        # Runtime directories (nfpm creates them, but ensure correct perms on upgrade)
+        install -d -m 755 /etc/oceano
+        install -d -m 755 /var/lib/oceano
+        install -d -m 755 /var/lib/oceano/artwork
+        install -d -m 755 /usr/local/lib/oceano
+
+        # Write default config only on first install — never overwrite on upgrade
+        if [ ! -f /etc/oceano/config.json ]; then
+            cp /etc/oceano/config.json.default /etc/oceano/config.json
+            chmod 0644 /etc/oceano/config.json
+        fi
+
+        # Python virtualenv for Broadlink IR bridge (non-fatal if python3 unavailable)
+        if command -v python3 >/dev/null 2>&1; then
+            if [ ! -d /opt/oceano-venv ]; then
+                python3 -m venv /opt/oceano-venv
+            fi
+            if ! /opt/oceano-venv/bin/python3 -c "import broadlink" 2>/dev/null; then
+                /opt/oceano-venv/bin/pip install --quiet broadlink || true
+            fi
+        fi
+
+        # Enable and start services
+        systemctl daemon-reload
+        systemctl enable oceano-source-detector.service
+        systemctl enable oceano-state-manager.service
+        systemctl enable oceano-web.service
+        systemctl restart oceano-source-detector.service || true
+        systemctl restart oceano-state-manager.service   || true
+        systemctl restart oceano-web.service             || true
+
+        IP=$(hostname -I 2>/dev/null | awk '{print $1}') || IP="<pi-ip>"
+        echo ""
+        echo "Oceano Player installed successfully."
+        echo "Open http://${IP}:8080 to configure audio devices and ACRCloud credentials."
+        echo ""
+        echo "To set up AirPlay and Bluetooth, run:  sudo oceano-setup"
+        echo "To monitor logs:  journalctl -u oceano-web.service -f"
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0
