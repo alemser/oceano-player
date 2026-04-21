@@ -8,6 +8,32 @@ Audio backend for making the **Raspberry Pi** a piece of your HI-FI equipament.
 
 Raspberry Pi OS 64-bit (Bookworm) recommended.
 
+### Option A — Debian package (recommended)
+
+Pre-built `arm64` binary, no compiler needed on the Pi. Downloads dependencies
+automatically via `apt`.
+
+```bash
+# Download the latest release
+wget https://github.com/alemser/oceano-player/releases/latest/download/oceano-player_$(curl -s https://api.github.com/repos/alemser/oceano-player/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+')_arm64.deb
+
+# Install (resolves apt dependencies automatically)
+sudo apt install ./oceano-player_*_arm64.deb
+```
+
+Services are enabled and started automatically. Open `http://<pi-ip>:8080` to
+configure audio devices and ACRCloud credentials.
+
+To set up AirPlay and Bluetooth run the interactive wizard after install:
+```bash
+sudo oceano-setup
+```
+
+### Option B — Install from source
+
+Use this when you need to apply a specific branch or customise flags during
+installation.
+
 **Before running the installer**, make sure your USB DAC / amplifier is powered
 on and connected via USB — the device only appears in the ALSA device list when
 active.
@@ -88,6 +114,18 @@ arecord -l
 ---
 
 ## Update
+
+### Debian package
+
+```bash
+wget https://github.com/alemser/oceano-player/releases/latest/download/oceano-player_$(curl -s https://api.github.com/repos/alemser/oceano-player/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+')_arm64.deb
+sudo apt install ./oceano-player_*_arm64.deb
+```
+
+`/etc/oceano/config.json` is never overwritten on upgrade — your credentials and
+device settings are preserved.
+
+### From source
 
 Re-run the main installer to update all services at once:
 
@@ -281,8 +319,20 @@ After reinstall, ACRCloud credentials are preserved if `/etc/oceano/config.json`
 ### Run tests
 
 ```bash
-go test ./...
+make test
+# or: go test ./...
 ```
+
+### Cross-compile for arm64
+
+```bash
+make build        # produces dist/oceano-{source-detector,state-manager,web}
+make package      # produces dist/oceano-player_VERSION_arm64.deb  (requires nfpm)
+make clean
+```
+
+Install `nfpm` once with `brew install nfpm` (macOS) or
+`go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest`.
 
 ### Enable pre-commit hook (runs tests on every commit)
 
