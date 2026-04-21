@@ -39,6 +39,11 @@ contents:
     file_info:
       mode: 0755
 
+  - src: dist/oceano-setup
+    dst: /usr/local/bin/oceano-setup
+    file_info:
+      mode: 0755
+
   # Broadlink Python bridge
   - src: scripts/broadlink_bridge.py
     dst: /usr/local/lib/oceano/broadlink_bridge.py

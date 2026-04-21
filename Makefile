@@ -4,7 +4,7 @@ GOOS     := linux
 GOARCH   := arm64
 CGO_ENABLED := 0
 
-BINARIES := oceano-source-detector oceano-state-manager oceano-web
+BINARIES := oceano-source-detector oceano-state-manager oceano-web oceano-setup
 
 .PHONY: all build package release test clean check-nfpm
 
@@ -23,6 +23,10 @@ $(DIST)/oceano-state-manager: $(shell find cmd/oceano-state-manager -name '*.go'
 $(DIST)/oceano-web: $(shell find cmd/oceano-web -name '*.go') $(shell find internal -name '*.go') go.mod go.sum
 	@mkdir -p $(DIST)
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -o $@ ./cmd/oceano-web
+
+$(DIST)/oceano-setup: $(shell find cmd/oceano-setup -name '*.go') go.mod go.sum
+	@mkdir -p $(DIST)
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -o $@ ./cmd/oceano-setup
 
 package: check-nfpm build
 	@mkdir -p $(DIST)
