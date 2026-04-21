@@ -1,0 +1,23 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        systemctl stop oceano-web.service             2>/dev/null || true
+        systemctl stop oceano-state-manager.service   2>/dev/null || true
+        systemctl stop oceano-source-detector.service 2>/dev/null || true
+        systemctl disable oceano-web.service             2>/dev/null || true
+        systemctl disable oceano-state-manager.service   2>/dev/null || true
+        systemctl disable oceano-source-detector.service 2>/dev/null || true
+        ;;
+
+    failed-upgrade)
+        ;;
+
+    *)
+        echo "prerm called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

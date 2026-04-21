@@ -1,0 +1,15 @@
+[Unit]
+Description=Oceano Web — configuration UI and status API
+After=network.target oceano-state-manager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/oceano-web \
+  --addr ":8080" \
+  --config "/etc/oceano/config.json" \
+  --library-db "/var/lib/oceano/library.db"
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

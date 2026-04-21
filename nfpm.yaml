@@ -1,0 +1,89 @@
+name: oceano-player
+version: ${VERSION}
+arch: arm64
+platform: linux
+maintainer: "Alessandro Lemser <lemser.alessandro@gmail.com>"
+description: |
+  Headless audio backend for Raspberry Pi.
+  Supports AirPlay, Bluetooth, and physical media (Vinyl/CD) with
+  ACRCloud track recognition and a web-based configuration UI.
+homepage: https://github.com/alemser/oceano-player
+license: MIT
+
+depends:
+  - shairport-sync
+  - alsa-utils
+  - ffmpeg
+  - bluez
+  - bluez-tools
+  - python3
+  - python3-venv
+
+recommends:
+  - chromium-browser
+
+contents:
+  # Binaries
+  - src: dist/oceano-source-detector
+    dst: /usr/local/bin/oceano-source-detector
+    file_info:
+      mode: 0755
+
+  - src: dist/oceano-state-manager
+    dst: /usr/local/bin/oceano-state-manager
+    file_info:
+      mode: 0755
+
+  - src: dist/oceano-web
+    dst: /usr/local/bin/oceano-web
+    file_info:
+      mode: 0755
+
+  # Broadlink Python bridge
+  - src: scripts/broadlink_bridge.py
+    dst: /usr/local/lib/oceano/broadlink_bridge.py
+    file_info:
+      mode: 0644
+
+  # Systemd units
+  - src: packaging/systemd/oceano-source-detector.service
+    dst: /etc/systemd/system/oceano-source-detector.service
+    file_info:
+      mode: 0644
+
+  - src: packaging/systemd/oceano-state-manager.service
+    dst: /etc/systemd/system/oceano-state-manager.service
+    file_info:
+      mode: 0644
+
+  - src: packaging/systemd/oceano-web.service
+    dst: /etc/systemd/system/oceano-web.service
+    file_info:
+      mode: 0644
+
+  # Default config template (postinst copies → /etc/oceano/config.json if absent)
+  - src: packaging/config.json.default
+    dst: /etc/oceano/config.json.default
+    file_info:
+      mode: 0644
+
+  # Runtime directories
+  - dst: /etc/oceano
+    type: dir
+    file_info:
+      mode: 0755
+
+  - dst: /var/lib/oceano/artwork
+    type: dir
+    file_info:
+      mode: 0755
+
+  - dst: /usr/local/lib/oceano
+    type: dir
+    file_info:
+      mode: 0755
+
+scripts:
+  postinstall: packaging/postinst
+  preremove: packaging/prerm
+  postremove: packaging/postrm
