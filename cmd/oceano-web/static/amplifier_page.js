@@ -350,6 +350,7 @@ async function loadAmplifierPage() {
   setConnectedDevicesModel(amp.connected_devices ?? []);
   updateAmpIRSummary(amp.ir_codes ?? {});
   _refreshDirectIRWarning();
+  _refreshBroadlinkVisibility(amp);
 
   // Profiles
   await loadAmplifierProfiles(cfg);
@@ -357,6 +358,17 @@ async function loadAmplifierPage() {
   // Stylus section depends on amplifier availability.
   _stylusApplyAmplifierDependency(!!amp.enabled);
   await loadStylusSection();
+}
+
+function _refreshBroadlinkVisibility(amp) {
+  const paired = !!(amp?.broadlink?.host && amp?.broadlink?.token);
+  const irSection  = document.getElementById('amp-ir-section');
+  const noIrNotice = document.getElementById('amp-broadlink-no-ir-notice');
+  if (irSection)  irSection.style.display  = paired ? '' : 'none';
+  if (noIrNotice) noIrNotice.style.display = paired ? 'none' : '';
+  document.querySelectorAll('.amp-device-ir-section').forEach(el => {
+    el.style.display = paired ? '' : 'none';
+  });
 }
 
 // ── Save ──────────────────────────────────────────────────────────────────────

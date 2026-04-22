@@ -127,7 +127,8 @@ function renderWeather(data) {
 
   // 7-day forecast strip
   if ($idleForecast && daily && daily.time) {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const _d = new Date();
+    const todayStr = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
     $idleForecast.innerHTML = daily.time.slice(0, 7).map((dateStr, i) => {
       const dayObj  = new Date(dateStr + 'T12:00:00');
       const dayName = FC_DAYS[dayObj.getDay()];
@@ -204,6 +205,7 @@ async function refreshWeather() {
     daily:        'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset',
     forecast_days: '7',
     timezone:     'auto',
+    models:       'icon_seamless',
   });
 
   const controller = new AbortController();

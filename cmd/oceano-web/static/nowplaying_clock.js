@@ -25,7 +25,6 @@ function tickClock() {
       DAYS[now.getDay()] + ', ' + now.getDate() + ' ' + MONTHS[now.getMonth()];
   }
 
-  document.body.classList.toggle('night-mode', h >= 23 || h < 6);
 }
 
 // ─── Precise scheduling: sync to wall-clock seconds ──────────────────────────

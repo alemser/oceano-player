@@ -459,11 +459,12 @@ func TestAmplifierResetUSBInput_UsesProfileInputsWhenRawInputsEmpty(t *testing.T
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if resp.Status != "usb_not_found" || resp.Attempts != 4 {
+	// Built-in Magnat MR 780 profile has 15 inputs; maxAttempts = min(USBReset.MaxAttempts=13, 15) = 13.
+	if resp.Status != "usb_not_found" || resp.Attempts != 13 {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
-	if len(mock.Sent) != 8 {
-		t.Fatalf("expected 8 IR commands, got %d (%v)", len(mock.Sent), mock.Sent)
+	if len(mock.Sent) != 26 {
+		t.Fatalf("expected 26 IR commands, got %d (%v)", len(mock.Sent), mock.Sent)
 	}
 }
 

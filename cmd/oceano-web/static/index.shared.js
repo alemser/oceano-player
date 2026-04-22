@@ -489,6 +489,99 @@ async function reverseGeocodeLabel(lat, lon) {
   return city || country;
 }
 
+// ── Weather city search ───────────────────────────────────────────────────────
+
+let _citySearchTimer = null;
+let _cityResults     = [];
+let _cityFocusIdx    = -1;
+
+function onWeatherCityInput() {
+  clearTimeout(_citySearchTimer);
+  const q = (document.getElementById('weather-city-search')?.value || '').trim();
+  if (q.length < 2) { _hideCityResults(); return; }
+  _citySearchTimer = setTimeout(() => _fetchCityResults(q), 350);
+}
+
+function onWeatherCityKeydown(e) {
+  const box = document.getElementById('weather-city-results');
+  if (!box || box.style.display === 'none') return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); _moveFocus(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); _moveFocus(-1); }
+  else if (e.key === 'Enter')  { e.preventDefault(); if (_cityFocusIdx >= 0) _selectCity(_cityResults[_cityFocusIdx]); }
+  else if (e.key === 'Escape') { _hideCityResults(); }
+}
+
+async function _fetchCityResults(q) {
+  try {
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=en&format=json`;
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    _cityResults = Array.isArray(data.results) ? data.results : [];
+    _renderCityResults();
+  } catch (_) {}
+}
+
+function _renderCityResults() {
+  const box = document.getElementById('weather-city-results');
+  if (!box) return;
+  if (!_cityResults.length) { _hideCityResults(); return; }
+  _cityFocusIdx = -1;
+  box.innerHTML = _cityResults.map((c, i) => {
+    const name    = [c.name, c.admin1, c.country].filter(Boolean).join(', ');
+    const sub     = c.country_code ? `${c.latitude?.toFixed(2)}, ${c.longitude?.toFixed(2)}` : '';
+    return `<div class="weather-city-opt" data-idx="${i}"
+              style="padding:9px 13px;cursor:pointer;font-size:0.88rem;border-bottom:1px solid var(--border);
+                     display:flex;flex-direction:column;gap:1px;transition:background 0.1s"
+              onmousedown="event.preventDefault();_selectCity(_cityResults[${i}])"
+              onmouseenter="_moveFocusTo(${i})">
+              <span style="color:var(--text);font-weight:500">${_escHtml(name)}</span>
+              <span style="color:var(--text-dim);font-size:0.76rem">${_escHtml(sub)}</span>
+            </div>`;
+  }).join('');
+  box.style.display = '';
+}
+
+function _moveFocus(delta) {
+  _moveFocusTo(Math.max(-1, Math.min(_cityResults.length - 1, _cityFocusIdx + delta)));
+}
+
+function _moveFocusTo(idx) {
+  _cityFocusIdx = idx;
+  document.querySelectorAll('.weather-city-opt').forEach((el, i) => {
+    el.style.background = i === idx ? 'var(--hover)' : '';
+  });
+}
+
+function _selectCity(c) {
+  if (!c) return;
+  const label = [c.name, c.admin1, c.country].filter(Boolean).join(', ');
+  setFieldValue('weather-label', c.name || label);
+  setFieldValue('weather-lat',   Number(c.latitude).toFixed(5));
+  setFieldValue('weather-lon',   Number(c.longitude).toFixed(5));
+  const inp = document.getElementById('weather-city-search');
+  if (inp) inp.value = label;
+  _hideCityResults();
+  toast(`Location set: ${label}`);
+}
+
+function _hideCityResults() {
+  const box = document.getElementById('weather-city-results');
+  if (box) box.style.display = 'none';
+  _cityResults = [];
+  _cityFocusIdx = -1;
+}
+
+function _escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#weather-city-search') && !e.target.closest('#weather-city-results')) {
+    _hideCityResults();
+  }
+});
+
 function detectCurrentLocationWeather() {
   if (!('geolocation' in navigator)) {
     toast('Geolocation is not supported in this browser.', true);

@@ -167,7 +167,7 @@
     <div class="field">
       <label><span>Input selection</span></label>
       <select id="amp-input-mode" onchange="onAmpInputModeChanged()">
-        <option value="cycle">Cycle (next_input IR code — e.g. Magnat MR 780)</option>
+        <option value="cycle">Cycle (prev/next input IR code)</option>
         <option value="direct">Direct (one IR code per input)</option>
       </select>
       <div class="hint">Cycle: steps through inputs in order. Direct: sends a specific IR code per input.</div>
@@ -214,9 +214,15 @@
   </div>
 
   <!-- ── Broadlink RM4 Mini ─────────────────────────────────────────────── -->
-  <div class="section" style="margin-bottom:24px">
+  <div class="section" style="margin-bottom:24px" id="amp-broadlink-section">
     <div class="section-title">Broadlink RM4 Mini</div>
     <p class="hint" style="margin-bottom:14px">Shared by amplifier and connected devices with remote control. Pair once, used by all IR learning actions.</p>
+
+    <div id="amp-broadlink-no-ir-notice" style="display:none;margin-bottom:14px">
+      <div class="hint" style="background:rgba(74,158,255,0.05);border:1px solid rgba(74,158,255,0.15);border-radius:6px;padding:10px 12px;color:var(--text-dim)">
+        To enable IR control, enter the IP address of your Broadlink RM4 Mini below and complete the pairing wizard. Oceano currently supports Broadlink only.
+      </div>
+    </div>
 
     <div class="field">
       <label><span>IP address</span></label>
@@ -233,7 +239,7 @@
   </div>
 
   <!-- ── IR Codes — Amplifier ───────────────────────────────────────────── -->
-  <div class="section" style="margin-bottom:24px">
+  <div class="section" style="margin-bottom:24px" id="amp-ir-section">
     <div class="section-title">IR Codes — Amplifier</div>
     <p class="hint" style="margin-bottom:10px">Point the amplifier remote at the RM4 Mini and click Learn.</p>
     <div id="amp-direct-warning" class="amp-direct-warning" style="display:none"></div>

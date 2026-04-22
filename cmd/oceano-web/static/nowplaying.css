@@ -347,14 +347,6 @@ body::after {
 .idle-fc-min { font-size: clamp(0.74rem, 1.2vw, 0.88rem); font-weight: 400; color: #3a4a68; font-variant-numeric: tabular-nums; }
 .idle-fc-precip { font-size: clamp(0.62rem, 1vw, 0.72rem); font-weight: 500; color: #4a7acc; letter-spacing: 0.03em; }
 
-/* ─── Night dimming (23:00–06:00) ─────────────────────────────── */
-/* Safe: requires BOTH body.night-mode AND #idle-screen.visible.
-   When play screen is active, .visible is absent → rule never fires. */
-body.night-mode #idle-screen.visible {
-  opacity: 0.22;
-  transition: opacity 2s ease;
-}
-
 /* Media Queries */
 @media (max-width: 900px) {
   :root { --artwork-size: clamp(170px, 32vw, 240px); --layout-gap: clamp(14px, 2.5vw, 22px); --app-pad-x: 14px; --app-pad-top: 10px; --app-pad-bot: 12px; }

@@ -37,7 +37,7 @@ function periodLabel() {
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 async function init() {
   setPeriod(30);
-  await loadStylusSummary();
+  await Promise.all([loadStylusSummary(), loadRecognitionStats()]);
 }
 
 // ─── API ──────────────────────────────────────────────────────────────────────
@@ -212,6 +212,57 @@ function renderStylusSummary(payload) {
   const remaining = Number(metrics.remaining_hours || 0);
   const used      = Number(metrics.stylus_hours_total || 0);
   $stylusRemaining.textContent = `${remaining.toFixed(1)}h remaining · ${used.toFixed(1)}h used`;
+}
+
+// ─── Recognition provider stats ───────────────────────────────────────────────
+async function loadRecognitionStats() {
+  const container = document.getElementById('rec-stats-grid');
+  if (!container) return;
+  try {
+    const r = await fetch('/api/recognition/stats', { cache: 'no-store' });
+    if (!r.ok) { container.innerHTML = '<div class="rec-stats-placeholder">Unavailable</div>'; return; }
+    const stats = await r.json();
+    if (Object.keys(stats).length === 0) {
+      container.innerHTML = '<div class="rec-stats-placeholder">No data yet — recognition needs to run at least once.</div>';
+      return;
+    }
+    container.innerHTML = '';
+    const providers = Object.keys(stats).sort((a, b) => {
+      if (a === 'Trigger') return -1;
+      if (b === 'Trigger') return 1;
+      return a.localeCompare(b);
+    });
+    for (const p of providers) {
+      const evs = stats[p];
+      const card = document.createElement('div');
+      card.className = 'rec-prov-card';
+      let html = `<div class="rec-prov-name">${esc(p)}</div>`;
+      if (p === 'Trigger') {
+        const boundary = evs.boundary || 0;
+        const fallback = evs.fallback_timer || 0;
+        const total    = boundary + fallback;
+        const rate     = total > 0 ? Math.round((boundary / total) * 100) : null;
+        html += row('Boundary', boundary) + row('Fallback timer', fallback) + row('Total', total);
+        html += `<div class="rec-prov-rate"><span class="lbl">Boundary rate</span><span class="${rate != null ? 'val-ok' : 'val-none'}">${rate != null ? rate + '%' : '—'}</span></div>`;
+      } else {
+        const attempts  = evs.attempt || 0;
+        const successes = evs.success  || 0;
+        const rate      = attempts > 0 ? Math.round((successes / attempts) * 100) : null;
+        html += row('Attempts', attempts) + row('Matches', successes);
+        if (evs.no_match) html += row('No match', evs.no_match);
+        if (evs.error)    html += row('Errors',   evs.error);
+        html += `<div class="rec-prov-rate"><span class="lbl">Success rate</span><span class="${rate != null ? 'val-ok' : 'val-none'}">${rate != null ? rate + '%' : '—'}</span></div>`;
+      }
+      card.innerHTML = html;
+      container.appendChild(card);
+    }
+  } catch {
+    if (container) container.innerHTML = '<div class="rec-stats-placeholder">Failed to load.</div>';
+  }
+}
+
+function row(label, value) {
+  return `<div class="rec-prov-row"><span class="lbl">${esc(label)}</span><span class="val">${value}</span></div>`;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

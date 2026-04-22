@@ -256,8 +256,8 @@
 
     <!-- Track Recognition -->
     <div class="section">
-      <div class="section-title">Track Recognition</div>
-      <p class="hint" style="margin-bottom:14px">Physical media identification via ALSA capture card connected to amplifier REC OUT.</p>
+      <div class="section-title">Physical Sources</div>
+      <p class="hint" style="margin-bottom:14px">Physical media identification via ALSA capture card connected to amplifier's audio out.</p>
 
       <div class="config-subsection">
         <div class="config-subtitle">Capture Device</div>
@@ -377,27 +377,38 @@
         </label>
       </div>
 
+      <div class="field" style="position:relative">
+        <label><span>City search</span></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="weather-city-search" placeholder="Type a city name…"
+                 autocomplete="off" oninput="onWeatherCityInput()"
+                 onkeydown="onWeatherCityKeydown(event)"
+                 style="flex:1">
+          <button type="button" class="detect-btn" style="flex-shrink:0;white-space:nowrap"
+                  onclick="detectCurrentLocationWeather()">Use my location</button>
+        </div>
+        <div id="weather-city-results" style="display:none;position:absolute;z-index:200;
+             left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);
+             border-radius:6px;margin-top:2px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
+        </div>
+        <div class="hint">Search by city name to set location automatically, or use your current browser location.</div>
+      </div>
+
       <div class="field">
         <label><span>Location label</span></label>
         <input type="text" id="weather-label" name="weather-label" placeholder="Dublin">
-        <div class="hint">Displayed in the weather chip (e.g. Dublin, Porto, Berlin).</div>
+        <div class="hint">Displayed in the weather chip. Auto-filled when you pick a city above.</div>
       </div>
 
-      <div class="field">
-        <label><span>Latitude</span></label>
-        <input type="number" id="weather-lat" name="weather-lat" step="any" min="-90" max="90" placeholder="53.3498">
-        <div class="hint">Valid range: -90 to 90 (example: <code>37.70215</code>).</div>
-      </div>
-
-      <div class="field">
-        <label><span>Longitude</span></label>
-        <input type="number" id="weather-lon" name="weather-lon" step="any" min="-180" max="180" placeholder="-6.2603">
-        <div class="hint">Valid range: -180 to 180.</div>
-      </div>
-
-      <div class="field">
-        <button type="button" class="detect-btn" onclick="detectCurrentLocationWeather()">Use current location</button>
-        <div class="hint">Uses browser geolocation permission to fill latitude/longitude automatically.</div>
+      <div style="display:flex;gap:12px">
+        <div class="field" style="flex:1">
+          <label><span>Latitude</span></label>
+          <input type="number" id="weather-lat" name="weather-lat" step="any" min="-90" max="90" placeholder="53.3498">
+        </div>
+        <div class="field" style="flex:1">
+          <label><span>Longitude</span></label>
+          <input type="number" id="weather-lon" name="weather-lon" step="any" min="-180" max="180" placeholder="-6.2603">
+        </div>
       </div>
 
       <div class="field">

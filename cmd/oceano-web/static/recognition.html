@@ -27,39 +27,192 @@
     .rec-page-title { font-size: 1rem; font-weight: 600; color: var(--text); flex: 1; }
     .rec-page-body { max-width: 660px; margin: 0 auto; padding: 20px 20px 60px; }
     .rec-page-actions { margin-top: 28px; display: flex; gap: 10px; justify-content: flex-end; }
-    .cal-current-values {
-      margin: 14px 0 12px;
-      padding: 10px 12px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.02);
-      line-height: 1.45;
+
+    /* ── Button variants ── */
+    .btn-secondary {
+      background: none; border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text-dim); font-size: 0.85rem; padding: 8px 14px;
+      cursor: pointer; transition: border-color 0.15s, color 0.15s;
+      display: inline-flex; align-items: center;
     }
-    .cal-actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin: 10px 0 14px;
+    .btn-secondary:hover:not(:disabled) { border-color: var(--text-dim); color: var(--text); }
+    .btn-secondary:disabled { opacity: 0.4; cursor: default; }
+
+    /* ── Calibration summary cards (main page) ── */
+    .cal-sc-card {
+      padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px;
+      margin-bottom: 8px; background: rgba(255,255,255,0.02);
     }
-    .cal-feedback {
-      display: grid;
-      gap: 8px;
-      margin-top: 4px;
-      line-height: 1.45;
+    .cal-sc-card:last-child { margin-bottom: 0; }
+    .cal-sc-card.is-default { border-style: dashed; opacity: 0.65; }
+    .cal-sc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    .cal-sc-name { font-size: 0.88rem; font-weight: 600; color: var(--text); flex: 1; min-width: 80px; }
+    .cal-sc-badge {
+      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; padding: 2px 8px; border-radius: 10px;
     }
-    .cal-feedback > .hint {
-      margin: 0;
+    .cal-sc-badge.measured { background: rgba(126,207,126,0.12); border: 1px solid rgba(126,207,126,0.3); color: var(--ok-text); }
+    .cal-sc-badge.defaults { background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--muted); }
+    .cal-sc-badge.phono   { background: rgba(74,158,255,0.1); border: 1px solid rgba(74,158,255,0.25); color: var(--accent); }
+    .cal-sc-values { display: flex; flex-wrap: wrap; gap: 6px; }
+    .cal-sc-val {
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 5px; padding: 5px 9px; display: flex; flex-direction: column;
     }
-    .cal-vinyl-block {
-      margin-top: 18px;
-      padding-top: 14px;
-      border-top: 1px solid var(--border);
+    .cal-sc-val .lbl { font-size: 0.6rem; color: var(--muted); margin-bottom: 1px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .cal-sc-val .val  { font-size: 0.8rem; font-family: monospace; color: var(--text); }
+    .cal-sc-defnote { font-size: 0.72rem; color: var(--muted); font-style: italic; margin-top: 6px; }
+
+    /* ── Wizard overlay ── */
+    .cal-wiz-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.80); z-index: 400;
+      align-items: center; justify-content: center; padding: 20px;
     }
-    .cal-vinyl-actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin: 8px 0;
+    .cal-wiz-overlay.open { display: flex; }
+    .cal-wiz-dialog {
+      background: var(--surface); border: 1px solid #2c2c2c; border-radius: 14px;
+      width: 100%; max-width: 500px; max-height: 90vh;
+      display: flex; flex-direction: column; overflow: hidden;
+      box-shadow: 0 28px 80px rgba(0,0,0,0.7);
+    }
+
+    /* ── Wizard header & step indicator ── */
+    .cal-wiz-header {
+      padding: 16px 20px 14px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+    }
+    .cal-wiz-steps { flex: 1; display: flex; align-items: center; }
+    .cal-wiz-dot {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--bg); border: 1.5px solid #2a2a2a;
+      color: var(--muted); font-size: 0.7rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    .cal-wiz-dot.active { background: rgba(74,158,255,0.14); border-color: var(--accent); color: var(--accent); }
+    .cal-wiz-dot.done   { background: rgba(126,207,126,0.12); border-color: var(--ok-text); color: var(--ok-text); }
+    .cal-wiz-line { flex: 1; height: 1px; background: #2a2a2a; transition: background 0.2s; }
+    .cal-wiz-line.done { background: rgba(126,207,126,0.4); }
+    .cal-wiz-close {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      padding: 5px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+      transition: color 0.15s, background 0.15s; flex-shrink: 0;
+    }
+    .cal-wiz-close:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+    /* ── Wizard body ── */
+    .cal-wiz-body { flex: 1; overflow-y: auto; padding: 24px; }
+    .cal-wiz-illus { text-align: center; margin-bottom: 22px; color: var(--accent); opacity: 0.55; }
+    .cal-wiz-illus svg { width: 76px; height: 76px; }
+    .cal-wiz-title { font-size: 1rem; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+    .cal-wiz-desc  { font-size: 0.8rem; color: var(--text-dim); line-height: 1.6; margin-bottom: 18px; }
+    .cal-wiz-instr {
+      background: rgba(74,158,255,0.05); border: 1px solid rgba(74,158,255,0.14);
+      border-radius: 8px; padding: 12px 14px;
+      font-size: 0.8rem; color: var(--text); line-height: 1.55; margin-bottom: 16px;
+    }
+    .cal-wiz-instr b { color: #fff; }
+    .cal-wiz-field { margin-bottom: 14px; }
+    .cal-wiz-field-label { display: block; font-size: 0.78rem; color: var(--text-dim); margin-bottom: 5px; }
+    .cal-wiz-field-label span { color: var(--text); font-weight: 500; }
+    .cal-wiz-select {
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 5px; color: var(--text); font-size: 0.88rem; padding: 8px 10px;
+      outline: none; transition: border-color 0.15s; cursor: pointer;
+    }
+    .cal-wiz-select:focus { border-color: var(--accent); }
+    .cal-wiz-cb-row {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+      cursor: pointer; margin-top: 14px; transition: border-color 0.15s;
+      background: rgba(255,255,255,0.01);
+    }
+    .cal-wiz-cb-row:hover { border-color: #3a3a3a; }
+    .cal-wiz-cb-row input[type="checkbox"] {
+      width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer;
+      flex-shrink: 0; margin-top: 2px;
+    }
+    .cal-wiz-cb-text .cb-label { font-size: 0.83rem; color: var(--text); }
+    .cal-wiz-cb-text .cb-hint  { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+    /* ── Capture button & progress ── */
+    .cal-wiz-cap-btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: none; border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-size: 0.85rem; padding: 9px 16px; cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .cal-wiz-cap-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .cal-wiz-cap-btn:disabled { opacity: 0.4; cursor: default; }
+    .cal-wiz-prog {
+      height: 3px; background: var(--border); border-radius: 2px;
+      overflow: hidden; margin-top: 10px; margin-bottom: 4px;
+    }
+    .cal-wiz-prog-bar { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; }
+    .cal-wiz-cap-hint { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+
+    /* ── Result & recommendation chips ── */
+    .cal-wiz-result-ok {
+      display: flex; align-items: flex-start; gap: 9px;
+      padding: 10px 12px; margin-top: 10px;
+      background: rgba(126,207,126,0.06); border: 1px solid rgba(126,207,126,0.22);
+      border-radius: 8px; font-size: 0.78rem; line-height: 1.5;
+    }
+    .cal-wiz-result-ok .r-icon { color: var(--ok-text); flex-shrink: 0; padding-top: 1px; }
+    .cal-wiz-result-ok .r-text { color: var(--text-dim); font-family: monospace; }
+    .cal-wiz-rec-box {
+      padding: 10px 12px; margin-top: 10px;
+      background: rgba(74,158,255,0.05); border: 1px solid rgba(74,158,255,0.14);
+      border-radius: 8px; font-size: 0.78rem; color: var(--text-dim); line-height: 1.55;
+    }
+    .cal-wiz-rec-box b { color: var(--accent); }
+    .cal-wiz-warn-box {
+      padding: 10px 12px; margin-top: 10px;
+      background: rgba(240,192,96,0.05); border: 1px solid rgba(240,192,96,0.22);
+      border-radius: 8px; font-size: 0.78rem; color: var(--warn-text); line-height: 1.55;
+    }
+
+    /* ── "Calibrate another?" step ── */
+    .cal-wiz-big-btns { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+    .cal-wiz-big-btn {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 13px 20px; border-radius: 8px; font-size: 0.88rem; cursor: pointer;
+      border: 1px solid var(--border); background: none; color: var(--text);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .cal-wiz-big-btn:hover { border-color: #3c3c3c; background: rgba(255,255,255,0.04); }
+    .cal-wiz-big-btn.accent { background: var(--accent-dim); border-color: var(--accent); }
+    .cal-wiz-big-btn.accent:hover { background: #1d4f8a; }
+
+    /* ── Summary step ── */
+    .cal-wiz-sum-grid { display: flex; flex-direction: column; gap: 10px; }
+    .cal-wiz-sum-card {
+      background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px;
+    }
+    .cal-wiz-sum-card.is-default { border-style: dashed; opacity: 0.62; }
+    .cal-wiz-sum-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    .cal-wiz-sum-name { font-size: 0.88rem; font-weight: 600; color: var(--text); flex: 1; min-width: 80px; }
+    .cal-wiz-sum-vals { display: flex; flex-wrap: wrap; gap: 6px; }
+    .cal-wiz-sum-val {
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 5px; padding: 5px 9px; display: flex; flex-direction: column;
+    }
+    .cal-wiz-sum-val .lbl { font-size: 0.6rem; color: var(--muted); margin-bottom: 1px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .cal-wiz-sum-val .val  { font-size: 0.8rem; font-family: monospace; color: var(--text); }
+    .cal-wiz-sum-note { font-size: 0.74rem; color: var(--muted); font-style: italic; margin-top: 12px; line-height: 1.5; }
+    .cal-wiz-save-note {
+      margin-top: 16px; padding: 10px 12px;
+      background: rgba(74,158,255,0.05); border: 1px solid rgba(74,158,255,0.14);
+      border-radius: 8px; font-size: 0.78rem; color: var(--text-dim); line-height: 1.5;
+    }
+
+    /* ── Wizard footer ── */
+    .cal-wiz-footer {
+      padding: 14px 20px; border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      flex-shrink: 0;
     }
   </style>
 </head>
@@ -76,64 +229,6 @@
 </div>
 
 <div class="rec-page-body">
-
-  <!-- ── Calibration Wizard ─────────────────────────────────────────────── -->
-  <div class="section" style="margin-bottom:24px">
-    <div class="section-title">Calibration Wizard</div>
-    <p class="hint" style="margin-bottom:14px">Guided RMS sampling to tune silence thresholds for your current amplifier and sources. Run this with normal listening volume and no one touching volume/gain during each capture.</p>
-
-    <!-- Internal state fields updated by the wizard and persisted on Save. -->
-    <input type="hidden" id="inp-silence">
-
-    <div class="field">
-      <label><span>Input under calibration</span></label>
-      <select id="cal-input-select"></select>
-      <div class="hint">Select the source input you want to calibrate (CD or Phono recommended). This is informational in this beta; you can switch input manually on the amplifier.</div>
-    </div>
-
-    <div class="field">
-      <label><span>Capture duration per step (seconds)</span></label>
-      <input type="number" id="cal-duration-secs" step="1" min="2" max="20" value="6">
-    </div>
-
-    <div class="field">
-      <label><span>Debounce windows</span></label>
-      <input type="number" id="inp-debounce" step="1" min="1" max="50" placeholder="10">
-      <div class="hint">Majority-vote window for source transitions. Higher = slower but more stable.</div>
-    </div>
-
-    <div id="cal-current-values-hint" class="hint cal-current-values">No calibration saved for this input yet.</div>
-
-    <div class="field cal-actions">
-      <button type="button" class="btn-secondary" onclick="captureCalibrationSample('off')">Capture OFF silence</button>
-      <button type="button" class="btn-secondary" onclick="captureCalibrationSample('on')">Capture ON silence</button>
-      <button type="button" class="btn-secondary" onclick="applyCalibrationRecommendations()">Apply recommendations</button>
-    </div>
-
-    <div class="cal-feedback">
-      <div id="cal-wizard-status" class="hint">Capture OFF first (source powered off), then ON (source powered on but no music).</div>
-      <div id="cal-off-result" class="hint"></div>
-      <div id="cal-on-result" class="hint"></div>
-      <div id="cal-recommendation" class="hint"></div>
-    </div>
-
-    <div id="cal-vinyl-step" class="field cal-vinyl-block" style="display:none">
-      <label><span>Vinyl transition calibration (optional)</span></label>
-      <div class="hint" style="margin-bottom:8px">For Phono only: start capture, place the needle near the end of a track with a quiet transition, and let it pass into the next track. Capture duration is 3x the step duration (default: 18s) and gap duration is estimated automatically from the RMS curve.</div>
-      <div class="cal-vinyl-actions">
-        <button type="button" class="btn-secondary" onclick="captureVinylTransitionSample()">Capture vinyl transition</button>
-      </div>
-      <div id="cal-vinyl-result" class="hint"></div>
-      <div id="cal-vinyl-recommendation" class="hint"></div>
-    </div>
-
-    <div class="field" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
-      <label><span>VU silence threshold (RMS)</span></label>
-      <input type="number" id="rec-vu-silence-threshold" min="0.0010" max="0.0500" step="0.0001" placeholder="0.0095">
-      <div class="hint">Fallback threshold used when no calibration profile is active for the current input. Set automatically by <em>Apply recommendations</em>. Typical range: 0.0070–0.0120 for Magnat MR 780 REC OUT setups.</div>
-    </div>
-  </div>
-
   <!-- ── Providers ──────────────────────────────────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
     <div class="section-title">Providers</div>
@@ -173,14 +268,39 @@
 
     <div class="hint" style="margin-top:12px">Continuity monitoring always uses Shazam when available, independent of the selected chain.</div>
   </div>
-
-  <!-- ── Statistics ─────────────────────────────────────────────────────── -->
+  
+  <!-- ── Calibration ──────────────────────────────────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
-    <div class="section-title">Recognition Statistics</div>
-    <div id="rec-stats-container" class="stats-grid">
-      <div class="hint">Loading statistics…</div>
+    <div class="section-title">Calibration</div>
+    <p class="hint" style="margin-bottom:14px">Measures the noise floor of each amplifier input so the system can distinguish silence from music precisely. Run whenever you change your setup or add a new source.</p>
+
+    <!-- Hidden fields updated by the wizard and read by saveRecognitionPage -->
+    <input type="hidden" id="inp-silence">
+
+    <!-- Per-input summary rendered by renderCalibrationSummary() -->
+    <div id="cal-summary-grid" style="margin-bottom:16px"></div>
+
+    <button type="button" class="btn-secondary" onclick="openCalibrationWizard()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>
+      Run Calibration Wizard
+    </button>
+  </div>
+
+  <!-- ── Source Detection ─────────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Source Detection</div>
+
+    <div class="field">
+      <label><span>Debounce windows</span></label>
+      <input type="number" id="inp-debounce" step="1" min="1" max="50" placeholder="10">
+      <div class="hint">Majority-vote window for source transitions. Higher = slower but more stable. Typical: 10.</div>
     </div>
-    <div class="hint" style="margin-top:10px">Lifetime counters for each recognition provider. <b>Shazam</b> counts chain-based identifications; <b>ShazamContinuity</b> counts the continuous polling used to detect track changes.</div>
+
+    <div class="field">
+      <label><span>VU silence threshold (RMS)</span></label>
+      <input type="number" id="rec-vu-silence-threshold" min="0.0010" max="0.0500" step="0.0001" placeholder="0.0095">
+      <div class="hint">Set automatically by the calibration wizard. Manual fallback when no per-input profile is active. Typical range: 0.0070–0.0120.</div>
+    </div>
   </div>
 
   <!-- ── Timing & Confirmation ──────────────────────────────────────────── -->
@@ -249,12 +369,13 @@
     <div class="field">
       <label><span>Tuning preset</span></label>
       <select id="rec-tuning-preset">
-        <option value="custom">Custom (do not change values)</option>
-        <option value="vinyl_safe">Vinyl Safe (recommended)</option>
-        <option value="balanced">Balanced</option>
-        <option value="gapless_aggressive">Gapless Aggressive</option>
+        <option value="custom">Custom</option>
+        <option value="standard">Standard — safe defaults, no calibration needed</option>
+        <option value="calibrated">Calibrated — optimised for setups with calibration profiles</option>
+        <option value="balanced">Balanced — mixed vinyl/CD, no calibration required</option>
+        <option value="gapless">Gapless — CD-heavy or seamless collections, fastest detection</option>
       </select>
-      <div class="hint">Quickly apply a known-safe profile. Vinyl Safe prioritizes avoiding false positives after manual needle repositioning.</div>
+      <div class="hint">Quickly apply a known profile. <strong>Calibrated</strong> is the recommended choice after running the calibration wizard.</div>
       <div style="margin-top:8px">
         <button type="button" class="btn-secondary" onclick="applyTuningPreset()">Apply Preset</button>
       </div>
@@ -327,6 +448,20 @@
   </div>
 
 </div><!-- .rec-page-body -->
+
+<!-- ── Calibration Wizard Modal ─────────────────────────────────────────── -->
+<div id="cal-wiz-overlay" class="cal-wiz-overlay" onclick="if(event.target===this)closeCalibrationWizard()">
+  <div class="cal-wiz-dialog" role="dialog" aria-modal="true" aria-label="Calibration Wizard">
+    <div class="cal-wiz-header">
+      <div id="cal-wiz-step-indicator" class="cal-wiz-steps"></div>
+      <button class="cal-wiz-close" onclick="closeCalibrationWizard()" title="Close wizard">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="cal-wiz-body" id="cal-wiz-body"></div>
+    <div class="cal-wiz-footer" id="cal-wiz-footer"></div>
+  </div>
+</div>
 
 <div id="toast"></div>
 

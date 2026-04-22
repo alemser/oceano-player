@@ -360,6 +360,85 @@ html, body {
   transition: width 240ms ease;
 }
 
+/* ─── Recognition provider stats ───────────────────────────────────────────── */
+#rec-stats-section {
+  margin-top: clamp(24px, 4vw, 40px);
+}
+
+.metrics-section-heading {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.metrics-section-hint {
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+.metrics-section-hint strong { color: var(--text-dim); }
+
+.rec-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.rec-stats-placeholder {
+  font-size: 0.8rem;
+  color: var(--text-faint);
+  padding: 6px 0;
+}
+
+.rec-prov-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.rec-prov-name {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.rec-prov-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.78rem;
+  gap: 6px;
+}
+
+.rec-prov-row .lbl { color: var(--text-faint); font-size: 0.72rem; }
+.rec-prov-row .val { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.rec-prov-rate {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.72rem;
+}
+
+.rec-prov-rate .lbl { color: var(--text-faint); }
+.rec-prov-rate .val-ok   { color: #7ecf7e; font-weight: 700; }
+.rec-prov-rate .val-none { color: var(--text-faint); }
+
 /* ─── Responsive ───────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
   #stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
