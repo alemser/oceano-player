@@ -197,6 +197,13 @@ func canonicalTracksEquivalent(aTitle, aArtist, bTitle, bArtist string) bool {
 	return aT == bT && canonicalArtistsEquivalent(aArtist, bArtist)
 }
 
+// LookupByTitleArtist searches the collection for an entry matching title and
+// artist using canonical fuzzy matching. Used as a fallback when ID-based
+// lookup fails (e.g. the same recording appears under different release IDs).
+func (l *Library) LookupByTitleArtist(title, artist string) (*CollectionEntry, error) {
+	return l.lookupByEquivalentMetadata(title, artist)
+}
+
 func (l *Library) lookupByEquivalentMetadata(title, artist string) (*CollectionEntry, error) {
 	if strings.TrimSpace(title) == "" || strings.TrimSpace(artist) == "" {
 		return nil, nil

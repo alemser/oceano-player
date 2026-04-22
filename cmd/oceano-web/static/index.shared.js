@@ -55,6 +55,9 @@ async function loadConfig() {
   const artworkEl = document.getElementById('disp-external-artwork');
   if (artworkEl) artworkEl.checked = cfg.display?.external_artwork_enabled ?? true;
 
+  const npAmbientEl = document.getElementById('np-ambient-color');
+  if (npAmbientEl) npAmbientEl.checked = cfg.now_playing?.ambient_color_enabled ?? true;
+
   const weatherEnabledEl = document.getElementById('weather-enabled');
   if (weatherEnabledEl) weatherEnabledEl.checked = cfg.weather?.enabled ?? true;
   set('weather-label',   cfg.weather?.location_label ?? 'Dublin');
@@ -403,6 +406,9 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       cycle_time:               parseInt(val('disp-cycle-time')) || 30,
       standby_timeout:          parseInt(val('disp-standby-timeout')) || 600,
       external_artwork_enabled: document.getElementById('disp-external-artwork')?.checked ?? true,
+    },
+    now_playing: {
+      ambient_color_enabled: document.getElementById('np-ambient-color')?.checked ?? true,
     },
     weather: {
       enabled:        document.getElementById('weather-enabled')?.checked ?? true,

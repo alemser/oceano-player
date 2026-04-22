@@ -10,8 +10,6 @@
   --text-faint:   #3a3f52;
   --accent:       #4a9eff;
   --chip-text:    #aeb8d5;
-  --chip-bg:      rgba(18, 25, 42, 0.35);
-  --chip-border:  rgba(84, 106, 156, 0.45);
   --radius:       12px;
   --content-max-width: 1380px;
   --artwork-size: min(clamp(190px, 44vw, 520px), calc(100vh - 80px));
@@ -161,12 +159,31 @@ body::after {
 #meta {
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 0;
   min-width: 0;
   padding-right: 8px;
   padding-top: 0;
+  position: relative;
+  isolation: isolate;
 }
+
+#meta-ambient {
+  position: absolute;
+  inset: -120px -140px;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 8px;
+  background-size: cover;
+  background-position: center;
+  filter: blur(60px);
+  transform: scale(1.12);
+  opacity: 0;
+  transition: opacity 1.4s ease;
+  will-change: opacity;
+}
+
+#app.has-ambient #meta-ambient { opacity: 0.45; }
 
 #meta-source {
   display: inline-flex;
@@ -176,31 +193,35 @@ body::after {
   margin-bottom: 16px;
   padding: 6px 11px;
   border-radius: 999px;
-  border: 1px solid rgba(84, 106, 156, 0.44);
-  background: rgba(18, 25, 42, 0.42);
+  border: 1px solid rgba(84, 106, 156, 0.28);
+  background: rgba(18, 25, 42, 0.22);
   color: #a7b2d1;
 }
 
-#meta-source-icon { width: 18px; height: 18px; color: #9fb2e2; flex-shrink: 0; }
+#meta-source-icon { width: 26px; height: 26px; color: #9fb2e2; flex-shrink: 0; }
 #meta-source-icon svg { width: 100%; height: 100%; display: block; }
 
 #meta-source-label { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; white-space: nowrap; }
 
-#meta-playback-badge {
-  margin-left: 6px;
-  font-size: 0.67rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(106, 126, 166, 0.42);
-  color: #8f9dbf;
-  background: rgba(18, 25, 42, 0.28);
-  transition: all 0.3s;
+#source-play-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  flex-shrink: 0;
+  margin-left: 4px;
+  transition: background 0.4s;
 }
 
-#meta-playback-badge.playing { border-color: rgba(79, 182, 123, 0.55); color: #73d49a; background: rgba(20, 42, 28, 0.35); }
+#source-play-dot.playing {
+  background: #5ecb80;
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(94, 203, 128, 0.5); }
+  50%       { box-shadow: 0 0 0 5px rgba(94, 203, 128, 0); }
+}
 
 #track-title {
   font-size: clamp(1.6rem, 3.8vw, 2.1rem);
@@ -218,11 +239,11 @@ body::after {
 
 #track-artist { font-size: clamp(1.12rem, 2.8vw, 1.45rem); font-weight: 600; color: #aab5d4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.4s; margin-bottom: 2px; }
 
-#track-album { font-size: clamp(0.92rem, 2.1vw, 1.08rem); color: #556080; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.4s; margin-bottom: 22px; }
+#track-album { font-size: clamp(0.92rem, 2.1vw, 1.08rem); color: #556080; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity 0.4s; margin-bottom: 12px; }
 
 #meta-chips { display: flex; flex-wrap: wrap; gap: 10px; transition: opacity 0.4s; }
 
-#stream-progress { margin-top: 14px; max-width: min(100%, 540px); display: none; flex-direction: column; gap: 6px; }
+#stream-progress { margin-top: 8px; max-width: min(100%, 540px); display: none; flex-direction: column; gap: 6px; }
 #stream-progress.visible { display: flex; }
 
 #stream-progress-bar { width: 100%; height: 6px; border-radius: 999px; background: rgba(74, 95, 139, 0.22); border: 1px solid rgba(73, 94, 138, 0.4); overflow: hidden; }
@@ -236,24 +257,16 @@ body::after {
   align-items: center;
   gap: 6px;
   font-size: 0.82rem;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--chip-text);
-  background: var(--chip-bg);
-  padding: 5px 12px;
-  border: 1px solid var(--chip-border);
-  border-radius: 20px;
-  box-shadow: inset 0 0 0 1px rgba(18, 28, 48, 0.3);
+  padding: 2px 0;
 }
 
 .chip svg { width: 12px; height: 12px; flex-shrink: 0; }
 
-.chip-physical-match {
-  border-color: rgba(139, 168, 220, 0.6);
-  background: rgba(30, 50, 90, 0.45);
-  color: #c8d8f0;
-}
+.chip-physical-match { color: #c8d8f0; }
 
 /* ─── Idle screen ──────────────────────────────────────────── */
 #idle-screen {
@@ -359,7 +372,7 @@ body::after {
   #playback-badge { font-size: 0.64rem; padding: 3px 8px; }
   #track-title { font-size: clamp(1.36rem, 4vw, 1.8rem); margin-bottom: 6px; }
   #track-artist { font-size: clamp(1rem, 2.7vw, 1.22rem); }
-  #track-album { font-size: clamp(0.86rem, 2.1vw, 0.98rem); margin-bottom: 20px; }
+  #track-album { font-size: clamp(0.86rem, 2.1vw, 0.98rem); margin-bottom: 10px; }
   .chip { font-size: 0.68rem; padding: 3px 8px; }
 }
 
@@ -395,7 +408,7 @@ body::after {
   #meta { padding-top: 8px; }
   #track-title { font-size: clamp(1.42rem, 3.2vw, 1.82rem); margin-bottom: 5px; }
   #track-artist { font-size: clamp(1rem, 2.2vw, 1.2rem); }
-  #track-album { margin-bottom: 20px; }
+  #track-album { margin-bottom: 10px; }
   #meta-chips { gap: 7px; }
   .chip { font-size: 0.7rem; padding: 3px 8px; }
   #stream-progress { margin-top: 8px; }
@@ -440,6 +453,22 @@ body::after {
 
 @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.9; } }
 .pulsing { animation: pulse 1.8s ease-in-out infinite; }
+
+@keyframes icon-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+#app.source-playing #meta-source-icon .vinyl-disc,
+#app.source-playing #meta-source-icon .cd-disc {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+}
+
+#app.source-playing #meta-source-icon .vinyl-disc {
+  animation: icon-spin 3s linear infinite;
+}
+
+#app.source-playing #meta-source-icon .cd-disc {
+  animation: icon-spin 2.5s linear infinite;
+}
 
 .amp-indicator { display: none; align-items: center; gap: 8px; background: rgba(7, 9, 15, 0.75); border: 1px solid var(--border); border-radius: 26px; padding: 7px 11px; cursor: pointer; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: border-color 0.25s; color: var(--text-dim); z-index: 10; }
 .amp-indicator:hover { border-color: rgba(255,255,255,0.2); }
@@ -492,14 +521,13 @@ body::after {
 
   /* Source badge */
   #meta-source       { margin-bottom: 14px; padding: 7px 14px; }
-  #meta-source-icon  { width: 22px; height: 22px; }
+  #meta-source-icon  { width: 30px; height: 30px; }
   #meta-source-label { font-size: 0.88rem; letter-spacing: 0.12em; }
-  #meta-playback-badge { font-size: 0.74rem; padding: 4px 10px; }
 
   /* Text */
   #track-title  { font-size: clamp(1.9rem, 3.8vw, 2.5rem); margin-bottom: 10px; }
   #track-artist { font-size: clamp(1.25rem, 2.6vw, 1.65rem); margin-bottom: 4px; }
-  #track-album  { font-size: clamp(1rem,   2vw,   1.22rem); margin-bottom: 24px; }
+  #track-album  { font-size: clamp(1rem,   2vw,   1.22rem); margin-bottom: 14px; }
 
   /* Chips */
   #meta-chips { gap: 10px; }
@@ -507,7 +535,7 @@ body::after {
   .chip svg   { width: 15px; height: 15px; }
 
   /* Progress */
-  #stream-progress       { margin-top: 16px; }
+  #stream-progress       { margin-top: 8px; }
   #stream-progress-bar   { height: 7px; }
   #stream-progress-times { font-size: 0.8rem; }
 }

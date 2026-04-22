@@ -20,7 +20,7 @@ const $sourceIcon = document.getElementById('source-icon');
 const $sourceLabel  = document.getElementById('source-label');
 const $metaSourceIcon = document.getElementById('meta-source-icon');
 const $metaSourceLabel = document.getElementById('meta-source-label');
-const $metaPlaybackBadge = document.getElementById('meta-playback-badge');
+const $sourcePlayDot = document.getElementById('source-play-dot');
 const $badge      = document.getElementById('playback-badge');
 const $artImg     = document.getElementById('artwork-img');
 const $artDefault = document.getElementById('artwork-default');
@@ -80,6 +80,33 @@ async function sendPowerAction(action) {
   }
 }
 
+// ─── Ambient colour ──────────────────────────────────────────────────────────
+
+let _ambientEnabled = true;
+
+async function loadAmbientConfig() {
+  try {
+    const r = await fetch('/api/config', { cache: 'no-store' });
+    if (!r.ok) return;
+    const cfg = await r.json();
+    _ambientEnabled = cfg.now_playing?.ambient_color_enabled ?? true;
+  } catch { /* network error — keep default */ }
+}
+
+function applyAmbientArtwork(url) {
+  if (!_ambientEnabled) return;
+  const el = document.getElementById('meta-ambient');
+  if (!el) return;
+  el.style.backgroundImage = `url(${url})`;
+  document.getElementById('app')?.classList.add('has-ambient');
+}
+
+function clearAmbientColor() {
+  const el = document.getElementById('meta-ambient');
+  if (el) el.style.backgroundImage = '';
+  document.getElementById('app')?.classList.remove('has-ambient');
+}
+
 // ─── Artwork helpers ─────────────────────────────────────────────────────────
 
 let _lastArtworkPath = null;
@@ -94,6 +121,7 @@ function updateArtwork(artworkPath) {
       $artImg.src = img.src;
       $artImg.style.opacity = '1';
       $artDefault.style.opacity = '0';
+      applyAmbientArtwork(img.src);
     };
     img.onerror = () => showDefaultArtwork();
     // Bust cache between track changes with a timestamp parameter.
@@ -109,6 +137,7 @@ function showDefaultArtwork() {
   $artImg.style.opacity = '0';
   $artDefault.style.opacity = '1';
   _lastArtworkPath = null;
+  clearAmbientColor();
 }
 
 // ─── Chip builders ───────────────────────────────────────────────────────────
@@ -195,8 +224,8 @@ function applyState(state) {
   // Playback badge
   $badge.textContent = playing ? 'Playing' : 'Stopped';
   $badge.classList.toggle('playing', playing);
-  $metaPlaybackBadge.textContent = playing ? 'Playing' : 'Stopped';
-  $metaPlaybackBadge.classList.toggle('playing', playing);
+  $sourcePlayDot.classList.toggle('playing', playing);
+  document.getElementById('app')?.classList.toggle('source-playing', playing);
 
   // Track metadata
   const hasTrack = track && (track.title || track.artist);
@@ -355,6 +384,9 @@ function connect() {
 
 // Kick off initial connection.
 connect();
+
+// Load ambient colour setting from config.
+loadAmbientConfig();
 
 // ─── Amplifier power state indicator ────────────────────────────────────────
 // Single indicator that appears above all screens. Z-index ensures visibility.

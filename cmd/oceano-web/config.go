@@ -246,12 +246,20 @@ type Config struct {
 	Advanced          AdvancedConfig           `json:"advanced"`
 	Display           SPIDisplayConfig         `json:"display"`
 	Weather           WeatherConfig            `json:"weather"`
+	NowPlaying        NowPlayingConfig         `json:"now_playing"`
 	Amplifier         AmplifierConfig          `json:"amplifier"`
 	AmplifierRuntime  AmplifierRuntimeConfig   `json:"amplifier_runtime,omitempty"`
 	AmplifierProfiles []StoredAmplifierProfile `json:"amplifier_profiles,omitempty"`
 	// LegacyCDPlayer is read from older files and migrated into
 	// amplifier.connected_devices at load time.
 	LegacyCDPlayer *CDPlayerConfig `json:"cd_player,omitempty"`
+}
+
+// NowPlayingConfig controls visual effects on the nowplaying.html display page.
+type NowPlayingConfig struct {
+	// AmbientColorEnabled extracts a dominant colour from the current track artwork
+	// and renders a soft radial glow behind the metadata column.
+	AmbientColorEnabled bool `json:"ambient_color_enabled"`
 }
 
 // WeatherConfig controls idle-screen weather rendering in nowplaying.html.
@@ -561,6 +569,9 @@ func defaultConfig() Config {
 			Latitude:      53.3498,
 			Longitude:     -6.2603,
 			RefreshMins:   10,
+		},
+		NowPlaying: NowPlayingConfig{
+			AmbientColorEnabled: true,
 		},
 	}
 }

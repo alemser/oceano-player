@@ -217,12 +217,24 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 	entryID := m.physicalLibraryEntryID
 	m.mu.Unlock()
 
+	var title, artist string
+	if r != nil {
+		title = r.Title
+		artist = r.Artist
+	}
+
 	var entry *internallibrary.CollectionEntry
 	var err error
 	if acrid != "" || shazamID != "" {
 		entry, err = lib.LookupByIDs(acrid, shazamID)
 	} else if entryID > 0 {
 		entry, err = lib.GetByID(entryID)
+	}
+	// Fallback: same recording may appear under a different release ID in ACRCloud.
+	// If the ID lookup failed but we have a title+artist, search by metadata so
+	// user-entered fields (track_number, format, artwork) are still applied.
+	if (err != nil || entry == nil) && title != "" && artist != "" {
+		entry, err = lib.LookupByTitleArtist(title, artist)
 	}
 	if err != nil || entry == nil {
 		return
