@@ -124,7 +124,7 @@ sudo ./install-oceano-web.sh
 
 **Auto-launch on Pi boot:**
 ```bash
-sudo ./install-oceano-display.sh
+sudo ./install-oceano-display.sh --web-addr http://localhost:8080 --user pi
 # optional: --web-addr http://localhost:8080  --user pi
 ```
 
@@ -201,7 +201,7 @@ sudo ./install.sh
 # Then open http://<pi-ip>:8080 to set ACRCloud credentials and audio devices.
 
 # Install the now-playing kiosk display (HDMI/DSI screens):
-sudo ./install-oceano-display.sh
+sudo ./install-oceano-display.sh --web-addr http://localhost:8080 --user pi
 # optional: --web-addr http://localhost:8080  --user pi
 
 # Individual services can still be updated independently:
