@@ -39,7 +39,9 @@ case "$1" in
         echo "Oceano Player installed successfully."
         echo "Open http://${IP}:8080 to configure audio devices and ACRCloud credentials."
         echo ""
-        echo "To set up AirPlay and Bluetooth, run:  sudo oceano-setup"
+        echo "To set up AirPlay, Bluetooth, and display (HDMI/DSI), run:"
+        echo "  sudo oceano-setup"
+        echo ""
         echo "To monitor logs:  journalctl -u oceano-web.service -f"
         ;;
 
