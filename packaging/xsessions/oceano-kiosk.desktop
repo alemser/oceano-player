@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=Oceano Kiosk
+Comment=Oceano Now Playing Display
+Exec=/usr/local/bin/oceano-display-launch
+Type=Application
