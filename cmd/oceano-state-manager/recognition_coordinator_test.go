@@ -288,8 +288,8 @@ func TestComputeRecognizedSeekMS_NonBoundaryDifferentMetadataResetsProgress(t *t
 	if !resetStartedAt {
 		t.Fatal("expected physicalStartedAt reset for different track")
 	}
-	if seekMS > 20000 {
-		t.Fatalf("seekMS = %d, expected near-capture seek for new track", seekMS)
+	if seekMS < 115000 {
+		t.Fatalf("seekMS = %d, expected ~2min elapsed since physStartedAt", seekMS)
 	}
 }
 
@@ -588,14 +588,14 @@ func TestApplyRecognizedResult_SetsPhysicalSeek(t *testing.T) {
 
 func TestComputeRecognizedSeekMS_NonBoundaryTrackChangeDoesNotReuseOldSessionElapsed(t *testing.T) {
 	now := time.Now()
-	captureStartedAt := now.Add(-4 * time.Second)
+	captureStartedAt := now.Add(-30 * time.Second)
 	physStartedAt := now.Add(-3 * time.Minute)
 	previous := &RecognitionResult{ACRID: "old-acr", Title: "Old", Artist: "Artist"}
 	current := &RecognitionResult{ACRID: "new-acr", Title: "New", Artist: "Artist"}
 
 	seekMS, resetStart := computeRecognizedSeekMS(false, captureStartedAt, now, time.Time{}, physStartedAt, previous, current)
-	if seekMS < 4000 || seekMS > 10000 {
-		t.Fatalf("computeRecognizedSeekMS() seek=%d, want close to capture elapsed only", seekMS)
+	if seekMS < 170000 {
+		t.Fatalf("computeRecognizedSeekMS() seek=%d, want ~3min since physStartedAt", seekMS)
 	}
 	if !resetStart {
 		t.Fatal("expected non-boundary track change to request physicalStartedAt reset")

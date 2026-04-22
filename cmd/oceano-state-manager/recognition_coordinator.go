@@ -102,11 +102,11 @@ func mergeMissingProviderIDs(dst, src *RecognitionResult) bool {
 }
 
 func computeRecognizedSeekMS(isBoundaryTrigger bool, captureStartedAt, now, lastBoundaryForSeek, physStartedAt time.Time, previousResult, newResult *RecognitionResult) (int64, bool) {
-	seekMS := now.Sub(captureStartedAt).Milliseconds()
-	if seekMS < 0 {
-		seekMS = 0
-	}
 	if isBoundaryTrigger {
+		seekMS := now.Sub(captureStartedAt).Milliseconds()
+		if seekMS < 0 {
+			seekMS = 0
+		}
 		if !lastBoundaryForSeek.IsZero() {
 			if better := now.Sub(lastBoundaryForSeek).Milliseconds(); better > seekMS {
 				seekMS = better
@@ -115,14 +115,16 @@ func computeRecognizedSeekMS(isBoundaryTrigger bool, captureStartedAt, now, last
 		return seekMS, true
 	}
 
-	// For timer/manual resumes, only reuse the session anchor when the recognizer
-	// is effectively re-confirming the same track. If a different track is found
-	// without a boundary event, inheriting the full session elapsed time makes the
-	// new track appear to start already near the end.
-	if sameTrackForStateContinuity(previousResult, newResult) && !physStartedAt.IsZero() {
+	seekMS := now.Sub(captureStartedAt).Milliseconds()
+	if seekMS < 0 {
+		seekMS = 0
+	}
+	if !physStartedAt.IsZero() {
 		if better := now.Sub(physStartedAt).Milliseconds(); better > seekMS {
 			seekMS = better
 		}
+	}
+	if sameTrackForStateContinuity(previousResult, newResult) && !physStartedAt.IsZero() {
 		return seekMS, false
 	}
 
