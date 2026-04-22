@@ -131,8 +131,7 @@ func (m *mgr) pollSourceFile() {
 	src := det.Source
 	if src == "" {
 		src = "None"
-	}
-
+}
 	m.mu.Lock()
 	changed := m.physicalSource != src
 	newSession := false
@@ -171,6 +170,14 @@ func (m *mgr) pollSourceFile() {
 		m.lastContinuityMismatchCount = 0
 		m.physicalStartedAt = time.Now()
 	} else if resumedAfterIdle {
+		m.recognitionResult = nil
+		m.physicalArtworkPath = ""
+		m.physicalFormat = ""
+		m.shazamContinuityReady = false
+		m.lastContinuityMismatchAt = time.Time{}
+		m.lastContinuityMismatchFrom = ""
+		m.lastContinuityMismatchTo = ""
+		m.lastContinuityMismatchCount = 0
 		// The UI may have already gone idle during a longer pause. Reset the seek
 		// anchor and queue a fresh recognition attempt on resume instead of waiting
 		// solely for the VU boundary path to win the race.

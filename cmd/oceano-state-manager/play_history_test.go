@@ -90,8 +90,8 @@ func TestPollSourceFile_ResumeAfterIdleQueuesRecognition(t *testing.T) {
 	if m.physicalSource != "Physical" {
 		t.Fatalf("physicalSource = %q, want Physical", m.physicalSource)
 	}
-	if m.recognitionResult == nil || m.recognitionResult.Title != "Old Track" {
-		t.Fatal("recognitionResult should be preserved when resuming within session gap threshold")
+	if m.recognitionResult != nil {
+		t.Fatal("recognitionResult should be cleared when resuming after idle")
 	}
 	if !m.physicalStartedAt.After(beforeStartedAt) {
 		t.Fatal("physicalStartedAt should reset on resume after idle")
