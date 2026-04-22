@@ -1,214 +1,6 @@
 #!/bin/bash
 set -e
 
-detect_display() {
-    if [ ! -d /sys/class/drm ]; then
-        return 1
-    fi
-    for status_file in /sys/class/drm/card*/status; do
-        if [ -f "$status_file" ] && [ "$(cat "$status_file")" = "connected" ]; then
-            return 0
-        fi
-    done
-    return 1
-}
-
-ask_user() {
-    local prompt="$1"
-    local default="$2"
-    local result
-    read -p "${prompt} [${default}]: " result
-    echo "${result:-$default}"
-}
-
-setup_kiosk() {
-    local SUGGESTED_USER=$(whoami)
-
-    if ! detect_display; then
-        echo "[postinst] No HDMI/DSI display detected — skipping kiosk setup."
-        return 0
-    fi
-
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━���━━━━━━━━━━━━━━━━━━━━"
-    echo "  Kiosk Display Setup"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "A display has been detected. Do you want to"
-    echo "set up the Oceano now-playing kiosk?"
-    echo ""
-
-    local ASK_DISPLAY
-    read -p "Install kiosk display? [Y/n]: " ASK_DISPLAY
-    ASK_DISPLAY="${ASK_DISPLAY:-Y}"
-
-    if [[ "$ASK_DISPLAY" =~ ^[Nn] ]]; then
-        echo "Skipping kiosk setup."
-        return 0
-    fi
-
-    echo ""
-    local KIOSK_USER
-    KIOSK_USER=$(ask_user "User to run kiosk (needs sudo for autologin)" "$SUGGESTED_USER")
-
-    if ! id "$KIOSK_USER" >/dev/null 2>&1; then
-        echo "[postinst] User '$KIOSK_USER' not found."
-        return 1
-    fi
-
-    local HOME_DIR
-    HOME_DIR=$(getent passwd "$KIOSK_USER" | cut -d: -f6)
-
-    echo ""
-    echo "[postinst] Installing X server and kiosk packages..."
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get install -y --no-install-recommends xorg openbox chromium xvfb >/dev/null 2>&1 || {
-        echo "[postinst] Failed to install packages."
-        return 1
-    }
-
-    echo "[postinst] Configuring kiosk for user '$KIOSK_USER'..."
-
-    # Create display check helper
-    cat > /usr/local/bin/oceano-display-check <<'CHECKEOF'
-#!/bin/bash
-set -e
-FOUND=false
-shopt -s nullglob
-for status_file in /sys/class/drm/card*/status; do
-    [[ -f "$status_file" ]] || continue
-    connector=$(basename "$(dirname "$status_file")")
-    if [[ "$connector" == *HDMI* || "$connector" == *DSI* || "$connector" == *DP* ]]; then
-        if [[ "$(cat "$status_file")" == "connected" ]]; then
-            FOUND=true
-            break
-        fi
-    fi
-done
-shopt -u nullglob
-[[ "$FOUND" == "true" ]] && exit 0 || exit 1
-CHECKEOF
-    chmod 0755 /usr/local/bin/oceano-display-check
-
-    # Find chromium binary
-    local CHROMIUM_BIN=""
-    for candidate in chromium chromium-browser; do
-        if command -v "$candidate" >/dev/null 2>&1; then
-            CHROMIUM_BIN=$(command -v "$candidate")
-            break
-        fi
-    done
-
-    # Use real binary if wrapper has problematic flags
-    if [ -n "$CHROMIUM_BIN" ] && [ -f /usr/lib/chromium/chromium ]; then
-        CHROMIUM_BIN=/usr/lib/chromium/chromium
-    fi
-
-    if [ -z "$CHROMIUM_BIN" ]; then
-        echo "[postinst] Chromium not found — skipping kiosk setup"
-        return 1
-    fi
-
-    # Create kiosk launch wrapper
-    cat > /usr/local/bin/oceano-display-launch <<LAUNCHEOF
-#!/bin/bash
-set -e
-NOWPLAYING_URL="http://localhost:8080/nowplaying.html"
-CHROME_DATA=\${HOME}/.config/chromium
-[[ -d "\${CHROME_DATA}" ]] && rm -f "\${CHROME_DATA}/SingletonLock"
-
-cleanup() { [[ -n "\${XVFB_PID:-}" ]] && kill "\${XVFB_PID}" 2>/dev/null; }
-trap cleanup EXIT
-
-Xvfb :99 -screen 0 1024x600x24 -nolisten tcp &
-XVFB_PID=\$!
-export DISPLAY=:99
-sleep 2
-
-exec ${CHROMIUM_BIN} \
-  --kiosk \
-  --noerrdialogs \
-  --disable-infobars \
-  --no-first-run \
-  --disable-session-crashed-bubble \
-  --disable-features=TranslateUI \
-  --check-for-update-interval=315360000 \
-  --disable-background-networking \
-  --disable-sync \
-  --password-store=basic \
-  --use-mock-keychain \
-  --window-size=1024,600 \
-  --hide-cursor \
-  --app="\${NOWPLAYING_URL}"
-LAUNCHEOF
-    chmod 0755 /usr/local/bin/oceano-display-launch
-
-    # Create xinitrc for the user
-    cat > "${HOME_DIR}/.xinitrc" <<XINITEOF
-#!/bin/sh
-exec /usr/local/bin/oceano-display-launch
-XINITEOF
-    chown "$KIOSK_USER:$KIOSK_USER" "${HOME_DIR}/.xinitrc"
-    chmod 0755 "${HOME_DIR}/.xinitrc"
-
-    # Configure autologin (use conf.d to avoid being overwritten by system updates)
-    mkdir -p /etc/lightdm/lightdm.conf.d
-    cat > /etc/lightdm/lightdm.conf.d/oceano-kiosk.conf <<AUTOLOGINEOF
-[Seat:*]
-autologin-user=${KIOSK_USER}
-autologin-user-timeout=0
-autologin-session=oceano-kiosk
-user-session=oceano-kiosk
-AUTOLOGINEOF
-
-    # Set user session in .dmrc (overrides previous session choice)
-    cat > "${HOME_DIR}/.dmrc" <<DMRCEOF
-[Desktop]
-Session=oceano-kiosk
-DMRCEOF
-    chown "$KIOSK_USER:$KIOSK_USER" "${HOME_DIR}/.dmrc"
-    chmod 0644 "${HOME_DIR}/.dmrc"
-
-    # Create X session file
-    mkdir -p /usr/share/xsessions
-    cat > /usr/share/xsessions/oceano-kiosk.desktop <<DESKTOPEOF
-[Desktop Entry]
-Name=Oceano Kiosk
-Comment=Oceano Now Playing Display
-Exec=/usr/local/bin/oceano-display-launch
-Type=Application
-DESKTOPEOF
-
-    # Create and enable systemd service
-    cat > /etc/systemd/system/oceano-display.service <<SVCEOF
-[Unit]
-Description=Oceano Display — Now Playing kiosk (HDMI/DSI)
-After=network.target oceano-web.service
-Wants=oceano-web.service
-ConditionPathExists=/sys/class/drm
-
-[Service]
-Type=simple
-User=${KIOSK_USER}
-ExecCondition=/usr/local/bin/oceano-display-check
-ExecStartPre=/bin/sleep 2
-ExecStart=/usr/local/bin/oceano-display-launch
-Restart=on-failure
-RestartSec=5
-TimeoutStartSec=30
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-    chmod 0644 /etc/systemd/system/oceano-display.service
-    systemctl daemon-reload
-    systemctl enable oceano-display.service || true
-
-    echo ""
-    echo "[postinst] Kiosk setup complete for user '$KIOSK_USER'."
-    echo "[postinst] Reboot to activate the display."
-}
-
 case "$1" in
     configure)
         # Runtime directories (nfpm creates them, but ensure correct perms on upgrade)
@@ -234,16 +26,13 @@ case "$1" in
         fi
 
         # Enable and start services
-        systemctl daemon-reload
-        systemctl enable oceano-source-detector.service
-        systemctl enable oceano-state-manager.service
-        systemctl enable oceano-web.service
-        systemctl restart oceano-source-detector.service || true
-        systemctl restart oceano-state-manager.service   || true
-        systemctl restart oceano-web.service             || true
-
-        # Setup kiosk (display) — detects HDMI and asks user
-        setup_kiosk
+        systemctl --no-ask-password daemon-reload
+        systemctl --no-ask-password enable oceano-source-detector.service
+        systemctl --no-ask-password enable oceano-state-manager.service
+        systemctl --no-ask-password enable oceano-web.service
+        systemctl --no-ask-password restart oceano-source-detector.service || true
+        systemctl --no-ask-password restart oceano-state-manager.service   || true
+        systemctl --no-ask-password restart oceano-web.service             || true
 
         IP=$(hostname -I 2>/dev/null | awk '{print $1}') || IP="<pi-ip>"
         echo ""
@@ -252,6 +41,9 @@ case "$1" in
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         echo "Open http://${IP}:8080 to configure audio devices and ACRCloud."
+        echo ""
+        echo "For display/kiosk setup, run:"
+        echo "  sudo ./install-oceano-display.sh"
         echo ""
         echo "Monitor logs:"
         echo "  journalctl -u oceano-web.service -f"

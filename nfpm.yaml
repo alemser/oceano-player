@@ -72,12 +72,6 @@ contents:
     file_info:
       mode: 0644
 
-  # X session for kiosk mode
-  - src: packaging/xsessions/oceano-kiosk.desktop
-    dst: /usr/share/xsessions/oceano-kiosk.desktop
-    file_info:
-      mode: 0644
-
   # Runtime directories
   - dst: /etc/oceano
     type: dir

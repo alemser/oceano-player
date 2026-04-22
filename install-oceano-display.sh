@@ -59,7 +59,12 @@ fi
 echo ""
 echo "Installing X server and kiosk packages..."
 export DEBIAN_FRONTEND=noninteractive
-apt-get install -y --no-install-recommends xorg openbox chromium xvfb
+apt-get install -y --no-install-recommends xorg openbox xvfb || true
+
+# chromium is assumed to be already installed
+if ! command -v chromium >/dev/null 2>&1 && ! [ -f /usr/lib/chromium/chromium ]; then
+    apt-get install -y --no-install-recommends chromium || true
+fi
 
 HOME_DIR=$(getent passwd "$KIOSK_USER" | cut -d: -f6)
 
