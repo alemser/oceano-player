@@ -57,6 +57,7 @@ async function loadConfig() {
 
   const npAmbientEl = document.getElementById('np-ambient-color');
   if (npAmbientEl) npAmbientEl.checked = cfg.now_playing?.ambient_color_enabled ?? true;
+  set('np-idle-delay', cfg.advanced?.idle_delay_secs ?? 3);
 
   const weatherEnabledEl = document.getElementById('weather-enabled');
   if (weatherEnabledEl) weatherEnabledEl.checked = cfg.weather?.enabled ?? true;
@@ -400,7 +401,6 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       name:    val('bt-name'),
     },
     recognition: { ..._recognitionConfig },
-    advanced: { ..._advancedConfig },
     display: {
       ui_preset:                val('disp-preset'),
       cycle_time:               parseInt(val('disp-cycle-time')) || 30,
@@ -409,6 +409,10 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
     },
     now_playing: {
       ambient_color_enabled: document.getElementById('np-ambient-color')?.checked ?? true,
+    },
+    advanced: {
+      ..._advancedConfig,
+      idle_delay_secs: intOr('np-idle-delay', 3),
     },
     weather: {
       enabled:        document.getElementById('weather-enabled')?.checked ?? true,

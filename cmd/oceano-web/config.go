@@ -485,7 +485,7 @@ func defaultConfig() Config {
 			VUSilenceThreshold:      0.0095,
 			ArtworkDir:              "/var/lib/oceano/artwork",
 			MetadataPipe:            "/tmp/shairport-sync-metadata",
-			IdleDelaySecs:           10,
+			IdleDelaySecs:           3,
 			SessionGapThresholdSecs: 45,
 			LibraryDB:               "/var/lib/oceano/library.db",
 			CalibrationProfiles: map[string]CalibrationProfile{

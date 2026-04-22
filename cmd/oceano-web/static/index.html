@@ -379,6 +379,12 @@
       </div>
 
       <div class="field">
+        <label><span>Idle delay (seconds)</span></label>
+        <input type="number" id="np-idle-delay" name="np-idle-delay" step="1" min="1" max="30" placeholder="3">
+        <div class="hint">How long to keep showing the last track after audio stops before switching to the idle screen. 3s is recommended when calibration data is available.</div>
+      </div>
+
+      <div class="field">
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
           <input type="checkbox" id="weather-enabled" name="weather-enabled"
                  style="width:auto;accent-color:var(--accent)">

@@ -424,7 +424,11 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		old.Advanced.StateFile != cfg.Advanced.StateFile ||
 		old.Advanced.ArtworkDir != cfg.Advanced.ArtworkDir ||
 		old.Advanced.VUSocket != cfg.Advanced.VUSocket ||
-		old.Advanced.PCMSocket != cfg.Advanced.PCMSocket
+		old.Advanced.VUSilenceThreshold != cfg.Advanced.VUSilenceThreshold ||
+		old.Advanced.PCMSocket != cfg.Advanced.PCMSocket ||
+		old.Advanced.IdleDelaySecs != cfg.Advanced.IdleDelaySecs ||
+		old.Advanced.SessionGapThresholdSecs != cfg.Advanced.SessionGapThresholdSecs ||
+		old.Advanced.LibraryDB != cfg.Advanced.LibraryDB
 
 	// Restart source detector only when audio input settings or shared socket
 	// paths changed — recognition-only edits leave the detector untouched.
