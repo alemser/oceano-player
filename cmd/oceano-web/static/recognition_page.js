@@ -1193,7 +1193,7 @@ function _micStep0(body, footer) {
     <div id="mic-dev-list" style="margin-top:4px"><div class="cal-wiz-desc" style="opacity:0.5">Loading devices…</div></div>`;
   footer.innerHTML = `
     <button class="btn-secondary" onclick="closeMicGainWizard()">Cancel</button>
-    <button class="btn-primary" id="mic-next-0" onclick="_micStep0Next()" disabled>Next →</button>`;
+    <button class="btn-secondary" style="background:var(--accent-dim);border-color:var(--accent);color:var(--accent)" id="mic-next-0" onclick="_micStep0Next()" disabled>Next →</button>`;
 
   // Load devices and configured card in parallel
   Promise.all([
@@ -1280,37 +1280,68 @@ function _micStep1(body, footer) {
     </div>`;
   footer.innerHTML = `
     <button class="btn-secondary" onclick="_micPrev()">← Back</button>
-    <button class="btn-primary" onclick="_micNext()">Next →</button>`;
+    <button class="btn-secondary" style="background:var(--accent-dim);border-color:var(--accent);color:var(--accent)" onclick="_micNext()">Next →</button>`;
 }
 
-// ── Step 2: live RMS meter + gain adjustment ───────────────────────────────────
+// ── Step 2: live RMS meter + peak hold + min/avg/max ──────────────────────────
 function _micStep2(body, footer) {
   _stopMicVU();
-  const gain = _mic.info?.gain_pct ?? '—';
-  const control = _mic.info?.control ?? '—';
+  const gain    = _mic.info?.gain_pct ?? '—';
+  const control = _mic.info?.control  ?? '—';
+
+  // Peak hold state (decays after 4s of no new peak)
+  let peakRMS      = 0;
+  let peakTimer    = null;
+  let sessionMin   = Infinity;
+  let sessionMax   = 0;
+  let sessionSum   = 0;
+  let sessionCount = 0;
 
   body.innerHTML = `
     <div class="cal-wiz-title">Adjust Gain</div>
-    <div class="cal-wiz-desc">Target RMS: <b>0.05 – 0.25</b>. Use <b>−</b> and <b>+</b> to adjust until the bar is green while music plays.</div>
+    <div class="cal-wiz-desc">Aim for peaks in the <b>green zone (0.05–0.25)</b>. Let a loud passage play to check the peak doesn't clip.</div>
 
-    <div style="margin:18px 0 6px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-        <span style="font-size:0.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Live RMS</span>
-        <span id="mic-rms-val" style="font-size:1.5rem;font-weight:700;font-family:monospace;letter-spacing:0.02em">—</span>
-      </div>
-      <div style="width:100%;height:10px;background:rgba(255,255,255,0.06);border-radius:5px;overflow:hidden">
-        <div id="mic-rms-bar" style="height:100%;width:0%;background:var(--muted);border-radius:5px;transition:width 0.18s,background 0.18s"></div>
+    <!-- RMS bar with peak marker -->
+    <div style="margin:16px 0 4px">
+      <div style="position:relative;width:100%;height:12px;background:rgba(255,255,255,0.06);border-radius:6px;overflow:visible">
+        <!-- avg bar -->
+        <div id="mic-rms-bar" style="position:absolute;left:0;top:0;height:100%;width:0%;background:var(--muted);border-radius:6px;transition:width 0.18s,background 0.18s"></div>
+        <!-- green zone indicator -->
+        <div style="position:absolute;top:0;left:12.5%;width:50%;height:100%;background:rgba(126,207,126,0.08);pointer-events:none"></div>
+        <!-- peak hold marker -->
+        <div id="mic-peak-marker" style="position:absolute;top:-3px;width:3px;height:18px;background:rgba(240,192,96,0.9);border-radius:2px;left:0%;transition:left 0.1s;display:none"></div>
       </div>
       <div style="display:flex;justify-content:space-between;margin-top:3px">
-        <span style="font-size:0.65rem;color:var(--muted)">0</span>
-        <span style="font-size:0.65rem;color:var(--ok-text)">0.05</span>
-        <span style="font-size:0.65rem;color:var(--ok-text)">0.25</span>
-        <span style="font-size:0.65rem;color:var(--muted)">0.40+</span>
+        <span style="font-size:0.62rem;color:var(--muted)">0</span>
+        <span style="font-size:0.62rem;color:var(--ok-text)">▲ 0.05</span>
+        <span style="font-size:0.62rem;color:var(--ok-text)">0.25 ▲</span>
+        <span style="font-size:0.62rem;color:var(--muted)">0.40+</span>
       </div>
     </div>
 
-    <div id="mic-rms-status" class="cal-wiz-rec-box" style="margin-bottom:18px">Waiting for signal…</div>
+    <!-- Live values row -->
+    <div style="display:flex;gap:6px;margin:10px 0 14px">
+      <div class="cal-wiz-sum-val" style="flex:1;text-align:center">
+        <span class="lbl">Avg</span>
+        <span class="val" id="mic-rms-avg">—</span>
+      </div>
+      <div class="cal-wiz-sum-val" style="flex:1;text-align:center">
+        <span class="lbl">Peak</span>
+        <span class="val" id="mic-rms-peak" style="color:rgba(240,192,96,0.9)">—</span>
+      </div>
+      <div class="cal-wiz-sum-val" style="flex:1;text-align:center">
+        <span class="lbl">Min seen</span>
+        <span class="val" id="mic-rms-min">—</span>
+      </div>
+      <div class="cal-wiz-sum-val" style="flex:1;text-align:center">
+        <span class="lbl">Max seen</span>
+        <span class="val" id="mic-rms-max">—</span>
+      </div>
+    </div>
 
+    <div id="mic-rms-status" class="cal-wiz-rec-box" style="margin-bottom:16px">Waiting for signal…</div>
+
+    <!-- Gain control -->
     <div style="display:flex;align-items:center;gap:12px;justify-content:center">
       <button class="cal-wiz-cap-btn" onclick="_micAdjust('down')" title="Decrease by 5%">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -1329,7 +1360,7 @@ function _micStep2(body, footer) {
 
   footer.innerHTML = `
     <button class="btn-secondary" onclick="_micPrev()">← Back</button>
-    <button class="btn-primary" onclick="_micNext()">Next →</button>`;
+    <button class="btn-secondary" style="background:var(--accent-dim);border-color:var(--accent);color:var(--accent)" onclick="_micNext()">Next →</button>`;
 
   _mic.vuTimer = setInterval(() => {
     fetch('/api/calibration/vu-sample', {
@@ -1339,36 +1370,86 @@ function _micStep2(body, footer) {
     })
       .then(r => r.json())
       .then(d => {
-        const rms = d.avg_rms ?? 0;
-        const valEl    = document.getElementById('mic-rms-val');
+        const avg  = d.avg_rms ?? 0;
+        const sMax = d.max_rms ?? avg;
+
         const barEl    = document.getElementById('mic-rms-bar');
+        const peakEl   = document.getElementById('mic-peak-marker');
+        const avgEl    = document.getElementById('mic-rms-avg');
+        const peakValEl= document.getElementById('mic-rms-peak');
+        const minEl    = document.getElementById('mic-rms-min');
+        const maxEl    = document.getElementById('mic-rms-max');
         const statusEl = document.getElementById('mic-rms-status');
-        if (!valEl) { _stopMicVU(); return; }
+        if (!barEl) { _stopMicVU(); return; }
 
-        valEl.textContent = rms.toFixed(4);
-        const pct = Math.min(rms / 0.40 * 100, 100);
-        barEl.style.width = pct + '%';
+        // Update session stats (ignore near-silence for min)
+        sessionSum += avg;
+        sessionCount++;
+        if (avg > 0.01) sessionMin = Math.min(sessionMin, avg);
+        sessionMax = Math.max(sessionMax, sMax);
 
-        if (rms < 0.01) {
-          barEl.style.background = 'var(--muted)';
+        // Update peak hold
+        if (sMax > peakRMS) {
+          peakRMS = sMax;
+          clearTimeout(peakTimer);
+          peakTimer = setTimeout(() => {
+            peakRMS = 0;
+            if (peakEl) { peakEl.style.display = 'none'; }
+            if (peakValEl) peakValEl.textContent = '—';
+          }, 4000);
+        }
+
+        // Avg bar
+        const avgPct  = Math.min(avg  / 0.40 * 100, 100);
+        const peakPct = Math.min(peakRMS / 0.40 * 100, 100);
+
+        barEl.style.width = avgPct + '%';
+
+        // Peak marker
+        if (peakRMS > 0.005 && peakEl) {
+          peakEl.style.display = 'block';
+          peakEl.style.left = peakPct + '%';
+          peakEl.style.background = peakRMS > 0.35 ? '#e05577' : peakRMS > 0.25 ? 'rgba(240,192,96,0.9)' : 'rgba(126,207,126,0.85)';
+        }
+
+        // Colour avg bar
+        if (avg < 0.01)       barEl.style.background = 'var(--muted)';
+        else if (avg < 0.05)  barEl.style.background = 'var(--warn-text,#f0c060)';
+        else if (avg <= 0.25) barEl.style.background = 'var(--ok-text,#7ecf7e)';
+        else if (avg <= 0.35) barEl.style.background = 'var(--warn-text,#f0c060)';
+        else                  barEl.style.background = '#e05577';
+
+        // Text values
+        if (avgEl)     avgEl.textContent     = avg.toFixed(4);
+        if (peakValEl) peakValEl.textContent = peakRMS > 0 ? peakRMS.toFixed(4) : '—';
+        if (minEl)     minEl.textContent     = sessionMin < Infinity ? sessionMin.toFixed(4) : '—';
+        if (maxEl)     maxEl.textContent     = sessionMax > 0 ? sessionMax.toFixed(4) : '—';
+
+        // Status message — driven by peak (what ACRCloud will actually see)
+        const level = peakRMS > 0 ? peakRMS : avg;
+        if (avg < 0.01) {
           statusEl.className = 'cal-wiz-rec-box';
           statusEl.innerHTML = 'No signal detected — make sure music is playing.';
-        } else if (rms < 0.05) {
-          barEl.style.background = 'var(--warn-text,#f0c060)';
+        } else if (level < 0.05) {
           statusEl.className = 'cal-wiz-warn-box';
           statusEl.innerHTML = 'Signal too low — increase gain with <b>+</b>.';
-        } else if (rms <= 0.25) {
-          barEl.style.background = 'var(--ok-text,#7ecf7e)';
+        } else if (level <= 0.25) {
           statusEl.className = 'cal-wiz-result-ok';
-          statusEl.innerHTML = `<span class="r-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></span><span class="r-text">Good level — RMS ${rms.toFixed(4)} is in the target range (0.05–0.25).</span>`;
-        } else if (rms <= 0.35) {
-          barEl.style.background = 'var(--warn-text,#f0c060)';
+          statusEl.innerHTML = `<span class="r-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></span><span class="r-text">Good level. Peak ${peakRMS.toFixed(4)} — recognition will capture a clean signal.</span>`;
+        } else if (level <= 0.35) {
           statusEl.className = 'cal-wiz-warn-box';
-          statusEl.innerHTML = 'Signal a bit high — consider reducing gain with <b>−</b>.';
+          statusEl.innerHTML = 'Peak is a bit high — consider reducing gain with <b>−</b>.';
         } else {
-          barEl.style.background = '#e05577';
           statusEl.className = 'cal-wiz-warn-box';
-          statusEl.innerHTML = 'Signal clipping — reduce gain with <b>−</b> to avoid distortion.';
+          statusEl.innerHTML = 'Peak clipping — reduce gain with <b>−</b> to avoid distortion in recognition.';
+        }
+
+        // Dynamic range note (after enough samples)
+        if (sessionCount >= 5 && sessionMin < Infinity && sessionMax > 0) {
+          const ratio = sessionMax / Math.max(sessionMin, 0.001);
+          if (ratio > 8 && statusEl.className === 'cal-wiz-result-ok') {
+            statusEl.innerHTML += `<br><span style="font-size:0.72rem;opacity:0.75">Wide dynamic range detected (${ratio.toFixed(0)}×). Gain is optimised for loud passages — quiet passages may not trigger recognition.</span>`;
+          }
         }
       })
       .catch(() => {});
@@ -1420,7 +1501,7 @@ function _micStep3(body, footer) {
 
   footer.innerHTML = `
     <button class="btn-secondary" onclick="_micPrev()">← Back</button>
-    <button class="btn-primary" id="mic-save-btn" onclick="_micSave()">Save &amp; Close</button>`;
+    <button class="btn-save" id="mic-save-btn" onclick="_micSave()">Save &amp; Close</button>`;
 }
 
 function _micSave() {
