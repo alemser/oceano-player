@@ -276,10 +276,14 @@
     <!-- Hidden fields updated by the wizard and read by saveRecognitionPage -->
     <input type="hidden" id="inp-silence">
 
+    <p class="hint" style="margin-bottom:16px">
+      The gain and noise floor are linked: the noise floor is only meaningful once the gain is correctly set. Set the gain first, then calibrate. If you change the gain later, recalibrate the noise floor.
+    </p>
+
     <!-- Step 1: Capture Gain -->
     <div style="margin-bottom:14px">
       <p class="hint" style="margin-bottom:10px">
-        <b>Step 1</b> — Set the USB capture card input gain so the system receives a clean signal. Aim for RMS 0.05–0.25 during music playback. Run whenever you change the capture device.
+        <b>Step 1 — Capture Gain</b> — Sets the input level of the USB capture card. Aim for RMS 0.05–0.25 during music playback. A wrong gain makes the noise floor measurement meaningless, so always do this first.
       </p>
       <button type="button" class="btn-secondary" onclick="openMicGainWizard()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
@@ -290,7 +294,7 @@
     <!-- Step 2: Noise Floor -->
     <div>
       <p class="hint" style="margin-bottom:10px">
-        <b>Step 2</b> — Measure the noise floor of each amplifier input so the system can distinguish silence from music. Must be re-run after any gain change.
+        <b>Step 2 — Noise Floor</b> — Measures the silence level of each amplifier input at the current gain. The system uses this to distinguish silence from music. Re-run whenever the gain changes.
       </p>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <button type="button" class="btn-secondary" onclick="openCalibrationWizard()">
