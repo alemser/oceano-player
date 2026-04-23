@@ -21,8 +21,11 @@ func parseFlags(cfg *Config) {
 	flag.StringVar(&cfg.OutputFile, "output", cfg.OutputFile, "Output JSON file path")
 	flag.StringVar(&cfg.VUSocket, "vu-socket", cfg.VUSocket, "Unix socket path for VU meter frames (8 bytes: float32 L + float32 R)")
 	flag.StringVar(&cfg.PCMSocket, "pcm-socket", cfg.PCMSocket, "Unix socket path for raw PCM relay (S16_LE stereo at sample-rate Hz)")
+	flag.StringVar(&cfg.CalibrationFile, "calibration-file", cfg.CalibrationFile, "Path to noise floor calibration file (JSON)")
 	flag.Float64Var(&cfg.SilenceThreshold, "silence-threshold", cfg.SilenceThreshold, "RMS below this = silence / no physical source")
+	flag.Float64Var(&cfg.StddevThreshold, "stddev-threshold", cfg.StddevThreshold, "Standard deviation threshold for hybrid detection (0 = auto)")
 	flag.IntVar(&cfg.DebounceWindows, "debounce", cfg.DebounceWindows, "Majority vote window size")
+	flag.IntVar(&cfg.CalibrationDuration, "calibration-duration", cfg.CalibrationDuration, "Seconds to measure noise floor on first boot (0 = disabled)")
 	flag.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "Detailed logging")
 	flag.Parse()
 }

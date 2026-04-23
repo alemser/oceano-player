@@ -14,9 +14,16 @@ import (
 	"time"
 )
 
+type detectionThresholds struct {
+	rmsThreshold    float64
+	stddevThreshold float64
+}
+
 func run(ctx context.Context, cfg Config) error {
 	_ = os.MkdirAll(filepath.Dir(cfg.OutputFile), 0o755)
 	_ = writeState(cfg.OutputFile, SourceNone)
+
+	thresholds := computeThresholds(cfg)
 
 	hub := newVUHub()
 	go hub.run(ctx)
@@ -38,7 +45,7 @@ func run(ctx context.Context, cfg Config) error {
 				time.Sleep(5 * time.Second)
 				continue
 			}
-			if err := runStream(ctx, cfg, dev, hub, pcm); err != nil {
+			if err := runStream(ctx, cfg, dev, hub, pcm, thresholds); err != nil {
 				log.Printf("stream error on %s: %v — restarting in 2s", dev, err)
 				time.Sleep(2 * time.Second)
 			}
@@ -46,7 +53,33 @@ func run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *pcmHub) error {
+func computeThresholds(cfg Config) detectionThresholds {
+	// Try to load from calibration file first
+	if nf, ok := loadNoiseFloor(cfg.CalibrationFile); ok {
+		log.Printf("calibration: loaded from %s (rms=%.5f stddev=%.5f)", cfg.CalibrationFile, nf.RMS, nf.Stddev)
+		return detectionThresholds{
+			rmsThreshold:    nf.RMS + nf.Stddev*3.0,
+			stddevThreshold: nf.Stddev * 2.5,
+		}
+	}
+
+	// If calibration-duration is 0, fall back to manual threshold
+	if cfg.CalibrationDuration <= 0 {
+		log.Printf("calibration: no file, using silence-threshold=%.5f", cfg.SilenceThreshold)
+		return detectionThresholds{
+			rmsThreshold:    cfg.SilenceThreshold,
+			stddevThreshold: cfg.StddevThreshold,
+		}
+	}
+
+	// Need to measure - this will be done in runStream after device is opened
+	return detectionThresholds{
+		rmsThreshold:    cfg.SilenceThreshold,
+		stddevThreshold: cfg.StddevThreshold,
+	}
+}
+
+func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *pcmHub, thresholds detectionThresholds) error {
 	log.Printf("opening capture device %s", device)
 	cmd := exec.Command("arecord",
 		"-D", device,
@@ -68,6 +101,8 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 		_ = cmd.Wait()
 	}()
 
+	needsCalibration := cfg.CalibrationDuration > 0 && thresholds.rmsThreshold == cfg.SilenceThreshold
+
 	current := SourceNone
 	voteWindow := make([]Source, cfg.DebounceWindows)
 	for i := range voteWindow {
@@ -79,6 +114,10 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 	raw := make([]byte, cfg.BufferSize*4)
 	left := make([]float64, cfg.BufferSize)
 	right := make([]float64, cfg.BufferSize)
+
+	rmsValues := make([]float64, 0, 1024)
+	calibrationStart := time.Now()
+	calibrating := needsCalibration
 
 	for {
 		select {
@@ -112,8 +151,46 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 		// whether to display them.
 		hub.publish(VUFrame{Left: float32(rmsL), Right: float32(rmsR)})
 
+		// During calibration, collect RMS values
+		if calibrating {
+			rmsValues = append(rmsValues, rms)
+			if time.Since(calibrationStart) >= time.Duration(cfg.CalibrationDuration)*time.Second {
+				calibrating = false
+				if len(rmsValues) > 10 {
+					medianRMS := median(rmsValues)
+					_, stddev := computeRMSStats(rmsValues)
+					log.Printf("calibration: measured rms=%.5f stddev=%.5f (%d samples over %ds)",
+						medianRMS, stddev, len(rmsValues), cfg.CalibrationDuration)
+					nf := NoiseFloor{
+						RMS:     medianRMS,
+						Stddev:  stddev,
+						Samples: len(rmsValues),
+					}
+					if err := saveNoiseFloor(cfg.CalibrationFile, nf); err != nil {
+						log.Printf("calibration: failed to save: %v", err)
+					} else {
+						log.Printf("calibration: saved to %s", cfg.CalibrationFile)
+					}
+					thresholds.rmsThreshold = medianRMS + stddev*3.0
+					thresholds.stddevThreshold = stddev * 2.5
+					log.Printf("calibration: thresholds rms=%.5f stddev=%.5f", thresholds.rmsThreshold, thresholds.stddevThreshold)
+				} else {
+					log.Printf("calibration: insufficient samples (%d), using defaults", len(rmsValues))
+				}
+				rmsValues = nil
+			}
+			continue
+		}
+
+		// Compute stddev of current buffer for hybrid detection
+		samples := make([]float64, cfg.BufferSize)
+		for i := 0; i < cfg.BufferSize; i++ {
+			samples[i] = (left[i] + right[i]) / 2.0
+		}
+		_, stddev := computeRMSStats(samples)
+
 		var detected Source
-		if rms >= cfg.SilenceThreshold {
+		if rms >= thresholds.rmsThreshold || stddev >= thresholds.stddevThreshold {
 			detected = SourcePhysical
 		} else {
 			detected = SourceNone
@@ -124,7 +201,7 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 
 		if voteIdx < cfg.DebounceWindows {
 			if cfg.Verbose {
-				log.Printf("warming up: rms=%.5f det=%s (%d/%d)", rms, detected, voteIdx, cfg.DebounceWindows)
+				log.Printf("warming up: rms=%.5f stddev=%.5f det=%s (%d/%d)", rms, stddev, detected, voteIdx, cfg.DebounceWindows)
 			}
 			continue
 		}
@@ -150,15 +227,15 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 		}
 
 		if cfg.Verbose {
-			log.Printf("rms=%.5f det=%s votes(none=%d physical=%d) curr=%s",
-				rms, detected, noneVotes, physicalVotes, current)
+			log.Printf("rms=%.5f stddev=%.5f det=%s votes(none=%d physical=%d) curr=%s",
+				rms, stddev, detected, noneVotes, physicalVotes, current)
 		} else if now := time.Now(); now.Sub(lastHeartbeat) >= time.Minute {
-			log.Printf("heartbeat: source=%s rms=%.5f", current, rms)
+			log.Printf("heartbeat: source=%s rms=%.5f stddev=%.5f", current, rms, stddev)
 			lastHeartbeat = now
 		}
 
 		if winner != current {
-			log.Printf("SOURCE: %s → %s (rms=%.5f)", current, winner, rms)
+			log.Printf("SOURCE: %s → %s (rms=%.5f stddev=%.5f)", current, winner, rms, stddev)
 			current = winner
 			_ = writeState(cfg.OutputFile, current)
 		}
