@@ -119,13 +119,19 @@ func computeRecognizedSeekMS(isBoundaryTrigger bool, captureStartedAt, now, last
 	if seekMS < 0 {
 		seekMS = 0
 	}
-	if !physStartedAt.IsZero() {
+
+	// Use physStartedAt to account for recognition delay (capture + network latency)
+	// when re-confirming the same track OR on the first recognition of a new session
+	// (no previous result). In both cases the session anchor is valid.
+	// For a genuinely different track found without a boundary event, only use the
+	// capture elapsed time so the new track does not inherit the old session's elapsed.
+	isSameTrack := sameTrackForStateContinuity(previousResult, newResult)
+	isFirstRecognition := previousResult == nil
+	if !physStartedAt.IsZero() && (isSameTrack || isFirstRecognition) {
 		if better := now.Sub(physStartedAt).Milliseconds(); better > seekMS {
 			seekMS = better
 		}
-	}
-	if sameTrackForStateContinuity(previousResult, newResult) && !physStartedAt.IsZero() {
-		return seekMS, false
+		return seekMS, !isSameTrack
 	}
 
 	return seekMS, true

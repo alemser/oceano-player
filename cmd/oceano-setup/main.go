@@ -18,12 +18,6 @@ const (
 )
 
 const (
-	displayService    = "/etc/systemd/system/oceano-display.service"
-	displayCheckBin   = "/usr/local/bin/oceano-display-check"
-	displayLaunchBin  = "/usr/local/bin/oceano-display-launch"
-)
-
-const (
 	bold   = "\033[1m"
 	cyan   = "\033[0;36m"
 	green  = "\033[0;32m"
@@ -265,81 +259,6 @@ func run(name string, args ...string) {
 	}
 }
 
-// ── Display (HDMI/DSI kiosk) ───────────────────────────────────────────────────
-
-func findChromium() string {
-	for _, bin := range []string{"chromium-browser", "chromium"} {
-		if path, err := exec.LookPath(bin); err == nil {
-			return path
-		}
-	}
-	return ""
-}
-
-func configureDisplay(user string, webAddr string) {
-	chromium := findChromium()
-	if chromium == "" {
-		logWarn("Chromium not found — installing chromium-browser...")
-		if err := exec.Command("apt-get", "install", "-y", "chromium-browser").Run(); err != nil {
-			logWarn("Could not install chromium-browser")
-			return
-		}
-		chromium = findChromium()
-	}
-	if chromium == "" {
-		logWarn("Chromium not found — skipping display setup")
-		return
-	}
-	logOK("Chromium: " + chromium)
-
-	displayCheck := `#!/bin/bash
-# Exit 0 if HDMI or DSI display is detected, non-zero otherwise.
-for card in /sys/class/drm/card*; do
-  status=$(cat "${card}/status" 2>/dev/null || true)
-  if [[ "$status" == "connected" ]]; then
-    exit 0
-  fi
-done
-exit 1
-`
-	if err := os.WriteFile(displayCheckBin, []byte(displayCheck), 0755); err != nil {
-		logWarn("Could not write " + displayCheckBin + ": " + err.Error())
-		return
-	}
-
-	displayLaunch := fmt.Sprintf("#!/bin/bash\nexec %s --kiosk --disable-gpu --disable-software-rasterizer \\\n  --disable-infobars --disable-session-crashed-bubble \\\n  --disable-dev-shm-usage --no-sandbox \\\n  %s/nowplaying.html\n", chromium, webAddr)
-	if err := os.WriteFile(displayLaunchBin, []byte(displayLaunch), 0755); err != nil {
-		logWarn("Could not write " + displayLaunchBin + ": " + err.Error())
-		return
-	}
-
-	displaySvc := fmt.Sprintf(`[Unit]
-Description=Oceano Display (HDMI/DSI kiosk)
-After=network.target
-Wants=oceano-web.service
-
-[Service]
-Type=simple
-User=%s
-ExecStartPre=%s
-ExecStart=%s
-Restart=on-failure
-RestartSec=5
-TimeoutStartSec=30
-
-[Install]
-WantedBy=multi-user.target
-`, user, displayCheckBin, displayLaunchBin)
-	if err := os.WriteFile(displayService, []byte(displaySvc), 0644); err != nil {
-		logWarn("Could not write " + displayService + ": " + err.Error())
-		return
-	}
-
-	run("systemctl", "daemon-reload")
-	run("systemctl", "enable", "--now", "oceano-display.service")
-	logOK("Display service enabled (oceano-display.service)")
-}
-
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 func main() {
@@ -402,18 +321,6 @@ func main() {
 	configureBluetooth(btName)
 	logOK(fmt.Sprintf("Bluetooth configured: name=%q, always discoverable", btName))
 
-	// ── Display ────────────────────────────────────────────────────────────────
-	section("Display (HDMI/DSI kiosk)")
-
-	displayEnabled := prompt("Install display service", "n")
-	displayUser := "pi"
-	webAddr := "http://localhost:8080"
-
-	if strings.ToLower(displayEnabled) == "y" {
-		displayUser = prompt("Display user", displayUser)
-		webAddr = prompt("Web address", webAddr)
-	}
-
 	// ── Apply ────────────────────────────────────────────────────────────────
 	section("Applying configuration")
 
@@ -422,12 +329,6 @@ func main() {
 	run("systemctl", "restart", "oceano-source-detector.service")
 	run("systemctl", "restart", "oceano-state-manager.service")
 	run("systemctl", "restart", "oceano-web.service")
-
-	if strings.ToLower(displayEnabled) == "y" {
-		configureDisplay(displayUser, webAddr)
-		run("systemctl", "restart", "oceano-display.service")
-	}
-
 	logOK("Services restarted")
 
 	fmt.Printf("\n%sSetup complete!%s\n", bold, reset)

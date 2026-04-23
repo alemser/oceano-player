@@ -288,8 +288,8 @@ func TestComputeRecognizedSeekMS_NonBoundaryDifferentMetadataResetsProgress(t *t
 	if !resetStartedAt {
 		t.Fatal("expected physicalStartedAt reset for different track")
 	}
-	if seekMS < 115000 {
-		t.Fatalf("seekMS = %d, expected ~2min elapsed since physStartedAt", seekMS)
+	if seekMS > 20000 {
+		t.Fatalf("seekMS = %d, expected near-capture seek for new track", seekMS)
 	}
 }
 
@@ -588,17 +588,37 @@ func TestApplyRecognizedResult_SetsPhysicalSeek(t *testing.T) {
 
 func TestComputeRecognizedSeekMS_NonBoundaryTrackChangeDoesNotReuseOldSessionElapsed(t *testing.T) {
 	now := time.Now()
-	captureStartedAt := now.Add(-30 * time.Second)
+	captureStartedAt := now.Add(-4 * time.Second)
 	physStartedAt := now.Add(-3 * time.Minute)
 	previous := &RecognitionResult{ACRID: "old-acr", Title: "Old", Artist: "Artist"}
 	current := &RecognitionResult{ACRID: "new-acr", Title: "New", Artist: "Artist"}
 
 	seekMS, resetStart := computeRecognizedSeekMS(false, captureStartedAt, now, time.Time{}, physStartedAt, previous, current)
-	if seekMS < 170000 {
-		t.Fatalf("computeRecognizedSeekMS() seek=%d, want ~3min since physStartedAt", seekMS)
+	if seekMS < 4000 || seekMS > 10000 {
+		t.Fatalf("computeRecognizedSeekMS() seek=%d, want close to capture elapsed only", seekMS)
 	}
 	if !resetStart {
 		t.Fatal("expected non-boundary track change to request physicalStartedAt reset")
+	}
+}
+
+func TestComputeRecognizedSeekMS_NonBoundaryFirstRecognitionUsesPhysStartedAt(t *testing.T) {
+	// Simulates Telegraph Road: quiet intro delays trigger; first attempt is no-match;
+	// by the time the second attempt succeeds, 37s have elapsed since audio detected,
+	// but captureStartedAt is only 12s ago. With no previous result, physStartedAt
+	// should be used so the progress bar starts at ~37s, not ~12s.
+	now := time.Now()
+	captureStartedAt := now.Add(-12 * time.Second)
+	physStartedAt := now.Add(-37 * time.Second)
+	var previous *RecognitionResult // nil — first recognition of the session
+	current := &RecognitionResult{ACRID: "acr-telegraph", Title: "Telegraph Road", Artist: "Dire Straits"}
+
+	seekMS, resetStart := computeRecognizedSeekMS(false, captureStartedAt, now, time.Time{}, physStartedAt, previous, current)
+	if seekMS < 37000 {
+		t.Fatalf("computeRecognizedSeekMS() seek=%d, want >= 37s (physStartedAt elapsed)", seekMS)
+	}
+	if !resetStart {
+		t.Fatal("expected physicalStartedAt reset after first recognition")
 	}
 }
 
