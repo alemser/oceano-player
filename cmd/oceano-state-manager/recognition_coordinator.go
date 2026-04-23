@@ -473,6 +473,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				}
 			}
 			fallbackTimer.Reset(c.mgr.cfg.RecognizerMaxInterval)
+			log.Printf("recognizer [%s]: received trigger (boundary=%v hard=%v)", c.rec.Name(), isBoundaryTrigger, isHardBoundaryTrigger)
 		case <-fallbackTimer.C:
 			c.mgr.mu.Lock()
 			isPhysical := c.mgr.physicalSource == "Physical"
@@ -742,7 +743,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		drained:
 		} else {
 			c.handleNoMatch(isBoundaryTrigger, isHardBoundaryTrigger, &backoffUntil, &backoffRateLimited)
+			log.Printf("recognizer [%s]: no match handled, backoffUntil=%v", c.rec.Name(), backoffUntil)
 			if backoffUntil.IsZero() {
+				log.Printf("recognizer [%s]: no match with zero backoff — looping", c.rec.Name())
 				continue
 			}
 		}

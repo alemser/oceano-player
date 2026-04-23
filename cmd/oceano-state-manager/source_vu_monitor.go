@@ -193,6 +193,17 @@ func (m *mgr) pollSourceFile() {
 		m.physicalSeekUpdatedAt = time.Time{}
 	}
 	needsTrigger := src == "Physical" && (m.recognitionResult == nil || resumedAfterIdle || resumedAfterSilence)
+	if needsTrigger {
+		triggerType := "unknown"
+		if resumedAfterIdle {
+			triggerType = "idle-resume"
+		} else if resumedAfterSilence {
+			triggerType = "silence-resume"
+		} else if m.recognitionResult == nil {
+			triggerType = "no-result"
+		}
+		log.Printf("VU monitor: queuing recognition trigger (type=%s)", triggerType)
+	}
 	m.physicalSource = src
 	m.mu.Unlock()
 
