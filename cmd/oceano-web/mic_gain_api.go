@@ -144,6 +144,7 @@ type micGainInfoResponse struct {
 type micGainAdjustRequest struct {
 	Direction string `json:"direction"` // "up" | "down"
 	Step      int    `json:"step"`      // optional, defaults to 5
+	CardNum   *int   `json:"card_num"`  // optional override; null means use config
 }
 
 type micGainAdjustResponse struct {
@@ -152,25 +153,55 @@ type micGainAdjustResponse struct {
 }
 
 func registerMicGainRoutes(mux *http.ServeMux, configPath string) {
+	// GET /api/mic-gain/info?card=N  — omit card to use configured device
 	mux.HandleFunc("/api/mic-gain/info", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		cfg, err := loadConfig(configPath)
-		if err != nil {
-			jsonError(w, "could not load config: "+err.Error(), http.StatusInternalServerError)
-			return
+
+		var cardNum int
+		var device, deviceName string
+
+		if cardStr := r.URL.Query().Get("card"); cardStr != "" {
+			n, err := strconv.Atoi(cardStr)
+			if err != nil {
+				jsonError(w, "invalid card number", http.StatusBadRequest)
+				return
+			}
+			cardNum = n
+			device = fmt.Sprintf("plughw:%d,0", n)
+			// resolve friendly name from /proc/asound/cards
+			for _, d := range scanALSADevices() {
+				if d.Card == n {
+					deviceName = d.Name
+					if d.Desc != "" {
+						deviceName = d.Desc
+					}
+					break
+				}
+			}
+			if deviceName == "" {
+				deviceName = device
+			}
+		} else {
+			cfg, err := loadConfig(configPath)
+			if err != nil {
+				jsonError(w, "could not load config: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			var rerr error
+			cardNum, device, rerr = resolveCardNum(cfg.AudioInput)
+			if rerr != nil {
+				jsonOK(w, micGainInfoResponse{Error: rerr.Error()})
+				return
+			}
+			deviceName = cfg.AudioInput.DeviceMatch
+			if deviceName == "" {
+				deviceName = cfg.AudioInput.Device
+			}
 		}
-		cardNum, device, err := resolveCardNum(cfg.AudioInput)
-		if err != nil {
-			jsonOK(w, micGainInfoResponse{Error: err.Error()})
-			return
-		}
-		deviceName := cfg.AudioInput.DeviceMatch
-		if deviceName == "" {
-			deviceName = cfg.AudioInput.Device
-		}
+
 		control, err := findCaptureControl(cardNum)
 		if err != nil {
 			jsonOK(w, micGainInfoResponse{CardNum: cardNum, Device: device, DeviceName: deviceName, Error: err.Error()})
@@ -195,11 +226,6 @@ func registerMicGainRoutes(mux *http.ServeMux, configPath string) {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		cfg, err := loadConfig(configPath)
-		if err != nil {
-			jsonError(w, "could not load config: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
 		var req micGainAdjustRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -209,11 +235,24 @@ func registerMicGainRoutes(mux *http.ServeMux, configPath string) {
 		if step <= 0 {
 			step = 5
 		}
-		cardNum, _, err := resolveCardNum(cfg.AudioInput)
-		if err != nil {
-			jsonError(w, err.Error(), http.StatusBadRequest)
-			return
+
+		var cardNum int
+		if req.CardNum != nil {
+			cardNum = *req.CardNum
+		} else {
+			cfg, err := loadConfig(configPath)
+			if err != nil {
+				jsonError(w, "could not load config: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			var rerr error
+			cardNum, _, rerr = resolveCardNum(cfg.AudioInput)
+			if rerr != nil {
+				jsonError(w, rerr.Error(), http.StatusBadRequest)
+				return
+			}
 		}
+
 		control, err := findCaptureControl(cardNum)
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
