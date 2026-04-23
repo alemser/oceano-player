@@ -284,6 +284,14 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>
       Run Calibration Wizard
     </button>
+
+    <div style="margin-top:12px">
+      <p class="hint" style="margin-bottom:10px">Adjust the USB capture card input gain so the system receives a clean signal for track recognition. Aim for RMS 0.05–0.25 during music playback.</p>
+      <button type="button" class="btn-secondary" onclick="openMicGainWizard()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        Calibrate Capture Gain
+      </button>
+    </div>
   </div>
 
   <!-- ── Source Detection ─────────────────────────────────────────────────── -->
@@ -464,6 +472,20 @@
 </div>
 
 <div id="toast"></div>
+
+<!-- ── Mic Gain Wizard overlay ─────────────────────────────────────────────── -->
+<div id="mic-gain-overlay" class="cal-wiz-overlay" onclick="if(event.target===this)closeMicGainWizard()">
+  <div class="cal-wiz-dialog" role="dialog" aria-modal="true" aria-label="Capture Gain Wizard">
+    <div class="cal-wiz-header">
+      <div id="mic-gain-step-indicator" class="cal-wiz-steps"></div>
+      <button class="cal-wiz-close" onclick="closeMicGainWizard()" title="Close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="cal-wiz-body" id="mic-gain-body"></div>
+    <div class="cal-wiz-footer" id="mic-gain-footer"></div>
+  </div>
+</div>
 
 <script src="recognition_page.js"></script>
 

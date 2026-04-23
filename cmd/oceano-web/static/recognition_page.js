@@ -1113,3 +1113,219 @@ document.getElementById('rec-chain')?.addEventListener('change', updateRecogniti
 document.addEventListener('DOMContentLoaded', () => {
   loadRecognitionPage();
 });
+
+// ── Mic Gain Wizard ────────────────────────────────────────────────────────────
+// 4 steps: Device info → Play music prompt → Live RMS + gain adjust → Confirm
+
+const MIC_STEPS = ['Device', 'Play Music', 'Adjust Gain', 'Confirm'];
+
+let _mic = {
+  step: 0,
+  info: null,       // micGainInfoResponse from /api/mic-gain/info
+  vuTimer: null,    // interval ID for live RMS polling
+  vuSocket: '',     // filled from config
+};
+
+function openMicGainWizard() {
+  _mic.step = 0;
+  _mic.info = null;
+  _stopMicVU();
+  document.getElementById('mic-gain-overlay').classList.add('open');
+  _micRenderStep();
+}
+
+function closeMicGainWizard() {
+  _stopMicVU();
+  document.getElementById('mic-gain-overlay').classList.remove('open');
+}
+
+function _stopMicVU() {
+  if (_mic.vuTimer) {
+    clearInterval(_mic.vuTimer);
+    _mic.vuTimer = null;
+  }
+}
+
+function _micStepIndicator() {
+  const ind = document.getElementById('mic-gain-step-indicator');
+  if (!ind) return;
+  ind.innerHTML = MIC_STEPS.map((label, i) => {
+    const cls = i < _mic.step ? 'cal-wiz-step done' : i === _mic.step ? 'cal-wiz-step active' : 'cal-wiz-step';
+    return `<span class="${cls}">${i + 1}. ${label}</span>`;
+  }).join('');
+}
+
+function _micRenderStep() {
+  _micStepIndicator();
+  const body   = document.getElementById('mic-gain-body');
+  const footer = document.getElementById('mic-gain-footer');
+  if (!body || !footer) return;
+
+  switch (_mic.step) {
+    case 0: _micStep0(body, footer); break;
+    case 1: _micStep1(body, footer); break;
+    case 2: _micStep2(body, footer); break;
+    case 3: _micStep3(body, footer); break;
+  }
+}
+
+// Step 0: load device info and display
+function _micStep0(body, footer) {
+  body.innerHTML = `<div class="cal-wiz-title">Capture Device</div>
+    <div class="cal-wiz-desc">Loading device information…</div>`;
+  footer.innerHTML = '';
+
+  fetch('/api/mic-gain/info')
+    .then(r => r.json())
+    .then(info => {
+      _mic.info = info;
+      if (info.error && !info.card_num && info.card_num !== 0) {
+        body.innerHTML = `<div class="cal-wiz-title">Capture Device</div>
+          <div class="cal-wiz-desc" style="color:var(--error,#e05)">
+            <b>Could not resolve capture device:</b><br>${_esc(info.error)}
+          </div>
+          <p class="cal-wiz-desc" style="margin-top:12px">
+            Check your Audio Input configuration and ensure the USB sound card is connected.
+          </p>`;
+        footer.innerHTML = `<button class="btn-secondary" onclick="closeMicGainWizard()">Close</button>`;
+        return;
+      }
+      body.innerHTML = `<div class="cal-wiz-title">Capture Device</div>
+        <div class="cal-wiz-desc">This wizard will help you set the right input gain for track recognition. Only the <b>capture</b> (REC OUT) card is adjusted here.</div>
+        <div class="cal-wiz-sum-grid" style="margin-top:16px">
+          <div class="cal-wiz-sum-card">
+            <div class="cal-wiz-sum-head"><span class="cal-wiz-sum-name">Device</span></div>
+            <div class="cal-wiz-sum-vals">
+              <div class="cal-wiz-sum-val"><span class="lbl">Name</span><span class="val">${_esc(info.device_name || info.device)}</span></div>
+              <div class="cal-wiz-sum-val"><span class="lbl">ALSA</span><span class="val">${_esc(info.device)}</span></div>
+              <div class="cal-wiz-sum-val"><span class="lbl">Control</span><span class="val">${_esc(info.control || '—')}</span></div>
+              <div class="cal-wiz-sum-val"><span class="lbl">Current gain</span><span class="val" id="mic-cur-gain">${info.gain_pct !== undefined ? info.gain_pct + '%' : '—'}</span></div>
+            </div>
+          </div>
+        </div>
+        ${info.error ? `<p class="hint" style="color:var(--warn,#f90);margin-top:10px">Warning: ${_esc(info.error)}</p>` : ''}`;
+      footer.innerHTML = `
+        <button class="btn-secondary" onclick="closeMicGainWizard()">Cancel</button>
+        <button class="btn-primary" onclick="_micNext()">Next →</button>`;
+    })
+    .catch(e => {
+      body.innerHTML = `<div class="cal-wiz-title">Capture Device</div>
+        <div class="cal-wiz-desc" style="color:var(--error,#e05)">Error: ${_esc(e.message)}</div>`;
+      footer.innerHTML = `<button class="btn-secondary" onclick="closeMicGainWizard()">Close</button>`;
+    });
+}
+
+// Step 1: instruct user to play music
+function _micStep1(body, footer) {
+  body.innerHTML = `<div class="cal-wiz-title">Play Music</div>
+    <div class="cal-wiz-desc">
+      Put on a record or play a CD at a <b>typical listening volume</b>. Make sure the amplifier is set to the physical input (Phono or CD).<br><br>
+      When music is playing at normal volume, click <b>Next</b> to start monitoring the signal level.
+    </div>`;
+  footer.innerHTML = `
+    <button class="btn-secondary" onclick="_micPrev()">← Back</button>
+    <button class="btn-primary" onclick="_micNext()">Next →</button>`;
+}
+
+// Step 2: live RMS meter + gain +/- buttons
+function _micStep2(body, footer) {
+  _stopMicVU();
+  body.innerHTML = `<div class="cal-wiz-title">Adjust Gain</div>
+    <div class="cal-wiz-desc">
+      Target RMS: <b>0.05 – 0.25</b>. Use the buttons to raise or lower the capture gain until the meter is in the green zone during music playback.
+    </div>
+    <div style="margin-top:20px;text-align:center">
+      <div style="font-size:11px;color:var(--text-2,#888);margin-bottom:4px">Live RMS</div>
+      <div id="mic-rms-bar-wrap" style="width:100%;height:18px;background:var(--surface-2,#222);border-radius:4px;overflow:hidden;margin-bottom:8px">
+        <div id="mic-rms-bar" style="height:100%;width:0%;background:#4caf50;transition:width 0.15s"></div>
+      </div>
+      <div id="mic-rms-val" style="font-size:22px;font-weight:700;letter-spacing:0.02em;margin-bottom:16px">—</div>
+      <div style="display:flex;gap:10px;justify-content:center;align-items:center">
+        <button class="btn-secondary" onclick="_micAdjust('down')" style="font-size:18px;padding:6px 18px" title="Decrease gain by 5%">−</button>
+        <span id="mic-gain-val" style="min-width:60px;text-align:center;font-size:16px;font-weight:600">${_mic.info ? _mic.info.gain_pct + '%' : '—'}</span>
+        <button class="btn-secondary" onclick="_micAdjust('up')" style="font-size:18px;padding:6px 18px" title="Increase gain by 5%">+</button>
+      </div>
+      <div class="hint" style="margin-top:10px">Gain control: <b>${_mic.info ? _esc(_mic.info.control) : '—'}</b></div>
+    </div>`;
+  footer.innerHTML = `
+    <button class="btn-secondary" onclick="_micPrev()">← Back</button>
+    <button class="btn-primary" onclick="_micNext()">Next →</button>`;
+
+  // Start live VU polling via existing calibration endpoint
+  _mic.vuTimer = setInterval(() => {
+    fetch('/api/calibration/vu-sample', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({seconds: 1}),
+    })
+      .then(r => r.json())
+      .then(d => {
+        const rms = d.avg_rms ?? 0;
+        const valEl  = document.getElementById('mic-rms-val');
+        const barEl  = document.getElementById('mic-rms-bar');
+        if (!valEl) { _stopMicVU(); return; }
+        valEl.textContent = rms.toFixed(4);
+        // Map 0–0.4 to bar width; colour based on target zone
+        const pct = Math.min(rms / 0.4 * 100, 100);
+        barEl.style.width = pct + '%';
+        if (rms < 0.05)       barEl.style.background = '#888';
+        else if (rms <= 0.25) barEl.style.background = '#4caf50';
+        else if (rms <= 0.35) barEl.style.background = '#f90';
+        else                  barEl.style.background = '#e05';
+      })
+      .catch(() => {});
+  }, 1200);
+}
+
+function _micAdjust(dir) {
+  fetch('/api/mic-gain/adjust', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({direction: dir}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { toast('Error: ' + d.error); return; }
+      const el = document.getElementById('mic-gain-val');
+      if (el) el.textContent = d.gain_pct + '%';
+      if (_mic.info) _mic.info.gain_pct = d.gain_pct;
+    })
+    .catch(e => toast('Error: ' + e.message));
+}
+
+// Step 3: confirm and persist
+function _micStep3(body, footer) {
+  _stopMicVU();
+  const gain = _mic.info ? _mic.info.gain_pct : '—';
+  body.innerHTML = `<div class="cal-wiz-title">Save Settings</div>
+    <div class="cal-wiz-desc">
+      The capture gain is currently set to <b>${gain}%</b>.<br><br>
+      Click <b>Save &amp; Close</b> to persist this setting with <code>alsactl store</code> so it survives reboots.
+    </div>`;
+  footer.innerHTML = `
+    <button class="btn-secondary" onclick="_micPrev()">← Back</button>
+    <button class="btn-primary" id="mic-save-btn" onclick="_micSave()">Save &amp; Close</button>`;
+}
+
+function _micSave() {
+  const btn = document.getElementById('mic-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  fetch('/api/mic-gain/store', {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { toast('Error: ' + d.error); if (btn) { btn.disabled = false; btn.textContent = 'Save & Close'; } return; }
+      toast('Gain settings saved.');
+      closeMicGainWizard();
+    })
+    .catch(e => { toast('Error: ' + e.message); if (btn) { btn.disabled = false; btn.textContent = 'Save & Close'; } });
+}
+
+function _micNext() {
+  _stopMicVU();
+  if (_mic.step < MIC_STEPS.length - 1) { _mic.step++; _micRenderStep(); }
+}
+
+function _micPrev() {
+  _stopMicVU();
+  if (_mic.step > 0) { _mic.step--; _micRenderStep(); }
+}
