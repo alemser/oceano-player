@@ -8,6 +8,7 @@ const _calibrationState = {
   vinylTransition: null,
   cfg: null,
   byInput: {},
+  gainInfo: null,
 };
 
 function _normalizeCalibrationSample(raw) {
@@ -146,12 +147,22 @@ function renderCalibrationSummary() {
     items.push({ key, label: inp.logical_name || `Input ${inp.id}`, slot: null, measured: false });
   }
 
+  const gi = _calibrationState.gainInfo;
+  const gainCardHtml = (gi && !gi.error) ? `<div class="cal-sc-card" style="margin-bottom:12px">
+    <div class="cal-sc-head"><span class="cal-sc-name">Capture Gain</span><span class="cal-sc-badge measured">Active</span></div>
+    <div class="cal-sc-values">
+      <div class="cal-sc-val"><span class="lbl">Device</span><span class="val" style="font-size:0.78rem">${_esc(gi.device_name || gi.device)}</span></div>
+      <div class="cal-sc-val"><span class="lbl">Control</span><span class="val">${_esc(gi.control)}</span></div>
+      <div class="cal-sc-val"><span class="lbl">Gain</span><span class="val">${gi.gain_pct}% <span style="color:var(--muted);font-size:0.8em;font-weight:400">(${gi.gain_raw} / ${gi.gain_max})</span></span></div>
+    </div>
+  </div>` : '';
+
   if (items.length === 0) {
-    container.innerHTML = '<div class="hint" style="padding:4px 0 2px">No amplifier inputs configured. Run the wizard after setting up inputs in the Amplifier section.</div>';
+    container.innerHTML = gainCardHtml + '<div class="hint" style="padding:4px 0 2px">No amplifier inputs configured. Run the wizard after setting up inputs in the Amplifier section.</div>';
     return;
   }
 
-  container.innerHTML = items.map(item => {
+  container.innerHTML = gainCardHtml + items.map(item => {
     const { label, slot, measured, key } = item;
     const isPhono = _isVinylLabel(label, key);
 
@@ -1139,6 +1150,10 @@ document.getElementById('rec-chain')?.addEventListener('change', updateRecogniti
 document.addEventListener('DOMContentLoaded', () => {
   loadRecognitionPage();
   _calInitStale();
+  fetch('/api/mic-gain/info')
+    .then(r => r.json())
+    .then(d => { if (!d.error) { _calibrationState.gainInfo = d; renderCalibrationSummary(); } })
+    .catch(() => {});
 });
 
 // ── Mic Gain Wizard ────────────────────────────────────────────────────────────
@@ -1396,10 +1411,11 @@ function _micStep2(body, footer) {
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
         1
       </button>
-      <div style="text-align:center;min-width:66px">
+      <div style="text-align:center;min-width:72px">
         <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Gain</div>
         <div id="mic-gain-val" style="font-size:1.4rem;font-weight:700;font-family:monospace">${gain}%</div>
-        <div style="font-size:0.68rem;color:var(--muted);margin-top:2px">${_esc(control)}</div>
+        <div id="mic-gain-raw" style="font-size:0.68rem;color:var(--muted);margin-top:1px;font-family:monospace">${_mic.info?.gain_raw != null ? `${_mic.info.gain_raw}/${_mic.info.gain_max}` : ''}</div>
+        <div style="font-size:0.62rem;color:var(--muted);margin-top:1px">${_esc(control)}</div>
       </div>
       <button class="cal-wiz-cap-btn" onclick="_micAdjust('up',1,true)" title="Increase by 1 step" style="padding:7px 10px;font-size:0.78rem">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -1526,7 +1542,13 @@ function _micAdjust(dir, step, rawStep) {
       if (d.error) { toast('Error: ' + d.error); return; }
       const el = document.getElementById('mic-gain-val');
       if (el) el.textContent = d.gain_pct + '%';
-      if (_mic.info) _mic.info.gain_pct = d.gain_pct;
+      const rawEl = document.getElementById('mic-gain-raw');
+      if (rawEl && d.gain_raw != null) rawEl.textContent = `${d.gain_raw}/${d.gain_max}`;
+      if (_mic.info) {
+        _mic.info.gain_pct = d.gain_pct;
+        _mic.info.gain_raw = d.gain_raw;
+        _mic.info.gain_max = d.gain_max;
+      }
     })
     .catch(e => toast('Error: ' + e.message));
 }
@@ -1582,7 +1604,9 @@ function _micSave(openCal) {
         return;
       }
       _calMarkStale();
+      if (_mic.info) { _calibrationState.gainInfo = _mic.info; }
       closeMicGainWizard();
+      renderCalibrationSummary();
       if (openCal) {
         setTimeout(() => openCalibrationWizard(), 120);
       } else {

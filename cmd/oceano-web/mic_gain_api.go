@@ -189,6 +189,8 @@ type micGainInfoResponse struct {
 	Device     string `json:"device"`
 	Control    string `json:"control"`
 	GainPct    int    `json:"gain_pct"`
+	GainRaw    int    `json:"gain_raw"`
+	GainMax    int    `json:"gain_max"`
 	DeviceName string `json:"device_name"`
 	Error      string `json:"error,omitempty"`
 }
@@ -202,6 +204,8 @@ type micGainAdjustRequest struct {
 
 type micGainAdjustResponse struct {
 	GainPct int    `json:"gain_pct"`
+	GainRaw int    `json:"gain_raw"`
+	GainMax int    `json:"gain_max"`
 	Error   string `json:"error,omitempty"`
 }
 
@@ -260,7 +264,7 @@ func registerMicGainRoutes(mux *http.ServeMux, configPath string) {
 			jsonOK(w, micGainInfoResponse{CardNum: cardNum, Device: device, DeviceName: deviceName, Error: err.Error()})
 			return
 		}
-		gainPct, err := amixerGetGain(cardNum, control)
+		st, err := amixerGetCaptureState(cardNum, control)
 		if err != nil {
 			jsonOK(w, micGainInfoResponse{CardNum: cardNum, Device: device, DeviceName: deviceName, Control: control, Error: err.Error()})
 			return
@@ -270,7 +274,9 @@ func registerMicGainRoutes(mux *http.ServeMux, configPath string) {
 			Device:     device,
 			DeviceName: deviceName,
 			Control:    control,
-			GainPct:    gainPct,
+			GainPct:    st.Pct,
+			GainRaw:    st.Raw,
+			GainMax:    st.Max,
 		})
 	})
 
@@ -362,8 +368,8 @@ func registerMicGainRoutes(mux *http.ServeMux, configPath string) {
 			}
 		}
 
-		actual, _ := amixerGetGain(cardNum, control)
-		jsonOK(w, micGainAdjustResponse{GainPct: actual})
+		actual, _ := amixerGetCaptureState(cardNum, control)
+		jsonOK(w, micGainAdjustResponse{GainPct: actual.Pct, GainRaw: actual.Raw, GainMax: actual.Max})
 	})
 
 	mux.HandleFunc("/api/mic-gain/store", func(w http.ResponseWriter, r *http.Request) {
