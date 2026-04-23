@@ -459,6 +459,25 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		var preBoundarySeekUpdatedAt time.Time
 		var preBoundaryLibraryEntryID int64
 		var preBoundaryArtworkPath string
+
+		// Drain pending triggers when in backoff to avoid accumulating work.
+		// Only boundary triggers (from VU boundary detection) should bypass backoff.
+		if !backoffUntil.IsZero() && !shouldBypassBackoff(false, backoffRateLimited) {
+			if wait := time.Until(backoffUntil); wait > 0 {
+				log.Printf("recognizer [%s]: in backoff, draining pending triggers for %s", c.rec.Name(), wait)
+				drained := c.drainPendingTriggers()
+				if drained > 0 {
+					log.Printf("recognizer [%s]: drained %d pending triggers", c.rec.Name(), drained)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(wait):
+					backoffUntil = time.Time{}
+				}
+			}
+		}
+
 		select {
 		case <-ctx.Done():
 			return
