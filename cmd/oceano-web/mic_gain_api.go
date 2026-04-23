@@ -102,21 +102,32 @@ func findCaptureControl(cardNum int) (string, error) {
 	return "", fmt.Errorf("no mixer controls found on card %d", cardNum)
 }
 
-// amixerGetGain returns the current gain percentage (0–100) for a control.
+// amixerGetGain returns the current CAPTURE gain percentage (0–100) for a
+// control. When the control has both Playback and Capture levels (e.g. "Mic"),
+// the Capture value is preferred because that is what affects the recorded signal.
 func amixerGetGain(cardNum int, control string) (int, error) {
 	out, err := exec.Command("amixer", "-c", strconv.Itoa(cardNum), "sget", control).Output()
 	if err != nil {
 		return -1, fmt.Errorf("amixer sget %q: %w", control, err)
 	}
+	// Prefer the percentage that follows the word "Capture" on the same line.
+	reCapture := regexp.MustCompile(`(?i)Capture[^[\n]*\[(\d+)%\]`)
+	if m := reCapture.FindStringSubmatch(string(out)); m != nil {
+		v, _ := strconv.Atoi(m[1])
+		return v, nil
+	}
+	// Fallback: first percentage found (single-purpose controls).
 	re := regexp.MustCompile(`\[(\d+)%\]`)
 	if m := re.FindStringSubmatch(string(out)); m != nil {
 		v, _ := strconv.Atoi(m[1])
 		return v, nil
 	}
-	return -1, fmt.Errorf("could not parse gain from: %s", out)
+	return -1, fmt.Errorf("could not parse capture gain from: %s", out)
 }
 
-// amixerSetGain sets gain percentage (0–100) on a control.
+// amixerSetGain sets the CAPTURE gain percentage (0–100) on a control.
+// The "capture" keyword restricts the change to the capture path so that the
+// playback/monitoring level of controls like "Mic" is left untouched.
 func amixerSetGain(cardNum int, control string, pct int) error {
 	if pct < 0 {
 		pct = 0
@@ -125,9 +136,14 @@ func amixerSetGain(cardNum int, control string, pct int) error {
 		pct = 100
 	}
 	arg := fmt.Sprintf("%d%%", pct)
-	out, err := exec.Command("amixer", "-c", strconv.Itoa(cardNum), "sset", control, arg).CombinedOutput()
+	out, err := exec.Command("amixer", "-c", strconv.Itoa(cardNum), "sset", control, arg, "capture").CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("amixer sset %q %s: %w (output: %s)", control, arg, err, out)
+		// Some controls don't have a separate capture path; retry without the keyword.
+		out2, err2 := exec.Command("amixer", "-c", strconv.Itoa(cardNum), "sset", control, arg).CombinedOutput()
+		if err2 != nil {
+			return fmt.Errorf("amixer sset %q %s: %w (output: %s)", control, arg, err, out)
+		}
+		_ = out2
 	}
 	return nil
 }

@@ -1342,18 +1342,26 @@ function _micStep2(body, footer) {
     <div id="mic-rms-status" class="cal-wiz-rec-box" style="margin-bottom:16px">Waiting for signal…</div>
 
     <!-- Gain control -->
-    <div style="display:flex;align-items:center;gap:12px;justify-content:center">
-      <button class="cal-wiz-cap-btn" onclick="_micAdjust('down')" title="Decrease by 5%">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    <div style="display:flex;align-items:center;gap:8px;justify-content:center">
+      <button class="cal-wiz-cap-btn" onclick="_micAdjust('down',5)" title="Decrease by 5%">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
         5%
       </button>
-      <div style="text-align:center;min-width:70px">
+      <button class="cal-wiz-cap-btn" onclick="_micAdjust('down',1)" title="Decrease by 1%" style="padding:7px 10px;font-size:0.78rem">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        1%
+      </button>
+      <div style="text-align:center;min-width:66px">
         <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Gain</div>
         <div id="mic-gain-val" style="font-size:1.4rem;font-weight:700;font-family:monospace">${gain}%</div>
         <div style="font-size:0.68rem;color:var(--muted);margin-top:2px">${_esc(control)}</div>
       </div>
-      <button class="cal-wiz-cap-btn" onclick="_micAdjust('up')" title="Increase by 5%">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <button class="cal-wiz-cap-btn" onclick="_micAdjust('up',1)" title="Increase by 1%" style="padding:7px 10px;font-size:0.78rem">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        1%
+      </button>
+      <button class="cal-wiz-cap-btn" onclick="_micAdjust('up',5)" title="Increase by 5%">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         5%
       </button>
     </div>`;
@@ -1456,11 +1464,11 @@ function _micStep2(body, footer) {
   }, 1200);
 }
 
-function _micAdjust(dir) {
+function _micAdjust(dir, step) {
   fetch('/api/mic-gain/adjust', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({direction: dir, card_num: _mic.selectedCard}),
+    body: JSON.stringify({direction: dir, step: step ?? 5, card_num: _mic.selectedCard}),
   })
     .then(r => r.json())
     .then(d => {
