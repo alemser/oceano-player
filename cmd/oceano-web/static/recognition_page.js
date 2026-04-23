@@ -680,7 +680,33 @@ function _wizCommit() {
 
 function _wizSaveAndClose() {
   closeCalibrationWizard();
+  _calClearStale();
   toast('Calibration updated. Click "Save & Restart Services" to persist.', false);
+}
+
+// ── Noise-floor stale badge ────────────────────────────────────────────────────
+
+const _CAL_STALE_KEY = 'oceano_cal_gain_changed';
+
+function _calMarkStale() {
+  try { localStorage.setItem(_CAL_STALE_KEY, '1'); } catch (_) {}
+  const el = document.getElementById('cal-noise-stale-badge');
+  if (el) el.style.display = '';
+}
+
+function _calClearStale() {
+  try { localStorage.removeItem(_CAL_STALE_KEY); } catch (_) {}
+  const el = document.getElementById('cal-noise-stale-badge');
+  if (el) el.style.display = 'none';
+}
+
+function _calInitStale() {
+  try {
+    if (localStorage.getItem(_CAL_STALE_KEY)) {
+      const el = document.getElementById('cal-noise-stale-badge');
+      if (el) el.style.display = '';
+    }
+  } catch (_) {}
 }
 
 // ── Wizard input/checkbox change handlers ──────────────────────────────────────
@@ -1112,6 +1138,7 @@ function _wizStep6() {
 document.getElementById('rec-chain')?.addEventListener('change', updateRecognitionUI);
 document.addEventListener('DOMContentLoaded', () => {
   loadRecognitionPage();
+  _calInitStale();
 });
 
 // ── Mic Gain Wizard ────────────────────────────────────────────────────────────
@@ -1297,17 +1324,31 @@ function _micStep2(body, footer) {
   let sessionSum   = 0;
   let sessionCount = 0;
 
+  // Read calibrated silence threshold and show marker
+  const silenceThreshold = _rfloat('rec-vu-silence-threshold', 0);
+  if (silenceThreshold > 0) {
+    const tPct = Math.min(silenceThreshold / 0.40 * 100, 100);
+    const tMarker = document.getElementById('mic-threshold-marker');
+    const tInfo   = document.getElementById('mic-threshold-info');
+    const tVal    = document.getElementById('mic-threshold-val');
+    if (tMarker) { tMarker.style.left = tPct + '%'; tMarker.style.display = 'block'; }
+    if (tInfo)   { tInfo.style.display = 'block'; }
+    if (tVal)    { tVal.textContent = silenceThreshold.toFixed(4); }
+  }
+
   body.innerHTML = `
     <div class="cal-wiz-title">Adjust Gain</div>
     <div class="cal-wiz-desc">Aim for peaks in the <b>green zone (0.05–0.25)</b>. Let a loud passage play to check the peak doesn't clip.</div>
 
-    <!-- RMS bar with peak marker -->
+    <!-- RMS bar with peak marker and silence threshold line -->
     <div style="margin:16px 0 4px">
       <div style="position:relative;width:100%;height:12px;background:rgba(255,255,255,0.06);border-radius:6px;overflow:visible">
         <!-- avg bar -->
         <div id="mic-rms-bar" style="position:absolute;left:0;top:0;height:100%;width:0%;background:var(--muted);border-radius:6px;transition:width 0.18s,background 0.18s"></div>
         <!-- green zone indicator -->
         <div style="position:absolute;top:0;left:12.5%;width:50%;height:100%;background:rgba(126,207,126,0.08);pointer-events:none"></div>
+        <!-- silence threshold marker -->
+        <div id="mic-threshold-marker" style="position:absolute;top:-4px;width:2px;height:20px;background:rgba(74,158,255,0.85);border-radius:1px;left:0%;display:none" title="Current silence threshold"></div>
         <!-- peak hold marker -->
         <div id="mic-peak-marker" style="position:absolute;top:-3px;width:3px;height:18px;background:rgba(240,192,96,0.9);border-radius:2px;left:0%;transition:left 0.1s;display:none"></div>
       </div>
@@ -1317,6 +1358,10 @@ function _micStep2(body, footer) {
         <span style="font-size:0.62rem;color:var(--ok-text)">0.25 ▲</span>
         <span style="font-size:0.62rem;color:var(--muted)">0.40+</span>
       </div>
+    </div>
+    <div id="mic-threshold-info" style="font-size:0.7rem;color:rgba(74,158,255,0.85);margin-bottom:4px;display:none">
+      <span style="display:inline-block;width:10px;height:2px;background:rgba(74,158,255,0.85);vertical-align:middle;margin-right:4px;border-radius:1px"></span>
+      Silence threshold: <span id="mic-threshold-val">—</span> — signal must stay above this for recognition to trigger
     </div>
 
     <!-- Live values row -->
@@ -1437,7 +1482,13 @@ function _micStep2(body, footer) {
         const level = peakRMS > 0 ? peakRMS : avg;
         if (avg < 0.01) {
           statusEl.className = 'cal-wiz-rec-box';
-          statusEl.innerHTML = 'No signal detected — make sure music is playing.';
+          // Warn if noise floor is already above silence threshold
+          if (silenceThreshold > 0 && avg > silenceThreshold) {
+            statusEl.className = 'cal-wiz-warn-box';
+            statusEl.innerHTML = `Noise floor (${avg.toFixed(4)}) is above the calibrated silence threshold (${silenceThreshold.toFixed(4)}) — the system will always detect "Physical" even with no music playing. Reduce gain or re-run noise floor calibration.`;
+          } else {
+            statusEl.innerHTML = 'No signal detected — make sure music is playing.';
+          }
         } else if (level < 0.05) {
           statusEl.className = 'cal-wiz-warn-box';
           statusEl.innerHTML = 'Signal too low — increase gain with <b>+</b>.';
@@ -1505,30 +1556,43 @@ function _micStep3(body, footer) {
         control: ${_esc(control)} &nbsp;·&nbsp; gain: <b>${gain}%</b>
       </span>
     </div>
-    <div class="cal-wiz-instr">Saved with <b>alsactl store</b> — the gain will be restored automatically on each boot.</div>`;
+    <div class="cal-wiz-warn-box">
+      After saving, <b>Step 2 — Calibrate Noise Floor</b> must be re-run so the system learns the new silence threshold for this gain level.
+    </div>`;
 
   footer.innerHTML = `
     <button class="btn-secondary" onclick="_micPrev()">← Back</button>
-    <button class="btn-save" id="mic-save-btn" onclick="_micSave()">Save &amp; Close</button>`;
+    <button class="btn-secondary" id="mic-save-btn" onclick="_micSave(false)" style="margin-left:auto">Save &amp; Close</button>
+    <button class="btn-save" id="mic-save-cal-btn" onclick="_micSave(true)">Save &amp; Calibrate Noise Floor →</button>`;
 }
 
-function _micSave() {
-  const btn = document.getElementById('mic-save-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+function _micSave(openCal) {
+  const btn    = document.getElementById('mic-save-btn');
+  const btnCal = document.getElementById('mic-save-cal-btn');
+  if (btn)    { btn.disabled = true; }
+  if (btnCal) { btnCal.disabled = true; btnCal.textContent = 'Saving…'; }
+
   fetch('/api/mic-gain/store', {method: 'POST'})
     .then(r => r.json())
     .then(d => {
       if (d.error) {
         toast('Error: ' + d.error);
-        if (btn) { btn.disabled = false; btn.textContent = 'Save & Close'; }
+        if (btn)    btn.disabled = false;
+        if (btnCal) { btnCal.disabled = false; btnCal.textContent = 'Save & Calibrate Noise Floor →'; }
         return;
       }
-      toast('Gain settings saved.');
+      _calMarkStale();
       closeMicGainWizard();
+      if (openCal) {
+        setTimeout(() => openCalibrationWizard(), 120);
+      } else {
+        toast('Gain saved. Run "Calibrate Noise Floor" next.');
+      }
     })
     .catch(e => {
       toast('Error: ' + e.message);
-      if (btn) { btn.disabled = false; btn.textContent = 'Save & Close'; }
+      if (btn)    btn.disabled = false;
+      if (btnCal) { btnCal.disabled = false; btnCal.textContent = 'Save & Calibrate Noise Floor →'; }
     });
 }
 

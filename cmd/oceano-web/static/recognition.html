@@ -272,26 +272,39 @@
   <!-- ── Calibration ──────────────────────────────────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
     <div class="section-title">Calibration</div>
-    <p class="hint" style="margin-bottom:14px">Measures the noise floor of each amplifier input so the system can distinguish silence from music precisely. Run whenever you change your setup or add a new source.</p>
 
     <!-- Hidden fields updated by the wizard and read by saveRecognitionPage -->
     <input type="hidden" id="inp-silence">
 
-    <!-- Per-input summary rendered by renderCalibrationSummary() -->
-    <div id="cal-summary-grid" style="margin-bottom:16px"></div>
-
-    <button type="button" class="btn-secondary" onclick="openCalibrationWizard()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>
-      Run Calibration Wizard
-    </button>
-
-    <div style="margin-top:12px">
-      <p class="hint" style="margin-bottom:10px">Adjust the USB capture card input gain so the system receives a clean signal for track recognition. Aim for RMS 0.05–0.25 during music playback.</p>
+    <!-- Step 1: Capture Gain -->
+    <div style="margin-bottom:14px">
+      <p class="hint" style="margin-bottom:10px">
+        <b>Step 1</b> — Set the USB capture card input gain so the system receives a clean signal. Aim for RMS 0.05–0.25 during music playback. Run whenever you change the capture device.
+      </p>
       <button type="button" class="btn-secondary" onclick="openMicGainWizard()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-        Calibrate Capture Gain
+        Set Capture Gain
       </button>
     </div>
+
+    <!-- Step 2: Noise Floor -->
+    <div>
+      <p class="hint" style="margin-bottom:10px">
+        <b>Step 2</b> — Measure the noise floor of each amplifier input so the system can distinguish silence from music. Must be re-run after any gain change.
+      </p>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button type="button" class="btn-secondary" onclick="openCalibrationWizard()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>
+          Calibrate Noise Floor
+        </button>
+        <span id="cal-noise-stale-badge" style="display:none;font-size:0.7rem;font-weight:600;padding:3px 10px;border-radius:10px;background:rgba(240,192,96,0.12);border:1px solid rgba(240,192,96,0.35);color:#f0c060">
+          ⚠ Gain changed — recalibration needed
+        </span>
+      </div>
+    </div>
+
+    <!-- Per-input summary rendered by renderCalibrationSummary() -->
+    <div id="cal-summary-grid" style="margin-top:16px"></div>
   </div>
 
   <!-- ── Source Detection ─────────────────────────────────────────────────── -->
