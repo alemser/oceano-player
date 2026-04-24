@@ -178,29 +178,29 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 			thresh.StdDev = cfg.StdDevThreshold
 		}
 
-		//Asymmetric hysteresis detection:
+		// Symmetric hysteresis detection — both entry and exit use the same
+		// "is this musical?" condition (RMS + StdDev or high-RMS bypass).
+		// This prevents CD transport noise (elevated RMS, near-zero variation)
+		// from keeping source Physical after the disc stops playing: transport
+		// noise fails the StdDev gate and accumulates exit frames until it exits.
 		//
-		//  Entry (None → Physical): requires sustained signal to filter vinyl
-		//    pops. Two conditions must be true for 3 consecutive frames:
-		//    - RMS above threshold AND (stddev above threshold OR RMS ≥ 3×)
-		//    This prevents single-frame transients from triggering.
+		//  Entry (None → Physical): 3 consecutive frames with musical signal
+		//    - RMS ≥ threshold AND (StdDev ≥ threshold OR RMS ≥ 3× threshold)
 		//
-		//  Exit (Physical → None): requires sustained silence to
-		//    prevent quiet a-cappella passages from triggering re-entry.
-		//    Must have 15 consecutive frames below RMS threshold.
-		//
-		//  Physical → Physical (holding): during a track, quiet sustained
-		//    passages stay Physical - only allows normal inter-track silence
+		//  Exit (Physical → None): 50 consecutive frames WITHOUT musical signal
+		//    - same condition as entry, inverted; allows brief pauses and breaths
+		//      (~0.5 s) to stay Physical while exiting after true silence (2.3 s)
 		const (
 			rmsHighBypassFactor   = 3.0
 			entryTriggerThreshold = 3  // frames (~0.14s) to confirm entry
-			exitSilenceThreshold  = 50 // frames (~2.3s) to confirm exit; allows inter-track silence
+			exitSilenceThreshold  = 50 // frames (~2.3s) to confirm exit
 		)
+
+		isMusical := windowRMS >= thresh.RMS && (rollingStdDev >= thresh.StdDev || windowRMS >= thresh.RMS*rmsHighBypassFactor)
 
 		detected := SourceNone
 		if current == SourcePhysical {
-			// EXIT: Needs sustained silence (hold time)
-			if windowRMS >= thresh.RMS {
+			if isMusical {
 				exitSilenceFrames = 0
 				detected = SourcePhysical
 			} else {
@@ -208,11 +208,11 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 				if exitSilenceFrames > exitSilenceThreshold {
 					detected = SourceNone
 				}
-				// Else: stays Physical (debounced)
+				// Else: debouncing — stays Physical during brief pauses
 			}
 		} else {
-			// ENTRY: Needs sustained high signal (debounce)
-			if windowRMS >= thresh.RMS && (rollingStdDev >= thresh.StdDev || windowRMS >= thresh.RMS*rmsHighBypassFactor) {
+			// ENTRY: Needs sustained musical signal (debounce)
+			if isMusical {
 				entryTriggerFrames++
 				if entryTriggerFrames >= entryTriggerThreshold {
 					detected = SourcePhysical
