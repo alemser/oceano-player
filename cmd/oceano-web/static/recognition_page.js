@@ -1089,7 +1089,12 @@ function _noiseFloorLoad() {
   fetch('/api/noise-floor')
     .then(r => r.json())
     .then(_noiseFloorRender)
-    .catch(() => {});
+    .catch(() => {
+      const badge = document.getElementById('nf-status-badge');
+      if (badge && badge.textContent === 'Loading…') {
+        badge.textContent = 'Unavailable';
+      }
+    });
 }
 
 function _noiseFloorRender(d) {
@@ -1555,11 +1560,11 @@ function _micStep3(body, footer) {
     </div>
     <div class="cal-wiz-hint-box">
       The system will automatically learn the new noise floor from the first few minutes of silence after saving.
-    </div>\`;
+    </div>`;
 
-  footer.innerHTML = \`
+  footer.innerHTML = `
     <button class="btn-secondary" onclick="_micPrev()">← Back</button>
-    <button class="btn-save" id="mic-save-btn" onclick="_micSave()" style="margin-left:auto">Save &amp; Close</button>\`;
+    <button class="btn-save" id="mic-save-btn" onclick="_micSave()" style="margin-left:auto">Save &amp; Close</button>`;
 }
 
 function _micSave() {

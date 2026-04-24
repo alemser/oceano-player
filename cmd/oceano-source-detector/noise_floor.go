@@ -44,14 +44,18 @@ const (
 	rollingWindow = 10
 )
 
-// defaultNoiseFloor returns conservative starting values that ensure silence
-// is still classified as None while the learner has not converged yet.
-// rmsThreshold will be 0.001 + 0.005*4 = 0.021 — well above any real noise
-// floor but below typical music levels.
+// defaultNoiseFloor returns starting values used before the learner has
+// converged. Choosing a low StdDev default (0.001) keeps stddevThreshold at
+// 0.003, which is:
+//   - above CD-transport constant-hum variation  (~0.001–0.002) → filtered ✓
+//   - below typical steady-music variation        (~0.005–0.020)  → detected ✓
+//
+// rmsThreshold starts at 0.001 + 0.001*4 = 0.005. Any real audio signal will
+// clear this easily; the learner then refines it from measured silence windows.
 func defaultNoiseFloor() NoiseFloor {
 	return NoiseFloor{
 		RMS:    0.001,
-		StdDev: 0.005,
+		StdDev: 0.001,
 	}
 }
 

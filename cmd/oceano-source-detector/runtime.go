@@ -135,9 +135,13 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 			detected = SourcePhysical
 		}
 
-		// Update the adaptive learner only during silence windows so the
-		// estimate always tracks the true noise floor, never music.
-		if detected == SourceNone {
+		// Update the adaptive learner only when RMS is below the current
+		// threshold — i.e. the signal is clearly silence. Using detected==None
+		// as the gate was wrong: CD transport noise (elevated RMS, near-zero
+		// variation) is classified as None but is not silence, and would
+		// gradually push noiseRMS up, raising thresholds and causing
+		// false-negative detection of steady music passages.
+		if windowRMS < thresh.RMS {
 			learner.update(windowRMS, rollingStdDev)
 		}
 
