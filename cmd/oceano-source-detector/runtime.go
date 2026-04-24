@@ -181,10 +181,11 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 		//    Requires 3 consecutive musical frames to confirm (~0.14 s).
 		//
 		//  Exit (Physical → None): RMS only (no StdDev gate).
-		//    During music, even quiet sustained passages (a cappella, soft
-		//    strings) maintain RMS above the calibrated threshold. Requires
-		//    50 consecutive below-threshold frames (~2.3 s) to confirm exit,
-		//    preventing brief pauses (breaths, fermatas) from flipping source.
+		//    A cappella and sparse arrangements drop RMS to the noise floor
+		//    during breaths and rests (measured: 0.005, same as silence).
+		//    Requires 120 consecutive below-threshold frames (~5.6 s) to
+		//    confirm exit, covering typical inter-phrase pauses (2–4 s) and
+		//    long fermatas without flipping to None mid-track.
 		//
 		// The asymmetry is intentional: a stricter entry filters noise while
 		// a lenient exit protects quiet music. CD transport noise on the exit
@@ -192,8 +193,8 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 		// exceeds the cap the user should raise --silence-threshold.
 		const (
 			rmsHighBypassFactor   = 3.0
-			entryTriggerThreshold = 3  // frames (~0.14 s) to confirm entry
-			exitSilenceThreshold  = 50 // frames (~2.3 s) to confirm exit
+			entryTriggerThreshold = 3   // frames (~0.14 s) to confirm entry
+			exitSilenceThreshold  = 120 // frames (~5.6 s) to confirm exit
 		)
 
 		detected := SourceNone
