@@ -45,16 +45,26 @@ const (
 )
 
 // defaultNoiseFloor returns starting values used before the learner has
-// converged. Choosing a low StdDev default (0.001) keeps stddevThreshold at
-// 0.003, which is:
-//   - above CD-transport constant-hum variation  (~0.001–0.002) → filtered ✓
-//   - below typical steady-music variation        (~0.005–0.020)  → detected ✓
+// converged. Values are chosen conservatively so the initial thresholds sit
+// above real-world capture-card noise without requiring a calibration file:
 //
-// rmsThreshold starts at 0.001 + 0.001*4 = 0.005. Any real audio signal will
-// clear this easily; the learner then refines it from measured silence windows.
+//   rmsThreshold = RMS + StdDev*4 = 0.004 + 0.001*4 = 0.008
+//     - above phono-preamp idle hum   (~0.005)         → not Physical ✓
+//     - above CD-transport idle noise  (~0.003–0.006)   → not Physical ✓
+//     - below vinyl groove noise avg   (~0.012)         → Physical ✓
+//     - below any real music           (0.05+)          → Physical ✓
+//
+//   stddevThreshold = StdDev*3 = 0.003
+//     - above CD-transport variation   (~0.001–0.002)   → entry blocked ✓
+//     - below groove noise variation   (~0.005–0.010)   → entry passes ✓
+//     - below music variation          (~0.010–0.030)   → entry passes ✓
+//
+// The previous RMS default of 0.001 gave rmsThreshold 0.005, which was
+// marginally below a typical phono-preamp idle hum (0.005–0.006) and caused
+// the source to be classified as Physical immediately on startup.
 func defaultNoiseFloor() NoiseFloor {
 	return NoiseFloor{
-		RMS:    0.001,
+		RMS:    0.004,
 		StdDev: 0.001,
 	}
 }

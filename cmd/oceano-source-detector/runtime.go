@@ -221,11 +221,15 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 			}
 		}
 
-		// Update the adaptive learner only when RMS is below the current
-		// threshold (clearly silence). CD transport noise (elevated RMS,
-		// near-zero StdDev) must not be learned as silence — it would push
-		// thresholds up and cause false-negative detection of quiet music.
-		if windowRMS < thresh.RMS {
+		// Update the adaptive learner only during confirmed silence: RMS below
+		// threshold AND variation below the StdDev threshold. The dual gate
+		// prevents two contamination paths:
+		//   • CD transport noise: RMS gate alone is sufficient (elevated RMS).
+		//   • Vinyl groove noise: RMS may be below a freshly-calibrated threshold
+		//     but StdDev is high (0.005–0.010). Without the StdDev gate it would
+		//     be learned as silence, pulling rmsThreshold down over time and
+		//     causing false-negative detection of quiet music in later tracks.
+		if windowRMS < thresh.RMS && rollingStdDev < thresh.StdDev {
 			learner.update(windowRMS, rollingStdDev)
 		}
 
