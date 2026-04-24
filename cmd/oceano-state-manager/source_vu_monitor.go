@@ -262,7 +262,13 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 	// Previously used 0.01 which was higher than source-detector's 0.005,
 	// causing false silence detection during quiet passages.
 	silenceThreshold := float32(m.cfg.VUSilenceThreshold)
-	if silenceThreshold <= 0 {
+	// Try to get VU threshold from source-detector's learned noise floor.
+	// If available, use its RMS threshold for consistency with source-detector.
+	vuThresholdFromFile := m.loadNoiseFloorFromSourceDetector()
+	if vuThresholdFromFile > 0 {
+		silenceThreshold = vuThresholdFromFile
+		log.Printf("VU monitor: using learned threshold from source-detector: %.5f", silenceThreshold)
+	} else if silenceThreshold <= 0 {
 		silenceThreshold = 0.005 // Match source-detector's default RMS threshold
 	}
 
@@ -342,6 +348,30 @@ func (m *mgr) currentPhysicalFormatForCalibration() string {
 		return m.recognitionResult.Format
 	}
 	return ""
+}
+
+// loadNoiseFloorFromSourceDetector reads the learned noise floor from
+// source-detector's calibration file and extracts the RMS threshold.
+// Returns 0 if the file is not found or invalid.
+func (m *mgr) loadNoiseFloorFromSourceDetector() float32 {
+	if m.cfg.CalibrationConfigPath == "" {
+		return 0
+	}
+	data, err := os.ReadFile(m.cfg.CalibrationConfigPath)
+	if err != nil {
+		return 0
+	}
+	var nf struct {
+		RMS   float64 `json:"rms"`
+		StdDev float64 `json:"stddev"`
+	}
+	if err := json.Unmarshal(data, &nf); err != nil || nf.RMS <= 0 {
+		return 0
+	}
+	// Use RMS + 4*StdDev to match source-detector's threshold formula
+	const rmsMultiplier = 4.0
+	threshold := nf.RMS + nf.StdDev*rmsMultiplier
+	return float32(threshold)
 }
 
 func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBoundaryDetectorConfig, durationGuardBypassWindow time.Duration, durationPessimism float64) {
@@ -432,8 +462,21 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 			recentAttemptFailed = time.Now().Before(m.lastRecognitionAttemptAt.Add(boundaryCooldown))
 			log.Printf("VU boundary: lastAttemptAt=%v, now=%v, recent=%v", m.lastRecognitionAttemptAt, time.Now(), recentAttemptFailed)
 		}
-		if recentAttemptFailed {
-			log.Printf("VU monitor: boundary suppressed — recent recognition failed, cooldown active")
+
+		// Also skip if we already have a valid result AND this is NOT a hard boundary.
+		// Hard boundaries (true silence→audio) should always trigger.
+		// Soft boundaries (energy change, false positives from quiet passages) should be
+		// suppressed when there's already a valid result.
+		m.mu.Lock()
+		hasValidResult := m.recognitionResult != nil
+		m.mu.Unlock()
+
+		if recentAttemptFailed || (hasValidResult && !isHardBoundary) {
+			if recentAttemptFailed {
+				log.Printf("VU monitor: boundary suppressed — recent recognition failed, cooldown active")
+			} else {
+				log.Printf("VU monitor: boundary suppressed — already have result and not a hard boundary")
+			}
 			return
 		}
 

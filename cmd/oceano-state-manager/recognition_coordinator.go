@@ -673,6 +673,8 @@ func (c *recognitionCoordinator) processOneTrigger(ctx context.Context, trig rec
 	if !isPhysicalFinal || isAirPlayFinal || isBluetoothFinal {
 		log.Printf("recognizer [%s]: discarding result — source changed during capture/recognition (isPhysical=%v isAirPlay=%v isBluetooth=%v)",
 			c.rec.Name(), isPhysicalFinal, isAirPlayFinal, isBluetoothFinal)
+		// Record attempt time so cooldown prevents rapid re-triggering
+		c.mgr.lastRecognitionAttemptAt = time.Now()
 		return
 	}
 
