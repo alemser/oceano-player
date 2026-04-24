@@ -190,11 +190,11 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 		//    Must have 15 consecutive frames below RMS threshold.
 		//
 		//  Physical → Physical (holding): during a track, quiet sustained
-		//    passages stay Physical - only RMS matters, not stddev.
+		//    passages stay Physical - only allows normal inter-track silence
 		const (
 			rmsHighBypassFactor   = 3.0
 			entryTriggerThreshold = 3  // frames (~0.14s) to confirm entry
-			exitSilenceThreshold  = 15 // frames (~0.7s) to confirm exit
+			exitSilenceThreshold  = 50 // frames (~2.3s) to confirm exit; allows inter-track silence
 		)
 
 		detected := SourceNone
