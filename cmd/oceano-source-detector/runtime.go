@@ -124,15 +124,26 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 			thresh.StdDev = cfg.StdDevThreshold
 		}
 
-		// Hybrid AND: both level and variation must exceed the noise floor
-		// before declaring a physical source. This correctly ignores:
-		//   - CD transport noise  (RMS slightly elevated, variation ≈ 0)
-		//   - Vinyl inter-track   (RMS slightly elevated, variation low)
-		// while correctly detecting:
-		//   - Music               (RMS elevated AND variation high)
+		// Asymmetric hysteresis detection:
+		//
+		//  None → Physical  (transition): requires BOTH RMS and StdDev above
+		//    threshold. This filters CD-transport constant hum (RMS slightly
+		//    elevated, variation ≈ 0) and vinyl inter-track groove noise.
+		//
+		//  Physical → None  (staying): only RMS is checked. Once music is
+		//    confirmed, quiet sustained passages (low StdDev but still audible)
+		//    stay Physical. Only genuine silence (RMS below threshold) ends the
+		//    session. This matches the original single-threshold behaviour for
+		//    in-track dynamics while keeping the false-positive guard on entry.
 		detected := SourceNone
-		if windowRMS >= thresh.RMS && rollingStdDev >= thresh.StdDev {
-			detected = SourcePhysical
+		if current == SourcePhysical {
+			if windowRMS >= thresh.RMS {
+				detected = SourcePhysical
+			}
+		} else {
+			if windowRMS >= thresh.RMS && rollingStdDev >= thresh.StdDev {
+				detected = SourcePhysical
+			}
 		}
 
 		// Update the adaptive learner only when RMS is below the current

@@ -67,8 +67,15 @@ func (nf NoiseFloor) Thresholds() HybridThresholds {
 	}
 }
 
+// maxSafeStdDevThreshold is the highest stddev threshold that still allows
+// steady-music passages to be detected as Physical. Any stored noise floor
+// whose derived stddev threshold exceeds this was likely contaminated by
+// transport noise or music being incorrectly learned as silence.
+const maxSafeStdDevThreshold = 0.004
+
 // loadNoiseFloor reads the persisted noise floor from path.
-// Returns (defaultNoiseFloor(), false) when the file is absent or invalid.
+// Returns (defaultNoiseFloor(), false) when the file is absent, invalid, or
+// contains thresholds so high that they would suppress music detection.
 func loadNoiseFloor(path string) (NoiseFloor, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -77,6 +84,10 @@ func loadNoiseFloor(path string) (NoiseFloor, bool) {
 	var nf NoiseFloor
 	if err := json.Unmarshal(data, &nf); err != nil || nf.RMS <= 0 || nf.StdDev <= 0 {
 		log.Printf("noise floor: ignoring corrupt calibration file %s — re-learning", path)
+		return defaultNoiseFloor(), false
+	}
+	if nf.Thresholds().StdDev > maxSafeStdDevThreshold {
+		log.Printf("noise floor: stored stddev threshold %.4f > %.4f (file contaminated by transport noise or previous defaults) — resetting", nf.Thresholds().StdDev, maxSafeStdDevThreshold)
 		return defaultNoiseFloor(), false
 	}
 	return nf, true
