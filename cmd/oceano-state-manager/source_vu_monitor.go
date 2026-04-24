@@ -202,7 +202,16 @@ func (m *mgr) pollSourceFile() {
 		// stored anchor through "seekMS + (now − seekUpdatedAt)", so the progress
 		// bar and duration guards remain accurate across brief pauses.
 	}
-	needsTrigger := src == "Physical" && (m.recognitionResult == nil || resumedAfterIdle || resumedAfterSilence)
+
+	// Prevent rapid re-triggering after a failed recognition.
+	// If last failed attempt was within cooldown window, don't re-trigger.
+	// This fixes the bug where music continues but VU boundary causes
+	// repeated "source changed during recognition" discards -> infinite loop.
+	const triggerCooldown = 20 * time.Second
+	canRetryAfter := m.lastRecognitionAttemptAt.Add(triggerCooldown)
+	recentFailure := !m.lastRecognitionAttemptAt.IsZero() && time.Now().Before(canRetryAfter)
+
+	needsTrigger := src == "Physical" && (m.recognitionResult == nil || resumedAfterIdle || resumedAfterSilence) && !recentFailure
 	m.physicalSource = src
 	m.mu.Unlock()
 

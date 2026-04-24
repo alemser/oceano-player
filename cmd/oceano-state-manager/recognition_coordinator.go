@@ -179,6 +179,8 @@ func (c *recognitionCoordinator) handleRecognitionError(err error, backoffUntil 
 	const errorBackoff = 30 * time.Second
 	*backoffUntil = time.Now().Add(errorBackoff)
 	*backoffRateLimited = false
+	// Record attempt time to prevent rapid re-triggering
+	c.mgr.lastRecognitionAttemptAt = time.Now()
 	return true
 }
 
@@ -202,6 +204,8 @@ func (c *recognitionCoordinator) handleNoMatch(isBoundaryTrigger bool, isHardBou
 
 	*backoffUntil = time.Now().Add(noMatchBackoff)
 	*backoffRateLimited = false
+	// Record attempt time to prevent rapid re-triggering
+	c.mgr.lastRecognitionAttemptAt = time.Now()
 }
 
 func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, result *RecognitionResult, isBoundaryTrigger bool) (bool, bool) {
@@ -398,6 +402,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.mu.Lock()
 		c.mgr.recognitionResult = result
 		c.mgr.lastRecognizedAt = now
+		c.mgr.lastRecognitionAttemptAt = time.Time{} // Clear failed attempt flag on success
 		c.mgr.physicalLibraryEntryID = entryID
 		c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
 		c.mgr.shazamContinuityAbandoned = false
@@ -432,6 +437,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 	c.mgr.mu.Lock()
 	c.mgr.recognitionResult = result
 	c.mgr.lastRecognizedAt = now
+		c.mgr.lastRecognitionAttemptAt = time.Time{} // Clear failed attempt flag on success
 	c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
 	c.mgr.shazamContinuityAbandoned = false
 	if isPhysicalFormat(result.Format) {
@@ -719,6 +725,7 @@ func (c *recognitionCoordinator) dispatchResult(ctx context.Context, result *Rec
 				now := time.Now()
 				c.mgr.mu.Lock()
 				c.mgr.lastRecognizedAt = now
+		c.mgr.lastRecognitionAttemptAt = time.Time{} // Clear failed attempt flag on success
 				if c.mgr.recognitionResult == nil && trig.isBoundary && snap.result != nil {
 					c.mgr.recognitionResult = cloneRecognitionResult(snap.result)
 					c.mgr.physicalLibraryEntryID = snap.libraryEntryID

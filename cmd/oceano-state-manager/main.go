@@ -328,6 +328,9 @@ type mgr struct {
 	// Used by the fallback timer to allow periodic re-checks when no VU boundary
 	// trigger fires (e.g. gapless albums with no audible silence between tracks).
 	lastRecognizedAt time.Time
+	// lastRecognitionAttemptAt is the time of the most recent recognition attempt
+	// (successful or not). Used to prevent rapid re-triggering after failures.
+	lastRecognitionAttemptAt time.Time
 	// shazamContinuityReady becomes true when the current track is a Shazam
 	// fallback match, or when Shazam has confirmed the current ACR track.
 	shazamContinuityReady bool
