@@ -98,8 +98,8 @@ func TestPollSourceFile_ResumeAfterIdleQueuesRecognition(t *testing.T) {
 	}
 	select {
 	case trig := <-m.recognizeTrigger:
-		if trig.isBoundary {
-			t.Fatal("resume-after-idle trigger should not be marked as boundary")
+		if !trig.isBoundary || !trig.isHardBoundary {
+			t.Fatal("resume-after-idle trigger should be a hard boundary (bypasses confirmation delay)")
 		}
 	default:
 		t.Fatal("expected recognition trigger on physical resume after idle")

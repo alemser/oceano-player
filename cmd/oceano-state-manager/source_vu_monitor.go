@@ -169,6 +169,10 @@ func (m *mgr) pollSourceFile() {
 		m.lastContinuityMismatchTo = ""
 		m.lastContinuityMismatchCount = 0
 		m.physicalStartedAt = time.Now()
+		// Clear stale seek from the previous session so duration guards do not
+		// fire spuriously against the old track's duration.
+		m.physicalSeekMS = 0
+		m.physicalSeekUpdatedAt = time.Time{}
 	} else if resumedAfterIdle {
 		m.recognitionResult = nil
 		m.physicalArtworkPath = ""
@@ -188,9 +192,15 @@ func (m *mgr) pollSourceFile() {
 		m.physicalSeekUpdatedAt = time.Time{}
 	} else if resumedAfterSilence {
 		m.physicalStartedAt = time.Now()
-		// Same: invalidate seek on manual stop/start so the boundary guard is bypassed.
-		m.physicalSeekMS = 0
-		m.physicalSeekUpdatedAt = time.Time{}
+		// Do NOT clear physicalSeekMS/physicalSeekUpdatedAt here.
+		// Clearing them causes a critical regression for a-cappella and any
+		// music with brief silent passages (e.g. breaths between phrases):
+		//   1. seekUpdatedAt becomes zero → shouldSuppressBoundary / shouldIgnoreBoundaryAtMatureProgress
+		//      both return false (zero guard) → every VU frame boundary fires a trigger.
+		//   2. After same-track restore the seek stays at 0 → progress bar resets.
+		// Keeping the old seekMS is correct: elapsed continues to advance from the
+		// stored anchor through "seekMS + (now − seekUpdatedAt)", so the progress
+		// bar and duration guards remain accurate across brief pauses.
 	}
 	needsTrigger := src == "Physical" && (m.recognitionResult == nil || resumedAfterIdle || resumedAfterSilence)
 	m.physicalSource = src
@@ -206,8 +216,19 @@ func (m *mgr) pollSourceFile() {
 	}
 
 	if needsTrigger {
+		var trig recognizeTrigger
+		if newSession || resumedAfterIdle {
+			// Use a hard boundary trigger so the confirmation delay is bypassed and
+			// seekMS is anchored to capture start (~10-12 s) rather than inflated by
+			// the confirmation round-trip (~25 s). resumedAfterSilence is intentionally
+			// kept as a periodic (non-boundary) trigger to avoid clearing recognitionResult
+			// and showing "Identifying..." for every a-cappella breath or brief pause.
+			trig = triggerBoundaryRecognition(true)
+		} else {
+			trig = triggerPeriodicRecognition()
+		}
 		select {
-		case m.recognizeTrigger <- triggerPeriodicRecognition():
+		case m.recognizeTrigger <- trig:
 		default:
 		}
 	}

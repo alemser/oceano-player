@@ -127,21 +127,25 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 		// Asymmetric hysteresis detection:
 		//
 		//  None → Physical  (transition): requires BOTH RMS and StdDev above
-		//    threshold. This filters CD-transport constant hum (RMS slightly
+		//    threshold to filter CD-transport constant hum (RMS slightly
 		//    elevated, variation ≈ 0) and vinyl inter-track groove noise.
+		//    High-RMS bypass: if RMS is clearly above threshold (≥ 5×) the
+		//    signal is undeniably music — skip the StdDev gate so sustained
+		//    a-cappella notes or slow fade-ins are not misclassified as None.
 		//
 		//  Physical → None  (staying): only RMS is checked. Once music is
 		//    confirmed, quiet sustained passages (low StdDev but still audible)
 		//    stay Physical. Only genuine silence (RMS below threshold) ends the
 		//    session. This matches the original single-threshold behaviour for
 		//    in-track dynamics while keeping the false-positive guard on entry.
+		const rmsHighBypassFactor = 5.0
 		detected := SourceNone
 		if current == SourcePhysical {
 			if windowRMS >= thresh.RMS {
 				detected = SourcePhysical
 			}
 		} else {
-			if windowRMS >= thresh.RMS && rollingStdDev >= thresh.StdDev {
+			if windowRMS >= thresh.RMS && (rollingStdDev >= thresh.StdDev || windowRMS >= thresh.RMS*rmsHighBypassFactor) {
 				detected = SourcePhysical
 			}
 		}
