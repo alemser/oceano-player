@@ -2,6 +2,8 @@ package main
 
 import (
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -146,6 +148,89 @@ func TestMajorityVote(t *testing.T) {
 					physicalVotes, noneVotes, majority, tt.current, got, tt.want)
 			}
 		})
+	}
+}
+
+// --- selectCalibrationFile ---
+
+func TestSelectCalibrationFile_VinylDerviesPath(t *testing.T) {
+	base := "/var/lib/oceano/noise-floor.json"
+	got := selectCalibrationFile(base, "vinyl")
+	want := "/var/lib/oceano/noise-floor-vinyl.json"
+	if got != want {
+		t.Errorf("selectCalibrationFile(vinyl) = %q, want %q", got, want)
+	}
+}
+
+func TestSelectCalibrationFile_CDDerivesPath(t *testing.T) {
+	base := "/var/lib/oceano/noise-floor.json"
+	got := selectCalibrationFile(base, "cd")
+	want := "/var/lib/oceano/noise-floor-cd.json"
+	if got != want {
+		t.Errorf("selectCalibrationFile(cd) = %q, want %q", got, want)
+	}
+}
+
+func TestSelectCalibrationFile_UnknownFormatKeepsBase(t *testing.T) {
+	base := "/var/lib/oceano/noise-floor.json"
+	for _, fmt := range []string{"", "cassette", "unknown"} {
+		got := selectCalibrationFile(base, fmt)
+		if got != base {
+			t.Errorf("selectCalibrationFile(%q) = %q, want base path %q", fmt, got, base)
+		}
+	}
+}
+
+func TestSelectCalibrationFile_EmptyBaseReturnsEmpty(t *testing.T) {
+	if got := selectCalibrationFile("", "vinyl"); got != "" {
+		t.Errorf("selectCalibrationFile(\"\", vinyl) = %q, want empty", got)
+	}
+}
+
+// --- readFormatHint ---
+
+func TestReadFormatHint_ReturnsLowercaseFormat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "format.json")
+	if err := os.WriteFile(path, []byte(`{"format":"Vinyl"}`), 0o644); err != nil {
+		t.Fatalf("write hint: %v", err)
+	}
+	if got := readFormatHint(path); got != "vinyl" {
+		t.Errorf("readFormatHint() = %q, want %q", got, "vinyl")
+	}
+}
+
+func TestReadFormatHint_CDLowercase(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "format.json")
+	if err := os.WriteFile(path, []byte(`{"format":"CD"}`), 0o644); err != nil {
+		t.Fatalf("write hint: %v", err)
+	}
+	if got := readFormatHint(path); got != "cd" {
+		t.Errorf("readFormatHint() = %q, want %q", got, "cd")
+	}
+}
+
+func TestReadFormatHint_MissingFileReturnsEmpty(t *testing.T) {
+	if got := readFormatHint("/nonexistent/path/format.json"); got != "" {
+		t.Errorf("readFormatHint(missing) = %q, want empty", got)
+	}
+}
+
+func TestReadFormatHint_InvalidJSONReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "format.json")
+	if err := os.WriteFile(path, []byte(`not json`), 0o644); err != nil {
+		t.Fatalf("write hint: %v", err)
+	}
+	if got := readFormatHint(path); got != "" {
+		t.Errorf("readFormatHint(invalid json) = %q, want empty", got)
+	}
+}
+
+func TestReadFormatHint_EmptyPathReturnsEmpty(t *testing.T) {
+	if got := readFormatHint(""); got != "" {
+		t.Errorf("readFormatHint(\"\") = %q, want empty", got)
 	}
 }
 

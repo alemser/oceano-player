@@ -173,11 +173,16 @@ func (c *recognitionCoordinator) handleNoMatch(isBoundaryTrigger bool, isHardBou
 
 	if isBoundaryTrigger && isHardBoundaryTrigger {
 		c.mgr.mu.Lock()
+		c.mgr.recognizerRunning = false
 		c.mgr.recognitionResult = nil
 		c.mgr.physicalArtworkPath = ""
 		c.mgr.physicalLibraryEntryID = 0
 		c.mgr.shazamContinuityReady = false
 		c.mgr.shazamContinuityAbandoned = false
+		c.mgr.mu.Unlock()
+	} else {
+		c.mgr.mu.Lock()
+		c.mgr.recognizerRunning = false
 		c.mgr.mu.Unlock()
 	}
 
@@ -377,12 +382,17 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		seekMS, shouldResetPhysicalStartedAt := computeRecognizedSeekMS(isBoundaryTrigger, captureStartedAt, now, lastBoundaryForSeek, physStartedAt, previousResult, result)
 
 		c.mgr.mu.Lock()
+		c.mgr.recognizerRunning = false
 		c.mgr.recognitionResult = result
 		c.mgr.lastRecognizedAt = now
 		c.mgr.physicalLibraryEntryID = entryID
 		c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
 		c.mgr.shazamContinuityAbandoned = false
 		if isPhysicalFormat(result.Format) {
+			if strings.ToLower(result.Format) != strings.ToLower(c.mgr.physicalFormat) && c.mgr.cfg.FormatHintFile != "" {
+				hintPath, newFmt := c.mgr.cfg.FormatHintFile, result.Format
+				go func() { writeFormatHint(hintPath, newFmt) }()
+			}
 			c.mgr.physicalFormat = result.Format
 		}
 		c.mgr.physicalArtworkPath = artworkPath
@@ -407,11 +417,16 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 	seekMS, shouldResetPhysicalStartedAt := computeRecognizedSeekMS(isBoundaryTrigger, captureStartedAt, now, lastBoundaryForSeek, physStartedAt, previousResult, result)
 
 	c.mgr.mu.Lock()
+	c.mgr.recognizerRunning = false
 	c.mgr.recognitionResult = result
 	c.mgr.lastRecognizedAt = now
 	c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
 	c.mgr.shazamContinuityAbandoned = false
 	if isPhysicalFormat(result.Format) {
+		if strings.ToLower(result.Format) != strings.ToLower(c.mgr.physicalFormat) && c.mgr.cfg.FormatHintFile != "" {
+			hintPath, newFmt := c.mgr.cfg.FormatHintFile, result.Format
+			go func() { writeFormatHint(hintPath, newFmt) }()
+		}
 		c.mgr.physicalFormat = result.Format
 	}
 	c.mgr.physicalSeekMS = seekMS
@@ -557,24 +572,11 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			continue
 		}
 
-		// All pre-capture checks passed. Only hard boundaries clear recognition
-		// state preemptively; soft boundaries keep current metadata to avoid
-		// progress-bar flicker/resets on quiet passages.
-		if isBoundaryTrigger && isHardBoundaryTrigger {
-			c.mgr.mu.Lock()
-			preBoundaryResult = cloneRecognitionResult(c.mgr.recognitionResult)
-			preBoundarySeekMS = c.mgr.physicalSeekMS
-			preBoundarySeekUpdatedAt = c.mgr.physicalSeekUpdatedAt
-			preBoundaryLibraryEntryID = c.mgr.physicalLibraryEntryID
-			preBoundaryArtworkPath = c.mgr.physicalArtworkPath
-			c.mgr.recognitionResult = nil
-			c.mgr.physicalLibraryEntryID = 0
-			c.mgr.physicalArtworkPath = ""
-			c.mgr.physicalSeekMS = 0
-			c.mgr.physicalSeekUpdatedAt = time.Time{}
-			c.mgr.mu.Unlock()
-			c.mgr.markDirty()
-		} else if isBoundaryTrigger {
+		// Snapshot pre-boundary state so it can be restored on same-track confirmation
+		// or on a no-match where elapsed time is still within the known track duration.
+		// Recognition runs silently: the current track stays visible while the new
+		// capture + API call happens in the background (recognizerRunning shows spinner).
+		if isBoundaryTrigger {
 			c.mgr.mu.Lock()
 			preBoundaryResult = cloneRecognitionResult(c.mgr.recognitionResult)
 			preBoundarySeekMS = c.mgr.physicalSeekMS
@@ -598,7 +600,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		}
 		c.mgr.mu.Lock()
 		c.mgr.recognizerBusyUntil = time.Now().Add(skip + c.mgr.cfg.RecognizerCaptureDuration + 12*time.Second)
+		c.mgr.recognizerRunning = true
 		c.mgr.mu.Unlock()
+		c.mgr.markDirty()
 
 		captureStartedAt := time.Now()
 		captureCtx, cancel := context.WithTimeout(ctx, skip+c.mgr.cfg.RecognizerCaptureDuration+10*time.Second)
@@ -609,6 +613,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				return
 			}
 			log.Printf("recognizer [%s]: capture error: %v", c.rec.Name(), err)
+			c.mgr.mu.Lock()
+			c.mgr.recognizerRunning = false
+			c.mgr.mu.Unlock()
+			c.mgr.markDirty()
 			backoffUntil = time.Now().Add(errorBackoff)
 			backoffRateLimited = false
 			continue
@@ -621,6 +629,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		}
 
 		if err != nil {
+			c.mgr.mu.Lock()
+			c.mgr.recognizerRunning = false
+			c.mgr.mu.Unlock()
+			c.mgr.markDirty()
 			if c.handleRecognitionError(err, &backoffUntil, &backoffRateLimited) {
 				continue
 			}
@@ -636,6 +648,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		isBluetoothFinal := c.mgr.bluetoothPlaying
 		c.mgr.mu.Unlock()
 		if !isPhysicalFinal || isAirPlayFinal || isBluetoothFinal {
+			c.mgr.mu.Lock()
+			c.mgr.recognizerRunning = false
+			c.mgr.mu.Unlock()
+			c.mgr.markDirty()
 			log.Printf("recognizer [%s]: discarding result — source changed during capture/recognition (isPhysical=%v isAirPlay=%v isBluetooth=%v)",
 				c.rec.Name(), isPhysicalFinal, isAirPlayFinal, isBluetoothFinal)
 			continue
@@ -681,7 +697,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				)
 
 				if canRestore {
-					log.Printf("recognizer [%s]: same track confirmed — restoring pre-boundary result (%s — %s, seek=%ds elapsed=%ds duration=%ds threshold=%ds elapsed_pct=%.1f)",
+					log.Printf("recognizer [%s]: same track confirmed — keeping pre-boundary result (%s — %s, seek=%ds elapsed=%ds duration=%ds threshold=%ds elapsed_pct=%.1f)",
 						c.rec.Name(), result.Artist, result.Title,
 						preBoundarySeekMS/1000,
 						preBoundaryElapsedMS/1000,
@@ -689,28 +705,25 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 						thresholdMS/1000,
 						elapsedPct,
 					)
-					shouldMarkDirty := false
 					now := time.Now()
 					c.mgr.mu.Lock()
 					c.mgr.lastRecognizedAt = now
+					c.mgr.recognizerRunning = false
 					if c.mgr.recognitionResult == nil && isBoundaryTrigger && preBoundaryResult != nil {
-						restored := cloneRecognitionResult(preBoundaryResult)
-						c.mgr.recognitionResult = restored
+						c.mgr.recognitionResult = cloneRecognitionResult(preBoundaryResult)
 						c.mgr.physicalLibraryEntryID = preBoundaryLibraryEntryID
 						c.mgr.physicalArtworkPath = preBoundaryArtworkPath
+					}
+					if isBoundaryTrigger {
+						// Refresh seek anchor now that recognition has completed.
 						c.mgr.physicalSeekMS = recoverSeekMSFromSnapshot(preBoundarySeekMS, preBoundarySeekUpdatedAt, now)
 						c.mgr.physicalSeekUpdatedAt = now
-						shouldMarkDirty = true
 					}
 					if c.mgr.recognitionResult != nil {
-						if mergeMissingProviderIDs(c.mgr.recognitionResult, result) {
-							shouldMarkDirty = true
-						}
+						mergeMissingProviderIDs(c.mgr.recognitionResult, result)
 					}
 					c.mgr.mu.Unlock()
-					if shouldMarkDirty {
-						c.mgr.markDirty()
-					}
+					c.mgr.markDirty()
 					continue
 				}
 				log.Printf("recognizer [%s]: same track re-confirmed but restore blocked (%s, seek=%ds elapsed=%ds duration=%ds threshold=%ds elapsed_pct=%.1f min=%ds) — applying fresh result (%s — %s)",
@@ -728,6 +741,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			stop := false
 			shazamMatchedACR, stop = c.maybeConfirmCandidate(ctx, result, isBoundaryTrigger)
 			if stop {
+				c.mgr.mu.Lock()
+				c.mgr.recognizerRunning = false
+				c.mgr.mu.Unlock()
 				return
 			}
 
@@ -747,6 +763,45 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			}
 		drained:
 		} else {
+			// Elapsed-time guard for hard-boundary no-match:
+			// If the known track duration tells us the track cannot have ended yet,
+			// the boundary was a false positive (a-cappella breath, quiet passage,
+			// CD track gap that fooled the VU detector). Restore the pre-boundary
+			// result so the UI keeps showing the correct track. Duration guards
+			// remain active because seekMS is restored, which suppresses the next
+			// round of VU boundaries while the backoff runs.
+			if isBoundaryTrigger && isHardBoundaryTrigger &&
+				preBoundaryResult != nil && preBoundaryResult.DurationMs > 0 {
+				now := time.Now()
+				elapsed := recoverSeekMSFromSnapshot(preBoundarySeekMS, preBoundarySeekUpdatedAt, now)
+				if elapsed < int64(preBoundaryResult.DurationMs) {
+					noMatchBackoff := c.mgr.cfg.NoMatchBackoff
+					if noMatchBackoff <= 0 {
+						noMatchBackoff = 15 * time.Second
+					}
+					log.Printf("recognizer [%s]: no match — elapsed %ds within track duration %ds, keeping %s — %s (retry in %s)",
+						c.rec.Name(), elapsed/1000, preBoundaryResult.DurationMs/1000,
+						preBoundaryResult.Artist, preBoundaryResult.Title, noMatchBackoff)
+					c.mgr.mu.Lock()
+					c.mgr.recognizerRunning = false
+					if c.mgr.recognitionResult == nil {
+						// Restore if result was cleared by a concurrent path (shouldn't
+						// happen with silent recognition, but safe fallback).
+						c.mgr.recognitionResult = cloneRecognitionResult(preBoundaryResult)
+						c.mgr.physicalArtworkPath = preBoundaryArtworkPath
+						c.mgr.physicalLibraryEntryID = preBoundaryLibraryEntryID
+					}
+					// Always refresh seek to now so progress bar stays accurate after the
+					// recognition delay (capture + API call window = 10–20 s).
+					c.mgr.physicalSeekMS = elapsed
+					c.mgr.physicalSeekUpdatedAt = now
+					c.mgr.mu.Unlock()
+					backoffUntil = time.Now().Add(noMatchBackoff)
+					backoffRateLimited = false
+					c.mgr.markDirty()
+					continue
+				}
+			}
 			c.handleNoMatch(isBoundaryTrigger, isHardBoundaryTrigger, &backoffUntil, &backoffRateLimited)
 			if backoffUntil.IsZero() {
 				continue

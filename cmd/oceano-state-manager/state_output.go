@@ -47,7 +47,11 @@ func (m *mgr) buildState() PlayerState {
 	if source == "Physical" {
 		// physicalFormat persists across track boundaries so source stays
 		// "CD"/"Vinyl" even when recognitionResult is nil between tracks.
+		// DeclaredPhysicalFormat is a pre-recognition hint set by the user.
 		fmtStr := m.physicalFormat
+		if fmtStr == "" {
+			fmtStr = m.cfg.DeclaredPhysicalFormat
+		}
 		if m.recognitionResult != nil && m.recognitionResult.Format != "" {
 			fmtStr = m.recognitionResult.Format
 		}
@@ -117,11 +121,12 @@ func (m *mgr) buildState() PlayerState {
 	}
 
 	return PlayerState{
-		Source:    displaySource,
-		Format:    physFmt,
-		State:     state,
-		Track:     track,
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		Source:      displaySource,
+		Format:      physFmt,
+		State:       state,
+		Track:       track,
+		Identifying: m.recognizerRunning,
+		UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
@@ -343,6 +348,19 @@ func (m *mgr) runWriter(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// writeFormatHint atomically writes the current physical format (e.g. "Vinyl", "CD")
+// to path so oceano-source-detector can select a per-format noise-floor calibration
+// file at its next startup.
+func writeFormatHint(path, format string) {
+	if path == "" {
+		return
+	}
+	b, _ := json.Marshal(map[string]string{"format": format})
+	tmp := path + ".tmp"
+	_ = os.WriteFile(tmp, b, 0o644)
+	_ = os.Rename(tmp, path)
 }
 
 func writeStateFile(path string, ps PlayerState) error {

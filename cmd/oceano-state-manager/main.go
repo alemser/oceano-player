@@ -42,11 +42,12 @@ var itemRE = regexp.MustCompile(
 
 // PlayerState is the unified state written to /tmp/oceano-state.json.
 type PlayerState struct {
-	Source    string     `json:"source"`           // AirPlay | Vinyl | CD | Physical | None
-	Format    string     `json:"format,omitempty"` // CD | Vinyl — only present when source is Physical with identified format
-	State     string     `json:"state"`            // playing | stopped
-	Track     *TrackInfo `json:"track"`            // null when not playing or source is physical without metadata
-	UpdatedAt string     `json:"updated_at"`
+	Source      string     `json:"source"`                // AirPlay | Vinyl | CD | Physical | None
+	Format      string     `json:"format,omitempty"`      // CD | Vinyl — only present when source is Physical with identified format
+	State       string     `json:"state"`                 // playing | stopped
+	Track       *TrackInfo `json:"track"`                 // null when not playing or source is physical without metadata
+	Identifying bool       `json:"identifying,omitempty"` // true while recognition is running in background
+	UpdatedAt   string     `json:"updated_at"`
 }
 
 // TrackInfo holds per-track metadata. SeekMS + SeekUpdatedAt allow the UI to
@@ -140,6 +141,14 @@ type Config struct {
 	// CalibrationConfigPath points to oceano-web config.json containing
 	// advanced.calibration_profiles and amplifier_runtime.last_known_input_id.
 	CalibrationConfigPath string
+	// DeclaredPhysicalFormat is the user-declared media format ("Vinyl" or "CD").
+	// Used as display hint before recognition identifies the format, and as
+	// calibration hint for the source detector.
+	DeclaredPhysicalFormat string
+	// FormatHintFile is written by the state manager when a format is first
+	// identified, so oceano-source-detector can select a per-format noise-floor
+	// calibration file at startup.
+	FormatHintFile string
 	// IdleDelay is how long to keep showing the last physical track after audio stops
 	// before switching to the idle screen. Defaults to 10 seconds.
 	IdleDelay time.Duration
@@ -210,6 +219,7 @@ func defaultConfig() Config {
 		VUSocket:                                "/tmp/oceano-vu.sock",
 		VUSilenceThreshold:                      0.0095,
 		CalibrationConfigPath:                   "/etc/oceano/config.json",
+		FormatHintFile:                          "/tmp/oceano-format.json",
 		RecognizerCaptureDuration:               10 * time.Second,
 		RecognizerMaxInterval:                   5 * time.Minute,
 		RecognizerRefreshInterval:               2 * time.Minute,
@@ -295,6 +305,7 @@ type mgr struct {
 	physicalArtworkPath    string             // artwork path for current physical track (from library or fetch)
 	physicalFormat         string             // "CD" | "Vinyl" — set on recognition success; cleared only on new session
 	physicalLibraryEntryID int64              // library DB row ID for the current physical track; 0 when unknown
+	recognizerRunning      bool               // true while a recognition capture/call is in progress (for spinner indicator)
 
 	// streamingPhysicalMatch is set when a streaming track (AirPlay, etc.) matches
 	// an entry in the local physical library. Cleared when the track changes or
@@ -666,6 +677,8 @@ func main() {
 	flag.Float64Var(&cfg.DurationPessimism, "duration-pessimism", cfg.DurationPessimism, "temporal threshold (0.0–1.0): below threshold VU boundaries are guarded, at/above threshold VU boundaries are ignored")
 	flag.DurationVar(&cfg.BoundaryRestoreMinSeek, "boundary-restore-min-seek", cfg.BoundaryRestoreMinSeek, "minimum pre-boundary seek required before restoring pre-boundary track metadata after same-track re-confirmation")
 	flag.StringVar(&cfg.RecognizerChain, "recognizer-chain", cfg.RecognizerChain, "recognition chain order: acrcloud_first | shazam_first | acrcloud_only | shazam_only (continuity always uses Shazam when available)")
+	flag.StringVar(&cfg.DeclaredPhysicalFormat, "declared-format", cfg.DeclaredPhysicalFormat, "user-declared physical format: Vinyl | CD (display hint before recognition identifies format)")
+	flag.StringVar(&cfg.FormatHintFile, "format-hint-file", cfg.FormatHintFile, "path to write format hint for oceano-source-detector per-format calibration")
 	flag.Parse()
 
 	log.Printf("oceano-state-manager starting")

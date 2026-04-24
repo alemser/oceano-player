@@ -504,6 +504,105 @@ func TestBuildState_Physical_NoSeekWhenNotSet(t *testing.T) {
 	}
 }
 
+// TestBuildState_IdentifyingFlagWhenRecognizerRunning verifies that the
+// Identifying flag is true while recognition is in progress and that the
+// previous track remains visible (silent recognition — no "Identifying..." blank).
+func TestBuildState_IdentifyingFlagWhenRecognizerRunning(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{
+		Title:  "Behind the Wall",
+		Artist: "Tracy Chapman",
+		Format: "Vinyl",
+	}
+	m.recognizerRunning = true
+
+	s := m.buildState()
+
+	if !s.Identifying {
+		t.Error("Identifying must be true while recognizerRunning=true")
+	}
+	if s.Track == nil {
+		t.Fatal("Track must not be nil while recognition runs (silent — old track stays visible)")
+	}
+	if s.Track.Title != "Behind the Wall" {
+		t.Errorf("Track.Title = %q, want previous track while recognition runs", s.Track.Title)
+	}
+	if s.Source != "Vinyl" {
+		t.Errorf("Source = %q, want Vinyl — format must persist during background recognition", s.Source)
+	}
+}
+
+// TestBuildState_IdentifyingFalseAfterRecognition verifies Identifying is false
+// when recognizerRunning is cleared after recognition completes.
+func TestBuildState_IdentifyingFalseAfterRecognition(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{Title: "Track", Artist: "Artist"}
+	m.recognizerRunning = false
+
+	s := m.buildState()
+
+	if s.Identifying {
+		t.Error("Identifying must be false when recognizerRunning=false")
+	}
+}
+
+// TestBuildState_DeclaredFormatDisplayedBeforeRecognition verifies that
+// DeclaredPhysicalFormat is used as a display hint when physicalFormat is empty
+// and no recognition result is available yet.
+func TestBuildState_DeclaredFormatDisplayedBeforeRecognition(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.DeclaredPhysicalFormat = "Vinyl"
+	m.physicalSource = "Physical"
+	m.physicalFormat = ""       // not yet identified
+	m.recognitionResult = nil   // first session, no result
+
+	s := m.buildState()
+
+	if s.Source != "Vinyl" {
+		t.Errorf("Source = %q, want Vinyl from DeclaredPhysicalFormat before recognition", s.Source)
+	}
+	if s.Format != "Vinyl" {
+		t.Errorf("Format = %q, want Vinyl in PlayerState.Format field", s.Format)
+	}
+}
+
+// TestBuildState_DeclaredFormatNotUsedWhenPhysicalFormatSet verifies that once
+// physicalFormat is set by recognition, the declared format is ignored.
+func TestBuildState_DeclaredFormatNotUsedWhenPhysicalFormatSet(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.DeclaredPhysicalFormat = "Vinyl" // user declared vinyl
+	m.physicalSource = "Physical"
+	m.physicalFormat = "CD" // recognition says CD — takes priority
+
+	s := m.buildState()
+
+	if s.Source != "CD" {
+		t.Errorf("Source = %q, want CD — physicalFormat from recognition must override declared format", s.Source)
+	}
+}
+
+// TestBuildState_RecognitionFormatOverridesDeclared verifies that the recognition
+// result format takes highest priority over both physicalFormat and declared format.
+func TestBuildState_RecognitionFormatOverridesDeclared(t *testing.T) {
+	m := newTestMgr()
+	m.cfg.DeclaredPhysicalFormat = "Vinyl"
+	m.physicalSource = "Physical"
+	m.physicalFormat = ""
+	m.recognitionResult = &RecognitionResult{
+		Title:  "So What",
+		Artist: "Miles Davis",
+		Format: "CD", // recognition identified CD despite user declaring Vinyl
+	}
+
+	s := m.buildState()
+
+	if s.Source != "CD" {
+		t.Errorf("Source = %q, want CD — recognition result format must override declared format", s.Source)
+	}
+}
+
 func TestSyncFromLibrary_PreservesSeekWhenDurationArrivesLate(t *testing.T) {
 	lib := openTestLibrary(t)
 	now := time.Now().UTC().Format(time.RFC3339)

@@ -11,8 +11,43 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
+
+// readFormatHint reads the format hint file written by oceano-state-manager.
+// Returns the lowercase format string ("vinyl", "cd") or "" if absent/unreadable.
+func readFormatHint(path string) string {
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var h struct {
+		Format string `json:"format"`
+	}
+	if err := json.Unmarshal(data, &h); err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(h.Format))
+}
+
+// selectCalibrationFile derives a per-format calibration file path from the
+// base path. "vinyl" → "noise-floor-vinyl.json", "cd" → "noise-floor-cd.json".
+// Returns basePath unchanged when format is unrecognised or empty.
+func selectCalibrationFile(basePath, format string) string {
+	if basePath == "" {
+		return basePath
+	}
+	switch format {
+	case "vinyl", "cd":
+		ext := filepath.Ext(basePath)
+		return basePath[:len(basePath)-len(ext)] + "-" + format + ext
+	}
+	return basePath
+}
 
 func run(ctx context.Context, cfg Config) error {
 	_ = os.MkdirAll(filepath.Dir(cfg.OutputFile), 0o755)
@@ -26,7 +61,11 @@ func run(ctx context.Context, cfg Config) error {
 	go pcm.run(ctx)
 	go listenPCM(ctx, cfg.PCMSocket, pcm)
 
-	learner := newNoiseFloorLearner(cfg.CalibrationFile)
+	calFile := selectCalibrationFile(cfg.CalibrationFile, readFormatHint(cfg.FormatHintFile))
+	if calFile != cfg.CalibrationFile {
+		log.Printf("noise floor: using format-specific calibration file %s", calFile)
+	}
+	learner := newNoiseFloorLearner(calFile)
 	defer learner.flush()
 
 	for {

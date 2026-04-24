@@ -38,8 +38,13 @@ type Config struct {
 	OutputFile       string
 	VUSocket         string
 	PCMSocket        string // Unix socket for raw PCM relay; consumers read S16_LE stereo at SampleRate Hz
-	CalibrationFile  string // path to persisted noise-floor JSON
-	Verbose          bool
+	CalibrationFile  string // path to persisted noise-floor JSON (generic fallback)
+	// FormatHintFile is written by oceano-state-manager when a physical format
+	// (Vinyl | CD) is first identified. At startup the detector reads it to select
+	// the appropriate per-format calibration file, keeping vinyl and CD noise floors
+	// isolated from each other.
+	FormatHintFile string
+	Verbose        bool
 }
 
 func defaultConfig() Config {
@@ -53,6 +58,7 @@ func defaultConfig() Config {
 		VUSocket:        "/tmp/oceano-vu.sock",
 		PCMSocket:       "/tmp/oceano-pcm.sock",
 		CalibrationFile: "/var/lib/oceano/noise-floor.json",
+		FormatHintFile:  "/tmp/oceano-format.json",
 	}
 }
 

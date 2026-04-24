@@ -53,6 +53,7 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 	}
 	m.physicalArtworkPath = "/tmp/existing.jpg"
 	m.shazamContinuityReady = true
+	m.recognizerRunning = true
 	m.mu.Unlock()
 
 	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Primary"}, nil, nil, nil)
@@ -63,8 +64,8 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// Boundary no-match must clear recognition state so the UI shows "identifying"
-	// rather than showing the previous track while a new one is playing.
+	// Hard boundary no-match: recognition confirmed a new track started but got
+	// no match, so the old result is cleared and recognizerRunning reset.
 	if m.recognitionResult != nil {
 		t.Fatalf("expected recognitionResult to be cleared on boundary no-match, got %+v", m.recognitionResult)
 	}
@@ -73,6 +74,9 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 	}
 	if m.shazamContinuityReady {
 		t.Fatal("expected shazamContinuityReady to be cleared on boundary no-match")
+	}
+	if m.recognizerRunning {
+		t.Fatal("expected recognizerRunning to be false after no-match")
 	}
 	if backoffUntil.IsZero() {
 		t.Fatal("expected no-match backoff to be scheduled")
@@ -92,6 +96,7 @@ func TestHandleNoMatch_SoftBoundaryPreservesRecognition(t *testing.T) {
 		Artist: "Existing Artist",
 	}
 	m.physicalArtworkPath = "/tmp/existing.jpg"
+	m.recognizerRunning = true
 	m.mu.Unlock()
 
 	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Primary"}, nil, nil, nil)
@@ -110,6 +115,9 @@ func TestHandleNoMatch_SoftBoundaryPreservesRecognition(t *testing.T) {
 	}
 	if m.physicalArtworkPath != "/tmp/existing.jpg" {
 		t.Fatalf("expected artwork to remain set, got %q", m.physicalArtworkPath)
+	}
+	if m.recognizerRunning {
+		t.Fatal("expected recognizerRunning to be false after no-match")
 	}
 	if backoffUntil.IsZero() {
 		t.Fatal("expected no-match backoff to be scheduled")
@@ -638,34 +646,59 @@ func TestComputeRecognizedSeekMS_NonBoundarySameTrackCanReuseSessionElapsed(t *t
 	}
 }
 
-// TestPhysicalSeek_ResetOnBoundaryClear proves that the pre-capture boundary
-// clear zeroes seek so the UI does not interpolate from a stale position.
-func TestPhysicalSeek_ResetOnBoundaryClear(t *testing.T) {
+// TestPhysicalSeek_PreservedDuringRecognition proves that silent recognition
+// keeps seekMS and the existing recognitionResult intact while a recognition
+// attempt is running (recognizerRunning=true). The UI can show the previous
+// track with a spinner instead of blanking to "Identifying...".
+func TestPhysicalSeek_PreservedDuringRecognition(t *testing.T) {
 	m := newTestMgr()
 	m.mu.Lock()
 	m.physicalSource = "Physical"
 	m.physicalSeekMS = 120000
 	m.physicalSeekUpdatedAt = time.Now().Add(-2 * time.Minute)
+	m.recognitionResult = &RecognitionResult{Title: "Some Track", Artist: "Some Artist", ACRID: "acr-1"}
 	m.mu.Unlock()
 
-	// Simulate the pre-capture boundary clear (same code path as in run()).
+	// Simulate what the coordinator now does at pre-capture: only sets recognizerRunning.
 	m.mu.Lock()
-	m.recognitionResult = nil
-	m.physicalLibraryEntryID = 0
-	m.physicalArtworkPath = ""
-	m.physicalSeekMS = 0
-	m.physicalSeekUpdatedAt = time.Time{}
+	m.recognizerRunning = true
 	m.mu.Unlock()
 
 	m.mu.Lock()
 	seekMS := m.physicalSeekMS
-	seekUpdatedAt := m.physicalSeekUpdatedAt
+	result := m.recognitionResult
+	running := m.recognizerRunning
 	m.mu.Unlock()
 
-	if seekMS != 0 {
-		t.Errorf("physicalSeekMS = %d, want 0 after boundary clear", seekMS)
+	if seekMS == 0 {
+		t.Error("physicalSeekMS must not be zeroed during recognition (silent recognition)")
 	}
-	if !seekUpdatedAt.IsZero() {
-		t.Errorf("physicalSeekUpdatedAt = %s, want zero after boundary clear", seekUpdatedAt)
+	if result == nil {
+		t.Error("recognitionResult must not be cleared during recognition (silent recognition)")
+	}
+	if !running {
+		t.Error("recognizerRunning must be true while recognition is in progress")
+	}
+}
+
+// TestApplyRecognizedResult_ClearsRecognizerRunning verifies that recognizerRunning
+// is set to false when a recognition result is applied, so the spinner disappears.
+func TestApplyRecognizedResult_ClearsRecognizerRunning(t *testing.T) {
+	m := newTestMgr()
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.recognizerRunning = true
+	m.mu.Unlock()
+
+	c := newRecognitionCoordinator(m, nil, nil, nil, nil)
+	result := &RecognitionResult{ACRID: "acr-1", Title: "Track", Artist: "Artist", Score: 85}
+	c.applyRecognizedResult(result, false, false, false, time.Now())
+
+	m.mu.Lock()
+	running := m.recognizerRunning
+	m.mu.Unlock()
+
+	if running {
+		t.Error("recognizerRunning must be false after applyRecognizedResult")
 	}
 }
