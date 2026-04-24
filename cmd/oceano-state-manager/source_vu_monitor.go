@@ -479,17 +479,19 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 
 		// Also skip if we already have a valid result AND this is NOT a hard boundary.
 		// Hard boundaries (true silence→audio) should always trigger.
-		// Soft boundaries (energy change, false positives from quiet passages) should be
-		// suppressed when there's already a valid result.
+		// Soft boundaries (energy change, quiet passages) should be suppressed
+		// when there's already a valid result, UNLESS source-detector just changed
+		// from None→Physical (which could be a new track after vinyl gap).
 		m.mu.Lock()
 		hasValidResult := m.recognitionResult != nil
+		sourceChangedToPhysical := m.physicalSource == "None"
 		m.mu.Unlock()
 
-		if recentAttemptFailed || (hasValidResult && !isHardBoundary) {
+		if recentAttemptFailed || (hasValidResult && !isHardBoundary && !sourceChangedToPhysical) {
 			if recentAttemptFailed {
 				log.Printf("VU monitor: boundary suppressed — recent recognition failed, cooldown active")
 			} else {
-				log.Printf("VU monitor: boundary suppressed — already have result and not a hard boundary")
+				log.Printf("VU monitor: boundary suppressed — already have result and not hard boundary")
 			}
 			return
 		}
