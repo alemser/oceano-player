@@ -122,83 +122,8 @@ function _esc(s) {
 // ── Calibration summary (main page) ───────────────────────────────────────────
 
 function renderCalibrationSummary() {
-  const container = document.getElementById('cal-summary-grid');
-  if (!container) return;
-
-  const cfg = _calibrationState.cfg;
-  const allInputs = Array.isArray(cfg?.amplifier?.inputs)
-    ? cfg.amplifier.inputs.filter(i => i && i.visible !== false)
-    : [];
-
-  const profiles = _calibrationState.byInput;
-  const shown = new Set();
-  const items = [];
-
-  for (const [key, slot] of Object.entries(profiles)) {
-    if (!slot || (!slot.off && !slot.on && !slot.vinyl_transition)) continue;
-    const ampInp = allInputs.find(i => String(i.id) === key);
-    shown.add(key);
-    items.push({ key, label: ampInp?.logical_name || key, slot, measured: true });
-  }
-
-  for (const inp of allInputs) {
-    const key = String(inp.id || '');
-    if (shown.has(key)) continue;
-    items.push({ key, label: inp.logical_name || `Input ${inp.id}`, slot: null, measured: false });
-  }
-
-  const gi = _calibrationState.gainInfo;
-  const gainCardHtml = (gi && !gi.error) ? `<div class="cal-sc-card" style="margin-bottom:12px">
-    <div class="cal-sc-head"><span class="cal-sc-name">Capture Gain</span><span class="cal-sc-badge measured">Active</span></div>
-    <div class="cal-sc-values">
-      <div class="cal-sc-val"><span class="lbl">Device</span><span class="val" style="font-size:0.78rem">${_esc(gi.device_name || gi.device)}</span></div>
-      <div class="cal-sc-val"><span class="lbl">Control</span><span class="val">${_esc(gi.control)}</span></div>
-      <div class="cal-sc-val"><span class="lbl">Gain</span><span class="val">${gi.gain_pct}% <span style="color:var(--muted);font-size:0.8em;font-weight:400">(${gi.gain_raw} / ${gi.gain_max})</span></span></div>
-    </div>
-  </div>` : '';
-
-  if (items.length === 0) {
-    container.innerHTML = gainCardHtml + '<div class="hint" style="padding:4px 0 2px">No amplifier inputs configured. Run the wizard after setting up inputs in the Amplifier section.</div>';
-    return;
-  }
-
-  container.innerHTML = gainCardHtml + items.map(item => {
-    const { label, slot, measured, key } = item;
-    const isPhono = _isVinylLabel(label, key);
-
-    const badges = [];
-    if (measured) badges.push(`<span class="cal-sc-badge measured">Measured</span>`);
-    else          badges.push(`<span class="cal-sc-badge defaults">Defaults</span>`);
-    if (isPhono)  badges.push(`<span class="cal-sc-badge phono">Phono</span>`);
-
-    let valsHtml = '';
-    if (measured && slot) {
-      const rec = calibrationRecommendation(slot.off, slot.on, slot.vinyl_transition || null);
-      if (rec && rec.ok) {
-        valsHtml += `<div class="cal-sc-val"><span class="lbl">Source</span><span class="val">${rec.detectorThreshold.toFixed(4)}</span></div>`;
-        valsHtml += `<div class="cal-sc-val"><span class="lbl">VU</span><span class="val">${rec.vuThreshold.toFixed(4)}</span></div>`;
-        if (rec.gap != null) valsHtml += `<div class="cal-sc-val"><span class="lbl">OFF/ON gap</span><span class="val">${rec.gap.toFixed(4)}</span></div>`;
-      } else {
-        valsHtml += `<span class="hint" style="align-self:center">Incomplete — run wizard again to capture OFF and ON.</span>`;
-      }
-      if (slot.vinyl_transition && Number.isFinite(slot.vinyl_transition.gap_duration_secs)) {
-        valsHtml += `<div class="cal-sc-val"><span class="lbl">Vinyl gap</span><span class="val">${slot.vinyl_transition.gap_duration_secs.toFixed(2)}s</span></div>`;
-      }
-    } else {
-      const vu  = _rfloat('rec-vu-silence-threshold', 0.0095);
-      const sil = _rfloat('inp-silence', 0.025);
-      valsHtml  = `<div class="cal-sc-val"><span class="lbl">Source</span><span class="val">${sil.toFixed(4)}</span></div>`;
-      valsHtml += `<div class="cal-sc-val"><span class="lbl">VU</span><span class="val">${vu.toFixed(4)}</span></div>`;
-    }
-
-    const defNote = !measured ? `<div class="cal-sc-defnote">Global defaults — not yet calibrated for this input</div>` : '';
-
-    return `<div class="cal-sc-card${measured ? '' : ' is-default'}">
-      <div class="cal-sc-head"><span class="cal-sc-name">${_esc(label)}</span>${badges.join('')}</div>
-      <div class="cal-sc-values">${valsHtml}</div>
-      ${defNote}
-    </div>`;
-  }).join('');
+  // Per-input noise floor wizard removed. The adaptive noise floor panel
+  // is rendered separately by _noiseFloorRender() via /api/noise-floor polling.
 }
 
 // ── Recognition UI ─────────────────────────────────────────────────────────────
