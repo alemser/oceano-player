@@ -211,7 +211,13 @@ func (m *mgr) pollSourceFile() {
 	canRetryAfter := m.lastRecognitionAttemptAt.Add(triggerCooldown)
 	recentFailure := !m.lastRecognitionAttemptAt.IsZero() && time.Now().Before(canRetryAfter)
 
-	needsTrigger := src == "Physical" && (m.recognitionResult == nil || resumedAfterIdle || resumedAfterSilence) && !recentFailure
+	// Also suppress if we successfully recognized within the cooldown window
+	// and source just changed back to Physical after a brief silence.
+	// This prevents re-triggering when the needle was lifted briefly
+	// and placed back on the same track (music with quiet passages).
+	recentSuccess := !m.lastRecognizedAt.IsZero() && time.Now().Before(m.lastRecognizedAt.Add(triggerCooldown))
+
+	needsTrigger := src == "Physical" && (m.recognitionResult == nil || resumedAfterIdle || resumedAfterSilence) && !recentFailure && !recentSuccess
 	m.physicalSource = src
 	m.mu.Unlock()
 
