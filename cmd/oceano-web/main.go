@@ -180,6 +180,7 @@ func main() {
 	registerStylusRoutes(mux, *libraryDB)
 	registerCalibrationRoutes(mux, cfg.Advanced.VUSocket)
 	registerMicGainRoutes(mux, *configPath)
+	registerNoiseFloorRoutes(mux)
 
 	// API: amplifier IR control.
 	powerCal := powerCalibrationForConfiguredInput(cfg.Advanced, cfg.AmplifierRuntime)

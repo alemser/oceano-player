@@ -32,26 +32,27 @@ type Config struct {
 	DeviceMatch      string // substring to match in /proc/asound/cards (e.g. "USB Microphone")
 	SampleRate       int
 	BufferSize       int
-	SilenceThreshold float64
+	SilenceThreshold float64 // manual RMS override; 0 = use adaptive learner
+	StdDevThreshold  float64 // manual StdDev override; 0 = use adaptive learner
 	DebounceWindows  int
 	OutputFile       string
 	VUSocket         string
 	PCMSocket        string // Unix socket for raw PCM relay; consumers read S16_LE stereo at SampleRate Hz
+	CalibrationFile  string // path to persisted noise-floor JSON
 	Verbose          bool
 }
 
 func defaultConfig() Config {
 	return Config{
-		AlsaDevice:       "",
-		DeviceMatch:      "USB Microphone",
-		SampleRate:       44100,
-		BufferSize:       2048,
-		SilenceThreshold: 0.008,
-		DebounceWindows:  10,
-		OutputFile:       "/tmp/oceano-source.json",
-		VUSocket:         "/tmp/oceano-vu.sock",
-		PCMSocket:        "/tmp/oceano-pcm.sock",
-		Verbose:          false,
+		AlsaDevice:      "",
+		DeviceMatch:     "USB Microphone",
+		SampleRate:      44100,
+		BufferSize:      2048,
+		DebounceWindows: 10,
+		OutputFile:      "/tmp/oceano-source.json",
+		VUSocket:        "/tmp/oceano-vu.sock",
+		PCMSocket:       "/tmp/oceano-pcm.sock",
+		CalibrationFile: "/var/lib/oceano/noise-floor.json",
 	}
 }
 

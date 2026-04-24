@@ -26,6 +26,9 @@ func run(ctx context.Context, cfg Config) error {
 	go pcm.run(ctx)
 	go listenPCM(ctx, cfg.PCMSocket, pcm)
 
+	learner := newNoiseFloorLearner(cfg.CalibrationFile)
+	defer learner.flush()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -38,7 +41,7 @@ func run(ctx context.Context, cfg Config) error {
 				time.Sleep(5 * time.Second)
 				continue
 			}
-			if err := runStream(ctx, cfg, dev, hub, pcm); err != nil {
+			if err := runStream(ctx, cfg, dev, hub, pcm, learner); err != nil {
 				log.Printf("stream error on %s: %v — restarting in 2s", dev, err)
 				time.Sleep(2 * time.Second)
 			}
@@ -46,7 +49,7 @@ func run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *pcmHub) error {
+func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *pcmHub, learner *noiseFloorLearner) error {
 	log.Printf("opening capture device %s", device)
 	cmd := exec.Command("arecord",
 		"-D", device,
@@ -79,6 +82,7 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 	raw := make([]byte, cfg.BufferSize*4)
 	left := make([]float64, cfg.BufferSize)
 	right := make([]float64, cfg.BufferSize)
+	rolling := newRollingStats(rollingWindow)
 
 	for {
 		select {
@@ -92,7 +96,6 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 		}
 
 		// Relay raw PCM to any connected consumers (e.g. recognizer).
-		// Copy the buffer since raw is reused on the next iteration.
 		chunk := make([]byte, len(raw))
 		copy(chunk, raw)
 		pcm.publish(chunk)
@@ -106,17 +109,36 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 
 		rmsL := computeRMS(left)
 		rmsR := computeRMS(right)
-		rms := (rmsL + rmsR) / 2.0
+		windowRMS := (rmsL + rmsR) / 2.0
 
-		// Publish VU levels regardless of silence state — the consumer decides
-		// whether to display them.
+		rolling.push(windowRMS)
+		rollingStdDev := rolling.stddev()
+
 		hub.publish(VUFrame{Left: float32(rmsL), Right: float32(rmsR)})
 
-		var detected Source
-		if rms >= cfg.SilenceThreshold {
+		thresh := learner.current.Thresholds()
+		if cfg.SilenceThreshold > 0 {
+			thresh.RMS = cfg.SilenceThreshold
+		}
+		if cfg.StdDevThreshold > 0 {
+			thresh.StdDev = cfg.StdDevThreshold
+		}
+
+		// Hybrid AND: both level and variation must exceed the noise floor
+		// before declaring a physical source. This correctly ignores:
+		//   - CD transport noise  (RMS slightly elevated, variation ≈ 0)
+		//   - Vinyl inter-track   (RMS slightly elevated, variation low)
+		// while correctly detecting:
+		//   - Music               (RMS elevated AND variation high)
+		detected := SourceNone
+		if windowRMS >= thresh.RMS && rollingStdDev >= thresh.StdDev {
 			detected = SourcePhysical
-		} else {
-			detected = SourceNone
+		}
+
+		// Update the adaptive learner only during silence windows so the
+		// estimate always tracks the true noise floor, never music.
+		if detected == SourceNone {
+			learner.update(windowRMS, rollingStdDev)
 		}
 
 		voteWindow[voteIdx%cfg.DebounceWindows] = detected
@@ -124,7 +146,8 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 
 		if voteIdx < cfg.DebounceWindows {
 			if cfg.Verbose {
-				log.Printf("warming up: rms=%.5f det=%s (%d/%d)", rms, detected, voteIdx, cfg.DebounceWindows)
+				log.Printf("warming up: rms=%.5f stddev=%.5f det=%s (%d/%d)",
+					windowRMS, rollingStdDev, detected, voteIdx, cfg.DebounceWindows)
 			}
 			continue
 		}
@@ -150,15 +173,17 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 		}
 
 		if cfg.Verbose {
-			log.Printf("rms=%.5f det=%s votes(none=%d physical=%d) curr=%s",
-				rms, detected, noneVotes, physicalVotes, current)
+			log.Printf("rms=%.5f stddev=%.5f (thresh rms=%.5f stddev=%.5f) det=%s votes(none=%d phys=%d) curr=%s",
+				windowRMS, rollingStdDev, thresh.RMS, thresh.StdDev,
+				detected, noneVotes, physicalVotes, current)
 		} else if now := time.Now(); now.Sub(lastHeartbeat) >= time.Minute {
-			log.Printf("heartbeat: source=%s rms=%.5f", current, rms)
+			log.Printf("heartbeat: source=%s rms=%.5f stddev=%.5f (thresh rms=%.5f stddev=%.5f)",
+				current, windowRMS, rollingStdDev, thresh.RMS, thresh.StdDev)
 			lastHeartbeat = now
 		}
 
 		if winner != current {
-			log.Printf("SOURCE: %s → %s (rms=%.5f)", current, winner, rms)
+			log.Printf("SOURCE: %s → %s (rms=%.5f stddev=%.5f)", current, winner, windowRMS, rollingStdDev)
 			current = winner
 			_ = writeState(cfg.OutputFile, current)
 		}

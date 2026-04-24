@@ -1154,7 +1154,57 @@ document.addEventListener('DOMContentLoaded', () => {
     .then(r => r.json())
     .then(d => { if (!d.error) { _calibrationState.gainInfo = d; renderCalibrationSummary(); } })
     .catch(() => {});
+  _noiseFloorLoad();
+  setInterval(_noiseFloorLoad, 30_000);
 });
+
+// ── Adaptive noise floor panel ────────────────────────────────────────────────
+
+function _noiseFloorLoad() {
+  fetch('/api/noise-floor')
+    .then(r => r.json())
+    .then(_noiseFloorRender)
+    .catch(() => {});
+}
+
+function _noiseFloorRender(d) {
+  const badge    = document.getElementById('nf-status-badge');
+  const values   = document.getElementById('nf-values');
+  const learning = document.getElementById('nf-learning');
+  if (!badge) return;
+
+  if (!d.learned) {
+    badge.textContent = 'Learning…';
+    badge.style.background = 'rgba(240,192,96,0.10)';
+    badge.style.color = '#f0c060';
+    if (values)   values.style.display   = 'none';
+    if (learning) learning.style.display = '';
+    return;
+  }
+
+  badge.textContent = 'Active';
+  badge.style.background = 'rgba(80,200,120,0.12)';
+  badge.style.color = '#50c878';
+  if (learning) learning.style.display = 'none';
+  if (values)   values.style.display   = '';
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('nf-rms',         d.rms.toFixed(5));
+  set('nf-stddev',      d.stddev.toFixed(5));
+  set('nf-rms-thresh',  d.rms_threshold.toFixed(5));
+  set('nf-stddev-thresh', d.stddev_threshold.toFixed(5));
+
+  const meta = document.getElementById('nf-meta');
+  if (meta) {
+    const parts = [];
+    if (d.updated_at) {
+      const ago = Math.round((Date.now() - new Date(d.updated_at).getTime()) / 60000);
+      parts.push(ago < 2 ? 'updated just now' : `updated ${ago} min ago`);
+    }
+    if (d.windows > 0) parts.push(`${d.windows.toLocaleString()} windows learned`);
+    meta.textContent = parts.join(' · ');
+  }
+}
 
 // ── Mic Gain Wizard ────────────────────────────────────────────────────────────
 // Steps: Select Device → Play Music → Adjust Gain → Save
