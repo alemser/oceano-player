@@ -170,8 +170,13 @@ function renderCalibrationSummary() {
       } else {
         valsHtml += `<span class="hint" style="align-self:center">Incomplete — run wizard again to capture OFF and ON.</span>`;
       }
-      if (slot.vinyl_transition && Number.isFinite(slot.vinyl_transition.gap_duration_secs)) {
-        valsHtml += `<div class="cal-sc-val"><span class="lbl">Vinyl gap</span><span class="val">${slot.vinyl_transition.gap_duration_secs.toFixed(2)}s</span></div>`;
+      if (slot.vinyl_transition) {
+        if (Number.isFinite(slot.vinyl_transition.gap_avg_rms) && slot.vinyl_transition.gap_avg_rms > 0) {
+          valsHtml += `<div class="cal-sc-val"><span class="lbl">Groove noise</span><span class="val">${slot.vinyl_transition.gap_avg_rms.toFixed(5)}</span></div>`;
+        }
+        if (Number.isFinite(slot.vinyl_transition.gap_duration_secs)) {
+          valsHtml += `<div class="cal-sc-val"><span class="lbl">Vinyl gap</span><span class="val">${slot.vinyl_transition.gap_duration_secs.toFixed(2)}s</span></div>`;
+        }
       }
     } else {
       const vu  = _rfloat('rec-vu-silence-threshold', 0.0095);
@@ -1077,8 +1082,13 @@ function _wizStep6() {
       } else {
         valsHtml = `<span class="hint">Incomplete — OFF and ON samples needed.</span>`;
       }
-      if (slot.vinyl_transition && Number.isFinite(slot.vinyl_transition.gap_duration_secs)) {
-        valsHtml += `<div class="cal-wiz-sum-val"><span class="lbl">Vinyl gap</span><span class="val">${slot.vinyl_transition.gap_duration_secs.toFixed(2)}s</span></div>`;
+      if (slot.vinyl_transition) {
+        if (Number.isFinite(slot.vinyl_transition.gap_avg_rms) && slot.vinyl_transition.gap_avg_rms > 0) {
+          valsHtml += `<div class="cal-wiz-sum-val"><span class="lbl">Groove noise</span><span class="val">${slot.vinyl_transition.gap_avg_rms.toFixed(5)}</span></div>`;
+        }
+        if (Number.isFinite(slot.vinyl_transition.gap_duration_secs)) {
+          valsHtml += `<div class="cal-wiz-sum-val"><span class="lbl">Vinyl gap</span><span class="val">${slot.vinyl_transition.gap_duration_secs.toFixed(2)}s</span></div>`;
+        }
       }
     } else {
       const vu  = _rfloat('rec-vu-silence-threshold', 0.0095);
@@ -1113,3 +1123,620 @@ document.getElementById('rec-chain')?.addEventListener('change', updateRecogniti
 document.addEventListener('DOMContentLoaded', () => {
   loadRecognitionPage();
 });
+
+// ── Live RMS Monitor ──────────────────────────────────────────────────────────
+
+const RMS_MON_MAX  = 60;   // points × 2.5 s ≈ 2.5 min of history
+const RMS_MON_TOP  = 0.40; // RMS value that maps to full bar / top of canvas
+
+let _rmsM = {
+  active:  false,
+  timer:   null,
+  history: [],     // avg RMS per tick (for sparkline)
+  sMin:    Infinity,
+  sMax:    0,
+};
+
+function toggleRMSMonitor() {
+  _rmsM.active ? _rmsMonStop() : _rmsMonStart();
+}
+
+function _rmsMonStart() {
+  _rmsM.active  = true;
+  _rmsM.history = [];
+  _rmsM.sMin    = Infinity;
+  _rmsM.sMax    = 0;
+
+  document.getElementById('rms-mon-panel').style.display = 'block';
+  document.getElementById('rms-mon-toggle').textContent  = '◼ Stop';
+
+  const thresh = _rfloat('rec-vu-silence-threshold', 0);
+  const tLine  = document.getElementById('rms-mon-thresh-line');
+  if (tLine && thresh > 0) {
+    tLine.style.left    = (thresh / RMS_MON_TOP * 100) + '%';
+    tLine.style.display = 'block';
+  }
+
+  _rmsMonTick();
+  _rmsM.timer = setInterval(_rmsMonTick, 2500);
+}
+
+function _rmsMonStop() {
+  _rmsM.active = false;
+  clearInterval(_rmsM.timer);
+  _rmsM.timer  = null;
+  document.getElementById('rms-mon-toggle').textContent = '▶ Start';
+  _rmsMonSetStatus('Stopped.', 'var(--muted)');
+}
+
+function _rmsMonTick() {
+  fetch('/api/calibration/vu-sample', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body:    JSON.stringify({seconds: 2}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      const avg  = d.avg_rms ?? 0;
+      const minV = d.min_rms ?? avg;
+      const maxV = d.max_rms ?? avg;
+
+      _rmsM.history.push(avg);
+      if (_rmsM.history.length > RMS_MON_MAX) _rmsM.history.shift();
+      if (avg < _rmsM.sMin) _rmsM.sMin = avg;
+      if (avg > _rmsM.sMax) _rmsM.sMax = avg;
+
+      // Bar
+      const barEl = document.getElementById('rms-mon-bar');
+      if (barEl) {
+        barEl.style.width      = Math.min(avg / RMS_MON_TOP * 100, 100) + '%';
+        barEl.style.background = _rmsMonColor(avg);
+      }
+
+      // Stats
+      _rmsMonSet('rms-mon-avg',  avg.toFixed(5));
+      _rmsMonSet('rms-mon-min',  minV.toFixed(5));
+      _rmsMonSet('rms-mon-max',  maxV.toFixed(5));
+      _rmsMonSet('rms-mon-smin', _rmsM.sMin < Infinity ? _rmsM.sMin.toFixed(5) : '—');
+      _rmsMonSet('rms-mon-smax', _rmsM.sMax > 0 ? _rmsM.sMax.toFixed(5) : '—');
+
+      // History label
+      const secs = _rmsM.history.length * 2.5;
+      _rmsMonSet('rms-mon-history-label', secs < 60 ? `${Math.round(secs)}s ago ←` : `${(secs / 60).toFixed(1)} min ago ←`);
+
+      // Status message
+      const thresh = _rfloat('rec-vu-silence-threshold', 0);
+      if (avg < 0.005) {
+        if (thresh > 0 && avg > thresh) {
+          _rmsMonSetStatus(`Noise floor ${avg.toFixed(5)} above threshold ${thresh.toFixed(5)} — will always detect Physical`, '#e05577');
+        } else {
+          _rmsMonSetStatus('Silence — no signal or device not active', 'var(--muted)');
+        }
+      } else if (avg < 0.05) {
+        _rmsMonSetStatus('Signal low — check amplifier input or increase capture gain', 'var(--warn-text, #f0c060)');
+      } else if (avg <= 0.25) {
+        _rmsMonSetStatus('Good level — recognition will work well', 'var(--ok-text, #7ecf7e)');
+      } else if (avg <= 0.35) {
+        _rmsMonSetStatus('Level high — consider reducing capture gain', 'var(--warn-text, #f0c060)');
+      } else {
+        _rmsMonSetStatus('Clipping — reduce capture gain to avoid recognition failure', '#e05577');
+      }
+
+      _rmsMonDraw();
+    })
+    .catch(() => _rmsMonSetStatus('Error: VU socket not available', '#e05577'));
+}
+
+function _rmsMonColor(v) {
+  if (v < 0.005)  return 'rgba(255,255,255,0.15)';
+  if (v < 0.05)   return 'var(--warn-text, #f0c060)';
+  if (v <= 0.25)  return 'var(--ok-text, #7ecf7e)';
+  if (v <= 0.35)  return 'var(--warn-text, #f0c060)';
+  return '#e05577';
+}
+
+function _rmsMonSet(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function _rmsMonSetStatus(msg, color) {
+  const el = document.getElementById('rms-mon-status');
+  if (!el) return;
+  el.textContent  = msg;
+  el.style.color  = color;
+}
+
+function _rmsMonDraw() {
+  const canvas = document.getElementById('rms-mon-canvas');
+  if (!canvas) return;
+  const W = canvas.offsetWidth;
+  const H = canvas.height;
+  canvas.width = W;
+
+  const ctx    = canvas.getContext('2d');
+  const pts    = _rmsM.history;
+  const thresh = _rfloat('rec-vu-silence-threshold', 0);
+
+  ctx.clearRect(0, 0, W, H);
+  if (pts.length < 2) return;
+
+  const xStep = W / (RMS_MON_MAX - 1);
+  const xOf   = i => (RMS_MON_MAX - pts.length + i) * xStep;
+  const yOf   = v => H - (Math.min(v, RMS_MON_TOP) / RMS_MON_TOP) * H;
+
+  // Background bands
+  const y25 = yOf(0.25);
+  const y05 = yOf(0.05);
+  const yTh = thresh > 0 ? yOf(thresh) : H;
+
+  if (thresh > 0) {
+    ctx.fillStyle = 'rgba(74,158,255,0.04)';
+    ctx.fillRect(0, yTh, W, H - yTh);
+  }
+  ctx.fillStyle = 'rgba(126,207,126,0.05)';
+  ctx.fillRect(0, y25, W, y05 - y25);
+
+  // Reference lines
+  ctx.setLineDash([3, 4]);
+  ctx.lineWidth = 1;
+  if (thresh > 0) {
+    ctx.strokeStyle = 'rgba(74,158,255,0.3)';
+    ctx.beginPath(); ctx.moveTo(0, yTh); ctx.lineTo(W, yTh); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(126,207,126,0.2)';
+  ctx.beginPath(); ctx.moveTo(0, y25); ctx.lineTo(W, y25); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Area fill
+  ctx.beginPath();
+  ctx.moveTo(xOf(0), H);
+  for (let i = 0; i < pts.length; i++) ctx.lineTo(xOf(i), yOf(pts[i]));
+  ctx.lineTo(xOf(pts.length - 1), H);
+  ctx.closePath();
+  const last = pts[pts.length - 1];
+  ctx.fillStyle = last < 0.005  ? 'rgba(74,158,255,0.08)' :
+                  last <= 0.25  ? 'rgba(126,207,126,0.14)' :
+                  last <= 0.35  ? 'rgba(240,192,96,0.14)'  : 'rgba(224,85,119,0.14)';
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    i === 0 ? ctx.moveTo(xOf(i), yOf(pts[i])) : ctx.lineTo(xOf(i), yOf(pts[i]));
+  }
+  ctx.strokeStyle = last < 0.005  ? 'rgba(74,158,255,0.5)'   :
+                    last <= 0.25  ? 'rgba(126,207,126,0.85)' :
+                    last <= 0.35  ? 'rgba(240,192,96,0.85)'  : 'rgba(224,85,119,0.85)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Current-value dot
+  ctx.beginPath();
+  ctx.arc(xOf(pts.length - 1), yOf(last), 3, 0, Math.PI * 2);
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.fill();
+}
+
+// ── Mic Gain Wizard ────────────────────────────────────────────────────────────
+// Steps: Select Device → Play Music → Adjust Gain → Save
+
+const MIC_STEPS = 4;
+
+let _mic = {
+  step: 0,
+  info: null,
+  vuTimer: null,
+  devices: [],
+  selectedCard: null,
+};
+
+function openMicGainWizard() {
+  _mic.step = 0;
+  _mic.info = null;
+  _mic.devices = [];
+  _mic.selectedCard = null;
+  _stopMicVU();
+  document.getElementById('mic-gain-overlay').classList.add('open');
+  _micRenderStep();
+}
+
+function closeMicGainWizard() {
+  _stopMicVU();
+  document.getElementById('mic-gain-overlay').classList.remove('open');
+}
+
+function _stopMicVU() {
+  if (_mic.vuTimer) { clearInterval(_mic.vuTimer); _mic.vuTimer = null; }
+}
+
+function _micStepIndicator() {
+  const ind = document.getElementById('mic-gain-step-indicator');
+  if (!ind) return;
+  const labels = ['Device', 'Play Music', 'Adjust Gain', 'Save'];
+  let html = '';
+  for (let i = 0; i < MIC_STEPS; i++) {
+    const dotCls = i < _mic.step ? 'cal-wiz-dot done' : i === _mic.step ? 'cal-wiz-dot active' : 'cal-wiz-dot';
+    const icon = i < _mic.step
+      ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
+      : `${i + 1}`;
+    html += `<div class="${dotCls}">${icon}</div>`;
+    if (i < MIC_STEPS - 1) {
+      html += `<div class="cal-wiz-line${i < _mic.step ? ' done' : ''}"></div>`;
+    }
+  }
+  ind.innerHTML = html;
+}
+
+function _micRenderStep() {
+  _micStepIndicator();
+  const body   = document.getElementById('mic-gain-body');
+  const footer = document.getElementById('mic-gain-footer');
+  if (!body || !footer) return;
+  switch (_mic.step) {
+    case 0: _micStep0(body, footer); break;
+    case 1: _micStep1(body, footer); break;
+    case 2: _micStep2(body, footer); break;
+    case 3: _micStep3(body, footer); break;
+  }
+}
+
+function _micStep0(body, footer) {
+  body.innerHTML = `
+    <div class="cal-wiz-illus">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="23"/>
+        <line x1="8" y1="23" x2="16" y2="23"/>
+      </svg>
+    </div>
+    <div class="cal-wiz-title">Select Capture Device</div>
+    <div class="cal-wiz-desc">Choose the USB sound card connected to the amplifier's REC OUT. This wizard will help you set the right input gain for track recognition.</div>
+    <div id="mic-dev-list" style="margin-top:4px"><div class="cal-wiz-desc" style="opacity:0.5">Loading devices…</div></div>`;
+  footer.innerHTML = `
+    <button class="btn-secondary" onclick="closeMicGainWizard()">Cancel</button>
+    <button class="btn-secondary" style="background:var(--accent-dim);border-color:var(--accent);color:var(--accent)" id="mic-next-0" onclick="_micStep0Next()" disabled>Next →</button>`;
+
+  Promise.all([
+    fetch('/api/devices').then(r => r.json()),
+    fetch('/api/mic-gain/info').then(r => r.json()).catch(() => null),
+  ]).then(([devs, cfgInfo]) => {
+    _mic.devices = devs || [];
+    const configuredCard = cfgInfo && cfgInfo.error == null ? cfgInfo.card_num : null;
+    _mic.selectedCard = configuredCard ?? (devs.length ? devs[0].card : null);
+
+    if (!devs.length) {
+      document.getElementById('mic-dev-list').innerHTML =
+        `<div class="cal-wiz-warn-box">No ALSA sound cards detected. Connect the USB capture card and try again.</div>`;
+      return;
+    }
+
+    const rows = devs.map(d => {
+      const isConf = d.card === configuredCard;
+      const checked = d.card === _mic.selectedCard ? 'checked' : '';
+      return `<label class="cal-wiz-cb-row" style="cursor:pointer" onclick="_micSelectCard(${d.card})">
+        <input type="radio" name="mic-card" value="${d.card}" ${checked} style="width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;margin-top:2px;cursor:pointer">
+        <div class="cal-wiz-cb-text">
+          <div class="cb-label">card ${d.card} — ${_esc(d.desc || d.name)}
+            ${isConf ? `<span class="cal-sc-badge measured" style="margin-left:6px;font-size:0.58rem">configured</span>` : ''}
+          </div>
+          <div class="cb-hint">${_esc(d.name)}</div>
+        </div>
+      </label>`;
+    }).join('');
+
+    document.getElementById('mic-dev-list').innerHTML = rows;
+    const btn = document.getElementById('mic-next-0');
+    if (btn) btn.disabled = false;
+  }).catch(e => {
+    document.getElementById('mic-dev-list').innerHTML =
+      `<div class="cal-wiz-warn-box">Error loading devices: ${_esc(e.message)}</div>`;
+  });
+}
+
+function _micSelectCard(card) {
+  _mic.selectedCard = card;
+  document.querySelectorAll('input[name="mic-card"]').forEach(r => {
+    r.checked = parseInt(r.value) === card;
+  });
+  const btn = document.getElementById('mic-next-0');
+  if (btn) btn.disabled = false;
+}
+
+function _micStep0Next() {
+  if (_mic.selectedCard === null) return;
+  fetch(`/api/mic-gain/info?card=${_mic.selectedCard}`)
+    .then(r => r.json())
+    .then(info => {
+      _mic.info = info;
+      _mic.step = 1;
+      _micRenderStep();
+    })
+    .catch(e => toast('Error: ' + e.message));
+}
+
+function _micStep1(body, footer) {
+  const devName = _mic.info ? (_mic.info.device_name || _mic.info.device) : '—';
+  body.innerHTML = `
+    <div class="cal-wiz-illus">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <circle cx="12" cy="12" r="3"/>
+        <line x1="12" y1="2" x2="12" y2="5"/>
+        <line x1="12" y1="19" x2="12" y2="22"/>
+      </svg>
+    </div>
+    <div class="cal-wiz-title">Play Music</div>
+    <div class="cal-wiz-desc">Put on a record or play a CD at a typical listening volume, with the amplifier set to that physical input.</div>
+    <div class="cal-wiz-instr">
+      <b>Selected device:</b> card ${_mic.selectedCard ?? '?'} — ${_esc(devName)}<br>
+      <b>Gain control:</b> ${_esc(_mic.info?.control || '—')}<br>
+      <b>Current gain:</b> ${_mic.info?.gain_pct ?? '—'}%
+    </div>
+    <div class="cal-wiz-desc" style="margin-top:12px;margin-bottom:0">
+      When music is playing at normal volume, click <b>Next</b> to start monitoring the signal level.
+    </div>`;
+  footer.innerHTML = `
+    <button class="btn-secondary" onclick="_micPrev()">← Back</button>
+    <button class="btn-secondary" style="background:var(--accent-dim);border-color:var(--accent);color:var(--accent)" onclick="_micNext()">Next →</button>`;
+}
+
+function _micStep2(body, footer) {
+  _stopMicVU();
+  const gain    = _mic.info?.gain_pct ?? '—';
+  const control = _mic.info?.control  ?? '—';
+
+  let peakRMS      = 0;
+  let peakTimer    = null;
+  let sessionMin   = Infinity;
+  let sessionMax   = 0;
+  let sessionSum   = 0;
+  let sessionCount = 0;
+
+  const silenceThreshold = _rfloat('rec-vu-silence-threshold', 0);
+
+  body.innerHTML = `
+    <div class="cal-wiz-title">Adjust Gain</div>
+    <div class="cal-wiz-desc">Aim for peaks in the <b>green zone (0.05–0.25)</b>. Let a loud passage play to check the peak doesn't clip.</div>
+
+    <div style="margin:16px 0 4px">
+      <div style="position:relative;width:100%;height:12px;background:rgba(255,255,255,0.06);border-radius:6px;overflow:visible">
+        <div id="mic-rms-bar" style="position:absolute;left:0;top:0;height:100%;width:0%;background:var(--muted);border-radius:6px;transition:width 0.18s,background 0.18s"></div>
+        <div style="position:absolute;top:0;left:12.5%;width:50%;height:100%;background:rgba(126,207,126,0.08);pointer-events:none"></div>
+        <div id="mic-threshold-marker" style="position:absolute;top:-4px;width:2px;height:20px;background:rgba(74,158,255,0.85);border-radius:1px;left:0%;display:none" title="Current silence threshold"></div>
+        <div id="mic-peak-marker" style="position:absolute;top:-3px;width:3px;height:18px;background:rgba(240,192,96,0.9);border-radius:2px;left:0%;transition:left 0.1s;display:none"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:3px">
+        <span style="font-size:0.62rem;color:var(--muted)">0</span>
+        <span style="font-size:0.62rem;color:var(--ok-text)">▲ 0.05</span>
+        <span style="font-size:0.62rem;color:var(--ok-text)">0.25 ▲</span>
+        <span style="font-size:0.62rem;color:var(--muted)">0.40+</span>
+      </div>
+    </div>
+    <div id="mic-threshold-info" style="font-size:0.7rem;color:rgba(74,158,255,0.85);margin-bottom:4px;display:none">
+      <span style="display:inline-block;width:10px;height:2px;background:rgba(74,158,255,0.85);vertical-align:middle;margin-right:4px;border-radius:1px"></span>
+      Silence threshold: <span id="mic-threshold-val">—</span> — signal must stay above this for recognition to trigger
+    </div>
+
+    <div style="display:flex;gap:6px;margin:10px 0 14px">
+      <div class="cal-wiz-sum-val" style="flex:1;text-align:center"><span class="lbl">Avg</span><span class="val" id="mic-rms-avg">—</span></div>
+      <div class="cal-wiz-sum-val" style="flex:1;text-align:center"><span class="lbl">Peak</span><span class="val" id="mic-rms-peak" style="color:rgba(240,192,96,0.9)">—</span></div>
+      <div class="cal-wiz-sum-val" style="flex:1;text-align:center"><span class="lbl">Min seen</span><span class="val" id="mic-rms-min">—</span></div>
+      <div class="cal-wiz-sum-val" style="flex:1;text-align:center"><span class="lbl">Max seen</span><span class="val" id="mic-rms-max">—</span></div>
+    </div>
+
+    <div id="mic-rms-status" class="cal-wiz-rec-box" style="margin-bottom:16px">Waiting for signal…</div>
+
+    <div style="display:flex;align-items:center;gap:8px;justify-content:center">
+      <button class="cal-wiz-cap-btn" onclick="_micAdjust('down',5)" title="Decrease by 5%">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>5%
+      </button>
+      <button class="cal-wiz-cap-btn" onclick="_micAdjust('down',1,true)" title="Decrease by 1 step" style="padding:7px 10px;font-size:0.78rem">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>1
+      </button>
+      <div style="text-align:center;min-width:72px">
+        <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Gain</div>
+        <div id="mic-gain-val" style="font-size:1.4rem;font-weight:700;font-family:monospace">${gain}%</div>
+        <div id="mic-gain-raw" style="font-size:0.68rem;color:var(--muted);margin-top:1px;font-family:monospace">${_mic.info?.gain_raw != null ? `${_mic.info.gain_raw}/${_mic.info.gain_max}` : ''}</div>
+        <div style="font-size:0.62rem;color:var(--muted);margin-top:1px">${_esc(control)}</div>
+      </div>
+      <button class="cal-wiz-cap-btn" onclick="_micAdjust('up',1,true)" title="Increase by 1 step" style="padding:7px 10px;font-size:0.78rem">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>1
+      </button>
+      <button class="cal-wiz-cap-btn" onclick="_micAdjust('up',5)" title="Increase by 5%">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>5%
+      </button>
+    </div>`;
+
+  footer.innerHTML = `
+    <button class="btn-secondary" onclick="_micPrev()">← Back</button>
+    <button class="btn-secondary" style="background:var(--accent-dim);border-color:var(--accent);color:var(--accent)" onclick="_micNext()">Next →</button>`;
+
+  if (silenceThreshold > 0) {
+    const tPct = Math.min(silenceThreshold / 0.40 * 100, 100);
+    const tMarker = document.getElementById('mic-threshold-marker');
+    const tInfo   = document.getElementById('mic-threshold-info');
+    const tVal    = document.getElementById('mic-threshold-val');
+    if (tMarker) { tMarker.style.left = tPct + '%'; tMarker.style.display = 'block'; }
+    if (tInfo)   { tInfo.style.display = 'block'; }
+    if (tVal)    { tVal.textContent = silenceThreshold.toFixed(4); }
+  }
+
+  _mic.vuTimer = setInterval(() => {
+    fetch('/api/calibration/vu-sample', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({seconds: 1}),
+    })
+      .then(r => r.json())
+      .then(d => {
+        const avg  = d.avg_rms ?? 0;
+        const sMax = d.max_rms ?? avg;
+
+        const barEl     = document.getElementById('mic-rms-bar');
+        const peakEl    = document.getElementById('mic-peak-marker');
+        const avgEl     = document.getElementById('mic-rms-avg');
+        const peakValEl = document.getElementById('mic-rms-peak');
+        const minEl     = document.getElementById('mic-rms-min');
+        const maxEl     = document.getElementById('mic-rms-max');
+        const statusEl  = document.getElementById('mic-rms-status');
+        if (!barEl) { _stopMicVU(); return; }
+
+        sessionSum += avg;
+        sessionCount++;
+        if (avg > 0.01) sessionMin = Math.min(sessionMin, avg);
+        sessionMax = Math.max(sessionMax, sMax);
+
+        if (sMax > peakRMS) {
+          peakRMS = sMax;
+          clearTimeout(peakTimer);
+          peakTimer = setTimeout(() => {
+            peakRMS = 0;
+            if (peakEl) { peakEl.style.display = 'none'; }
+            if (peakValEl) peakValEl.textContent = '—';
+          }, 4000);
+        }
+
+        const avgPct  = Math.min(avg     / 0.40 * 100, 100);
+        const peakPct = Math.min(peakRMS / 0.40 * 100, 100);
+
+        barEl.style.width = avgPct + '%';
+
+        if (peakRMS > 0.005 && peakEl) {
+          peakEl.style.display = 'block';
+          peakEl.style.left = peakPct + '%';
+          peakEl.style.background = peakRMS > 0.35 ? '#e05577' : peakRMS > 0.25 ? 'rgba(240,192,96,0.9)' : 'rgba(126,207,126,0.85)';
+        }
+
+        if (avg < 0.01)       barEl.style.background = 'var(--muted)';
+        else if (avg < 0.05)  barEl.style.background = 'var(--warn-text,#f0c060)';
+        else if (avg <= 0.25) barEl.style.background = 'var(--ok-text,#7ecf7e)';
+        else if (avg <= 0.35) barEl.style.background = 'var(--warn-text,#f0c060)';
+        else                  barEl.style.background = '#e05577';
+
+        if (avgEl)     avgEl.textContent     = avg.toFixed(4);
+        if (peakValEl) peakValEl.textContent = peakRMS > 0 ? peakRMS.toFixed(4) : '—';
+        if (minEl)     minEl.textContent     = sessionMin < Infinity ? sessionMin.toFixed(4) : '—';
+        if (maxEl)     maxEl.textContent     = sessionMax > 0 ? sessionMax.toFixed(4) : '—';
+
+        const level = peakRMS > 0 ? peakRMS : avg;
+        if (avg < 0.01) {
+          statusEl.className = 'cal-wiz-rec-box';
+          if (silenceThreshold > 0 && avg > silenceThreshold) {
+            statusEl.className = 'cal-wiz-warn-box';
+            statusEl.innerHTML = `Noise floor (${avg.toFixed(4)}) is above the calibrated silence threshold (${silenceThreshold.toFixed(4)}) — the system will always detect "Physical" even with no music playing. Reduce gain or re-run noise floor calibration.`;
+          } else {
+            statusEl.innerHTML = 'No signal detected — make sure music is playing.';
+          }
+        } else if (level < 0.05) {
+          statusEl.className = 'cal-wiz-warn-box';
+          statusEl.innerHTML = 'Signal too low — increase gain with <b>+</b>.';
+        } else if (level <= 0.25) {
+          statusEl.className = 'cal-wiz-result-ok';
+          statusEl.innerHTML = `<span class="r-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></span><span class="r-text">Good level. Peak ${peakRMS.toFixed(4)} — recognition will capture a clean signal.</span>`;
+        } else if (level <= 0.35) {
+          statusEl.className = 'cal-wiz-warn-box';
+          statusEl.innerHTML = 'Peak is a bit high — consider reducing gain with <b>−</b>.';
+        } else {
+          statusEl.className = 'cal-wiz-warn-box';
+          statusEl.innerHTML = 'Peak clipping — reduce gain with <b>−</b> to avoid distortion in recognition.';
+        }
+
+        if (sessionCount >= 5 && sessionMin < Infinity && sessionMax > 0) {
+          const ratio = sessionMax / Math.max(sessionMin, 0.001);
+          if (ratio > 8 && statusEl.className === 'cal-wiz-result-ok') {
+            statusEl.innerHTML += `<br><span style="font-size:0.72rem;opacity:0.75">Wide dynamic range detected (${ratio.toFixed(0)}×). Gain is optimised for loud passages — quiet passages may not trigger recognition.</span>`;
+          }
+        }
+      })
+      .catch(() => {});
+  }, 1200);
+}
+
+function _micAdjust(dir, step, rawStep) {
+  fetch('/api/mic-gain/adjust', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({direction: dir, step: step ?? 5, raw_step: rawStep ?? false, card_num: _mic.selectedCard}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { toast('Error: ' + d.error); return; }
+      const el = document.getElementById('mic-gain-val');
+      if (el) el.textContent = d.gain_pct + '%';
+      const rawEl = document.getElementById('mic-gain-raw');
+      if (rawEl && d.gain_raw != null) rawEl.textContent = `${d.gain_raw}/${d.gain_max}`;
+      if (_mic.info) {
+        _mic.info.gain_pct = d.gain_pct;
+        _mic.info.gain_raw = d.gain_raw;
+        _mic.info.gain_max = d.gain_max;
+      }
+    })
+    .catch(e => toast('Error: ' + e.message));
+}
+
+function _micStep3(body, footer) {
+  _stopMicVU();
+  const gain    = _mic.info?.gain_pct ?? '—';
+  const control = _mic.info?.control  ?? '—';
+  const devName = _mic.info ? (_mic.info.device_name || _mic.info.device) : '—';
+
+  body.innerHTML = `
+    <div class="cal-wiz-illus">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+        <polyline points="22 4 12 14.01 9 11.01"/>
+      </svg>
+    </div>
+    <div class="cal-wiz-title">Save Settings</div>
+    <div class="cal-wiz-desc">Review the settings below and click <b>Save &amp; Close</b> to persist them across reboots.</div>
+    <div class="cal-wiz-result-ok" style="margin-bottom:14px">
+      <span class="r-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </span>
+      <span class="r-text">
+        card ${_mic.selectedCard ?? '?'} — ${_esc(devName)}<br>
+        control: ${_esc(control)} &nbsp;·&nbsp; gain: <b>${gain}%</b>
+      </span>
+    </div>
+    <div class="cal-wiz-hint-box">
+      The system will automatically learn the new noise floor from the first few minutes of silence after saving.
+    </div>`;
+
+  footer.innerHTML = `
+    <button class="btn-secondary" onclick="_micPrev()">← Back</button>
+    <button class="btn-save" id="mic-save-btn" onclick="_micSave()" style="margin-left:auto">Save &amp; Close</button>`;
+}
+
+function _micSave() {
+  const btn = document.getElementById('mic-save-btn');
+  if (btn) btn.disabled = true;
+
+  fetch('/api/mic-gain/store', {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) {
+        toast('Error: ' + d.error);
+        if (btn) btn.disabled = false;
+        return;
+      }
+      if (_mic.info) { _calibrationState.gainInfo = _mic.info; }
+      closeMicGainWizard();
+      toast('Gain saved.');
+    })
+    .catch(e => {
+      toast('Error: ' + e.message);
+      if (btn) btn.disabled = false;
+    });
+}
+
+function _micNext() {
+  _stopMicVU();
+  if (_mic.step < MIC_STEPS - 1) { _mic.step++; _micRenderStep(); }
+}
+
+function _micPrev() {
+  _stopMicVU();
+  if (_mic.step > 0) { _mic.step--; _micRenderStep(); }
+}

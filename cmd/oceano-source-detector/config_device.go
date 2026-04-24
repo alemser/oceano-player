@@ -29,14 +29,17 @@ type VUFrame struct {
 
 type Config struct {
 	AlsaDevice       string
-	DeviceMatch      string // substring to match in /proc/asound/cards (e.g. "USB Microphone")
+	DeviceMatch      string  // substring to match in /proc/asound/cards (e.g. "USB Microphone")
 	SampleRate       int
 	BufferSize       int
-	SilenceThreshold float64
+	SilenceThreshold float64 // upper cap on adaptive RMS threshold; 0 = uncapped
+	StdDevThreshold  float64 // manual StdDev override; 0 = use adaptive learner
 	DebounceWindows  int
 	OutputFile       string
 	VUSocket         string
 	PCMSocket        string // Unix socket for raw PCM relay; consumers read S16_LE stereo at SampleRate Hz
+	CalibrationFile  string // path to persisted noise-floor JSON
+	FormatHintFile   string // written by state-manager when format (Vinyl|CD) is identified
 	Verbose          bool
 }
 
@@ -46,11 +49,13 @@ func defaultConfig() Config {
 		DeviceMatch:      "USB Microphone",
 		SampleRate:       44100,
 		BufferSize:       2048,
-		SilenceThreshold: 0.008,
+		SilenceThreshold: 0.025,
 		DebounceWindows:  10,
 		OutputFile:       "/tmp/oceano-source.json",
 		VUSocket:         "/tmp/oceano-vu.sock",
 		PCMSocket:        "/tmp/oceano-pcm.sock",
+		CalibrationFile:  "/var/lib/oceano/noise-floor.json",
+		FormatHintFile:   "/tmp/oceano-format.json",
 		Verbose:          false,
 	}
 }
