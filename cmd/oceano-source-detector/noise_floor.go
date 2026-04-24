@@ -113,8 +113,8 @@ func saveNoiseFloor(path string, nf NoiseFloor) error {
 // it periodically. It is only called from the detection loop and is not
 // goroutine-safe — it must be driven by a single goroutine.
 type noiseFloorLearner struct {
-	path    string
-	current NoiseFloor
+	path     string
+	current  NoiseFloor
 	lastSave time.Time
 }
 
@@ -134,7 +134,7 @@ func newNoiseFloorLearner(path string) *noiseFloorLearner {
 // windowRMS is the RMS of the current audio window.
 // rollingStdDev is the StdDev of the last rollingWindow window-RMS values.
 func (l *noiseFloorLearner) update(windowRMS, rollingStdDev float64) {
-	l.current.RMS    = adaptRate*windowRMS    + (1-adaptRate)*l.current.RMS
+	l.current.RMS = adaptRate*windowRMS + (1-adaptRate)*l.current.RMS
 	l.current.StdDev = adaptRate*rollingStdDev + (1-adaptRate)*l.current.StdDev
 	l.current.Windows++
 	l.current.UpdatedAt = time.Now().UTC()

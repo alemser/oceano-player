@@ -118,6 +118,12 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 	voteIdx := 0
 	lastHeartbeat := time.Now()
 
+	// Counters for entry debounce and exit hold to prevent
+	// false positives from transient pops and false negatives
+	// from quiet a-cappella passages.
+	entryTriggerFrames := 0
+	exitSilenceFrames := 0
+
 	raw := make([]byte, cfg.BufferSize*4)
 	left := make([]float64, cfg.BufferSize)
 	right := make([]float64, cfg.BufferSize)
@@ -172,32 +178,47 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 			thresh.StdDev = cfg.StdDevThreshold
 		}
 
-		// Asymmetric hysteresis detection:
+		//Asymmetric hysteresis detection:
 		//
-		//  None → Physical  (transition): requires BOTH RMS and StdDev above
-		//    threshold to filter CD-transport constant hum (RMS slightly
-		//    elevated, variation ≈ 0) and vinyl inter-track groove noise.
-		//    High-RMS bypass: if RMS is clearly above threshold (≥ 3×) the
-		//    signal is undeniably music — skip the StdDev gate so sustained
-		//    a-cappella notes or slow fade-ins are not misclassified as None.
-		//    (Previously 5×; lowered because with a calibrated thresh.RMS of
-		//    ~0.007–0.014 the old factor required RMS ≥ 0.035–0.070, which
-		//    smooth vocals rarely reach even at normal playback levels.)
+		//  Entry (None → Physical): requires sustained signal to filter vinyl
+		//    pops. Two conditions must be true for 3 consecutive frames:
+		//    - RMS above threshold AND (stddev above threshold OR RMS ≥ 3×)
+		//    This prevents single-frame transients from triggering.
 		//
-		//  Physical → None  (staying): only RMS is checked. Once music is
-		//    confirmed, quiet sustained passages (low StdDev but still audible)
-		//    stay Physical. Only genuine silence (RMS below threshold) ends the
-		//    session. This matches the original single-threshold behaviour for
-		//    in-track dynamics while keeping the false-positive guard on entry.
-		const rmsHighBypassFactor = 3.0
+		//  Exit (Physical → None): requires sustained silence to
+		//    prevent quiet a-cappella passages from triggering re-entry.
+		//    Must have 15 consecutive frames below RMS threshold.
+		//
+		//  Physical → Physical (holding): during a track, quiet sustained
+		//    passages stay Physical - only RMS matters, not stddev.
+		const (
+			rmsHighBypassFactor   = 3.0
+			entryTriggerThreshold = 3  // frames (~0.14s) to confirm entry
+			exitSilenceThreshold  = 15 // frames (~0.7s) to confirm exit
+		)
+
 		detected := SourceNone
 		if current == SourcePhysical {
+			// EXIT: Needs sustained silence (hold time)
 			if windowRMS >= thresh.RMS {
+				exitSilenceFrames = 0
 				detected = SourcePhysical
+			} else {
+				exitSilenceFrames++
+				if exitSilenceFrames > exitSilenceThreshold {
+					detected = SourceNone
+				}
+				// Else: stays Physical (debounced)
 			}
 		} else {
+			// ENTRY: Needs sustained high signal (debounce)
 			if windowRMS >= thresh.RMS && (rollingStdDev >= thresh.StdDev || windowRMS >= thresh.RMS*rmsHighBypassFactor) {
-				detected = SourcePhysical
+				entryTriggerFrames++
+				if entryTriggerFrames >= entryTriggerThreshold {
+					detected = SourcePhysical
+				}
+			} else {
+				entryTriggerFrames = 0
 			}
 		}
 

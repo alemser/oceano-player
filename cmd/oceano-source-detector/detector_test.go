@@ -255,8 +255,8 @@ func TestNoiseFloorThresholds_DefaultValues(t *testing.T) {
 // detection for quiet passages (a cappella, soft acoustic music).
 func TestSilenceThresholdIsCap(t *testing.T) {
 	nf := NoiseFloor{RMS: 0.003, StdDev: 0.001} // calibrated from groove noise
-	calibrated := nf.Thresholds().RMS            // 0.003 + 0.001*4 = 0.007
-	silenceThreshold := 0.025                    // configured default
+	calibrated := nf.Thresholds().RMS           // 0.003 + 0.001*4 = 0.007
+	silenceThreshold := 0.025                   // configured default
 
 	// SilenceThreshold as cap: use calibrated value when calibrated < configured
 	effective := calibrated
@@ -278,7 +278,7 @@ func TestSilenceThresholdIsCap(t *testing.T) {
 // wrong (e.g. music contaminated a silence window), SilenceThreshold clips it.
 func TestSilenceThresholdCapPreventsRunaway(t *testing.T) {
 	nf := NoiseFloor{RMS: 0.025, StdDev: 0.005} // runaway: too high
-	calibrated := nf.Thresholds().RMS            // 0.025 + 0.005*4 = 0.045
+	calibrated := nf.Thresholds().RMS           // 0.025 + 0.005*4 = 0.045
 	silenceThreshold := 0.025
 
 	effective := calibrated
