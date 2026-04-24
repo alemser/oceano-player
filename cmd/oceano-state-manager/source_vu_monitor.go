@@ -359,9 +359,18 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 
 		durationGuardBypassUntil = time.Time{}
 
-		// Do not clear current metadata/artwork here: boundary detection can fire
-		// on false positives, and clearing preemptively causes UI flicker/regressions.
-		// State is cleared later only when a boundary-triggered recognition confirms no match.
+		// Suppress if source is not currently Physical. The VU socket publishes
+		// frames regardless of source state, so silence→audio transitions can
+		// fire after the needle is lifted or the CD stops. Triggering recognition
+		// with no physical source wastes an API call and poisons the retry state.
+		m.mu.Lock()
+		isSourcePhysical := m.physicalSource == "Physical"
+		m.mu.Unlock()
+		if !isSourcePhysical {
+			log.Printf("VU monitor: boundary suppressed (%s) — source is not Physical", reason)
+			return
+		}
+
 		log.Printf("VU monitor: track boundary detected (%s hard=%v) — triggering recognition", reason, isHardBoundary)
 		select {
 		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true, isHardBoundary: isHardBoundary, detectedAt: detectedAt}:
