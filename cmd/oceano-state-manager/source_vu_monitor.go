@@ -258,9 +258,12 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 		retryDelay    = 5 * time.Second
 	)
 
+	// Use the same threshold as source-detector for consistency.
+	// Previously used 0.01 which was higher than source-detector's 0.005,
+	// causing false silence detection during quiet passages.
 	silenceThreshold := float32(m.cfg.VUSilenceThreshold)
 	if silenceThreshold <= 0 {
-		silenceThreshold = 0.01
+		silenceThreshold = 0.005 // Match source-detector's default RMS threshold
 	}
 
 	for {
@@ -424,8 +427,11 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		// Prevent rapid re-triggering from VU boundaries.
 		// If last boundary was recent (< cooldown), skip trigger.
 		const boundaryCooldown = 20 * time.Second
-		canTriggerAfter := m.lastRecognitionAttemptAt.Add(boundaryCooldown)
-		recentAttemptFailed := !m.lastRecognitionAttemptAt.IsZero() && time.Now().Before(canTriggerAfter)
+		var recentAttemptFailed bool
+		if !m.lastRecognitionAttemptAt.IsZero() {
+			recentAttemptFailed = time.Now().Before(m.lastRecognitionAttemptAt.Add(boundaryCooldown))
+			log.Printf("VU boundary: lastAttemptAt=%v, now=%v, recent=%v", m.lastRecognitionAttemptAt, time.Now(), recentAttemptFailed)
+		}
 		if recentAttemptFailed {
 			log.Printf("VU monitor: boundary suppressed — recent recognition failed, cooldown active")
 			return
