@@ -134,10 +134,21 @@ func (m *mgr) pollSourceFile() {
 	}
 	m.mu.Lock()
 	changed := m.physicalSource != src
+	hasResult := m.recognitionResult != nil
 	newSession := false
 	resumedAfterIdle := false
 	resumedAfterSilence := false
-	if src == "Physical" {
+
+	// Duration-based cooldown: if we recently recognized (< 120s ago) AND have a result,
+	// suppress automatic triggers during brief silences in the music.
+	const recentSuccessCooldown = 120 * time.Second
+	recentSuccess := !m.lastRecognizedAt.IsZero() && time.Now().Before(m.lastRecognizedAt.Add(recentSuccessCooldown))
+
+	// If we have a recent result, suppress resumption triggers to avoid
+	// re-recognition during music pauses (breaths, quiet passages).
+	if hasResult && recentSuccess {
+		// Clear flags so no trigger fires
+	} else if src == "Physical" {
 		now := time.Now()
 		gap := time.Duration(0)
 		if !m.lastPhysicalAt.IsZero() {
@@ -211,12 +222,9 @@ func (m *mgr) pollSourceFile() {
 	canRetryAfter := m.lastRecognitionAttemptAt.Add(triggerCooldown)
 	recentFailure := !m.lastRecognitionAttemptAt.IsZero() && time.Now().Before(canRetryAfter)
 
-	// Also suppress if we successfully recognized within the cooldown window
-	// and source just changed back to Physical after a brief silence.
+	// Also suppress if we successfully recognized within a longer window (120s).
 	// This prevents re-triggering when the needle was lifted briefly
 	// and placed back on the same track (music with quiet passages).
-	recentSuccess := !m.lastRecognizedAt.IsZero() && time.Now().Before(m.lastRecognizedAt.Add(triggerCooldown))
-
 	needsTrigger := src == "Physical" && (m.recognitionResult == nil || resumedAfterIdle || resumedAfterSilence) && !recentFailure && !recentSuccess
 	m.physicalSource = src
 	m.mu.Unlock()
