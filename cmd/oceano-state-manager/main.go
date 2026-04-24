@@ -224,7 +224,7 @@ func defaultConfig() Config {
 		RecognizerMaxInterval:                   5 * time.Minute,
 		RecognizerRefreshInterval:               2 * time.Minute,
 		NoMatchBackoff:                          15 * time.Second,
-		IdleDelay:                               10 * time.Second,
+		IdleDelay:                               45 * time.Second,
 		SessionGapThreshold:                     45 * time.Second,
 		LibraryDB:                               "/var/lib/oceano/library.db",
 		ConfirmationDelay:                       0,
