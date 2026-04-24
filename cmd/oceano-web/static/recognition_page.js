@@ -170,8 +170,13 @@ function renderCalibrationSummary() {
       } else {
         valsHtml += `<span class="hint" style="align-self:center">Incomplete — run wizard again to capture OFF and ON.</span>`;
       }
-      if (slot.vinyl_transition && Number.isFinite(slot.vinyl_transition.gap_duration_secs)) {
-        valsHtml += `<div class="cal-sc-val"><span class="lbl">Vinyl gap</span><span class="val">${slot.vinyl_transition.gap_duration_secs.toFixed(2)}s</span></div>`;
+      if (slot.vinyl_transition) {
+        if (Number.isFinite(slot.vinyl_transition.gap_avg_rms) && slot.vinyl_transition.gap_avg_rms > 0) {
+          valsHtml += `<div class="cal-sc-val"><span class="lbl">Groove noise</span><span class="val">${slot.vinyl_transition.gap_avg_rms.toFixed(5)}</span></div>`;
+        }
+        if (Number.isFinite(slot.vinyl_transition.gap_duration_secs)) {
+          valsHtml += `<div class="cal-sc-val"><span class="lbl">Vinyl gap</span><span class="val">${slot.vinyl_transition.gap_duration_secs.toFixed(2)}s</span></div>`;
+        }
       }
     } else {
       const vu  = _rfloat('rec-vu-silence-threshold', 0.0095);
@@ -1077,8 +1082,13 @@ function _wizStep6() {
       } else {
         valsHtml = `<span class="hint">Incomplete — OFF and ON samples needed.</span>`;
       }
-      if (slot.vinyl_transition && Number.isFinite(slot.vinyl_transition.gap_duration_secs)) {
-        valsHtml += `<div class="cal-wiz-sum-val"><span class="lbl">Vinyl gap</span><span class="val">${slot.vinyl_transition.gap_duration_secs.toFixed(2)}s</span></div>`;
+      if (slot.vinyl_transition) {
+        if (Number.isFinite(slot.vinyl_transition.gap_avg_rms) && slot.vinyl_transition.gap_avg_rms > 0) {
+          valsHtml += `<div class="cal-wiz-sum-val"><span class="lbl">Groove noise</span><span class="val">${slot.vinyl_transition.gap_avg_rms.toFixed(5)}</span></div>`;
+        }
+        if (Number.isFinite(slot.vinyl_transition.gap_duration_secs)) {
+          valsHtml += `<div class="cal-wiz-sum-val"><span class="lbl">Vinyl gap</span><span class="val">${slot.vinyl_transition.gap_duration_secs.toFixed(2)}s</span></div>`;
+        }
       }
     } else {
       const vu  = _rfloat('rec-vu-silence-threshold', 0.0095);
