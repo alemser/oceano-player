@@ -353,11 +353,7 @@ function renderAmplifierInputsTable() {
 
   _ampInputsModel.forEach((input, idx) => {
     const row = document.createElement('div');
-    row.className = 'field';
-    row.style.display = 'grid';
-    row.style.gridTemplateColumns = 'minmax(180px,1fr) auto auto auto auto';
-    row.style.gap = '8px';
-    row.style.alignItems = 'center';
+    row.className = 'amp-input-row';
 
     const name = document.createElement('input');
     name.type = 'text';
@@ -416,11 +412,15 @@ function renderAmplifierInputsTable() {
       refreshAmplifierInputViews();
     };
 
+    const controls = document.createElement('div');
+    controls.className = 'amp-input-controls';
+    controls.appendChild(visibleWrap);
+    controls.appendChild(defaultTag);
+    controls.appendChild(up);
+    controls.appendChild(del);
+
     row.appendChild(name);
-    row.appendChild(visibleWrap);
-    row.appendChild(defaultTag);
-    row.appendChild(up);
-    row.appendChild(del);
+    row.appendChild(controls);
     el.appendChild(row);
   });
 

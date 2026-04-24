@@ -113,6 +113,28 @@
     @media (max-width: 760px) {
       .stylus-grid { grid-template-columns: 1fr; }
     }
+
+    /* ── Input list rows ── */
+    .amp-input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .amp-input-row input[type=text] {
+      flex: 1 1 160px;
+      min-width: 0;
+    }
+    .amp-input-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    @media (max-width: 500px) {
+      .amp-input-controls .detect-btn { flex: 1; justify-content: center; }
+    }
   </style>
 </head>
 <body>
