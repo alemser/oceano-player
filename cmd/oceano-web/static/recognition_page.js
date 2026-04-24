@@ -1553,45 +1553,34 @@ function _micStep3(body, footer) {
         control: ${_esc(control)} &nbsp;·&nbsp; gain: <b>${gain}%</b>
       </span>
     </div>
-    <div class="cal-wiz-warn-box">
-      After saving, <b>Step 2 — Calibrate Noise Floor</b> must be re-run so the system learns the new silence threshold for this gain level.
-    </div>`;
+    <div class="cal-wiz-hint-box">
+      The system will automatically learn the new noise floor from the first few minutes of silence after saving.
+    </div>\`;
 
-  footer.innerHTML = `
+  footer.innerHTML = \`
     <button class="btn-secondary" onclick="_micPrev()">← Back</button>
-    <button class="btn-secondary" id="mic-save-btn" onclick="_micSave(false)" style="margin-left:auto">Save &amp; Close</button>
-    <button class="btn-save" id="mic-save-cal-btn" onclick="_micSave(true)">Save &amp; Calibrate Noise Floor →</button>`;
+    <button class="btn-save" id="mic-save-btn" onclick="_micSave()" style="margin-left:auto">Save &amp; Close</button>\`;
 }
 
-function _micSave(openCal) {
-  const btn    = document.getElementById('mic-save-btn');
-  const btnCal = document.getElementById('mic-save-cal-btn');
-  if (btn)    { btn.disabled = true; }
-  if (btnCal) { btnCal.disabled = true; btnCal.textContent = 'Saving…'; }
+function _micSave() {
+  const btn = document.getElementById('mic-save-btn');
+  if (btn) btn.disabled = true;
 
   fetch('/api/mic-gain/store', {method: 'POST'})
     .then(r => r.json())
     .then(d => {
       if (d.error) {
         toast('Error: ' + d.error);
-        if (btn)    btn.disabled = false;
-        if (btnCal) { btnCal.disabled = false; btnCal.textContent = 'Save & Calibrate Noise Floor →'; }
+        if (btn) btn.disabled = false;
         return;
       }
-      _calMarkStale();
       if (_mic.info) { _calibrationState.gainInfo = _mic.info; }
       closeMicGainWizard();
-      renderCalibrationSummary();
-      if (openCal) {
-        setTimeout(() => openCalibrationWizard(), 120);
-      } else {
-        toast('Gain saved. Run "Calibrate Noise Floor" next.');
-      }
+      toast('Gain saved.');
     })
     .catch(e => {
       toast('Error: ' + e.message);
-      if (btn)    btn.disabled = false;
-      if (btnCal) { btnCal.disabled = false; btnCal.textContent = 'Save & Calibrate Noise Floor →'; }
+      if (btn) btn.disabled = false;
     });
 }
 
