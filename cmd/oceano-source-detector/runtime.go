@@ -194,7 +194,7 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 		const (
 			rmsHighBypassFactor   = 3.0
 			entryTriggerThreshold = 3  // frames (~0.14s) to confirm entry
-			exitSilenceThreshold  = 50 // frames (~2.3s) to confirm exit; allows inter-track silence
+			exitSilenceThreshold  = 22 // frames (~1.0s) to confirm exit; allows brief vinyl gaps
 		)
 
 		detected := SourceNone
