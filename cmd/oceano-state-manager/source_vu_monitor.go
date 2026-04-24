@@ -134,38 +134,25 @@ func (m *mgr) pollSourceFile() {
 	}
 	m.mu.Lock()
 	changed := m.physicalSource != src
-	hasResult := m.recognitionResult != nil
 	newSession := false
 	resumedAfterIdle := false
 	resumedAfterSilence := false
 
-	// Duration-based cooldown: if we recently recognized (< 120s ago) AND have a result,
-	// suppress automatic triggers during brief silences in the music.
-	const recentSuccessCooldown = 120 * time.Second
-	recentSuccess := !m.lastRecognizedAt.IsZero() && time.Now().Before(m.lastRecognizedAt.Add(recentSuccessCooldown))
-
-	// If we have a recent result, suppress resumption triggers to avoid
-	// re-recognition during music pauses (breaths, quiet passages).
-	if hasResult && recentSuccess {
-		// Clear flags so no trigger fires
-	} else if src == "Physical" {
+	// Always run session detection and update lastPhysicalAt when source is Physical,
+	// regardless of whether a recent result exists. Skipping this would:
+	//   1. Leave m.lastPhysicalAt stale → idle delay stops working after recognition
+	//   2. Prevent newSession detection when medium changes (CD after vinyl)
+	if src == "Physical" {
 		now := time.Now()
 		gap := time.Duration(0)
 		if !m.lastPhysicalAt.IsZero() {
 			gap = now.Sub(m.lastPhysicalAt)
 		}
-		// A new session is one where the source has been None longer than
-		// SessionGapThreshold — indicating the record stopped or the side was
-		// flipped, not merely a normal inter-track silence gap.
 		if m.lastPhysicalAt.IsZero() || gap > m.cfg.SessionGapThreshold {
 			newSession = true
 		} else if gap > m.cfg.IdleDelay {
 			resumedAfterIdle = true
 		} else if changed && gap >= physicalResumeRecognitionGap {
-			// Manual stop/start within the same session (e.g. lifting the stylus and
-			// placing it back at the beginning) should trigger recognition even though
-			// the existing result is still present and duration-based boundary
-			// suppression would otherwise block a fast re-start.
 			resumedAfterSilence = true
 		}
 		m.lastPhysicalAt = now
@@ -180,8 +167,6 @@ func (m *mgr) pollSourceFile() {
 		m.lastContinuityMismatchTo = ""
 		m.lastContinuityMismatchCount = 0
 		m.physicalStartedAt = time.Now()
-		// Clear stale seek from the previous session so duration guards do not
-		// fire spuriously against the old track's duration.
 		m.physicalSeekMS = 0
 		m.physicalSeekUpdatedAt = time.Time{}
 	} else if resumedAfterIdle {
@@ -193,39 +178,30 @@ func (m *mgr) pollSourceFile() {
 		m.lastContinuityMismatchFrom = ""
 		m.lastContinuityMismatchTo = ""
 		m.lastContinuityMismatchCount = 0
-		// The UI may have already gone idle during a longer pause. Reset the seek
-		// anchor and queue a fresh recognition attempt on resume instead of waiting
-		// solely for the VU boundary path to win the race.
 		m.physicalStartedAt = time.Now()
-		// Invalidate seek so the duration guard cannot suppress the first boundary
-		// trigger after the needle is placed back on the record.
 		m.physicalSeekMS = 0
 		m.physicalSeekUpdatedAt = time.Time{}
 	} else if resumedAfterSilence {
 		m.physicalStartedAt = time.Now()
-		// Do NOT clear physicalSeekMS/physicalSeekUpdatedAt here.
-		// Clearing them causes a critical regression for a-cappella and any
-		// music with brief silent passages (e.g. breaths between phrases):
-		//   1. seekUpdatedAt becomes zero → shouldSuppressBoundary / shouldIgnoreBoundaryAtMatureProgress
-		//      both return false (zero guard) → every VU frame boundary fires a trigger.
-		//   2. After same-track restore the seek stays at 0 → progress bar resets.
-		// Keeping the old seekMS is correct: elapsed continues to advance from the
-		// stored anchor through "seekMS + (now − seekUpdatedAt)", so the progress
-		// bar and duration guards remain accurate across brief pauses.
+		// Do NOT clear physicalSeekMS/physicalSeekUpdatedAt here — clearing them
+		// causes the duration guards to skip, firing a trigger on every a-cappella
+		// breath or soft passage.
 	}
 
-	// Prevent rapid re-triggering after a failed recognition.
-	// If last failed attempt was within cooldown window, don't re-trigger.
-	// This fixes the bug where music continues but VU boundary causes
-	// repeated "source changed during recognition" discards -> infinite loop.
+	// Cooldown after a failed/discarded recognition attempt.
 	const triggerCooldown = 20 * time.Second
-	canRetryAfter := m.lastRecognitionAttemptAt.Add(triggerCooldown)
-	recentFailure := !m.lastRecognitionAttemptAt.IsZero() && time.Now().Before(canRetryAfter)
+	recentFailure := !m.lastRecognitionAttemptAt.IsZero() && time.Now().Before(m.lastRecognitionAttemptAt.Add(triggerCooldown))
 
-	// Also suppress if we successfully recognized within a longer window (120s).
-	// This prevents re-triggering when the needle was lifted briefly
-	// and placed back on the same track (music with quiet passages).
-	needsTrigger := src == "Physical" && (m.recognitionResult == nil || resumedAfterIdle || resumedAfterSilence) && !recentFailure && !recentSuccess
+	// Cooldown after a successful recognition — suppresses re-triggers during quiet
+	// passages or brief pauses within the same track. Does NOT apply to new sessions
+	// (medium change): those must always trigger regardless of recent success.
+	const recentSuccessCooldown = 120 * time.Second
+	recentSuccess := !m.lastRecognizedAt.IsZero() && time.Now().Before(m.lastRecognizedAt.Add(recentSuccessCooldown))
+
+	needsTrigger := src == "Physical" &&
+		(m.recognitionResult == nil || newSession || resumedAfterIdle || resumedAfterSilence) &&
+		!recentFailure &&
+		!(recentSuccess && !newSession) // new sessions always trigger even if recently recognized
 	m.physicalSource = src
 	m.mu.Unlock()
 
@@ -233,19 +209,12 @@ func (m *mgr) pollSourceFile() {
 		log.Printf("physical source: %s", src)
 		m.markDirty()
 	} else if src == "Physical" {
-		// Even without a state change, mark dirty so the idle screen wakes
-		// promptly if the writer missed a previous Physical transition.
 		m.markDirty()
 	}
 
 	if needsTrigger {
 		var trig recognizeTrigger
 		if newSession || resumedAfterIdle {
-			// Use a hard boundary trigger so the confirmation delay is bypassed and
-			// seekMS is anchored to capture start (~10-12 s) rather than inflated by
-			// the confirmation round-trip (~25 s). resumedAfterSilence is intentionally
-			// kept as a periodic (non-boundary) trigger to avoid clearing recognitionResult
-			// and showing "Identifying..." for every a-cappella breath or brief pause.
 			trig = triggerBoundaryRecognition(true)
 		} else {
 			trig = triggerPeriodicRecognition()
@@ -468,30 +437,29 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 
 		durationGuardBypassUntil = time.Time{}
 
-		// Prevent rapid re-triggering from VU boundaries.
-		// If last boundary was recent (< cooldown), skip trigger.
 		const boundaryCooldown = 20 * time.Second
-		var recentAttemptFailed bool
-		if !m.lastRecognitionAttemptAt.IsZero() {
-			recentAttemptFailed = time.Now().Before(m.lastRecognitionAttemptAt.Add(boundaryCooldown))
-			log.Printf("VU boundary: lastAttemptAt=%v, now=%v, recent=%v", m.lastRecognitionAttemptAt, time.Now(), recentAttemptFailed)
-		}
-
-		// Also skip if we already have a valid result AND this is NOT a hard boundary.
-		// Hard boundaries (true silence→audio) should always trigger.
-		// Soft boundaries (energy change, quiet passages) should be suppressed
-		// when there's already a valid result, UNLESS source-detector just changed
-		// from None→Physical (which could be a new track after vinyl gap).
 		m.mu.Lock()
 		hasValidResult := m.recognitionResult != nil
-		sourceChangedToPhysical := m.physicalSource == "None"
+		isSourcePhysical := m.physicalSource == "Physical"
+		recentAttemptFailed := !m.lastRecognitionAttemptAt.IsZero() && time.Now().Before(m.lastRecognitionAttemptAt.Add(boundaryCooldown))
 		m.mu.Unlock()
 
-		if recentAttemptFailed || (hasValidResult && !isHardBoundary && !sourceChangedToPhysical) {
+		// Never trigger recognition from VU boundaries when source is not Physical.
+		// The VU socket publishes frames continuously regardless of source state, so
+		// silence→audio transitions can fire even after the needle is lifted. Triggering
+		// recognition when there is no physical source would discard the result (source
+		// changed during capture) and set lastRecognitionAttemptAt, which blocks the
+		// 20 s cooldown from firing on the real next-track boundary.
+		if !isSourcePhysical {
+			log.Printf("VU monitor: boundary suppressed (%s) — source is not Physical", reason)
+			return
+		}
+
+		if recentAttemptFailed || (hasValidResult && !isHardBoundary) {
 			if recentAttemptFailed {
-				log.Printf("VU monitor: boundary suppressed — recent recognition failed, cooldown active")
+				log.Printf("VU monitor: boundary suppressed (%s) — recognition cooldown active", reason)
 			} else {
-				log.Printf("VU monitor: boundary suppressed — already have result and not hard boundary")
+				log.Printf("VU monitor: boundary suppressed (%s) — already have result and not hard boundary", reason)
 			}
 			return
 		}
