@@ -322,6 +322,48 @@
       <input type="number" id="rec-vu-silence-threshold" min="0.0010" max="0.0500" step="0.0001" placeholder="0.0095">
       <div class="hint">Set automatically by the calibration wizard. Manual fallback when no per-input profile is active. Typical range: 0.0070–0.0120.</div>
     </div>
+
+    <!-- ── Live RMS Monitor ── -->
+    <div style="margin-top:20px;border-top:1px solid rgba(255,255,255,0.06);padding-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:0.8rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em">Live RMS Monitor</span>
+        <button class="btn-secondary" id="rms-mon-toggle" onclick="toggleRMSMonitor()" style="font-size:0.78rem;padding:5px 12px">▶ Start</button>
+      </div>
+      <p class="hint" style="margin-bottom:12px">Samples the VU socket every 2 s. Observe noise floor, phono hum, or playback levels without changing any settings.</p>
+
+      <div id="rms-mon-panel" style="display:none">
+        <!-- Live bar -->
+        <div style="margin-bottom:10px">
+          <div style="position:relative;width:100%;height:10px;background:rgba(255,255,255,0.06);border-radius:5px;overflow:hidden">
+            <div id="rms-mon-bar" style="position:absolute;left:0;top:0;height:100%;width:0;border-radius:5px;transition:width 0.4s,background 0.4s"></div>
+            <div id="rms-mon-thresh-line" style="position:absolute;top:0;width:2px;height:100%;background:rgba(74,158,255,0.5);display:none"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:3px">
+            <span style="font-size:0.6rem;color:var(--muted)">0</span>
+            <span style="font-size:0.6rem;color:var(--ok-text)">▲ 0.05</span>
+            <span style="font-size:0.6rem;color:var(--ok-text)">0.25 ▲</span>
+            <span style="font-size:0.6rem;color:var(--muted)">0.40</span>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
+          <div class="cal-wiz-sum-val"><span class="lbl">Current avg</span><span class="val" id="rms-mon-avg">—</span></div>
+          <div class="cal-wiz-sum-val"><span class="lbl">Window min</span><span class="val" id="rms-mon-min">—</span></div>
+          <div class="cal-wiz-sum-val"><span class="lbl">Window max</span><span class="val" id="rms-mon-max">—</span></div>
+          <div class="cal-wiz-sum-val"><span class="lbl">Session min</span><span class="val" id="rms-mon-smin" style="color:rgba(74,158,255,0.9)">—</span></div>
+          <div class="cal-wiz-sum-val"><span class="lbl">Session max</span><span class="val" id="rms-mon-smax" style="color:rgba(240,192,96,0.9)">—</span></div>
+        </div>
+
+        <!-- Sparkline -->
+        <canvas id="rms-mon-canvas" height="72" style="width:100%;border-radius:6px;display:block;background:rgba(0,0,0,0.18)"></canvas>
+        <div style="display:flex;justify-content:space-between;margin-top:3px">
+          <span style="font-size:0.6rem;color:var(--muted)" id="rms-mon-history-label"></span>
+          <span style="font-size:0.6rem;color:var(--muted)">now →</span>
+        </div>
+        <div id="rms-mon-status" style="font-size:0.72rem;margin-top:6px;min-height:1.1em"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ── Timing & Confirmation ──────────────────────────────────────────── -->
