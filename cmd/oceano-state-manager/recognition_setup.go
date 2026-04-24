@@ -57,7 +57,7 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 	// shazamRaw is the unwrapped recognizer shared by both the chain and continuity wrappers.
 	// Each wrapper gets its own stats name so chain calls ("Shazam") and continuity polling
 	// ("ShazamContinuity") are tracked separately.
-	var shazamRec Recognizer          // used in the chain
+	var shazamRec Recognizer           // used in the chain
 	var shazamContinuityRec Recognizer // used by the continuity monitor
 	if cfg.ShazamPythonBin != "" {
 		if s, err := NewShazamRecognizer(cfg.ShazamPythonBin); err != nil {

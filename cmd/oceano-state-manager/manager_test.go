@@ -555,8 +555,8 @@ func TestBuildState_DeclaredFormatDisplayedBeforeRecognition(t *testing.T) {
 	m := newTestMgr()
 	m.cfg.DeclaredPhysicalFormat = "Vinyl"
 	m.physicalSource = "Physical"
-	m.physicalFormat = ""       // not yet identified
-	m.recognitionResult = nil   // first session, no result
+	m.physicalFormat = ""     // not yet identified
+	m.recognitionResult = nil // first session, no result
 
 	s := m.buildState()
 

@@ -8,9 +8,9 @@ import (
 
 func TestExtractDBusStringValue(t *testing.T) {
 	tests := []struct {
-		line    string
-		want    string
-		wantOK  bool
+		line   string
+		want   string
+		wantOK bool
 	}{
 		{`   string "Miles Davis"`, "Miles Davis", true},
 		{`variant                   string "Kind Of Blue"`, "Kind Of Blue", true},
@@ -166,9 +166,9 @@ func TestParseTransportState(t *testing.T) {
 
 func TestParseDBusByteArray(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		want   []byte
+		name  string
+		input string
+		want  []byte
 	}{
 		{
 			name:  "SBC 44.1 kHz joint stereo",
@@ -208,16 +208,16 @@ func TestParseDBusByteArray(t *testing.T) {
 
 func TestParseSBCConfig(t *testing.T) {
 	tests := []struct {
-		name       string
-		config     []byte
-		wantRate   string
-		wantDepth  string
+		name      string
+		config    []byte
+		wantRate  string
+		wantDepth string
 	}{
 		{"44.1 kHz joint stereo", []byte{0x21, 0x02, 0x02, 0x35}, "44.1 kHz", "16 bit"},
-		{"48 kHz stereo",         []byte{0x12, 0x12, 0x02, 0x35}, "48 kHz", "16 bit"},
-		{"32 kHz mono",           []byte{0x48, 0x11, 0x02, 0x35}, "32 kHz", "16 bit"},
-		{"16 kHz",                []byte{0x88, 0x11, 0x02, 0x35}, "16 kHz", "16 bit"},
-		{"empty config",          []byte{},                        "", "16 bit"},
+		{"48 kHz stereo", []byte{0x12, 0x12, 0x02, 0x35}, "48 kHz", "16 bit"},
+		{"32 kHz mono", []byte{0x48, 0x11, 0x02, 0x35}, "32 kHz", "16 bit"},
+		{"16 kHz", []byte{0x88, 0x11, 0x02, 0x35}, "16 kHz", "16 bit"},
+		{"empty config", []byte{}, "", "16 bit"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -265,9 +265,9 @@ func TestParseLDACConfig(t *testing.T) {
 		wantDepth string
 	}{
 		{"44.1 kHz", makeConfig(1 << 5), "44.1 kHz", "24 bit"},
-		{"48 kHz",   makeConfig(1 << 4), "48 kHz", "24 bit"},
+		{"48 kHz", makeConfig(1 << 4), "48 kHz", "24 bit"},
 		{"88.2 kHz", makeConfig(1 << 2), "88.2 kHz", "24 bit"},
-		{"96 kHz",   makeConfig(1 << 1), "96 kHz", "24 bit"},
+		{"96 kHz", makeConfig(1 << 1), "96 kHz", "24 bit"},
 		{"too short", []byte{0x2D, 0x01}, "", "24 bit"},
 	}
 	for _, tt := range tests {
@@ -396,17 +396,17 @@ func TestParseBluetoothBlock(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		lines          []string
-		wantTitle      string
-		wantArtist     string
-		wantAlbum      string
-		wantStatus     string
-		wantTrack      bool
-		wantStat       bool
-		wantDurationMS int64
+		name            string
+		lines           []string
+		wantTitle       string
+		wantArtist      string
+		wantAlbum       string
+		wantStatus      string
+		wantTrack       bool
+		wantStat        bool
+		wantDurationMS  int64
 		wantHasDuration bool
-		wantPositionMS int64
+		wantPositionMS  int64
 		wantHasPosition bool
 	}{
 		{

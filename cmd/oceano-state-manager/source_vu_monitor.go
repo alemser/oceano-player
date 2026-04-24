@@ -131,7 +131,7 @@ func (m *mgr) pollSourceFile() {
 	src := det.Source
 	if src == "" {
 		src = "None"
-}
+	}
 	m.mu.Lock()
 	changed := m.physicalSource != src
 	newSession := false
@@ -421,9 +421,16 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 
 		durationGuardBypassUntil = time.Time{}
 
-		// Do not clear current metadata/artwork here: boundary detection can fire
-		// on false positives, and clearing preemptively causes UI flicker/regressions.
-		// State is cleared later only when a boundary-triggered recognition confirms no match.
+		// Prevent rapid re-triggering from VU boundaries.
+		// If last boundary was recent (< cooldown), skip trigger.
+		const boundaryCooldown = 20 * time.Second
+		canTriggerAfter := m.lastRecognitionAttemptAt.Add(boundaryCooldown)
+		recentAttemptFailed := !m.lastRecognitionAttemptAt.IsZero() && time.Now().Before(canTriggerAfter)
+		if recentAttemptFailed {
+			log.Printf("VU monitor: boundary suppressed — recent recognition failed, cooldown active")
+			return
+		}
+
 		log.Printf("VU monitor: track boundary detected (%s hard=%v) — triggering recognition", reason, isHardBoundary)
 		select {
 		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true, isHardBoundary: isHardBoundary, detectedAt: detectedAt}:
