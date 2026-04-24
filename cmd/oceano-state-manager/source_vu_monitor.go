@@ -347,16 +347,33 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		var durationMs int
 		var seekMS int64
 		var seekUpdatedAt time.Time
+		var lastRecognizedAt time.Time
 		continuityReady := m.shazamContinuityReady
 		if m.recognitionResult != nil {
 			durationMs = m.recognitionResult.DurationMs
 		}
 		seekMS = m.physicalSeekMS
 		seekUpdatedAt = m.physicalSeekUpdatedAt
+		lastRecognizedAt = m.lastRecognizedAt
 		m.mu.Unlock()
 
+		// Do not allow the duration-guard bypass to override suppression while
+		// the current track is identified and elapsed is inside the suppression
+		// window. The bypass exists for quick needle re-drops (which arrive as
+		// boundaries with a still-active previous track's seek state); it must
+		// not fire for quiet sections (a cappella phrases, soft passages) that
+		// fall within the first 45 s of an already-identified track.
+		bypassUntil := durationGuardBypassUntil
+		if durationMs > 0 && !seekUpdatedAt.IsZero() {
+			suppressUntilMS := int64(float64(durationMs) * durationPessimism)
+			elapsed := seekMS + int64(time.Since(seekUpdatedAt).Milliseconds())
+			if elapsed < suppressUntilMS {
+				bypassUntil = time.Time{}
+			}
+		}
+
 		now := time.Now()
-		if shouldSuppressBoundary(durationMs, seekMS, seekUpdatedAt, durationGuardBypassUntil, now, durationPessimism) {
+		if shouldSuppressBoundary(durationMs, seekMS, seekUpdatedAt, bypassUntil, now, durationPessimism) {
 			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
 			suppressUntil := time.Duration(float64(trackDuration) * durationPessimism)
@@ -376,6 +393,21 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 					reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))
 			}
 			return
+		}
+
+		// Fallback for tracks where the duration is not known (live recordings,
+		// certain a cappella tracks). Without durationMs the time-based guards
+		// above are disabled, so any VU boundary would trigger re-recognition.
+		// Once a result exists, suppress VU boundaries for RecognizerMaxInterval
+		// after the last successful recognition — the fallback timer provides the
+		// periodic refresh without false positives from energy-change events or
+		// quiet sections triggering the silence→audio detector.
+		if durationMs == 0 && !seekUpdatedAt.IsZero() && !lastRecognizedAt.IsZero() {
+			if sinceLastRecog := time.Since(lastRecognizedAt); sinceLastRecog < m.cfg.RecognizerMaxInterval {
+				remaining := (m.cfg.RecognizerMaxInterval - sinceLastRecog).Round(time.Second)
+				log.Printf("VU monitor: boundary suppressed (%s) — result held with unknown duration (re-recognition in %s)", reason, remaining)
+				return
+			}
 		}
 
 		durationGuardBypassUntil = time.Time{}

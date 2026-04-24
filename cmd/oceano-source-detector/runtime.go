@@ -157,7 +157,16 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 
 		thresh := learner.current.Thresholds()
 		if cfg.SilenceThreshold > 0 {
-			thresh.RMS = cfg.SilenceThreshold
+			// SilenceThreshold is an upper bound on thresh.RMS, not an absolute
+			// override. When the adaptive learner has calibrated a lower value,
+			// using the calibrated value avoids false None detection for quiet
+			// passages (a cappella vocals, soft acoustic sections) whose RMS sits
+			// between the calibrated threshold and the configured SilenceThreshold.
+			// The cap still prevents runaway calibration: if the learner drifts high
+			// (e.g. music contaminated a silence window), the cap clips it back down.
+			if thresh.RMS > cfg.SilenceThreshold {
+				thresh.RMS = cfg.SilenceThreshold
+			}
 		}
 		if cfg.StdDevThreshold > 0 {
 			thresh.StdDev = cfg.StdDevThreshold
@@ -168,16 +177,19 @@ func runStream(ctx context.Context, cfg Config, device string, hub *vuHub, pcm *
 		//  None → Physical  (transition): requires BOTH RMS and StdDev above
 		//    threshold to filter CD-transport constant hum (RMS slightly
 		//    elevated, variation ≈ 0) and vinyl inter-track groove noise.
-		//    High-RMS bypass: if RMS is clearly above threshold (≥ 5×) the
+		//    High-RMS bypass: if RMS is clearly above threshold (≥ 3×) the
 		//    signal is undeniably music — skip the StdDev gate so sustained
 		//    a-cappella notes or slow fade-ins are not misclassified as None.
+		//    (Previously 5×; lowered because with a calibrated thresh.RMS of
+		//    ~0.007–0.014 the old factor required RMS ≥ 0.035–0.070, which
+		//    smooth vocals rarely reach even at normal playback levels.)
 		//
 		//  Physical → None  (staying): only RMS is checked. Once music is
 		//    confirmed, quiet sustained passages (low StdDev but still audible)
 		//    stay Physical. Only genuine silence (RMS below threshold) ends the
 		//    session. This matches the original single-threshold behaviour for
 		//    in-track dynamics while keeping the false-positive guard on entry.
-		const rmsHighBypassFactor = 5.0
+		const rmsHighBypassFactor = 3.0
 		detected := SourceNone
 		if current == SourcePhysical {
 			if windowRMS >= thresh.RMS {

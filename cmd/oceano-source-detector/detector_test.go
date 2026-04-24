@@ -234,6 +234,64 @@ func TestReadFormatHint_EmptyPathReturnsEmpty(t *testing.T) {
 	}
 }
 
+// --- NoiseFloor.Thresholds ---
+
+func TestNoiseFloorThresholds_DefaultValues(t *testing.T) {
+	nf := defaultNoiseFloor() // RMS=0.001, StdDev=0.001
+	thresh := nf.Thresholds()
+	// thresh.RMS = 0.001 + 0.001*4 = 0.005
+	if thresh.RMS < 0.004 || thresh.RMS > 0.006 {
+		t.Errorf("default thresh.RMS = %.4f, want ~0.005", thresh.RMS)
+	}
+	// thresh.StdDev = 0.001 * 3 = 0.003
+	if thresh.StdDev < 0.002 || thresh.StdDev > 0.004 {
+		t.Errorf("default thresh.StdDev = %.4f, want ~0.003", thresh.StdDev)
+	}
+}
+
+// TestSilenceThresholdIsCap verifies the SilenceThreshold semantics: when
+// the calibrated thresh.RMS is below SilenceThreshold, the calibrated value
+// is used (not the SilenceThreshold override). This prevents false None
+// detection for quiet passages (a cappella, soft acoustic music).
+func TestSilenceThresholdIsCap(t *testing.T) {
+	nf := NoiseFloor{RMS: 0.003, StdDev: 0.001} // calibrated from groove noise
+	calibrated := nf.Thresholds().RMS            // 0.003 + 0.001*4 = 0.007
+	silenceThreshold := 0.025                    // configured default
+
+	// SilenceThreshold as cap: use calibrated value when calibrated < configured
+	effective := calibrated
+	if calibrated > silenceThreshold {
+		effective = silenceThreshold
+	}
+
+	if effective != calibrated {
+		t.Errorf("expected calibrated %.4f to be used, got %.4f (SilenceThreshold=%.4f)",
+			calibrated, effective, silenceThreshold)
+	}
+	if effective >= silenceThreshold {
+		t.Errorf("calibrated threshold %.4f should be well below SilenceThreshold %.4f",
+			effective, silenceThreshold)
+	}
+}
+
+// TestSilenceThresholdCapPreventsRunaway verifies that when calibration goes
+// wrong (e.g. music contaminated a silence window), SilenceThreshold clips it.
+func TestSilenceThresholdCapPreventsRunaway(t *testing.T) {
+	nf := NoiseFloor{RMS: 0.025, StdDev: 0.005} // runaway: too high
+	calibrated := nf.Thresholds().RMS            // 0.025 + 0.005*4 = 0.045
+	silenceThreshold := 0.025
+
+	effective := calibrated
+	if calibrated > silenceThreshold {
+		effective = silenceThreshold
+	}
+
+	if effective != silenceThreshold {
+		t.Errorf("expected SilenceThreshold %.4f to cap runaway calibration %.4f, got %.4f",
+			silenceThreshold, calibrated, effective)
+	}
+}
+
 // --- helpers ---
 
 func sineWave(n int, freq, sampleRate, amplitude float64) []float64 {

@@ -65,7 +65,8 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// Hard boundary no-match: recognition confirmed a new track started but got
-	// no match, so the old result is cleared and recognizerRunning reset.
+	// no match, so the old result is cleared. recognizerRunning is cleared by the
+	// deferred clearRecognizerRunning in processOneTrigger, not by handleNoMatch.
 	if m.recognitionResult != nil {
 		t.Fatalf("expected recognitionResult to be cleared on boundary no-match, got %+v", m.recognitionResult)
 	}
@@ -74,9 +75,6 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 	}
 	if m.shazamContinuityReady {
 		t.Fatal("expected shazamContinuityReady to be cleared on boundary no-match")
-	}
-	if m.recognizerRunning {
-		t.Fatal("expected recognizerRunning to be false after no-match")
 	}
 	if backoffUntil.IsZero() {
 		t.Fatal("expected no-match backoff to be scheduled")
@@ -116,9 +114,8 @@ func TestHandleNoMatch_SoftBoundaryPreservesRecognition(t *testing.T) {
 	if m.physicalArtworkPath != "/tmp/existing.jpg" {
 		t.Fatalf("expected artwork to remain set, got %q", m.physicalArtworkPath)
 	}
-	if m.recognizerRunning {
-		t.Fatal("expected recognizerRunning to be false after no-match")
-	}
+	// recognizerRunning is cleared by processOneTrigger's deferred clearRecognizerRunning,
+	// not by handleNoMatch itself.
 	if backoffUntil.IsZero() {
 		t.Fatal("expected no-match backoff to be scheduled")
 	}
@@ -682,23 +679,37 @@ func TestPhysicalSeek_PreservedDuringRecognition(t *testing.T) {
 }
 
 // TestApplyRecognizedResult_ClearsRecognizerRunning verifies that recognizerRunning
-// is set to false when a recognition result is applied, so the spinner disappears.
-func TestApplyRecognizedResult_ClearsRecognizerRunning(t *testing.T) {
+// clearRecognizerRunning resets the spinner flag and calls markDirty when the
+// flag was set — this is the single cleanup point for all processOneTrigger exits.
+func TestClearRecognizerRunning_ResetsFlag(t *testing.T) {
 	m := newTestMgr()
 	m.mu.Lock()
-	m.physicalSource = "Physical"
 	m.recognizerRunning = true
 	m.mu.Unlock()
 
 	c := newRecognitionCoordinator(m, nil, nil, nil, nil)
-	result := &RecognitionResult{ACRID: "acr-1", Title: "Track", Artist: "Artist", Score: 85}
-	c.applyRecognizedResult(result, false, false, false, time.Now())
+	c.clearRecognizerRunning()
 
 	m.mu.Lock()
 	running := m.recognizerRunning
 	m.mu.Unlock()
 
 	if running {
-		t.Error("recognizerRunning must be false after applyRecognizedResult")
+		t.Error("clearRecognizerRunning must set recognizerRunning = false")
+	}
+}
+
+func TestClearRecognizerRunning_NoopWhenAlreadyClear(t *testing.T) {
+	m := newTestMgr()
+	// recognizerRunning starts false; clearRecognizerRunning should not call markDirty.
+	c := newRecognitionCoordinator(m, nil, nil, nil, nil)
+	c.clearRecognizerRunning()
+
+	m.mu.Lock()
+	running := m.recognizerRunning
+	m.mu.Unlock()
+
+	if running {
+		t.Error("clearRecognizerRunning must leave recognizerRunning = false")
 	}
 }
