@@ -24,51 +24,7 @@ const (
 	// Allow duration-guard bypass only near track start so a quick needle re-drop
 	// can trigger recognition, but mid-track false positives still remain guarded.
 	earlyBypassGuardWindow = 45 * time.Second
-
-	// Intra-track silence→audio coalesce: when the duration bypass window disables
-	// the pessimistic guard, sparse passages can still fire false boundaries. Skip
-	// extra silence→audio triggers while elapsed playback is still in the early
-	// fraction of a track we already identified (ACR or Shazam id + duration).
-	silenceAudioIntraTrackCoalesceMinElapsed = 5 * time.Second
-	silenceAudioIntraTrackCoalesceCap        = 100 * time.Second
-	silenceAudioIntraTrackCoalesceMaxRatio   = 0.55
-	silenceAudioIntraTrackCoalesceMinTrack   = 15 * time.Second // below this, do not apply (short tracks / noisy duration)
 )
-
-// shouldCoalesceIntraTrackSilenceAudio returns true when a silence→audio boundary
-// should not trigger recognition because we are still in the early segment of the
-// current confirmed track (same metadata the coordinator would re-confirm anyway).
-func shouldCoalesceIntraTrackSilenceAudio(reason string, rec *RecognitionResult, durationMs int, seekMS int64, seekUpdatedAt, now time.Time) bool {
-	if reason != "silence->audio" || rec == nil {
-		return false
-	}
-	if durationMs <= 0 || seekUpdatedAt.IsZero() {
-		return false
-	}
-	if rec.ACRID == "" && rec.ShazamID == "" {
-		return false
-	}
-	trackDur := time.Duration(durationMs) * time.Millisecond
-	maxEarly := time.Duration(float64(trackDur) * silenceAudioIntraTrackCoalesceMaxRatio)
-	if maxEarly > silenceAudioIntraTrackCoalesceCap {
-		maxEarly = silenceAudioIntraTrackCoalesceCap
-	}
-	if maxEarly < silenceAudioIntraTrackCoalesceMinTrack {
-		return false
-	}
-	if seekMS < 0 {
-		seekMS = 0
-	}
-	delta := now.Sub(seekUpdatedAt)
-	if delta < 0 {
-		delta = 0
-	}
-	elapsed := time.Duration(seekMS)*time.Millisecond + delta
-	if elapsed < silenceAudioIntraTrackCoalesceMinElapsed {
-		return false
-	}
-	return elapsed < maxEarly
-}
 
 func shouldSuppressBoundary(durationMs int, seekMS int64, seekUpdatedAt, bypassUntil, now time.Time, durationPessimism float64) bool {
 	if durationMs <= 0 || seekUpdatedAt.IsZero() {
@@ -379,10 +335,8 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		var seekMS int64
 		var seekUpdatedAt time.Time
 		continuityReady := m.shazamContinuityReady
-		var recSnap *RecognitionResult
 		if m.recognitionResult != nil {
 			durationMs = m.recognitionResult.DurationMs
-			recSnap = m.recognitionResult
 		}
 		seekMS = m.physicalSeekMS
 		seekUpdatedAt = m.physicalSeekUpdatedAt
@@ -410,19 +364,6 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 					reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))
 			}
 			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeIgnoredMatureProgress, reason, isHardBoundary)
-			return
-		}
-
-		if shouldCoalesceIntraTrackSilenceAudio(reason, recSnap, durationMs, seekMS, seekUpdatedAt, now) {
-			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
-			trackDuration := time.Duration(durationMs) * time.Millisecond
-			maxEarly := time.Duration(float64(trackDuration) * silenceAudioIntraTrackCoalesceMaxRatio)
-			if maxEarly > silenceAudioIntraTrackCoalesceCap {
-				maxEarly = silenceAudioIntraTrackCoalesceCap
-			}
-			log.Printf("VU monitor: boundary suppressed (%s) — intra-track silence→audio coalesce (elapsed=%s max_early=%s track=%s)",
-				reason, elapsed.Round(time.Second), maxEarly.Round(time.Second), trackDuration.Round(time.Second))
-			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeSuppressedIntraTrackSilence, reason, isHardBoundary)
 			return
 		}
 

@@ -2,7 +2,7 @@
 
 This document extends the earlier discussion into a concrete, incremental roadmap. It is designed to preserve today’s stable behavior (VU monitor, calibration, coordinator, ACRCloud/Shazam chain, library) while improving precision over time.
 
-**Status (2026-04):** Milestone **R1 + R1b** (boundary telemetry + Listening Metrics) is merged to **`main`**. **R1c** adds **intra-track silence→audio coalescing** in `source_vu_monitor.go` to cut repeated API calls on sparse passages when the duration-bypass guard is armed. Further experiments can branch from `main`.
+**Status (2026-04):** Milestone **R1 + R1b** (boundary telemetry + Listening Metrics) is on **`main`**. **R1c** (intra-track silence→audio coalesce) was **reverted** after field feedback: the heuristic suppressed too many legitimate track boundaries. A future attempt should be opt-in (config flag) and/or gated on **Boundary-sensitive** (R8), not global defaults.
 
 ---
 
@@ -154,7 +154,7 @@ Expose summaries on **Listening Metrics** under the same visibility contract as 
 |----|--------|------|--------|
 | R1 | `boundary_events` (or equivalent) + linkage ids for backfill; no trigger behavior change | Low | **Done** (on `main`) |
 | R1b | (same milestone) Expose aggregates on **Listening Metrics** (API + `history.js`) — even a minimal “boundary events logged / period” card | Low | **Done** |
-| R1c | Coalesce redundant **silence→audio** triggers in the **early** segment of an already-identified track (stable id + duration); telemetry outcome `suppressed_intra_track_silence` | Low | **Done** |
+| R1c | Coalesce redundant **silence→audio** in early segment of known track — **reverted** (too aggressive); retry behind flag / per-track hint | Low | **Aborted** |
 | R2 | Backfill job when user updates Vinyl/CD classification; docs + tests | Low | Pending |
 | R3 | Optional percentile-based nudges to calibration inputs (bounded) | Low–medium | Pending |
 | R4 | `LocalLibraryRecognizer` + config flag + tests | Medium | Pending |
@@ -178,4 +178,4 @@ Expose summaries on **Listening Metrics** under the same visibility contract as 
 
 ## Immediate next step
 
-Land **R2** (format backfill for analytics when the user corrects Vinyl/CD on library rows) and continue telemetry-driven tuning using **Listening Metrics** counts (`suppressed_intra_track_silence` vs `fired`).
+Land **R2** (format backfill for analytics when the user corrects Vinyl/CD on library rows) and continue telemetry-driven tuning using **Listening Metrics** boundary vs `fired` counts.

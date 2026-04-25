@@ -219,7 +219,6 @@ function renderStylusSummary(payload) {
 const _boundaryOutcomeLabels = {
   fired: 'Fired (recognition triggered)',
   suppressed_duration_guard: 'Suppressed (duration guard)',
-  suppressed_intra_track_silence: 'Suppressed (intra-track coalesce)',
   ignored_mature_progress: 'Ignored (mature progress)',
   suppressed_not_physical: 'Suppressed (not Physical)',
   trigger_channel_full: 'Trigger channel full',
@@ -258,7 +257,6 @@ function renderBoundaryStats(container, payload) {
   const order = [
     'fired',
     'suppressed_duration_guard',
-    'suppressed_intra_track_silence',
     'ignored_mature_progress',
     'suppressed_not_physical',
     'trigger_channel_full',
