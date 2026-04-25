@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"embed"
 	"encoding/json"
@@ -11,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -57,120 +55,11 @@ func main() {
 	sub, _ := fs.Sub(staticFiles, "static")
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
-	// API: read current config
-	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			apiGetConfig(w, *configPath)
-		case http.MethodPost:
-			apiPostConfig(w, r, *configPath)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	// API: current playback state (single poll)
-	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		cfg, _ := loadConfig(*configPath)
-		data, err := os.ReadFile(cfg.Advanced.StateFile)
-		if err != nil {
-			http.Error(w, `{"error":"state file not found"}`, http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
-	})
-
-	// API: Server-Sent Events stream for real-time state updates.
-	// Emits a "data:" frame whenever the state file changes (checked every 500 ms).
-	// A ": ping" comment is sent every 15 s to prevent proxy/browser timeouts.
-	// Supports local development: CORS is wide-open and missing state file is not fatal.
-	mux.HandleFunc("/api/stream", func(w http.ResponseWriter, r *http.Request) {
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			http.Error(w, "streaming not supported", http.StatusInternalServerError)
-			return
-		}
-		cfg, _ := loadConfig(*configPath)
-		stateFile := cfg.Advanced.StateFile
-
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("X-Accel-Buffering", "no")
-		// Allow cross-origin requests so the page works when the browser is
-		// pointed directly at the Pi host during local development.
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		// writeStateEvent writes JSON as valid SSE data frames. Because
-		// /tmp/oceano-state.json is pretty-printed with newlines, every line must
-		// be prefixed with "data: " per SSE framing rules.
-		writeStateEvent := func(data []byte) {
-			fmt.Fprint(w, formatSSEDataFrame(data))
-			flusher.Flush()
-		}
-
-		var lastMod time.Time
-		// Push the current state immediately so the client doesn't need to wait
-		// up to 500 ms before it receives its first event. Capture the file
-		// modtime at the same time so the first poll tick doesn't resend the same
-		// unchanged state.
-		if info, err := os.Stat(stateFile); err == nil {
-			lastMod = info.ModTime()
-			if data, err := os.ReadFile(stateFile); err == nil {
-				writeStateEvent(data)
-			}
-		}
-
-		tick := time.NewTicker(500 * time.Millisecond)
-		ping := time.NewTicker(15 * time.Second)
-		defer tick.Stop()
-		defer ping.Stop()
-
-		for {
-			select {
-			case <-r.Context().Done():
-				return
-			case <-ping.C:
-				fmt.Fprintf(w, ": ping\n\n")
-				flusher.Flush()
-			case <-tick.C:
-				info, err := os.Stat(stateFile)
-				if err != nil {
-					continue
-				}
-				if !info.ModTime().After(lastMod) {
-					continue
-				}
-				lastMod = info.ModTime()
-				data, err := os.ReadFile(stateFile)
-				if err != nil {
-					continue
-				}
-				writeStateEvent(data)
-			}
-		}
-	})
-
-	// API: current artwork
-	mux.HandleFunc("/api/artwork", func(w http.ResponseWriter, r *http.Request) {
-		cfg, _ := loadConfig(*configPath)
-		data, err := os.ReadFile(cfg.Advanced.StateFile)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		var state struct {
-			Track *struct {
-				ArtworkPath string `json:"artwork_path"`
-			} `json:"track"`
-		}
-		if err := json.Unmarshal(data, &state); err != nil || state.Track == nil || state.Track.ArtworkPath == "" {
-			http.NotFound(w, r)
-			return
-		}
-		http.ServeFile(w, r, state.Track.ArtworkPath)
-	})
+	// API: core state and config endpoints.
+	mux.HandleFunc("/api/config", handleConfig(*configPath))
+	mux.HandleFunc("/api/status", handleStatus(*configPath))
+	mux.HandleFunc("/api/stream", handleStream(*configPath))
+	mux.HandleFunc("/api/artwork", handleArtwork(*configPath))
 
 	// API: physical media collection (library) and backup/restore.
 	cfg, _ := loadConfig(*configPath)
@@ -218,94 +107,14 @@ func main() {
 		}
 	}()
 
-	// API: system power control (shutdown / restart)
-	mux.HandleFunc("/api/power", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var req struct {
-			Action string `json:"action"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-		var args []string
-		switch req.Action {
-		case "shutdown":
-			args = []string{"poweroff"}
-		case "restart":
-			args = []string{"reboot"}
-		default:
-			http.Error(w, "action must be shutdown or restart", http.StatusBadRequest)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-		go exec.Command("systemctl", args...).Run()
-	})
-
-	// API: force immediate recognition of the current physical source track.
-	// Sends SIGUSR1 to oceano-state-manager, which fires a boundary-type
-	// recognition trigger. Only meaningful while physical media is playing;
-	// the state manager will skip the attempt if source is not Physical.
-	mux.HandleFunc("/api/recognize", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if err := exec.Command("systemctl", "kill", "--kill-who=main", "--signal=SIGUSR1", managerUnit).Run(); err != nil {
-			http.Error(w, "failed to signal state manager", http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	// API: scan ALSA capture and playback devices
-	mux.HandleFunc("/api/devices", func(w http.ResponseWriter, r *http.Request) {
-		devices := scanALSADevices()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(devices)
-	})
-
-	// API: detect whether an HDMI/DSI display is currently connected.
-	mux.HandleFunc("/api/display-detected", func(w http.ResponseWriter, r *http.Request) {
-		connected, connectors := detectConnectedDisplay()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"connected":  connected,
-			"connectors": connectors,
-		})
-	})
+	// API: operational actions.
+	mux.HandleFunc("/api/power", handlePower())
+	mux.HandleFunc("/api/recognize", handleRecognize())
+	mux.HandleFunc("/api/devices", handleDevices())
+	mux.HandleFunc("/api/display-detected", handleDisplayDetected())
 	mux.HandleFunc("/api/display/restart", handleDisplayServiceRestart)
-
-	// API: report whether the SPI now-playing service is installed and a
-	// framebuffer device is present (indicates an active SPI/DRM display).
-	mux.HandleFunc("/api/spi-display-installed", func(w http.ResponseWriter, r *http.Request) {
-		svcPath := "/etc/systemd/system/" + spiDisplayUnit
-		_, svcErr := os.Stat(svcPath)
-		_, fbErr := os.Stat("/dev/fb0")
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"installed": svcErr == nil && fbErr == nil,
-		})
-	})
-
-	mux.HandleFunc("/api/bluetooth/devices", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			apiGetBluetoothDevices(w)
-		case http.MethodDelete:
-			mac := r.URL.Query().Get("mac")
-			if mac == "" {
-				http.Error(w, "missing mac parameter", http.StatusBadRequest)
-				return
-			}
-			apiRemoveBluetoothDevice(w, mac)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
+	mux.HandleFunc("/api/spi-display-installed", handleSPIDisplayInstalled())
+	mux.HandleFunc("/api/bluetooth/devices", handleBluetoothDevices())
 
 	log.Printf("oceano-web listening on %s", *addr)
 	if err := http.ListenAndServe(*addr, mux); err != nil {
@@ -319,59 +128,6 @@ type BluetoothDevice struct {
 	Name string `json:"name"`
 }
 
-// apiGetBluetoothDevices lists paired Bluetooth devices via bluetoothctl.
-func apiGetBluetoothDevices(w http.ResponseWriter) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "bluetoothctl", "devices", "Paired").Output()
-	if err != nil {
-		// bluetoothctl not available or no devices — return empty list.
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]BluetoothDevice{})
-		return
-	}
-
-	var devices []BluetoothDevice
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
-	for scanner.Scan() {
-		// Format: "Device AA:BB:CC:DD:EE:FF Device Name"
-		line := strings.TrimSpace(scanner.Text())
-		parts := strings.SplitN(line, " ", 3)
-		if len(parts) < 2 || parts[0] != "Device" {
-			continue
-		}
-		mac := parts[1]
-		name := mac
-		if len(parts) == 3 {
-			name = parts[2]
-		}
-		devices = append(devices, BluetoothDevice{MAC: mac, Name: name})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(devices)
-}
-
-// apiRemoveBluetoothDevice removes a paired device by MAC address.
-func apiRemoveBluetoothDevice(w http.ResponseWriter, mac string) {
-	// Basic MAC address validation to prevent command injection.
-	for _, c := range mac {
-		if !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f') || c == ':') {
-			http.Error(w, "invalid MAC address", http.StatusBadRequest)
-			return
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "bluetoothctl", "remove", mac)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		http.Error(w, strings.TrimSpace(string(out)), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 func apiGetConfig(w http.ResponseWriter, configPath string) {
 	cfg, err := loadConfig(configPath)
 	if err != nil {
@@ -380,17 +136,6 @@ func apiGetConfig(w http.ResponseWriter, configPath string) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(cfg)
-}
-
-// formatSSEDataFrame converts arbitrary JSON/text payload into a valid SSE
-// event frame. Each line must be prefixed with "data: " by spec.
-func formatSSEDataFrame(data []byte) string {
-	payload := strings.TrimRight(string(data), "\r\n")
-	lines := strings.Split(payload, "\n")
-	for i, line := range lines {
-		lines[i] = "data: " + line
-	}
-	return strings.Join(lines, "\n") + "\n\n"
 }
 
 func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
@@ -597,15 +342,15 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 			return fmt.Errorf("rename %s: %w", confPath, err)
 		}
 		// Restart bluetoothd to pick up the new name from main.conf.
-		_ = exec.Command("systemctl", "restart", "bluetooth.service").Run()
+		_ = commandRunner.Run("systemctl", "restart", "bluetooth.service")
 		// Wait for bluetoothd D-Bus service to be ready before setting the alias.
 		time.Sleep(2 * time.Second)
 	}
 
 	if cfg.Enabled {
-		_ = exec.Command("bluetoothctl", "power", "on").Run()
-		_ = exec.Command("bluetoothctl", "discoverable", "on").Run()
-		_ = exec.Command("bluetoothctl", "pairable", "on").Run()
+		_ = commandRunner.Run("bluetoothctl", "power", "on")
+		_ = commandRunner.Run("bluetoothctl", "discoverable", "on")
+		_ = commandRunner.Run("bluetoothctl", "pairable", "on")
 	}
 
 	// Set adapter alias immediately via dbus-send and update the persistent
@@ -621,10 +366,10 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 
 		// Apply immediately to the running adapter. exec.Command args are not
 		// shell-parsed, so spaces in safeName are safe here.
-		_ = exec.Command("dbus-send", "--system", "--print-reply", "--dest=org.bluez",
+		_ = commandRunner.Run("dbus-send", "--system", "--print-reply", "--dest=org.bluez",
 			"/org/bluez/hci0", "org.freedesktop.DBus.Properties.Set",
 			"string:org.bluez.Adapter1", "string:Alias",
-			"variant:string:"+safeName).Run()
+			"variant:string:"+safeName)
 
 		// Build a quoted ExecStart argument so systemd does not split on spaces.
 		// Escape backslashes and double quotes within the name first.
@@ -641,8 +386,8 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 			"string:org.bluez.Adapter1 string:Alias " + execArg + "\n" +
 			"RemainAfterExit=no\n\n[Install]\nWantedBy=multi-user.target\n"
 		_ = os.WriteFile("/etc/systemd/system/oceano-bt-alias.service", []byte(unit), 0o644)
-		_ = exec.Command("systemctl", "daemon-reload").Run()
-		_ = exec.Command("systemctl", "restart", "oceano-bt-alias.service").Run()
+		_ = commandRunner.Run("systemctl", "daemon-reload")
+		_ = commandRunner.Run("systemctl", "restart", "oceano-bt-alias.service")
 	}
 
 	return nil
@@ -688,81 +433,6 @@ WantedBy=multi-user.target
 }
 
 func restartService(unit string) error {
-	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
-		return fmt.Errorf("daemon-reload: %w", err)
-	}
-	cmd := exec.Command("systemctl", "restart", unit)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s: %s", unit, strings.TrimSpace(string(out)))
-	}
-	// Give the service a moment to start before responding.
-	time.Sleep(500 * time.Millisecond)
-	return nil
+	return serviceMgr.Restart(unit)
 }
 
-// scanALSADevices reads /proc/asound/cards and returns all detected cards.
-func scanALSADevices() []ALSADevice {
-	f, err := os.Open("/proc/asound/cards")
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-
-	var devices []ALSADevice
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		var cardNum int
-		if _, err := fmt.Sscanf(fields[0], "%d", &cardNum); err != nil {
-			continue // description line, skip
-		}
-		// Format: " N [ShortName       ]: Driver - Long Name"
-		desc := ""
-		if idx := strings.Index(line, "- "); idx >= 0 {
-			desc = strings.TrimSpace(line[idx+2:])
-		}
-		shortName := ""
-		if start := strings.Index(line, "["); start >= 0 {
-			if end := strings.Index(line, "]"); end > start {
-				shortName = strings.TrimSpace(line[start+1 : end])
-			}
-		}
-		devices = append(devices, ALSADevice{
-			Card: cardNum,
-			Name: shortName,
-			Desc: desc,
-		})
-	}
-	return devices
-}
-
-// detectConnectedDisplay checks DRM connector status files and reports whether
-// any HDMI/DSI connector is currently in "connected" state.
-func detectConnectedDisplay() (bool, []string) {
-	statusFiles, err := filepath.Glob("/sys/class/drm/card*/status")
-	if err != nil || len(statusFiles) == 0 {
-		return false, nil
-	}
-
-	var connected []string
-	for _, statusFile := range statusFiles {
-		connector := filepath.Base(filepath.Dir(statusFile))
-		upper := strings.ToUpper(connector)
-		if !strings.Contains(upper, "HDMI") && !strings.Contains(upper, "DSI") {
-			continue
-		}
-		statusRaw, err := os.ReadFile(statusFile)
-		if err != nil {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(string(statusRaw)), "connected") {
-			connected = append(connected, connector)
-		}
-	}
-
-	return len(connected) > 0, connected
-}
