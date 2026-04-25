@@ -76,7 +76,8 @@ This **duplication and drift** is a likely reason a previous attempt “did not 
 Implemented in branch `install-improvements`: `packaging/postinst` now points to
 `sudo oceano-setup` and the README; README Option A documents Releases vs CI and
 adds the post-install checklist (with a note that `install-oceano-display.sh`
-applies to git clones only).
+applies to git clones only). `CLAUDE.md` Deployment and Now Playing display
+sections match the same split (`.deb` + `oceano-setup` vs repo + `install-oceano-display.sh`).
 
 ### Phase 2 — Unify kiosk installation (high impact)
 
