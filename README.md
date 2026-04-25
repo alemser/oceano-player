@@ -299,6 +299,8 @@ Expected when playing a compilation or "Best Of". ACRCloud returns the best-know
 All service parameters are managed through the web UI at `http://<pi-ip>:8080`.
 The underlying config is stored at `/etc/oceano/config.json`.
 
+**Recognition capture length:** `recognition.capture_duration_secs` is the seconds of audio written to each WAV for ACRCloud/Shazam (one capture per attempt). Saving the web UI regenerates `oceano-state-manager.service` with a matching `--recognizer-capture-duration` flag. The Go binary’s built-in default is the same value (7s) so ad-hoc runs without systemd flags match fresh `config.json` installs.
+
 ### `install.sh` options
 
 | Option | Default | Description |

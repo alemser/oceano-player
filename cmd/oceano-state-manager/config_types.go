@@ -104,7 +104,11 @@ type Config struct {
 	ShazamContinuityCaptureDuration time.Duration
 	// PCMSocket is the Unix socket path exposed by oceano-source-detector for raw PCM relay.
 	// The recognizer reads from this socket so it never opens the ALSA device directly.
-	PCMSocket                 string
+	PCMSocket string
+	// RecognizerCaptureDuration is seconds of PCM per WAV for each recognition
+	// attempt (one file for the full provider chain). Default matches
+	// RecognitionConfig.CaptureDurationSecs in cmd/oceano-web/config.go; deployed
+	// units normally pass --recognizer-capture-duration from that JSON via oceano-web.
 	RecognizerCaptureDuration time.Duration
 	// RecognizerMaxInterval is the periodic fallback re-recognition interval used
 	// when no track has been identified yet. On timer-based fires the previous
@@ -200,7 +204,7 @@ func defaultConfig() Config {
 		VUSocket:                                "/tmp/oceano-vu.sock",
 		VUSilenceThreshold:                      0.0095,
 		CalibrationConfigPath:                   "/etc/oceano/config.json",
-		RecognizerCaptureDuration:               10 * time.Second,
+		RecognizerCaptureDuration:               7 * time.Second,
 		RecognizerMaxInterval:                   5 * time.Minute,
 		RecognizerRefreshInterval:               2 * time.Minute,
 		NoMatchBackoff:                          15 * time.Second,

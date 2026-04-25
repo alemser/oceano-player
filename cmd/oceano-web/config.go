@@ -310,8 +310,11 @@ type RecognitionConfig struct {
 	// ACRCloudAccessKey and ACRCloudSecretKey are the API credentials.
 	ACRCloudAccessKey string `json:"acrcloud_access_key"`
 	ACRCloudSecretKey string `json:"acrcloud_secret_key"`
-	// CaptureDurationSecs is how many seconds of audio are sent per
-	// recognition attempt. ACRCloud works well with 10s; minimum ~5s.
+	// CaptureDurationSecs is how many seconds of audio are sent per recognition
+	// attempt (one WAV for the recognizer chain). Default matches
+	// defaultConfig().RecognizerCaptureDuration in cmd/oceano-state-manager/config_types.go;
+	// saving the web UI regenerates oceano-state-manager.service with
+	// --recognizer-capture-duration to this value. Typical range ~5–12s.
 	CaptureDurationSecs int `json:"capture_duration_secs"`
 	// MaxIntervalSecs is the fallback re-recognition interval when no
 	// silence gap (track boundary) is detected and no track is identified.

@@ -12,7 +12,7 @@ ExecStart=/usr/local/bin/oceano-state-manager \
   --artwork-dir "/var/lib/oceano/artwork" \
   --pcm-socket "/tmp/oceano-pcm.sock" \
   --vu-socket "/tmp/oceano-vu.sock" \
-  --recognizer-capture-duration "10s" \
+  --recognizer-capture-duration "7s" \
   --recognizer-max-interval "5m0s" \
   --idle-delay "10s" \
   --library-db "/var/lib/oceano/library.db"

@@ -14,7 +14,7 @@
     "acrcloud_host": "identify-eu-west-1.acrcloud.com",
     "acrcloud_access_key": "",
     "acrcloud_secret_key": "",
-    "capture_duration_secs": 10,
+    "capture_duration_secs": 7,
     "max_interval_secs": 300
   },
   "advanced": {

@@ -100,7 +100,7 @@ Config sections mirror the service CLI flags:
 |---|---|
 | Audio Input | capture device (auto-detect by name or explicit `plughw:N,0`), silence threshold, debounce window |
 | Audio Output | AirPlay name, DAC device (auto-detect or explicit) |
-| Track Recognition | ACRCloud host / key / secret, capture duration, max re-recognition interval |
+| Track Recognition | ACRCloud host / key / secret, capture duration (default 7s; `capture_duration_secs` in config.json rewrites `--recognizer-capture-duration` on save), max re-recognition interval |
 | Advanced | socket paths, state/source file paths, artwork dir, metadata pipe |
 
 Install:

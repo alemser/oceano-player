@@ -626,7 +626,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			continue
 		}
 
-		// Final source guard: the capture + recognition window is 10-20 s.
+		// Final source guard: capture + network recognition is usually on the order
+		// of several seconds to tens of seconds depending on capture length and APIs.
 		// BT or AirPlay may have become active during that window. Discard the
 		// result rather than writing a streaming track into the physical library.
 		c.mgr.mu.Lock()

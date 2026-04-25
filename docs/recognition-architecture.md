@@ -141,7 +141,7 @@ O VU monitor lê frames do socket `/tmp/oceano-vu.sock` a ~21.5 Hz (float32 L+R)
 4. recognitionResult ← nil  →  UI mostra "Identifying..." (spinner)
 5. shazamContinuityReady ← false, shazamContinuityAbandoned ← false
 6. Skip de 2s de PCM (descarta buffering da faixa anterior)
-7. Captura 10s (RecognizerCaptureDuration)
+7. Captura 7s por defeito (`RecognizerCaptureDuration`; ver `recognition.capture_duration_secs`)
 8. Guard pós-captura: fonte ainda é Physical?
 9. ChainRecognizer.Recognize(wavPath)
 10. Apagar WAV temporário
@@ -288,7 +288,7 @@ Shazam Continuity:
 
 **Comportamento:**
 - `isBoundary=false` — não limpa o UI; se houver resultado anterior, mantém-no
-- Captura 10s sem skip
+- Captura duração configurada (por defeito 7s) sem skip
 - Re-tenta chain (ACRCloud → Shazam)
 - Se match: `applyRecognizedResult` com cálculo de seek "timer mode"
 - Se no-match: backoff 15s, próximo retry fica no próximo `RecognizerMaxInterval`
@@ -309,13 +309,15 @@ O coordinator nunca abre o dispositivo ALSA directamente.
 
 | Contexto | Duração | Skip | Timeout total |
 |---|---|---|---|
-| Boundary (principal) | 10s (`RecognizerCaptureDuration`) | 2s (flush buffer anterior) | 22s |
-| Timer/manual | 10s | 0s | 20s |
+| Boundary (principal) | 7s (`RecognizerCaptureDuration`, alinhado com `config.json`) | 2s (flush buffer anterior) | ≈19s (`skip+duration+10s` timeout) |
+| Timer/manual | 7s | 0s | ≈17s |
 | Confirmação | 4s (`ConfirmationCaptureDuration`) | 0s | 14s |
 | Shazam alignment | 4s | 0s | 14s |
 | Shazam continuity | 4s (`ShazamContinuityCaptureDuration`) | 0s | 14s |
 
 **Skip de 2s nos boundary triggers:** o socket PCM tem um buffer circular interno do `oceano-source-detector`. Nos primeiros 2s após uma transição silêncio→áudio, esse buffer ainda contém amostras da faixa anterior (crackle de agulha em vinyl, click de CD). O skip descarta esses dados.
+
+**Fonte de verdade da duração:** `recognition.capture_duration_secs` em `/etc/oceano/config.json`. Ao gravar na UI web, `oceano-web` reescreve `oceano-state-manager.service` com `--recognizer-capture-duration` igual a esse valor. O default do binário (`defaultConfig` em Go) e o default do JSON gerado pela UI usam o **mesmo** número (7s) para evitar divergência quando alguém corre o state-manager sem unit file.
 
 ---
 
@@ -544,7 +546,7 @@ Rate limit não é bypassável para **não queimar quota** — se ACRCloud está
 
 | Constante | Default | Propósito |
 |---|---|---|
-| `RecognizerCaptureDuration` | 10s | Amostra de áudio por tentativa |
+| `RecognizerCaptureDuration` | 7s | Amostra de áudio por tentativa (igual ao default em `config.json` / UI) |
 | `RecognizerMaxInterval` | 5 min | Fallback sem resultado |
 | `RecognizerRefreshInterval` | 2 min | Re-check com resultado existente |
 | `NoMatchBackoff` | 15s | Espera após no-match |
@@ -607,8 +609,8 @@ t=00:00  pollSourceFile: Physical detectado.
          gap > SessionGapThreshold → nova sessão.
          trigger{boundary=false} enviado.
 
-t=00:00  coordinator: sem skip (timer trigger), captura 10s de "Speak to Me"
-t=00:10  ACRCloud: no match (faixa é percussão pura sem melodia identificável)
+t=00:00  coordinator: sem skip (timer trigger), captura 7s de "Speak to Me"
+t=00:07  ACRCloud: no match (faixa é percussão pura sem melodia identificável)
          backoff 15s.
 
 t=00:25  coordinator: retry → no match → backoff 15s
@@ -616,7 +618,7 @@ t=00:25  coordinator: retry → no match → backoff 15s
 t=00:40  coordinator: captura apanha transição Speak to Me→Breathe
          ACRCloud: "Breathe (In the Air)" — Pink Floyd — score 88
          → applyRecognizedResult
-         → seekMS ≈ 40s (captura de 10s + tempo decorrido)
+         → seekMS ≈ 37s (captura de 7s + tempo decorrido)
          → artwork fetched do MusicBrainz
          → tryEnableShazamContinuity: goroutine → captura 4s → Shazam: "Breathe" ✓
          → shazamContinuityReady = true (CALIBRADO)
@@ -639,7 +641,7 @@ t=03:19  continuity monitor: poll → Shazam: "On the Run"
          sighting #2/2 → MISMATCH CONFIRMADO (calibrado, N=2)
          → trigger{isBoundary:true, isHardBoundary:false}
 
-t=03:19  coordinator: skip=2s, captura 10s
+t=03:19  coordinator: skip=2s, captura 7s
          Guard pós-captura: Physical ✓
          ACRCloud: "On the Run" — Pink Floyd
          → applyRecognizedResult

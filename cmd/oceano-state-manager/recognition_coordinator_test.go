@@ -514,7 +514,7 @@ func TestContinuityTrigger_CarriesFirstSightingTime(t *testing.T) {
 // trigger-fire time, avoiding over-estimating elapsed time in the new track.
 func TestComputeRecognizedSeekMS_BoundaryUsesFirstSightingAsAnchor(t *testing.T) {
 	now := time.Now()
-	captureStartedAt := now.Add(-10 * time.Second) // 10 s capture
+	captureStartedAt := now.Add(-7 * time.Second) // default capture length
 
 	// Simulate the continuity monitor's firstSightingAt being 12 s ago
 	// (first sighting at t-12s, confirmation at t-0s after 2 polls of 8s... but
@@ -524,16 +524,16 @@ func TestComputeRecognizedSeekMS_BoundaryUsesFirstSightingAsAnchor(t *testing.T)
 	result := &RecognitionResult{ACRID: "acr-new", Title: "New Track", Artist: "Artist"}
 
 	// With firstSightingAt as lastBoundaryForSeek, seek = max(captureDelta, boundaryDelta)
-	// = max(10s, 12s) = 12s.
+	// = max(7s, 12s) = 12s.
 	seekMS, _ := computeRecognizedSeekMS(true, captureStartedAt, now, firstSightingAt, time.Time{}, nil, result)
 	if seekMS < 12000 {
 		t.Fatalf("seekMS = %d, want >= 12000 (should use first-sighting anchor)", seekMS)
 	}
 
-	// Without the anchor (zero lastBoundaryForSeek), seek = captureDelta = 10s.
+	// Without the anchor (zero lastBoundaryForSeek), seek = captureDelta ≈ 7s.
 	seekMSNoAnchor, _ := computeRecognizedSeekMS(true, captureStartedAt, now, time.Time{}, time.Time{}, nil, result)
-	if seekMSNoAnchor > 11000 {
-		t.Fatalf("seekMSNoAnchor = %d, want ~10000 (only capture elapsed)", seekMSNoAnchor)
+	if seekMSNoAnchor > 8000 {
+		t.Fatalf("seekMSNoAnchor = %d, want ~7000 (only capture elapsed)", seekMSNoAnchor)
 	}
 
 	if seekMS <= seekMSNoAnchor {
