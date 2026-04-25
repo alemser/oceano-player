@@ -173,14 +173,47 @@ DESKTOPEOF
 
 # LightDM autologin only when LightDM is actually installed (many Lite images have no display manager).
 if command -v lightdm >/dev/null 2>&1; then
+  rm -f /etc/lightdm/lightdm.conf.d/oceano-kiosk.conf
   mkdir -p /etc/lightdm/lightdm.conf.d
-  cat > /etc/lightdm/lightdm.conf.d/oceano-kiosk.conf <<AUTOLOGINEOF
+  # zz- is loaded after Raspberry Pi defaults (labwc) so oceano-kiosk wins
+  cat > /etc/lightdm/lightdm.conf.d/zz-oceano-override.conf <<AUTOLOGINEOF
 [Seat:*]
 autologin-user=${KIOSK_USER}
 autologin-user-timeout=0
 autologin-session=oceano-kiosk
 user-session=oceano-kiosk
 AUTOLOGINEOF
+  # Pi OS: AccountsService can force labwc-pi over oceano-kiosk (align with oceano-setup)
+  ACC_DIR="/var/lib/AccountsService/users"
+  install -d -m 0755 "${ACC_DIR}"
+  ACC_F="${ACC_DIR}/${KIOSK_USER}"
+  if [ -f "${ACC_F}" ]; then
+    sed -i.bak -e '/^Session=/d' -e '/^XSession=/d' "${ACC_F}" 2>/dev/null || true
+  fi
+  TFILE=$(mktemp)
+  INS=0
+  if [ -f "${ACC_F}" ] && [ -s "${ACC_F}" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      echo "$line" >> "$TFILE"
+      if [ "$line" = "[User]" ] && [ "$INS" -eq 0 ]; then
+        echo "Session=oceano-kiosk" >> "$TFILE"
+        echo "XSession=oceano-kiosk" >> "$TFILE"
+        INS=1
+      fi
+    done < "${ACC_F}"
+    if [ "$INS" -eq 0 ]; then
+      T2=$(mktemp)
+      { echo "[User]"; echo "Session=oceano-kiosk"; echo "XSession=oceano-kiosk"; echo "SystemAccount=false"; cat "$TFILE"; } > "$T2"
+      mv "$T2" "$ACC_F"
+    else
+      mv "$TFILE" "$ACC_F"
+    fi
+  else
+    printf '%s\n' "[User]" "Session=oceano-kiosk" "XSession=oceano-kiosk" "SystemAccount=false" > "$ACC_F"
+  fi
+  rm -f "$TFILE" 2>/dev/null || true
+  if ! grep -q '^SystemAccount=' "${ACC_F}" 2>/dev/null; then echo "SystemAccount=false" >> "${ACC_F}"; fi
+  chmod 0600 "${ACC_F}" 2>/dev/null || true
   cat > "${HOME_DIR}/.dmrc" <<DMRCEOF
 [Desktop]
 Session=oceano-kiosk

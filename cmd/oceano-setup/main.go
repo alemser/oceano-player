@@ -27,7 +27,9 @@ const (
 	displayLaunchBin       = "/usr/local/bin/oceano-display-launch"
 	xsessionsDir           = "/usr/share/xsessions"
 	oceanoKioskDesktop     = "/usr/share/xsessions/oceano-kiosk.desktop"
-	lightdmKioskConf       = "/etc/lightdm/lightdm.conf.d/oceano-kiosk.conf"
+	// Override Pi OS defaults: files after "o" (e.g. rpd-labwc) must not win; zz- is loaded last.
+	lightdmKioskOverride = "/etc/lightdm/lightdm.conf.d/zz-oceano-override.conf"
+	accountsServiceUsers  = "/var/lib/AccountsService/users"
 )
 
 const (
@@ -326,6 +328,72 @@ func haveLightdm() bool {
 	return err == nil
 }
 
+// writeAccountsKioskSession sets Session and XSession in AccountsService so Raspberry Pi OS
+// does not force labwc-pi over the oceano-kiosk LightDM entry.
+func writeAccountsKioskSession(kioskUser, sessionName string) {
+	_ = os.MkdirAll(accountsServiceUsers, 0755)
+	p := filepath.Join(accountsServiceUsers, kioskUser)
+	raw, err := os.ReadFile(p)
+	sep := "\n"
+	if err == nil {
+		if strings.Contains(string(raw), "\r\n") {
+			sep = "\r\n"
+		}
+	} else if !os.IsNotExist(err) {
+		logWarn("AccountsService: " + err.Error())
+		return
+	}
+	var out []string
+	if err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(raw)), sep) {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			t := strings.TrimSpace(line)
+			if strings.HasPrefix(t, "Session=") || strings.HasPrefix(t, "XSession=") {
+				continue
+			}
+			out = append(out, line)
+		}
+	}
+	merged := false
+	var finalOut []string
+	for _, line := range out {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		finalOut = append(finalOut, line)
+		if strings.TrimSpace(line) == "[User]" {
+			if !merged {
+				finalOut = append(finalOut, "Session="+sessionName, "XSession="+sessionName)
+				merged = true
+			}
+		}
+	}
+	if !merged {
+		if len(finalOut) == 0 {
+			finalOut = []string{"[User]", "Session=" + sessionName, "XSession=" + sessionName, "SystemAccount=false"}
+		} else {
+			finalOut = append([]string{"[User]", "Session=" + sessionName, "XSession=" + sessionName, "SystemAccount=false"}, finalOut...)
+		}
+	} else {
+		hasSys := false
+		for _, l := range finalOut {
+			if strings.HasPrefix(strings.TrimSpace(l), "SystemAccount=") {
+				hasSys = true
+			}
+		}
+		if !hasSys {
+			finalOut = append(finalOut, "SystemAccount=false")
+		}
+	}
+	if werr := os.WriteFile(p, []byte(strings.Join(finalOut, "\n")+"\n"), 0600); werr != nil {
+		logWarn("Could not write AccountsService " + p + ": " + werr.Error())
+		return
+	}
+	logOK("Wrote " + p + " (Session/XSession = " + sessionName + " for RPi autologin)")
+}
+
 // tryInstallLightDM installs the display manager used for autologin to oceano-kiosk.
 func tryInstallLightDM() {
 	cmd := exec.Command("apt-get", "install", "-y", "lightdm")
@@ -515,18 +583,21 @@ Type=Application
 			tryInstallLightDM()
 		}
 		if haveLightdm() {
-			_ = os.MkdirAll(filepath.Dir(lightdmKioskConf), 0755)
+			// zz- loads after Raspberry Pi (r* / labwc) defaults; overrides user-session / autologin.
+			_ = os.MkdirAll(filepath.Dir(lightdmKioskOverride), 0755)
+			_ = os.Remove("/etc/lightdm/lightdm.conf.d/oceano-kiosk.conf")
 			ldm := fmt.Sprintf(`[Seat:*]
 autologin-user=%s
 autologin-user-timeout=0
 autologin-session=oceano-kiosk
 user-session=oceano-kiosk
 `, kioskUser)
-			if err := os.WriteFile(lightdmKioskConf, []byte(ldm), 0644); err != nil {
+			if err := os.WriteFile(lightdmKioskOverride, []byte(ldm), 0644); err != nil {
 				logWarn("Could not write LightDM conf: " + err.Error())
 			} else {
-				logOK("Wrote " + lightdmKioskConf)
+				logOK("Wrote " + lightdmKioskOverride)
 			}
+			writeAccountsKioskSession(kioskUser, "oceano-kiosk")
 			if home != "" {
 				p := filepath.Join(home, ".dmrc")
 				dmrc := "[Desktop]\nSession=oceano-kiosk\n"
