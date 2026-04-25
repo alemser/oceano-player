@@ -30,16 +30,19 @@ Services are enabled and started automatically.
 **Suggested order after `apt install`:**
 
 1. Run **`sudo oceano-setup`** — AirPlay name, ALSA output and capture devices,
-   Bluetooth, optional HDMI/DSI kiosk prompt.
+   Bluetooth, optional **HDMI/DSI kiosk** (Xvfb + `oceano-display` systemd, optional
+   **LightDM** autologin to `oceano-kiosk` — the same flow as
+   `install-oceano-display.sh` in this repo).
 2. Open **`http://<pi-ip>:8080`** — ACRCloud credentials, **Audio Input** (device,
    silence threshold) if you need to fine-tune beyond the wizard.
 3. Calibrate **USB capture gain** (RMS in logs) for reliable recognition — see
    [§1 Audio capture level](#1-audio-capture-level-required-for-track-recognition)
    below.
 
-If you **cloned** this repository, you can alternatively run
-`sudo ./install-oceano-display.sh` for the full X11/LightDM kiosk installer; that
-script is **not** installed by the `.deb` package path today.
+If you **cloned** this repository, you can also run
+`sudo ./install-oceano-display.sh` — it is equivalent in behaviour to the display
+options in `oceano-setup` and is not shipped in the `.deb` (handy for scripts/CI
+from a checkout only).
 
 ### Option B — Install from source
 

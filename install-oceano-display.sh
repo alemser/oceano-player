@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
+# Optional installer from a repo checkout. The official kiosk path for .deb and first-time
+# users is: sudo oceano-setup  (see README) — it writes the same scripts and LightDM wiring.
 set -euo pipefail
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Oceano Display — Kiosk Setup"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Official path: sudo oceano-setup  (re-run from this script only if you need a repo copy)."
 echo ""
 
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
     echo "Please run as root: sudo ./install-oceano-display.sh"
     exit 1
-fi
-
-if [ -f /usr/local/bin/oceano-display-check ]; then
-    echo "Kiosk already installed. To reinstall, remove the display scripts first:"
-    echo "  sudo rm -f /usr/local/bin/oceano-display-check /usr/local/bin/oceano-display-launch"
-    echo "  sudo ./install-oceano-display.sh"
-    exit 0
 fi
 
 if [ ! -d /sys/class/drm ]; then

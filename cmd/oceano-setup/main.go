@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,9 +22,12 @@ const (
 )
 
 const (
-	displayService    = "/etc/systemd/system/oceano-display.service"
-	displayCheckBin   = "/usr/local/bin/oceano-display-check"
-	displayLaunchBin  = "/usr/local/bin/oceano-display-launch"
+	displayService         = "/etc/systemd/system/oceano-display.service"
+	displayCheckBin        = "/usr/local/bin/oceano-display-check"
+	displayLaunchBin       = "/usr/local/bin/oceano-display-launch"
+	xsessionsDir           = "/usr/share/xsessions"
+	oceanoKioskDesktop     = "/usr/share/xsessions/oceano-kiosk.desktop"
+	lightdmKioskConf       = "/etc/lightdm/lightdm.conf.d/oceano-kiosk.conf"
 )
 
 const (
@@ -304,6 +309,34 @@ func findXvfb() string {
 	return ""
 }
 
+func homeDirFor(username string) (string, error) {
+	u, err := user.Lookup(username)
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
+}
+
+func chownToUser(path, username string) {
+	_ = exec.Command("chown", username+":"+username, path).Run()
+}
+
+func haveLightdm() bool {
+	_, err := os.Stat("/usr/sbin/lightdm")
+	return err == nil
+}
+
+// tryInstallLightDM installs the display manager used for autologin to oceano-kiosk.
+func tryInstallLightDM() {
+	cmd := exec.Command("apt-get", "install", "-y", "lightdm")
+	cmd.Env = withDebianNoninteractive()
+	if err := cmd.Run(); err != nil {
+		logWarn("Could not install lightdm: " + err.Error())
+		return
+	}
+	logOK("lightdm package installed")
+}
+
 // nowPlayingAppURL turns "http://host:8080" or "http://host:8080/" into
 // "http://host:8080/nowplaying.html" for the kiosk --app= URL.
 func nowPlayingAppURL(webAddr string) string {
@@ -329,14 +362,20 @@ func findChromium() string {
 	return ""
 }
 
-func configureDisplay(user string, webAddr string) {
+func configureDisplay(kioskUser, webAddr string, lightAutologin bool) {
+	_, err := user.Lookup(kioskUser)
+	if err != nil {
+		logWarn("Display user not found: " + kioskUser)
+		return
+	}
+
 	chromium := findChromium()
 	if chromium == "" {
 		logWarn("Chromium not found — installing chromium (Bookworm) or chromium-browser (transitional)...")
-		// Bookworm/Raspberry Pi OS use the "chromium" package; "chromium-browser" is a transitional metapackage on older images.
+		// With recommends so font/GTK/GBM stacks are present (matches install-oceano-display.sh).
 		a := exec.Command("apt-get", "install", "-y", "chromium")
 		a.Env = withDebianNoninteractive()
-		if err := a.Run(); err != nil {
+		if err2 := a.Run(); err2 != nil {
 			b := exec.Command("apt-get", "install", "-y", "chromium-browser")
 			b.Env = withDebianNoninteractive()
 			_ = b.Run()
@@ -349,7 +388,7 @@ func configureDisplay(user string, webAddr string) {
 	}
 	logOK("Chromium: " + chromium)
 
-	logWarn("Installing Xvfb and minimal X stack for kiosk (same as install-oceano-display.sh)...")
+	logOK("Installing Xvfb and minimal X stack (official kiosk stack)...")
 	installDisplayAptStack()
 	if xvfb := findXvfb(); xvfb != "" {
 		logOK("Xvfb: " + xvfb)
@@ -357,7 +396,13 @@ func configureDisplay(user string, webAddr string) {
 		logWarn("Xvfb not found in PATH after apt — kiosk is unlikely to work until xvfb is installed")
 	}
 
-	// Aligned with packaging/install-oceano-display.sh: require HDMI, DSI, or DP connector
+	home, err := homeDirFor(kioskUser)
+	if err != nil {
+		logWarn("Could not resolve home directory: " + err.Error())
+		home = ""
+	}
+
+	// Aligned with install-oceano-display.sh: require HDMI, DSI, or DP connector
 	displayCheck := `#!/bin/bash
 set -e
 FOUND=false
@@ -382,8 +427,7 @@ shopt -u nullglob
 
 	now := nowPlayingAppURL(webAddr)
 	nowBash := strconv.Quote(now)
-	// Kiosk: Xvfb on :99 + Chromium app mode. Matches install-oceano-display.sh
-	// (Chromium is given as a single literal path; NOWPLAYING_URL is shell-quoted from Go).
+	// Kiosk: Xvfb on :99 + Chromium app mode. Same as install-oceano-display.sh.
 	displayLaunch := fmt.Sprintf(`#!/bin/bash
 set -e
 NOWPLAYING_URL=%s
@@ -418,8 +462,74 @@ exec %s \
 		return
 	}
 
+	// .xinitrc, xsessions, and LightDM: same as install-oceano-display.sh (kiosk = official path in oceano-setup).
+	if home != "" {
+		xinit := "#!/bin/sh\nexec " + displayLaunchBin + "\n"
+		p := filepath.Join(home, ".xinitrc")
+		if err := os.WriteFile(p, []byte(xinit), 0755); err != nil {
+			logWarn("Could not write .xinitrc: " + err.Error())
+		} else {
+			chownToUser(p, kioskUser)
+			logOK("Wrote " + p)
+		}
+
+		if err := os.MkdirAll(xsessionsDir, 0755); err != nil {
+			logWarn("Could not create " + xsessionsDir + ": " + err.Error())
+		} else {
+			desktop := []byte(`[Desktop Entry]
+Name=Oceano Kiosk
+Comment=Oceano Now Playing Display
+Exec=` + displayLaunchBin + `
+Type=Application
+`)
+			if err := os.WriteFile(oceanoKioskDesktop, desktop, 0644); err != nil {
+				logWarn("Could not write xsessions desktop: " + err.Error())
+			} else {
+				logOK("Wrote " + oceanoKioskDesktop)
+			}
+		}
+	}
+
+	if lightAutologin {
+		if !haveLightdm() {
+			logWarn("LightDM not installed — installing (needed for autologin to the kiosk session)")
+			tryInstallLightDM()
+		}
+		if haveLightdm() {
+			_ = os.MkdirAll(filepath.Dir(lightdmKioskConf), 0755)
+			ldm := fmt.Sprintf(`[Seat:*]
+autologin-user=%s
+autologin-user-timeout=0
+autologin-session=oceano-kiosk
+user-session=oceano-kiosk
+`, kioskUser)
+			if err := os.WriteFile(lightdmKioskConf, []byte(ldm), 0644); err != nil {
+				logWarn("Could not write LightDM conf: " + err.Error())
+			} else {
+				logOK("Wrote " + lightdmKioskConf)
+			}
+			if home != "" {
+				p := filepath.Join(home, ".dmrc")
+				dmrc := "[Desktop]\nSession=oceano-kiosk\n"
+				if err := os.WriteFile(p, []byte(dmrc), 0644); err != nil {
+					logWarn("Could not write .dmrc: " + err.Error())
+				} else {
+					chownToUser(p, kioskUser)
+					logOK("Wrote " + p)
+				}
+			}
+			run("systemctl", "enable", "--no-block", "lightdm")
+			logOK("LightDM autologin to oceano-kiosk; reboot to apply: sudo reboot")
+		} else {
+			logWarn("LightDM unavailable — set up autologin manually, or: sudo apt install lightdm && re-run oceano-setup (display = y).")
+		}
+	} else {
+		logWarn("LightDM autologin not enabled. The oceano-display systemd service uses a virtual X server; " +
+			"re-run oceano-setup and answer Y to LightDM if you use a local HDMI/DSI screen.")
+	}
+
 	displaySvc := fmt.Sprintf(`[Unit]
-Description=Oceano Display — now playing kiosk (Xvfb + Chromium)
+Description=Oceano Display — now playing kiosk (HDMI/DSI, Xvfb)
 After=network.target oceano-web.service
 Wants=oceano-web.service
 ConditionPathExists=/sys/class/drm
@@ -436,15 +546,16 @@ TimeoutStartSec=30
 
 [Install]
 WantedBy=multi-user.target
-`, user, displayCheckBin, displayLaunchBin)
+`, kioskUser, displayCheckBin, displayLaunchBin)
 	if err := os.WriteFile(displayService, []byte(displaySvc), 0644); err != nil {
 		logWarn("Could not write " + displayService + ": " + err.Error())
 		return
 	}
 
 	run("systemctl", "daemon-reload")
-	run("systemctl", "enable", "--now", "oceano-display.service")
-	logOK("Display service enabled (oceano-display.service)")
+	run("systemctl", "enable", "--no-block", "oceano-display.service")
+	run("systemctl", "start", "--no-block", "oceano-display.service")
+	logOK("Display service enabled and started (oceano-display.service) — see journalctl -u oceano-display -b")
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -515,10 +626,12 @@ func main() {
 	displayEnabled := prompt("Install display service", "n")
 	displayUser := "pi"
 	webAddr := "http://localhost:8080"
-
+	lightAutologin := "n"
 	if strings.ToLower(displayEnabled) == "y" {
 		displayUser = prompt("Display user", displayUser)
 		webAddr = prompt("Web address", webAddr)
+		// Same wiring as install-oceano-display.sh (LightDM + oceano-kiosk session) for a physical panel.
+		lightAutologin = prompt("Enable LightDM autologin to oceano-kiosk (for HDMI/DSI) [Y/n]:", "y")
 	}
 
 	// ── Apply ────────────────────────────────────────────────────────────────
@@ -531,7 +644,7 @@ func main() {
 	run("systemctl", "restart", "oceano-web.service")
 
 	if strings.ToLower(displayEnabled) == "y" {
-		configureDisplay(displayUser, webAddr)
+		configureDisplay(displayUser, webAddr, strings.ToLower(strings.TrimSpace(lightAutologin)) == "y")
 		run("systemctl", "restart", "oceano-display.service")
 	}
 

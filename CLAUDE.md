@@ -125,21 +125,23 @@ sudo ./install-oceano-web.sh
 
 **Auto-launch on Pi boot**
 
-- **Debian package install:** run **`sudo oceano-setup`** after `apt install` and answer **y**
-  when asked to install the display service (lighter kiosk wiring; see README for capture
-  calibration and limitations vs the full script).
-- **Repository clone:** use the full installer for X11/LightDM/Chromium wiring:
+- **Official path:** after `apt install`, run **`sudo oceano-setup`**. For the **display** step, it
+  writes the same kiosk stack as the repo’s `install-oceano-display.sh` (Xvfb + `oceano-display.service`,
+  optional `~/.xinitrc` + `xsessions/oceano-kiosk` + **LightDM** autologin to `oceano-kiosk` if you
+  choose it). The systemd unit runs `oceano-display-launch` (Xvfb :99 + Chromium; physical HDMI/DSI
+  may still need a **reboot** after LightDM is first enabled; see README).
+- **Repository-only:** you can also run the shell script; behaviour matches the display options in
+  `oceano-setup`:
 
 ```bash
 sudo ./install-oceano-display.sh --web-addr http://localhost:8080 --user pi
 # optional: --web-addr http://localhost:8080  --user pi
 ```
 
-`install-oceano-display.sh` installs `oceano-display.service`, which:
-1. Runs `oceano-display-check` to detect a connected HDMI or DSI panel via `/sys/class/drm`.
-   If no display is found the service exits cleanly — safe for headless Pi deployments.
-2. Launches Chromium in kiosk mode pointing at `http://localhost:8080/nowplaying.html`.
-3. Restarts automatically on crash.
+`oceano-display` / `oceano-display-launch` then:
+1. `ExecCondition` via `oceano-display-check` (HDMI/DSI/DP connected in `/sys/class/drm`); if not, the unit is skipped.
+2. Chromium in kiosk / `--app=` to `…/nowplaying.html`.
+3. `Restart=on-failure` on crash.
 
 **Local development:** open `http://<pi-ip>:8080/nowplaying.html` in any browser. The SSE stream
 works across the network, so you can see the live display from a laptop while the Pi is playing.
@@ -213,9 +215,8 @@ sudo oceano-setup   # AirPlay, Bluetooth, ALSA devices, optional HDMI/DSI kiosk 
 # Full install from this repository (AirPlay stack + detector + state manager + web UI)
 sudo ./install.sh
 
-# Full now-playing kiosk (HDMI/DSI) — only when you have the repo checkout; not on .deb-only systems
-sudo ./install-oceano-display.sh --web-addr http://localhost:8080 --user pi
-# optional: --web-addr http://localhost:8080  --user pi
+# Kiosk: prefer after .deb: sudo oceano-setup  (display = y, LightDM = y for a local panel; reboot).
+# From a repo clone only, equivalent: sudo ./install-oceano-display.sh --web-addr http://localhost:8080 --user pi
 
 # Individual services can still be updated independently:
 sudo ./install-source-detector.sh --branch my-branch
