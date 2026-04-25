@@ -32,7 +32,9 @@ Services are enabled and started automatically.
 1. Run **`sudo oceano-setup`** — AirPlay name, ALSA output and capture devices,
    Bluetooth, optional **HDMI/DSI kiosk** (Xvfb + `oceano-display` systemd, optional
    **LightDM** autologin to `oceano-kiosk` — the same flow as
-   `install-oceano-display.sh` in this repo).
+   `install-oceano-display.sh` in this repo. On Raspberry Pi OS the wizard and script also
+   adjust **`/etc/lightdm/lightdm.conf`** so `rpd-labwc` in the main file does not override the
+   `oceano-kiosk` session; reboot after the display step if the panel is connected.
 2. Open **`http://<pi-ip>:8080`** — ACRCloud credentials, **Audio Input** (device,
    silence threshold) if you need to fine-tune beyond the wizard.
 3. Calibrate **USB capture gain** (RMS in logs) for reliable recognition — see
@@ -240,6 +242,17 @@ Frame rate: ~22 fps (2048-sample buffer at 44.1 kHz ≈ 46 ms per frame).
    lsmod | grep snd_aloop
    # if empty: sudo modprobe snd-aloop
    ```
+
+---
+
+### HDMI/DSI: shows Pi desktop (labwc) or no Now Playing (not the kiosk)
+
+On Raspberry Pi OS, `/etc/lightdm/lightdm.conf` can keep `user-session` / `autologin-session` set
+to `rpd-labwc` (Wayland). That **overrides** a `lightdm.conf.d` drop-in, so the session you see is
+`labwc`, not `oceano-kiosk` / X11. Re-run **`sudo oceano-setup`** and enable the **display** + **LightDM**
+path (or run `install-oceano-display.sh` from a repo checkout). That updates the main `lightdm.conf`
+as well. Then `sudo reboot`. To verify which session is active: `loginctl show-user "$(whoami)"` and
+`loginctl show-session <n> -p Type -p Desktop` for the graphical seat session.
 
 ---
 

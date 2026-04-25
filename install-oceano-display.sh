@@ -183,6 +183,16 @@ autologin-user-timeout=0
 autologin-session=oceano-kiosk
 user-session=oceano-kiosk
 AUTOLOGINEOF
+  # Raspberry Pi OS: /etc/lightdm/lightdm.conf is merged *after* lightdm.conf.d and may keep
+  # user-session=rpd-labwc / autologin-session=rpd-labwc, which overrides the drop-in. Patch the main file.
+  LDM_MAIN="/etc/lightdm/lightdm.conf"
+  if [ -f "$LDM_MAIN" ]; then
+    if [ ! -f "${LDM_MAIN}.oceano.bak" ]; then
+      cp -a "$LDM_MAIN" "${LDM_MAIN}.oceano.bak"
+    fi
+    # shellcheck disable=SC2016
+    sed -i.ocrunbak -e 's/^\(user-session=\).*/\1oceano-kiosk/' -e 's/^\(autologin-session=\).*/\1oceano-kiosk/' "$LDM_MAIN" || true
+  fi
   # Pi OS: AccountsService can force labwc-pi over oceano-kiosk (align with oceano-setup)
   ACC_DIR="/var/lib/AccountsService/users"
   install -d -m 0755 "${ACC_DIR}"

@@ -128,8 +128,11 @@ sudo ./install-oceano-web.sh
 - **Official path:** after `apt install`, run **`sudo oceano-setup`**. For the **display** step, it
   writes the same kiosk stack as the repo’s `install-oceano-display.sh` (Xvfb + `oceano-display.service`,
   optional `~/.xinitrc` + `xsessions/oceano-kiosk` + **LightDM** autologin to `oceano-kiosk` if you
-  choose it). The systemd unit runs `oceano-display-launch` (Xvfb :99 + Chromium; physical HDMI/DSI
-  may still need a **reboot** after LightDM is first enabled; see README).
+  choose it). The wizard also **patches `/etc/lightdm/lightdm.conf`** (active `user-session` /
+  `autologin-session` → `oceano-kiosk`), because on Raspberry Pi OS the main `lightdm.conf` still
+  points at `rpd-labwc` and is applied **after** `lightdm.conf.d/`, so a drop-in file alone is not
+  enough to leave Wayland. The systemd unit runs `oceano-display-launch` (Xvfb :99 + Chromium; physical
+  HDMI/DSI may still need a **reboot** after LightDM is first enabled; see README).
 - **Repository-only:** you can also run the shell script; behaviour matches the display options in
   `oceano-setup`:
 
@@ -278,6 +281,21 @@ If the phono stage has residual hum, the source may remain `Physical` during rec
 Options:
 - Raise `--silence-threshold` slightly so phono hum is treated as silence
 - The `--recognizer-max-interval` (default 5 min) will eventually trigger a new recognition
+
+---
+
+### Kiosk: Pi desktop (labwc) or blank screen, not `now playing`
+
+**Symptom:** `loginctl` shows `Desktop=rpd-labwc` / `Type=wayland` for the `lightdm-autologin` session, or
+Chromium never appears on HDMI, even though `~/.dmrc` or `/etc/lightdm/lightdm.conf.d/zz-oceano-override.conf` says `oceano-kiosk`.
+
+Raspberry Pi OS often keeps `user-session=rpd-labwc` and `autologin-session=rpd-labwc` in the **main** `/etc/lightdm/lightdm.conf` (higher priority than a drop-in). `sudo oceano-setup` with the display and LightDM options, or a fresh run of `install-oceano-display.sh`, rewrites those lines. Then `sudo reboot`. Verify:
+
+```bash
+loginctl show-session "$(loginctl | awk '/lightdm-autologin/ {print $1; exit}')" -p Type -p Desktop
+```
+
+The graphical session for the kiosk should be **X11** with `oceano-kiosk`, not `rpd-labwc` / Wayland.
 
 ---
 

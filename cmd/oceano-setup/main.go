@@ -328,6 +328,47 @@ func haveLightdm() bool {
 	return err == nil
 }
 
+// patchMainLightdmKioskOverride updates /etc/lightdm/lightdm.conf so that active user-session
+// and autologin-session lines are oceano-kiosk. On Raspberry Pi OS, the main file sets
+// user-session=rpd-labwc and is merged after lightdm.conf.d, so a drop-in alone is ignored
+// and autologin still starts Wayland (rpd-labwc) — see: grep user-session /etc/lightdm/lightdm.conf
+func patchMainLightdmKioskOverride() {
+	const path = "/etc/lightdm/lightdm.conf"
+	b, err := os.ReadFile(path)
+	if err != nil {
+		logWarn("LightDM main conf: " + err.Error())
+		return
+	}
+	bak := path + ".oceano.bak"
+	if _, e := os.Stat(bak); os.IsNotExist(e) {
+		if werr := os.WriteFile(bak, b, 0600); werr != nil {
+			logWarn("LightDM main conf backup: " + werr.Error())
+		} else {
+			logOK("Backed up " + path + " → " + bak)
+		}
+	}
+	orig := string(b)
+	lines := strings.Split(orig, "\n")
+	for i, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "user-session=") && !strings.HasPrefix(t, "#") {
+			lines[i] = "user-session=oceano-kiosk"
+		}
+		if strings.HasPrefix(t, "autologin-session=") && !strings.HasPrefix(t, "#") {
+			lines[i] = "autologin-session=oceano-kiosk"
+		}
+	}
+	out := strings.Join(lines, "\n")
+	if out == orig {
+		return
+	}
+	if werr := os.WriteFile(path, []byte(out), 0644); werr != nil {
+		logWarn("Could not patch " + path + ": " + werr.Error())
+		return
+	}
+	logOK("Patched " + path + " (user-session + autologin-session = oceano-kiosk; overrides Pi rpd-labwc in main file)")
+}
+
 // writeAccountsKioskSession sets Session and XSession in AccountsService so Raspberry Pi OS
 // does not force labwc-pi over the oceano-kiosk LightDM entry.
 func writeAccountsKioskSession(kioskUser, sessionName string) {
@@ -597,6 +638,7 @@ user-session=oceano-kiosk
 			} else {
 				logOK("Wrote " + lightdmKioskOverride)
 			}
+			patchMainLightdmKioskOverride()
 			writeAccountsKioskSession(kioskUser, "oceano-kiosk")
 			if home != "" {
 				p := filepath.Join(home, ".dmrc")
@@ -725,6 +767,9 @@ func main() {
 
 	displayEnabled := prompt("Install display service", "n")
 	displayUser := "pi"
+	if u := strings.TrimSpace(os.Getenv("SUDO_USER")); u != "" {
+		displayUser = u
+	}
 	webAddr := "http://localhost:8080"
 	lightAutologin := "n"
 	if strings.ToLower(displayEnabled) == "y" {
