@@ -332,6 +332,11 @@ type mgr struct {
 	// when a boundary-triggered recognition succeeds, so fallback timer
 	// recognitions on the same track also get an accurate seek estimate.
 	physicalStartedAt time.Time
+	// vuInSilence is true while the VU boundary detector is in silence state.
+	// Set/cleared by readVUFrames on enteredSilence/resumedFromSilence events.
+	// Used by buildState to set state="idle" during inter-track gaps, and by
+	// the recognition coordinator to skip recognition attempts during silence.
+	vuInSilence bool
 	// physicalSeekMS and physicalSeekUpdatedAt provide a best-effort seek
 	// position for the Physical source progress bar. Set when recognition
 	// completes (boundary or fallback), using the elapsed time since capture

@@ -312,6 +312,12 @@ func (m *mgr) currentPhysicalFormatForCalibration() string {
 }
 
 func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBoundaryDetectorConfig, durationGuardBypassWindow time.Duration, durationPessimism float64) {
+	// Reset silence state on reconnect — without a live stream we have no
+	// reliable VU state; clear it so the display doesn't stay frozen as idle.
+	m.mu.Lock()
+	m.vuInSilence = false
+	m.mu.Unlock()
+
 	buf := make([]byte, 8)
 	staleSilenceCleared := false
 	detector := newVUBoundaryDetector(detectorCfg)
@@ -398,9 +404,17 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		}
 		if out.enteredSilence {
 			log.Printf("VU monitor: silence detected")
+			m.mu.Lock()
+			m.vuInSilence = true
+			m.mu.Unlock()
+			m.markDirty()
 		}
 		if out.resumedFromSilence {
 			staleSilenceCleared = false
+			m.mu.Lock()
+			m.vuInSilence = false
+			m.mu.Unlock()
+			m.markDirty()
 		}
 		if !out.inSilence {
 			staleSilenceCleared = false
@@ -441,7 +455,11 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		// a new track is recognised (recognition sets a fresh seekUpdatedAt), enabling
 		// the trigger to fire for every subsequent gapless track without requiring a
 		// VU boundary reset.
-		if !out.inSilence {
+		//
+		// Guard: skip in the same frame a VU boundary already fired — the boundary
+		// just reset durationExceededFiredForSeek, so without this guard both triggers
+		// fire simultaneously on every silence→audio transition when duration is exceeded.
+		if !out.inSilence && !out.boundary {
 			m.mu.Lock()
 			var dxDurationMs int
 			var dxSeekMS int64

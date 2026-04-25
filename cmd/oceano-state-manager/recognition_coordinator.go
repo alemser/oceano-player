@@ -513,6 +513,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		isPhysical := c.mgr.physicalSource == "Physical"
 		isAirPlay := c.mgr.airplayPlaying
 		isBluetooth := c.mgr.bluetoothPlaying
+		vuInSilence := c.mgr.vuInSilence
 		c.mgr.mu.Unlock()
 		if shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth) {
 			if c.mgr.cfg.Verbose {
@@ -522,6 +523,12 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				case isBluetooth:
 					log.Printf("recognizer [%s]: skipping — Bluetooth is active", c.rec.Name())
 				}
+			}
+			continue
+		}
+		if vuInSilence {
+			if c.mgr.cfg.Verbose {
+				log.Printf("recognizer [%s]: skipping — VU in silence", c.rec.Name())
 			}
 			continue
 		}
