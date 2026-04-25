@@ -115,17 +115,15 @@ func computeRecognizedSeekMS(isBoundaryTrigger bool, captureStartedAt, now, last
 		return seekMS, true
 	}
 
+	// Non-boundary (periodic) trigger: use time elapsed since capture started.
+	// physStartedAt is the session or last-reset anchor; on long sessions it can
+	// be many minutes old, inflating seek far past the track duration (Bug 3).
 	seekMS := now.Sub(captureStartedAt).Milliseconds()
 	if seekMS < 0 {
 		seekMS = 0
 	}
-	if !physStartedAt.IsZero() {
-		if better := now.Sub(physStartedAt).Milliseconds(); better > seekMS {
-			seekMS = better
-		}
-	}
 	if sameTrackForStateContinuity(previousResult, newResult) && !physStartedAt.IsZero() {
-		return seekMS, false
+		return seekMS, false // same track — preserve physicalStartedAt, keep seek conservative
 	}
 
 	return seekMS, true

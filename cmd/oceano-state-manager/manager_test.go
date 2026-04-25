@@ -504,6 +504,72 @@ func TestBuildState_Physical_NoSeekWhenNotSet(t *testing.T) {
 	}
 }
 
+// ── vuInSilence — Bugs 1 and 5 ───────────────────────────────────────────────
+
+// TestBuildState_PhysicalVuSilenceIsIdle verifies that when the VU monitor
+// enters silence (inter-track gap), buildState returns state="idle" and
+// track=nil even though the physical source is still "Physical".
+func TestBuildState_PhysicalVuSilenceIsIdle(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.vuInSilence = true
+
+	s := m.buildState()
+
+	if s.State != "idle" {
+		t.Errorf("state = %q, want idle during VU silence (Bug 5 fix)", s.State)
+	}
+	if s.Track != nil {
+		t.Errorf("track should be nil during VU silence, got %+v", s.Track)
+	}
+}
+
+// TestBuildState_PhysicalVuSilenceHidesRecognizedTrack verifies that a
+// previously recognised track is not shown while the VU monitor is in silence,
+// preventing the "display not cleared on silence" symptom (Bug 1).
+func TestBuildState_PhysicalVuSilenceHidesRecognizedTrack(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.physicalFormat = "Vinyl"
+	m.vuInSilence = true
+	m.recognitionResult = &RecognitionResult{
+		Title: "Comfortably Numb", Artist: "Pink Floyd", Format: "Vinyl",
+	}
+
+	s := m.buildState()
+
+	if s.State != "idle" {
+		t.Errorf("state = %q, want idle during VU silence even with known track", s.State)
+	}
+	if s.Track != nil {
+		t.Errorf("track should be nil during VU silence, got %+v", s.Track)
+	}
+	// Source/format labels should still reflect what was playing.
+	if s.Source != "Vinyl" {
+		t.Errorf("source = %q, want Vinyl — format label should persist during silence", s.Source)
+	}
+}
+
+// TestBuildState_PhysicalNoVuSilenceIsPlaying verifies the normal (non-silence)
+// path is unaffected by the vuInSilence field when it is false.
+func TestBuildState_PhysicalNoVuSilenceIsPlaying(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.vuInSilence = false
+	m.recognitionResult = &RecognitionResult{
+		Title: "Money", Artist: "Pink Floyd", Format: "Vinyl",
+	}
+
+	s := m.buildState()
+
+	if s.State != "playing" {
+		t.Errorf("state = %q, want playing when vuInSilence=false", s.State)
+	}
+	if s.Track == nil {
+		t.Error("track should not be nil when vuInSilence=false and recognition result is set")
+	}
+}
+
 func TestSyncFromLibrary_PreservesSeekWhenDurationArrivesLate(t *testing.T) {
 	lib := openTestLibrary(t)
 	now := time.Now().UTC().Format(time.RFC3339)
