@@ -44,7 +44,30 @@ Services are enabled and started automatically.
 If you **cloned** this repository, you can also run
 `sudo ./install-oceano-display.sh` — it is equivalent in behaviour to the display
 options in `oceano-setup` and is not shipped in the `.deb` (handy for scripts/CI
-from a checkout only).
+from a checkout only). For **Bluetooth → DAC** routing when you have more than
+one USB sound device, the full `sudo oceano-setup` run (ALSA **output** step) is
+still recommended — it installs the PipeWire default-sink helper the display
+script does not include.
+
+### Resilience (what `sudo oceano-setup` applies for you)
+
+Run it **after all USB devices are connected** (amplifier on, capture card, etc.),
+and **again** if you add or reorder USB hardware. The wizard and the matching
+`install.sh` path install safeguards so a stock Pi is usable without reading long
+troubleshooting notes:
+
+| Area | Handled by setup / installer |
+|------|------------------------------|
+| **Raspberry Pi OS + LightDM** | `oceano-kiosk` X11 session instead of Wayland `rpd-labwc`: `lightdm.conf.d/zz-…` **and** the **main** `/etc/lightdm/lightdm.conf` `user-session` / `autologin-session` (the main file overrides drop-ins; see [Troubleshooting](#troubleshooting)). |
+| **AirPlay (shairport)** | **ALSA** output to the chosen DAC (the `shairport-sync` system user cannot use the login user’s PipeWire). `oceano-web` migrates legacy `output_backend=pa` on startup. |
+| **Bluetooth audio** | Default **PipeWire sink** = same DAC (script + user systemd oneshot, **linger** so it can run at boot; BlueZ **codec** list for AAC/LDAC/… when WirePlumber ≥ 0.5). |
+| **Multiple USB sound cards** | Warning in the wizard; `device_match` in `config.json` from the chosen `plughw:CARD=…`; do **not** point output at a capture dongle. |
+| **Kiosk / HDMI** | No `xrandr --auto` in the launch script (avoids a **black** screen on some panels). Use `/boot/firmware/config.txt` or `raspi-config` for HDMI mode if needed. |
+| **Bluetooth discoverable** | `bluetoothctl` + `main.conf` after the Bluetooth step. |
+
+The web UI on port **8080** is the ongoing control plane; “Save & Restart” rewrites
+service units and shairport when needed. Deeper failure modes (RMS, ACRCloud, …)
+are in [Troubleshooting](#troubleshooting) below.
 
 ### Option B — Install from source
 

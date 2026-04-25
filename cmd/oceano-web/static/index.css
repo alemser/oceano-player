@@ -48,6 +48,15 @@
       margin-top: 3px;
       letter-spacing: 0.05em;
     }
+    .header-text .setup-hint {
+      font-size: 0.72rem;
+      margin-top: 0.4rem;
+      line-height: 1.35;
+      max-width: 22rem;
+    }
+    .header-text .setup-hint code {
+      font-size: 0.7rem;
+    }
     .btn-menu {
       background: none;
       border: none;

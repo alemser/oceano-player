@@ -900,28 +900,26 @@ EOF
   local script_path="/usr/local/bin/oceano-pipewire-default-sink"
   cat > "${script_path}" <<EOF
 #!/usr/bin/env bash
-# Set the Oceano DAC as the default PipeWire sink.
-# Called by oceano-pipewire-default-sink.service after WirePlumber starts.
-# If the DAC is not found immediately, retries for up to 60 s (boot can be slow).
+# Set the Oceano DAC as the default PipeWire sink (Sinks: section only — avoids wrong id from Devices:).
 set -euo pipefail
+export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"
 DAC_DESC="${dac_desc}"
 for attempt in \$(seq 1 12); do
-  node_id="\$(wpctl status 2>/dev/null \
-    | awk -v desc="\${DAC_DESC}" 'index(\$0, desc) && match(\$0, /[0-9]+\\./) {
-        id=substr(\$0, RSTART, RLENGTH-1); if (id+0>0) {print id; exit}
-      }')"
-  if [[ -n "\${node_id}" ]]; then
-    wpctl set-default "\${node_id}"
-    # Set volume to 100% — PipeWire defaults to 40% which is quieter than direct ALSA.
-    wpctl set-volume "\${node_id}" 1.0
-    echo "oceano-pipewire-default-sink: set default sink to node \${node_id} (\${DAC_DESC}), volume=100% on attempt \${attempt}"
-    exit 0
+  line=\$(wpctl status 2>/dev/null | sed -n '/Sinks:/,/Sources:/p' | grep -F "\${DAC_DESC}" | head -1)
+  if [[ -n "\${line}" ]]; then
+    node_id=\$(echo "\${line}" | sed -E 's/^[|[:space:]*]*([0-9]+).*/\1/' | tr -d ' \t')
+    if [[ -n "\${node_id}" ]] && [[ "\${node_id}" -gt 0 ]]; then
+      wpctl set-default "\${node_id}"
+      wpctl set-volume "\${node_id}" 1.0
+      echo "oceano-pipewire-default-sink: set default sink to node \${node_id} (\${DAC_DESC}) on attempt \${attempt}"
+      exit 0
+    fi
   fi
-  echo "oceano-pipewire-default-sink: attempt \${attempt} — '\${DAC_DESC}' not yet visible in PipeWire, retrying in 5 s..."
+  echo "oceano-pipewire-default-sink: attempt \${attempt} — no sink line for '\${DAC_DESC}' yet, sleep 5s..."
   sleep 5
 done
-echo "oceano-pipewire-default-sink: DAC '\${DAC_DESC}' not found in PipeWire after 12 attempts (60 s)"
-exit 1
+echo "oceano-pipewire-default-sink: DAC not found in PipeWire (connect USB; will retry on next boot)" >&2
+exit 0
 EOF
   chmod +x "${script_path}"
 

@@ -685,6 +685,7 @@ func main() {
 		getString(cfg, "audio_output", "airplay_name", "Oceano"))
 
 	fmt.Println("Detecting ALSA output devices...")
+	warnIfMultipleUSBAudioPlayback()
 	outputDevs := listALSADevices("aplay")
 	outputDevice := pickDevice("output device (DAC)", outputDevs)
 
@@ -712,6 +713,11 @@ func main() {
 	setKey(cfg, "audio_output", "airplay_name", airplayName)
 	if outputDevice != "" {
 		setKey(cfg, "audio_output", "device", outputDevice)
+		if getString(cfg, "audio_output", "device_match", "") == "" {
+			if m := regexp.MustCompile(`plughw:CARD=([^,]+),`).FindStringSubmatch(outputDevice); len(m) > 1 {
+				setKey(cfg, "audio_output", "device_match", m[1])
+			}
+		}
 	}
 	if captureDevice != "" {
 		setKey(cfg, "audio_input", "device", captureDevice)
@@ -754,6 +760,19 @@ func main() {
 	if strings.ToLower(displayEnabled) == "y" {
 		configureDisplay(displayUser, webAddr, strings.ToLower(strings.TrimSpace(lightAutologin)) == "y")
 		run("systemctl", "restart", "oceano-display.service")
+	}
+
+	// PipeWire default sink: route Bluetooth to the same ALSA output as shairport when multiple
+	// USB devices are present. Target user: graphical session (display) or sudoer (SSH).
+	pwUser := strings.TrimSpace(os.Getenv("SUDO_USER"))
+	if pwUser == "" {
+		pwUser = "pi"
+	}
+	if strings.ToLower(displayEnabled) == "y" && strings.TrimSpace(displayUser) != "" {
+		pwUser = displayUser
+	}
+	if outputDevice != "" {
+		installWirePlumberBTResilience(pwUser, outputDevice, getString(cfg, "audio_output", "device_match", ""))
 	}
 
 	logOK("Services restarted")

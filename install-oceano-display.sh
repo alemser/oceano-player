@@ -280,4 +280,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "The service is enabled. If the screen did not turn on, reboot once: sudo reboot"
 echo ""
+echo "For full first-boot resilience (ALSA AirPlay, PipeWire Bluetooth -> same DAC, LightDM main.conf patch, shairport):"
+echo "  sudo oceano-setup   # with USB amp/DAC and capture card connected; complete the *output* step"
+echo ""
 echo "Monitor logs: journalctl -u oceano-display.service -f"
