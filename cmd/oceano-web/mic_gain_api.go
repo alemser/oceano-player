@@ -358,7 +358,7 @@ func registerMicGainRoutes(mux *http.ServeMux, configPath string) {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		out, err := exec.Command("alsactl", "store").CombinedOutput()
+		out, err := exec.Command("sudo", "/usr/sbin/alsactl", "store").CombinedOutput()
 		if err != nil {
 			jsonError(w, "alsactl store failed: "+strings.TrimSpace(string(out)), http.StatusInternalServerError)
 			return
