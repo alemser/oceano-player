@@ -16,7 +16,7 @@ The long-term goal is a **unified backend** that the UI queries regardless of th
 | Source | Status |
 |---|---|
 | AirPlay | Implemented (shairport-sync) |
-| Bluetooth | Planned |
+| Bluetooth | Implemented (BlueZ/AVRCP via dbus-monitor; AAC, SBC, LDAC, AptX, Opus codec detection) |
 | UPnP | Planned |
 | Physical media | Implemented (`Physical` / `None` detection + ACRCloud track identification) |
 | Vinyl vs CD distinction | Future (requires reliable calibration data) |
@@ -52,6 +52,7 @@ oceano-state-manager
   ├── reads /tmp/oceano-vu.sock          (VU monitor: silence→audio = track boundary trigger)
   ├── reads /tmp/oceano-pcm.sock         (recognition capture — no second arecord needed)
   ├── reads shairport-sync metadata pipe (AirPlay metadata)
+  ├── dbus-monitor subprocess            (Bluetooth: BlueZ AVRCP metadata + MediaTransport1 codec)
   ├── internal/recognition               (provider clients + chain orchestration)
   ├── internal/library                   (SQLite collection and artwork paths)
   ├── recognition coordinator            (trigger loop + confirmation + persistence policies)
@@ -142,18 +143,20 @@ works across the network, so you can see the live display from a laptop while th
 ```
 cmd/
   oceano-source-detector/   # Go: Physical/None detector + VU + PCM relay (systemd service)
-  oceano-state-manager/     # Go: unified state aggregator + ACRCloud recognition (systemd service)
+  oceano-state-manager/     # Go: unified state aggregator + recognition + Bluetooth monitor (systemd service)
   oceano-web/               # Go: config UI + /api/stream SSE + /nowplaying.html (port 8080)
     static/
       index.html            #   Configuration UI (all screen sizes)
       nowplaying.html       #   Full-screen now playing UI for 5"–7" HDMI/DSI displays
+  oceano-setup/             # Go: interactive first-time setup wizard (run once after install)
 scripts/
   test-acoustid.sh          # Legacy standalone AcoustID experiment (not used by services)
-install.sh                  # Installer: AirPlay stack (shairport-sync + bridge + watchdog)
+install.sh                  # Installer: AirPlay + Bluetooth stack (shairport-sync, BlueZ, AAC codec plugin, PipeWire wiring)
 install-source-detector.sh  # Installer: builds and installs the Go detector
 install-source-manager.sh   # Installer: builds and installs the Go state manager
 install-oceano-web.sh       # Installer: builds and installs the web UI
 install-oceano-display.sh   # Installer: kiosk Chromium service for HDMI/DSI display
+install-shazam.sh           # Installer: optional Shazam Python recognizer dependency
 ```
 
 ## Source detector
