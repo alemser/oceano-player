@@ -22,6 +22,7 @@ DEFAULT_SILENCE_THRESHOLD="0.025"
 DEFAULT_DEBOUNCE="10"
 DEFAULT_VU_SOCKET="/tmp/oceano-vu.sock"
 DEFAULT_PCM_SOCKET="/tmp/oceano-pcm.sock"
+DEFAULT_CAPTURE_GAIN=""
 
 # Newline character used when building multi-line ExecStart strings.
 NL=$'\n'
@@ -53,6 +54,34 @@ is_root() {
 
 is_installed() {
   [[ -f "${BINARY_DEST}" && -f "${SERVICE_DEST}" ]]
+}
+
+# set_capture_gain finds the capture card by matching device_match against
+# /proc/asound/cards, sets the mic gain with amixer, and stores the new ALSA
+# state so it survives reboots. A no-op when gain is empty.
+set_capture_gain() {
+  local gain="$1"
+  local match="$2"
+
+  [[ -z "${gain}" ]] && return 0
+
+  local card_num
+  card_num=$(grep -i "${match}" /proc/asound/cards 2>/dev/null | head -1 | awk '{print $1}')
+  if [[ -z "${card_num}" ]]; then
+    log_warn "Capture card matching '${match}' not found — --capture-gain ignored"
+    return 0
+  fi
+
+  # Try 'Mic' first (most USB capture cards), fall back to 'Capture'.
+  if amixer -c "${card_num}" sset 'Mic' "${gain}%" >/dev/null 2>&1; then
+    alsactl store
+    log_ok "Capture gain set to ${gain}% on card ${card_num} (alsactl store saved)"
+  elif amixer -c "${card_num}" sset 'Capture' "${gain}%" >/dev/null 2>&1; then
+    alsactl store
+    log_ok "Capture gain (Capture control) set to ${gain}% on card ${card_num} (alsactl store saved)"
+  else
+    log_warn "Could not set capture gain on card ${card_num} — check control name with: amixer -c ${card_num}"
+  fi
 }
 
 build_binary() {
@@ -135,6 +164,7 @@ main() {
   local debounce="${DEFAULT_DEBOUNCE}"
   local vu_socket="${DEFAULT_VU_SOCKET}"
   local pcm_socket="${DEFAULT_PCM_SOCKET}"
+  local capture_gain="${DEFAULT_CAPTURE_GAIN}"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -145,6 +175,7 @@ main() {
       --debounce)          debounce="${2:-}";          shift 2 ;;
       --vu-socket)         vu_socket="${2:-}";         shift 2 ;;
       --pcm-socket)        pcm_socket="${2:-}";        shift 2 ;;
+      --capture-gain)      capture_gain="${2:-}";      shift 2 ;;
       -h|--help)
         echo "Usage: sudo ./install-source-detector.sh [options]"
         echo ""
@@ -156,6 +187,7 @@ main() {
         echo "  --debounce <n>              Majority vote window size (default: ${DEFAULT_DEBOUNCE})"
         echo "  --vu-socket <path>          Unix socket for VU meter frames (default: ${DEFAULT_VU_SOCKET})"
         echo "  --pcm-socket <path>         Unix socket for raw PCM relay (default: ${DEFAULT_PCM_SOCKET})"
+        echo "  --capture-gain <0-100>      Set mic capture gain % and persist with alsactl store (optional)"
         exit 0
         ;;
       *) log_error "Unknown argument: $1"; exit 1 ;;
@@ -172,6 +204,7 @@ main() {
     _db="$(_cfg "['audio_input']['debounce_windows']")";  [[ -n "${_db}" ]] && debounce="${_db}"
     _vu="$(_cfg "['advanced']['vu_socket']")";        [[ -n "${_vu}" ]]   && vu_socket="${_vu}"
     _pcm="$(_cfg "['advanced']['pcm_socket']")";      [[ -n "${_pcm}" ]]  && pcm_socket="${_pcm}"
+    _cg="$(_cfg "['audio_input']['capture_gain']")";  [[ -n "${_cg}" ]]   && capture_gain="${_cg}"
     log_info "Configuration loaded from ${config_file}"
   fi
 
@@ -200,6 +233,11 @@ main() {
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
   log_ok "${SERVICE_NAME} is now running."
+
+  if [[ -n "${capture_gain}" ]]; then
+    log_section "Capture Gain"
+    set_capture_gain "${capture_gain}" "${device_match}"
+  fi
 
   log_section "Done"
   log_ok "${mode} completed successfully!"

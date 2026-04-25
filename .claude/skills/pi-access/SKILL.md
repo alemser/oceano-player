@@ -1,3 +1,8 @@
+---
+name: pi-access
+description: SSH access to Raspberry Pi at 192.168.178.99 for debugging, log analysis, and running commands. Use when user asks to check logs, debug services, or run commands on the Pi.
+---
+
 # Raspberry Pi SSH Access
 
 Use SSH to connect to the Raspberry Pi for debugging, testing, and running commands.
