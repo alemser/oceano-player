@@ -34,6 +34,8 @@ The **Listening Metrics** screen (`cmd/oceano-web/static/history.html`, title *L
 
 This keeps “what is working well” obvious without reading logs on the Pi. Treat **empty states and failure copy** the same way as existing recognition stats (placeholder when no data or API errors).
 
+**Fresh installs:** see **README.md → First-time setup → §4** for user-facing expectations (empty metrics at first, no “mode switch”, telemetry only from the running binary’s lifetime after each deploy).
+
 ---
 
 ## Physical format classification lag (Vinyl / CD vs “Physical”)

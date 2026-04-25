@@ -111,6 +111,12 @@ To list available capture devices:
 arecord -l
 ```
 
+### 4. Listening metrics and boundary telemetry (optional)
+
+Open **`http://<pi-ip>:8080/history.html`** (also linked from the main config page as **Metrics**). The same services and recognition logic run from the first boot; there is **no separate “learning phase”** you must enable. What starts empty is **historical data**: play history, recognition counters, and **VU boundary telemetry** only appear after you have actually played physical media (and gone through track changes or silence transitions the monitor can see).
+
+On a **fresh install**, expect **low or zero counts** for the first hours or days. After a **service upgrade**, boundary rows are recorded from the **new process start onward** (events before the restart are not backfilled into the database). Totals become more useful after **a week or two** of normal listening if you want to compare suppression rates or tune calibration—but the system is fully operational before then.
+
 ---
 
 ## Update
