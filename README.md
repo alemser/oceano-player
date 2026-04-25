@@ -229,6 +229,14 @@ Frame rate: ~22 fps (2048-sample buffer at 44.1 kHz ≈ 46 ms per frame).
 
 ### AirPlay not appearing on iPhone / devices
 
+0. **shairport-sync is `failed` (PulseAudio / “Connection refused”)** — the service runs as
+   `shairport-sync` and **cannot** use the logged-in user’s PipeWire. Current releases use the
+   **ALSA** backend to your DAC. Open the web config and **Save** (or re-run
+   `sudo oceano-setup` so it rewrites `shairport-sync.conf`), then
+   `sudo systemctl restart oceano-web shairport-sync` and check
+   `journalctl -u shairport-sync -n 20 --no-pager`. **Fresh `.deb` or newer `oceano-web`**
+   migrates a legacy `output_backend = "pa"` on startup automatically.
+
 1. **Amplifier input not set to USB** — shairport-sync needs the DAC to be present at startup. Set the input to USB and re-run `sudo ./install.sh`.
 
 2. **shairport-sync not running**:

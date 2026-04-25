@@ -10,11 +10,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/alemser/oceano-player/internal/amplifier"
+	"github.com/alemser/oceano-player/internal/shairport"
 )
 
 //go:embed static
@@ -39,6 +41,44 @@ type ALSADevice struct {
 	Desc string `json:"desc"`
 }
 
+const shairportConfigPath = "/etc/shairport-sync.conf"
+
+// migrateShairportPAToAlsaOnStartup rewrites a legacy "pa" shairport config. The
+// shairport-sync system user cannot connect to the session PipeWire at /run/user/…/pulse
+// (see journal: "Connection refused" to pulseaudio), so the unit failed and AirPlay disappeared.
+// One-time: uses DAC + name from config and restarts shairport-sync.
+func migrateShairportPAToAlsaOnStartup(configPath string) {
+	b, err := os.ReadFile(shairportConfigPath)
+	if err != nil {
+		return
+	}
+	if !strings.Contains(string(b), `output_backend = "pa"`) {
+		return
+	}
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		log.Printf("shairport migration: read config: %v", err)
+		return
+	}
+	alsa := strings.TrimSpace(cfg.AudioOutput.Device)
+	if alsa == "" {
+		alsa = "default"
+	}
+	name := strings.TrimSpace(cfg.AudioOutput.AirPlayName)
+	if name == "" {
+		name = "Oceano"
+	}
+	if err := shairport.WriteConfig(shairportConfigPath, name, alsa); err != nil {
+		log.Printf("shairport pa→alsa migration: %v", err)
+		return
+	}
+	if err := exec.Command("systemctl", "restart", "shairport-sync.service").Run(); err != nil {
+		log.Printf("shairport migration restart: %v", err)
+		return
+	}
+	log.Println("shairport: migrated PA backend to ALSA (restarted service)")
+}
+
 func main() {
 	configPath := flag.String("config", "/etc/oceano/config.json", "path to Oceano config file")
 	addr := flag.String("addr", ":8080", "listen address")
@@ -48,6 +88,7 @@ func main() {
 	var err error
 
 	_ = os.MkdirAll("/etc/oceano", 0o755)
+	migrateShairportPAToAlsaOnStartup(*configPath)
 
 	mux := http.NewServeMux()
 
@@ -208,13 +249,25 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		}
 	}
 
-	// Restart shairport-sync only when the AirPlay name actually changed.
-	if old.AudioOutput.AirPlayName != cfg.AudioOutput.AirPlayName && cfg.AudioOutput.AirPlayName != "" {
-		if err := updateShairportName(cfg.AudioOutput.AirPlayName); err != nil {
-			results = append(results, "shairport-sync name update: "+err.Error())
+	// Rewrite shairport when AirPlay name or DAC (ALSA) changes — use ALSA output so
+	// the system shairport-sync user does not need the user's PipeWire-Pulse socket.
+	if old.AudioOutput != cfg.AudioOutput {
+		alsa := strings.TrimSpace(cfg.AudioOutput.Device)
+		if alsa == "" {
+			alsa = "default"
+		}
+		name := strings.TrimSpace(cfg.AudioOutput.AirPlayName)
+		if name == "" {
+			name = "Oceano"
+		}
+		if err := shairport.WriteConfig(shairportConfigPath, name, alsa); err != nil {
+			results = append(results, "shairport-sync config: "+err.Error())
+			hadError = true
+		} else if err := restartService("shairport-sync.service"); err != nil {
+			results = append(results, "shairport-sync restart: "+err.Error())
 			hadError = true
 		} else {
-			results = append(results, "shairport-sync restarted (new AirPlay name)")
+			results = append(results, "shairport-sync: ALSA output updated and service restarted")
 		}
 	}
 
@@ -256,38 +309,6 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		"ok":      !hadError,
 		"results": results,
 	})
-}
-
-// updateShairportName replaces the name field in /etc/shairport-sync.conf
-// and restarts shairport-sync so the new name is advertised on mDNS immediately.
-func updateShairportName(name string) error {
-	const confPath = "/etc/shairport-sync.conf"
-	data, err := os.ReadFile(confPath)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", confPath, err)
-	}
-	lines := strings.Split(string(data), "\n")
-	updated := false
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "name") && strings.Contains(trimmed, "=") {
-			indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-			lines[i] = fmt.Sprintf(`%sname = "%s";`, indent, name)
-			updated = true
-			break
-		}
-	}
-	if !updated {
-		return fmt.Errorf("name field not found in %s", confPath)
-	}
-	tmp := confPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, confPath); err != nil {
-		return err
-	}
-	return restartService("shairport-sync.service")
 }
 
 // applyBluetoothConfig applies Bluetooth adapter settings that take effect

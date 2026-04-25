@@ -112,6 +112,14 @@ CHROME_BIN=${CHROMIUM_BIN}
 NOWPLAYING_URL="http://localhost:8080/nowplaying.html"
 CHROME_DATA=\${HOME}/.config/chromium
 [[ -d "\${CHROME_DATA}" ]] && rm -f "\${CHROME_DATA}/SingletonLock"
+oceano_xrandr_auto() {
+  command -v xrandr >/dev/null 2>&1 || return 0
+  xrandr --auto 2>/dev/null && return 0
+  for out in \$(xrandr 2>/dev/null | awk '/ connected/{print \$1}'); do
+    xrandr --output "\$out" --auto 2>/dev/null || true
+  done
+  return 0
+}
 run_chromium() {
   exec "\${CHROME_BIN}" \
   --kiosk \
@@ -127,7 +135,6 @@ run_chromium() {
   --disable-sync \
   --password-store=basic \
   --use-mock-keychain \
-  --window-size=1024,600 \
   --hide-cursor \
   --app="\${NOWPLAYING_URL}"
 }
@@ -139,13 +146,14 @@ if [ -z "\${OCEANO_FORCE_XVFB:-}" ]; then
     d="\${DISPLAY#:}"
     d="\${d%%.*}"
     if [ -S "/tmp/.X11-unix/X\${d}" ]; then
+      oceano_xrandr_auto
       run_chromium
     fi
   fi
 fi
 cleanup() { [[ -n "\${XVFB_PID:-}" ]] && kill "\${XVFB_PID}" 2>/dev/null; }
 trap cleanup EXIT
-Xvfb :99 -screen 0 1024x600x24 -nolisten tcp &
+Xvfb :99 -screen 0 1024x768x24 -nolisten tcp &
 XVFB_PID=\$!
 export DISPLAY=:99
 sleep 2

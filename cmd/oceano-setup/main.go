@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/alemser/oceano-player/internal/shairport"
 )
 
 const (
@@ -161,52 +163,7 @@ func writeConfig(cfg map[string]interface{}) error {
 	return os.Rename(tmp, configPath)
 }
 
-// ── shairport-sync.conf (PipeWire mode — default on Raspberry Pi OS Bookworm) ─
-
-func writeShairportConf(airplayName string) error {
-	content := fmt.Sprintf(`general =
-{
-  name = %q;
-  output_backend = "pa";
-  interpolation = "soxr";
-};
-
-pa =
-{
-  application_name = "Shairport Sync";
-  sink = "";
-};
-
-metadata =
-{
-  enabled = "yes";
-  include_cover_art = "yes";
-  pipe_name = "/tmp/shairport-sync-metadata";
-  pipe_timeout = 5000;
-  cover_art_cache_directory = "/tmp/shairport-sync/.cache/coverart";
-};
-
-sessioncontrol =
-{
-  wait_for_completion = "yes";
-};
-`, airplayName)
-
-	// Back up the original file once
-	if _, err := os.Stat(shairportConf); err == nil {
-		bak := shairportConf + ".oceano.bak"
-		if _, err := os.Stat(bak); os.IsNotExist(err) {
-			orig, _ := os.ReadFile(shairportConf)
-			_ = os.WriteFile(bak, orig, 0644)
-		}
-	}
-
-	tmp := shairportConf + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, shairportConf)
-}
+// ── shairport-sync: see internal/shairport (ALSA direct; system user cannot use user PipeWire)
 
 // ── Bluetooth ─────────────────────────────────────────────────────────────────
 
@@ -247,6 +204,11 @@ func configureBluetooth(deviceName string) {
 	if err != nil {
 		logWarn("Could not set Bluetooth adapter alias (adapter may not be ready yet)")
 	}
+	_ = exec.Command("bluetoothctl", "power", "on").Run()
+	time.Sleep(500 * time.Millisecond)
+	_ = exec.Command("bluetoothctl", "pairable", "on").Run()
+	_ = exec.Command("bluetoothctl", "discoverable", "on").Run()
+	logOK("Bluetooth: adapter on, discoverable, pairable (visible in system Bluetooth lists)")
 
 	if _, err := exec.LookPath("bt-agent"); err == nil {
 		svc := `[Unit]
@@ -546,6 +508,15 @@ CHROME_BIN=%s
 NOWPLAYING_URL=%s
 CHROME_DATA=${HOME}/.config/chromium
 [[ -d "${CHROME_DATA}" ]] && rm -f "${CHROME_DATA}/SingletonLock"
+# Ask Xorg for the native/preferred mode on a physical display (avoids 1024×600 on 1024×768 panels, etc.)
+oceano_xrandr_auto() {
+  command -v xrandr >/dev/null 2>&1 || return 0
+  xrandr --auto 2>/dev/null && return 0
+  for out in $(xrandr 2>/dev/null | awk '/ connected/{print $1}'); do
+    xrandr --output "$out" --auto 2>/dev/null || true
+  done
+  return 0
+}
 run_chromium() {
   exec "${CHROME_BIN}" \
   --kiosk \
@@ -561,7 +532,6 @@ run_chromium() {
   --disable-sync \
   --password-store=basic \
   --use-mock-keychain \
-  --window-size=1024,600 \
   --hide-cursor \
   --app="${NOWPLAYING_URL}"
 }
@@ -573,13 +543,14 @@ if [ -z "${OCEANO_FORCE_XVFB:-}" ]; then
     d="${DISPLAY#:}"
     d="${d%%%%.*}"
     if [ -S "/tmp/.X11-unix/X${d}" ]; then
+      oceano_xrandr_auto
       run_chromium
     fi
   fi
 fi
 cleanup() { [[ -n "${XVFB_PID:-}" ]] && kill "${XVFB_PID}" 2>/dev/null; }
 trap cleanup EXIT
-Xvfb :99 -screen 0 1024x600x24 -nolisten tcp &
+Xvfb :99 -screen 0 1024x768x24 -nolisten tcp &
 XVFB_PID=$!
 export DISPLAY=:99
 sleep 2
@@ -740,10 +711,10 @@ func main() {
 	// ── Apply ────────────────────────────────────────────────────────────────
 	section("Applying configuration")
 
-	if err := writeShairportConf(airplayName); err != nil {
+	if err := shairport.WriteConfig(shairportConf, airplayName, outputDevice); err != nil {
 		logWarn("Could not write shairport-sync.conf: " + err.Error())
 	} else {
-		logOK("Written " + shairportConf)
+		logOK("Written " + shairportConf + " (ALSA output for system shairport; AirPlay mDNS + playback)")
 	}
 
 	setKey(cfg, "audio_output", "airplay_name", airplayName)

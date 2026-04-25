@@ -235,6 +235,12 @@ journalctl -u oceano-display.service -f
 
 ## Troubleshooting
 
+### AirPlay not listed on the phone / shairport-sync is `failed`
+
+**Symptom:** `systemctl status shairport-sync` is failed, logs show `failed to connect to the pulseaudio context` / `Connection refused`.
+
+`shairport-sync` runs as a **system** user, but PipeWire for the logged-in session listens at **/run/user/…/pulse**, so the `pa` backend is wrong for a stock `.deb` + `oceano-setup` without the full `install.sh` PipeWire wiring. **Current `oceano-setup` and the web “Save” path write the ALSA backend** to the DAC in `config.json`, and `oceano-web` can migrate a legacy `pa` config on startup. Re-run the wizard or **Save** in the web UI after upgrading the binary, then: `sudo systemctl restart oceano-web` (migration) and `systemctl status shairport-sync`.
+
 ### ACRCloud not recognising tracks / recognition fails silently
 
 **Symptom:** `no match` in state manager logs, or `network is unreachable`.
