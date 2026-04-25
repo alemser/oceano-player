@@ -683,9 +683,32 @@ function _wizCommit() {
   }
 }
 
-function _wizSaveAndClose() {
+async function _wizSaveAndClose() {
   closeCalibrationWizard();
-  toast('Calibration updated. Click "Save & Restart Services" to persist.', false);
+  try {
+    const r = await fetch('/api/config');
+    if (!r.ok) throw new Error('load failed');
+    const fullCfg = await r.json();
+    // Only update calibration_profiles — no other field changes, so no service
+    // restarts are triggered by apiPostConfig.
+    fullCfg.advanced = {
+      ...(fullCfg.advanced ?? {}),
+      calibration_profiles: _normalizeCalibrationProfiles(_calibrationState.byInput),
+    };
+    const sr = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fullCfg),
+    });
+    const sd = await sr.json().catch(() => ({}));
+    if (!sr.ok) {
+      toast('Calibration updated — save failed: ' + (sd.error || sr.status), true);
+    } else {
+      toast('Calibration saved. Recommended thresholds will apply after "Save & Restart Services".');
+    }
+  } catch {
+    toast('Calibration updated. Click "Save & Restart Services" to persist.', false);
+  }
 }
 
 // ── Wizard input/checkbox change handlers ──────────────────────────────────────
