@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -265,6 +266,50 @@ func run(name string, args ...string) {
 	}
 }
 
+func withDebianNoninteractive() []string {
+	return append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+}
+
+// installDisplayAptStack mirrors install-oceano-display.sh: Xvfb and minimal X
+// packages so Chromium can start under systemd with DISPLAY=:99.
+func installDisplayAptStack() {
+	cmd := exec.Command("apt-get", "update", "-qq")
+	cmd.Env = withDebianNoninteractive()
+	_ = cmd.Run()
+
+	install := exec.Command("apt-get", append(
+		[]string{"install", "-y", "--no-install-recommends"},
+		"xserver-xorg-core", "xserver-xorg", "xinit", "xvfb", "x11-utils", "xauth",
+	)...)
+	install.Env = withDebianNoninteractive()
+	if err := install.Run(); err != nil {
+		logWarn(fmt.Sprintf("X / Xvfb metapackage install: %v — trying xvfb only", err))
+		fallback := exec.Command("apt-get", "install", "-y", "xvfb")
+		fallback.Env = withDebianNoninteractive()
+		if err2 := fallback.Run(); err2 != nil {
+			logWarn("Could not install xvfb: " + err2.Error())
+		}
+	}
+}
+
+func findXvfb() string {
+	if p, err := exec.LookPath("Xvfb"); err == nil {
+		return p
+	}
+	return ""
+}
+
+// nowPlayingAppURL turns "http://host:8080" or "http://host:8080/" into
+// "http://host:8080/nowplaying.html" for the kiosk --app= URL.
+func nowPlayingAppURL(webAddr string) string {
+	s := strings.TrimSpace(webAddr)
+	s = strings.TrimRight(s, "/")
+	if s == "" {
+		return "http://127.0.0.1:8080/nowplaying.html"
+	}
+	return s + "/nowplaying.html"
+}
+
 // ── Display (HDMI/DSI kiosk) ───────────────────────────────────────────────────
 
 func findChromium() string {
@@ -284,8 +329,12 @@ func configureDisplay(user string, webAddr string) {
 	if chromium == "" {
 		logWarn("Chromium not found — installing chromium (Bookworm) or chromium-browser (transitional)...")
 		// Bookworm/Raspberry Pi OS use the "chromium" package; "chromium-browser" is a transitional metapackage on older images.
-		if err := exec.Command("apt-get", "install", "-y", "chromium").Run(); err != nil {
-			_ = exec.Command("apt-get", "install", "-y", "chromium-browser").Run()
+		a := exec.Command("apt-get", "install", "-y", "chromium")
+		a.Env = withDebianNoninteractive()
+		if err := a.Run(); err != nil {
+			b := exec.Command("apt-get", "install", "-y", "chromium-browser")
+			b.Env = withDebianNoninteractive()
+			_ = b.Run()
 		}
 		chromium = findChromium()
 	}
@@ -295,36 +344,86 @@ func configureDisplay(user string, webAddr string) {
 	}
 	logOK("Chromium: " + chromium)
 
+	logWarn("Installing Xvfb and minimal X stack for kiosk (same as install-oceano-display.sh)...")
+	installDisplayAptStack()
+	if xvfb := findXvfb(); xvfb != "" {
+		logOK("Xvfb: " + xvfb)
+	} else {
+		logWarn("Xvfb not found in PATH after apt — kiosk is unlikely to work until xvfb is installed")
+	}
+
+	// Aligned with packaging/install-oceano-display.sh: require HDMI, DSI, or DP connector
 	displayCheck := `#!/bin/bash
-# Exit 0 if HDMI or DSI display is detected, non-zero otherwise.
-for card in /sys/class/drm/card*; do
-  status=$(cat "${card}/status" 2>/dev/null || true)
-  if [[ "$status" == "connected" ]]; then
-    exit 0
+set -e
+FOUND=false
+shopt -s nullglob
+for status_file in /sys/class/drm/card*/status; do
+  [[ -f "$status_file" ]] || continue
+  connector=$(basename "$(dirname "$status_file")")
+  if [[ "$connector" == *HDMI* || "$connector" == *DSI* || "$connector" == *DP* ]]; then
+    if [[ "$(cat "$status_file")" == "connected" ]]; then
+      FOUND=true
+      break
+    fi
   fi
 done
-exit 1
+shopt -u nullglob
+[[ "$FOUND" == "true" ]] && exit 0 || exit 1
 `
 	if err := os.WriteFile(displayCheckBin, []byte(displayCheck), 0755); err != nil {
 		logWarn("Could not write " + displayCheckBin + ": " + err.Error())
 		return
 	}
 
-	displayLaunch := fmt.Sprintf("#!/bin/bash\n# Minimal kiosk launch (no Xvfb). For a full Pi kiosk stack, prefer install-oceano-display.sh from the repo.\nexec %s --kiosk --no-sandbox --disable-dev-shm-usage --disable-gpu --disable-software-rasterizer \\\n  --disable-infobars --disable-session-crashed-bubble \\\n  %s/nowplaying.html\n", chromium, webAddr)
+	now := nowPlayingAppURL(webAddr)
+	nowBash := strconv.Quote(now)
+	// Kiosk: Xvfb on :99 + Chromium app mode. Matches install-oceano-display.sh
+	// (Chromium is given as a single literal path; NOWPLAYING_URL is shell-quoted from Go).
+	displayLaunch := fmt.Sprintf(`#!/bin/bash
+set -e
+NOWPLAYING_URL=%s
+CHROME_DATA=${HOME}/.config/chromium
+[[ -d "${CHROME_DATA}" ]] && rm -f "${CHROME_DATA}/SingletonLock"
+cleanup() { [[ -n "${XVFB_PID:-}" ]] && kill "${XVFB_PID}" 2>/dev/null; }
+trap cleanup EXIT
+Xvfb :99 -screen 0 1024x600x24 -nolisten tcp &
+XVFB_PID=$!
+export DISPLAY=:99
+sleep 2
+exec %s \
+  --kiosk \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --noerrdialogs \
+  --disable-infobars \
+  --no-first-run \
+  --disable-session-crashed-bubble \
+  --disable-features=TranslateUI \
+  --check-for-update-interval=315360000 \
+  --disable-background-networking \
+  --disable-sync \
+  --password-store=basic \
+  --use-mock-keychain \
+  --window-size=1024,600 \
+  --hide-cursor \
+  --app="${NOWPLAYING_URL}"
+`, nowBash, chromium)
 	if err := os.WriteFile(displayLaunchBin, []byte(displayLaunch), 0755); err != nil {
 		logWarn("Could not write " + displayLaunchBin + ": " + err.Error())
 		return
 	}
 
 	displaySvc := fmt.Sprintf(`[Unit]
-Description=Oceano Display (HDMI/DSI kiosk)
-After=network.target
+Description=Oceano Display — now playing kiosk (Xvfb + Chromium)
+After=network.target oceano-web.service
 Wants=oceano-web.service
+ConditionPathExists=/sys/class/drm
 
 [Service]
 Type=simple
 User=%s
-ExecStartPre=%s
+ExecCondition=%s
+ExecStartPre=/bin/sleep 2
 ExecStart=%s
 Restart=on-failure
 RestartSec=5
