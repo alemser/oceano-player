@@ -427,19 +427,18 @@ shopt -u nullglob
 
 	now := nowPlayingAppURL(webAddr)
 	nowBash := strconv.Quote(now)
-	// Kiosk: Xvfb on :99 + Chromium app mode. Same as install-oceano-display.sh.
+	chromeQ := strconv.Quote(chromium)
+	// OCEANO_FORCE_XVFB=1 is set only by the systemd oceano-display unit. When LightDM
+	// or startx provides a real X (DISPLAY, typically :0) for this same script, skip Xvfb
+	// and draw on the physical connector.
 	displayLaunch := fmt.Sprintf(`#!/bin/bash
 set -e
+CHROME_BIN=%s
 NOWPLAYING_URL=%s
 CHROME_DATA=${HOME}/.config/chromium
 [[ -d "${CHROME_DATA}" ]] && rm -f "${CHROME_DATA}/SingletonLock"
-cleanup() { [[ -n "${XVFB_PID:-}" ]] && kill "${XVFB_PID}" 2>/dev/null; }
-trap cleanup EXIT
-Xvfb :99 -screen 0 1024x600x24 -nolisten tcp &
-XVFB_PID=$!
-export DISPLAY=:99
-sleep 2
-exec %s \
+run_chromium() {
+  exec "${CHROME_BIN}" \
   --kiosk \
   --no-sandbox \
   --disable-dev-shm-usage \
@@ -456,7 +455,27 @@ exec %s \
   --window-size=1024,600 \
   --hide-cursor \
   --app="${NOWPLAYING_URL}"
-`, nowBash, chromium)
+}
+if [ -z "${OCEANO_FORCE_XVFB:-}" ]; then
+  if [ -z "${DISPLAY:-}" ] && [ -S /tmp/.X11-unix/X0 ] && [ -f "${HOME}/.Xauthority" ]; then
+    export DISPLAY=:0
+  fi
+  if [ -n "${DISPLAY:-}" ]; then
+    d="${DISPLAY#:}"
+    d="${d%%%%.*}"
+    if [ -S "/tmp/.X11-unix/X${d}" ]; then
+      run_chromium
+    fi
+  fi
+fi
+cleanup() { [[ -n "${XVFB_PID:-}" ]] && kill "${XVFB_PID}" 2>/dev/null; }
+trap cleanup EXIT
+Xvfb :99 -screen 0 1024x600x24 -nolisten tcp &
+XVFB_PID=$!
+export DISPLAY=:99
+sleep 2
+run_chromium
+`, chromeQ, nowBash)
 	if err := os.WriteFile(displayLaunchBin, []byte(displayLaunch), 0755); err != nil {
 		logWarn("Could not write " + displayLaunchBin + ": " + err.Error())
 		return
@@ -528,8 +547,10 @@ user-session=oceano-kiosk
 			"re-run oceano-setup and answer Y to LightDM if you use a local HDMI/DSI screen.")
 	}
 
+	// oceano-display (systemd) is only for headless/kiosk without LightDM. When LightDM autologs
+	// to oceano-kiosk, the same launch script runs on the real :0; keep Xvfb forced only here.
 	displaySvc := fmt.Sprintf(`[Unit]
-Description=Oceano Display — now playing kiosk (HDMI/DSI, Xvfb)
+Description=Oceano Display — now playing kiosk (Xvfb fallback)
 After=network.target oceano-web.service
 Wants=oceano-web.service
 ConditionPathExists=/sys/class/drm
@@ -537,6 +558,7 @@ ConditionPathExists=/sys/class/drm
 [Service]
 Type=simple
 User=%s
+Environment=OCEANO_FORCE_XVFB=1
 ExecCondition=%s
 ExecStartPre=/bin/sleep 2
 ExecStart=%s
@@ -553,9 +575,16 @@ WantedBy=multi-user.target
 	}
 
 	run("systemctl", "daemon-reload")
-	run("systemctl", "enable", "--no-block", "oceano-display.service")
-	run("systemctl", "start", "--no-block", "oceano-display.service")
-	logOK("Display service enabled and started (oceano-display.service) — see journalctl -u oceano-display -b")
+	if lightAutologin && haveLightdm() {
+		run("systemctl", "disable", "--no-block", "oceano-display.service")
+		run("systemctl", "stop", "--no-block", "oceano-display.service")
+		logOK("oceano-display (systemd) disabled: kiosk is started on the local display by the LightDM " +
+			"oceano-kiosk session. Reboot to apply, then: journalctl -b -u lightdm")
+	} else {
+		run("systemctl", "enable", "--no-block", "oceano-display.service")
+		run("systemctl", "start", "--no-block", "oceano-display.service")
+		logOK("Display service enabled and started (oceano-display.service) — see journalctl -u oceano-display -b")
+	}
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

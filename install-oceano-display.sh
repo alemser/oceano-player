@@ -104,23 +104,16 @@ if [ -z "$CHROMIUM_BIN" ]; then
     exit 1
 fi
 
-# Create kiosk launch wrapper
+# Create kiosk launch wrapper (kept in sync with oceano-setup: real X on :0 when not forced, else Xvfb)
 cat > /usr/local/bin/oceano-display-launch <<LAUNCHEOF
 #!/bin/bash
 set -e
+CHROME_BIN=${CHROMIUM_BIN}
 NOWPLAYING_URL="http://localhost:8080/nowplaying.html"
 CHROME_DATA=\${HOME}/.config/chromium
 [[ -d "\${CHROME_DATA}" ]] && rm -f "\${CHROME_DATA}/SingletonLock"
-
-cleanup() { [[ -n "\${XVFB_PID:-}" ]] && kill "\${XVFB_PID}" 2>/dev/null; }
-trap cleanup EXIT
-
-Xvfb :99 -screen 0 1024x600x24 -nolisten tcp &
-XVFB_PID=\$!
-export DISPLAY=:99
-sleep 2
-
-exec ${CHROMIUM_BIN} \
+run_chromium() {
+  exec "\${CHROME_BIN}" \
   --kiosk \
   --no-sandbox \
   --disable-dev-shm-usage \
@@ -137,6 +130,26 @@ exec ${CHROMIUM_BIN} \
   --window-size=1024,600 \
   --hide-cursor \
   --app="\${NOWPLAYING_URL}"
+}
+if [ -z "\${OCEANO_FORCE_XVFB:-}" ]; then
+  if [ -z "\${DISPLAY:-}" ] && [ -S /tmp/.X11-unix/X0 ] && [ -f "\${HOME}/.Xauthority" ]; then
+    export DISPLAY=:0
+  fi
+  if [ -n "\${DISPLAY:-}" ]; then
+    d="\${DISPLAY#:}"
+    d="\${d%%.*}"
+    if [ -S "/tmp/.X11-unix/X\${d}" ]; then
+      run_chromium
+    fi
+  fi
+fi
+cleanup() { [[ -n "\${XVFB_PID:-}" ]] && kill "\${XVFB_PID}" 2>/dev/null; }
+trap cleanup EXIT
+Xvfb :99 -screen 0 1024x600x24 -nolisten tcp &
+XVFB_PID=\$!
+export DISPLAY=:99
+sleep 2
+run_chromium
 LAUNCHEOF
 chmod 0755 /usr/local/bin/oceano-display-launch
 
@@ -190,6 +203,7 @@ ConditionPathExists=/sys/class/drm
 [Service]
 Type=simple
 User=${KIOSK_USER}
+Environment=OCEANO_FORCE_XVFB=1
 ExecCondition=/usr/local/bin/oceano-display-check
 ExecStartPre=/bin/sleep 2
 ExecStart=/usr/local/bin/oceano-display-launch
@@ -202,12 +216,18 @@ WantedBy=multi-user.target
 SVCEOF
 chmod 0644 /etc/systemd/system/oceano-display.service
 systemctl daemon-reload
-systemctl enable oceano-display.service
-# Start immediately so the kiosk appears without an extra reboot (ExecCondition still requires a connected panel).
-if systemctl start oceano-display.service 2>/dev/null; then
-  echo "Started oceano-display.service now."
+if command -v lightdm >/dev/null 2>&1; then
+  # Same as oceano-setup: the kiosk is shown on the local X session (LightDM), not Xvfb+systemd.
+  systemctl disable oceano-display.service 2>/dev/null || true
+  systemctl stop oceano-display.service 2>/dev/null || true
+  echo "oceano-display (systemd) is disabled: kiosk is started by the oceano-kiosk LightDM session."
 else
-  echo "Note: oceano-display.service did not start (e.g. display disconnected). It will start on next boot if a panel is connected."
+  systemctl enable oceano-display.service
+  if systemctl start oceano-display.service 2>/dev/null; then
+    echo "Started oceano-display.service now (Xvfb; no LightDM on this system)."
+  else
+    echo "Note: oceano-display.service did not start (e.g. display disconnected). It will start on next boot if a panel is connected."
+  fi
 fi
 
 echo ""
