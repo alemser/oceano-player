@@ -508,15 +508,8 @@ CHROME_BIN=%s
 NOWPLAYING_URL=%s
 CHROME_DATA=${HOME}/.config/chromium
 [[ -d "${CHROME_DATA}" ]] && rm -f "${CHROME_DATA}/SingletonLock"
-# Ask Xorg for the native/preferred mode on a physical display (avoids 1024×600 on 1024×768 panels, etc.)
-oceano_xrandr_auto() {
-  command -v xrandr >/dev/null 2>&1 || return 0
-  xrandr --auto 2>/dev/null && return 0
-  for out in $(xrandr 2>/dev/null | awk '/ connected/{print $1}'); do
-    xrandr --output "$out" --auto 2>/dev/null || true
-  done
-  return 0
-}
+# Do not run xrandr here: "xrandr --auto" can pick an invalid HDMI mode on some Pi+panel
+# setups and black the display. Rely on Xorg and --kiosk; tune HDMI in /boot/firmware/config.txt if needed.
 run_chromium() {
   exec "${CHROME_BIN}" \
   --kiosk \
@@ -543,7 +536,6 @@ if [ -z "${OCEANO_FORCE_XVFB:-}" ]; then
     d="${DISPLAY#:}"
     d="${d%%%%.*}"
     if [ -S "/tmp/.X11-unix/X${d}" ]; then
-      oceano_xrandr_auto
       run_chromium
     fi
   fi

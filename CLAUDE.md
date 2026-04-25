@@ -303,6 +303,13 @@ loginctl show-session "$(loginctl | awk '/lightdm-autologin/ {print $1; exit}')"
 
 The graphical session for the kiosk should be **X11** with `oceano-kiosk`, not `rpd-labwc` / Wayland.
 
+**Black or blank local HDMI/DSI (after a version that ran `xrandr --auto` in the launch script):** on some
+panels, forcing modes via `xrandr` at Chromium startup can select an out-of-range timing and the screen
+stays off. The launch script no longer calls `xrandr`; re-deploy the updated `oceano-display-launch` and
+`sudo systemctl restart lightdm` (or re-run the display part of `oceano-setup`). If the mode is still
+wrong, set HDMI mode in `/boot/firmware/config.txt` (Raspberry Pi: `raspi-config` or `hdmi_mode` / `hdmi_group`
+for the panel’s native resolution) rather than in the kiosk launch script.
+
 ---
 
 ## Documentation hygiene
