@@ -28,10 +28,12 @@
       <span id="idle-logo-text">OCEANO</span>
     </div>
 
+    <div class="idle-topbar-center" id="idle-topbar-center">
     <div id="idle-location-cond">
       <span id="idle-location-label"></span>
       <span class="idle-sep">·</span>
       <span id="idle-weather-cond">—</span>
+    </div>
     </div>
 
     <div id="idle-meta-stats">
@@ -50,8 +52,9 @@
     </div>
   </div>
 
-  <!-- Main: clock (left) | weather icon (centre) | temperature (right) -->
-  <div id="idle-main">
+  <!-- Main: classic = clock | icon | temp; colourful = hero (location + time + date + condition | clouds + sun + temp) -->
+  <div id="idle-main" class="idle-main">
+    <div class="idle-main-classic" id="idle-main-classic">
     <div id="idle-clock-widget">
       <div id="idle-time-row">
         <div id="idle-time"></div>
@@ -67,6 +70,39 @@
     <div id="idle-temp-group">
       <div id="idle-weather-temp"></div>
       <div id="idle-weather-feels"></div>
+    </div>
+    </div>
+
+    <div class="idle-main-hero" id="idle-main-hero">
+      <div class="idle-hero-left" aria-label="Time and place">
+        <div class="idle-hero-time-row" id="idle-hero-time-row" aria-label="Time">
+          <span class="idle-hero-h" id="idle-hero-h">—</span><span class="idle-hero-time-sub" aria-label="24h time">
+            <span class="idle-hero-m" id="idle-hero-m">--</span>
+            <span class="idle-hero-sec" id="idle-hero-sec" aria-label="Seconds"></span>
+          </span>
+        </div>
+        <div class="idle-hero-date-block" id="idle-hero-date-block">
+          <div class="idle-hero-dow" id="idle-hero-dow" aria-label="Day of week"></div>
+          <div class="idle-hero-dmy" id="idle-hero-dmy" aria-label="Date"></div>
+        </div>
+        <div class="idle-hero-loc" id="idle-location-hero"></div>
+        <div class="idle-hero-cond" id="idle-weather-cond-hero">—</div>
+        <div class="idle-hero-feels" id="idle-weather-feels-hero"></div>
+      </div>
+      <div class="idle-hero-right" id="idle-hero-right" aria-hidden="true">
+        <div class="idle-hero-sky-canvas" id="idle-hero-sky-canvas" aria-label="Local sky">
+          <div class="idle-hero-photo" aria-hidden="true"></div>
+          <div class="idle-hero-grad-mesh" aria-hidden="true"></div>
+          <div class="idle-hero-orb" id="idle-hero-orb">
+            <div class="idle-hero-sun-disc" id="idle-hero-sun-disc" aria-hidden="true"></div>
+          </div>
+          <div class="idle-hero-weather-temp" id="idle-weather-temp-hero" aria-label="Current temperature">—</div>
+          <div class="idle-hero-clouds-fg" id="idle-hero-sky-fg" aria-hidden="true">
+            <div class="idle-hero-fg-cloud" aria-hidden="true"></div>
+            <div class="idle-hero-fg-cloud idle-hero-fg-b" aria-hidden="true"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -142,6 +178,7 @@
 
 <script src="/nowplaying/helpers.js"></script>
 <script src="/nowplaying/clock.js"></script>
+<script src="/nowplaying/idle-atmosphere.js"></script>
 <script src="/nowplaying/weather.js"></script>
 <script src="/icons.js"></script>
 <script src="/nowplaying/main.js"></script>

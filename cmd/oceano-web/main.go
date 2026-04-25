@@ -249,7 +249,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	}
 
 	// amplifier controls: managed in-memory by oceano-web — no systemd restart needed.
-	// weather: rendered client-side from /api/config — no restart needed.
+	// weather and now_playing.idle_screen_theme: rendered client-side from /api/config — no restart needed.
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{

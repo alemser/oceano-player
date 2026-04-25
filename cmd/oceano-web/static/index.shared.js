@@ -57,6 +57,11 @@ async function loadConfig() {
 
   const npAmbientEl = document.getElementById('np-ambient-color');
   if (npAmbientEl) npAmbientEl.checked = cfg.now_playing?.ambient_color_enabled ?? true;
+  const npIdleThemeEl = document.getElementById('np-idle-screen-theme');
+  if (npIdleThemeEl) {
+    const t = (cfg.now_playing?.idle_screen_theme || 'classic').toLowerCase();
+    npIdleThemeEl.value = t === 'colourful' || t === 'colorful' ? 'colourful' : 'classic';
+  }
   set('np-idle-delay', cfg.advanced?.idle_delay_secs ?? 3);
 
   const weatherEnabledEl = document.getElementById('weather-enabled');
@@ -409,6 +414,7 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
     },
     now_playing: {
       ambient_color_enabled: document.getElementById('np-ambient-color')?.checked ?? true,
+      idle_screen_theme:     document.getElementById('np-idle-screen-theme')?.value === 'colourful' ? 'colourful' : 'classic',
     },
     advanced: {
       ..._advancedConfig,

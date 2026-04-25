@@ -83,6 +83,9 @@ async function sendPowerAction(action) {
 // ─── Ambient colour ──────────────────────────────────────────────────────────
 
 let _ambientEnabled = true;
+// After /api/config loads: false when no ALSA capture device (device or device_match) is set.
+let _captureInputKnown = false;
+let _captureInputConfigured = true;
 
 async function loadAmbientConfig() {
   try {
@@ -90,6 +93,12 @@ async function loadAmbientConfig() {
     if (!r.ok) return;
     const cfg = await r.json();
     _ambientEnabled = cfg.now_playing?.ambient_color_enabled ?? true;
+    const ai = cfg.audio_input || {};
+    const dev = String(ai.device || '').trim();
+    const match = String(ai.device_match || '').trim();
+    _captureInputConfigured = Boolean(dev || match);
+    _captureInputKnown = true;
+    if (_lastState) applyState(_lastState);
   } catch { /* network error — keep default */ }
 }
 
@@ -238,13 +247,22 @@ function applyState(state) {
     $album.textContent  = track.album  || '';
     updateArtwork(track.artwork_path || null);
   } else if (playing && (source === 'Physical' || source === 'CD' || source === 'Vinyl')) {
-    // Playing but not yet identified — only physical sources use ACRCloud recognition.
-    $title.textContent  = 'Identifying…';
-    $artist.textContent = '';
-    $album.textContent  = '';
-    $identifying.className = 'pulsing';
-    $identifying.textContent = 'Listening for a match';
-    showDefaultArtwork();
+    // Without a configured capture path, the recognizer cannot run — do not show "Identifying…".
+    if (_captureInputKnown && !_captureInputConfigured) {
+      $title.textContent  = 'Unidentified';
+      $artist.textContent = '';
+      $album.textContent  = '';
+      $identifying.className = '';
+      $identifying.textContent = 'Configure audio input in settings';
+      showDefaultArtwork();
+    } else {
+      $title.textContent  = 'Identifying…';
+      $artist.textContent = '';
+      $album.textContent  = '';
+      $identifying.className = 'pulsing';
+      $identifying.textContent = 'Listening for a match';
+      showDefaultArtwork();
+    }
   } else if (playing && source !== 'None') {
     // Streaming source playing without metadata (e.g. Bluetooth without AVRCP).
     $title.textContent  = '—';

@@ -280,8 +280,261 @@ body::after {
   background:
     radial-gradient(55% 45% at 12% 18%, rgba(74, 158, 255, 0.09), transparent 70%),
     radial-gradient(40% 38% at 82% 72%, rgba(116, 145, 255, 0.06), transparent 70%);
+  transition: opacity 0.75s ease, background 0.75s ease;
 }
 #idle-screen.visible { opacity: 1; pointer-events: auto; }
+
+/* Weather-tinted idle (config: now_playing.idle_screen_theme = "colourful") */
+#idle-screen.idle-theme-colourful {
+  background: var(--idle-sky) !important;
+  transition: background 0.85s ease;
+}
+#idle-screen.idle-theme-colourful::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(ellipse 92% 55% at 20% 3%, var(--idle-orb-c) 0%, transparent 68%);
+  opacity: var(--idle-orb, 0);
+}
+#idle-screen.idle-theme-colourful #idle-topbar {
+  border-bottom-color: var(--idle-bar);
+  transition: border-color 0.5s ease;
+}
+#idle-screen.idle-theme-colourful #idle-logo { color: var(--idle-logo); }
+#idle-screen.idle-theme-colourful #idle-logo-text { color: var(--idle-logot); }
+#idle-screen.idle-theme-colourful #idle-time { color: var(--idle-t); }
+#idle-screen.idle-theme-colourful #idle-seconds { color: var(--idle-sec); }
+#idle-screen.idle-theme-colourful #idle-date { color: var(--idle-date); }
+#idle-screen.idle-theme-colourful #idle-location-label { color: var(--idle-loc); }
+#idle-screen.idle-theme-colourful #idle-weather-cond { color: var(--idle-cond); }
+#idle-screen.idle-theme-colourful .idle-sep { color: var(--idle-sep); }
+#idle-screen.idle-theme-colourful .idle-stat-lbl { color: var(--idle-stat-l); }
+#idle-screen.idle-theme-colourful .idle-stat-val { color: var(--idle-stat-v); }
+#idle-screen.idle-theme-colourful #idle-weather-temp { color: var(--idle-temp); }
+#idle-screen.idle-theme-colourful #idle-weather-temp-hero { color: var(--idle-temp, rgba(255, 255, 255, 0.95)); }
+#idle-screen.idle-theme-colourful #idle-weather-feels { color: var(--idle-feels); }
+#idle-screen.idle-theme-colourful #idle-weather-icon-wrap svg { color: var(--idle-icon); }
+#idle-screen.idle-theme-colourful #idle-forecast { border-top-color: var(--idle-fc-br); }
+#idle-screen.idle-theme-colourful .idle-fc-name { color: var(--idle-fc-n); }
+#idle-screen.idle-theme-colourful .idle-fc-name.today { color: var(--idle-fc-td); }
+#idle-screen.idle-theme-colourful .idle-fc-max { color: var(--idle-fc-mx); }
+#idle-screen.idle-theme-colourful .idle-fc-min { color: var(--idle-fc-mn); }
+#idle-screen.idle-theme-colourful .idle-fc-icon { color: var(--idle-fc-ic); }
+#idle-screen.idle-theme-colourful .idle-fc-precip { color: var(--idle-fc-pr); }
+#idle-screen.idle-theme-colourful .idle-fc-day { border-right-color: var(--idle-fc-br); }
+#idle-screen.idle-theme-colourful .idle-topbar-center { display: none !important; }
+
+/* ─── Colourful hero: two columns (time | sky), large clock, real photo layer, sun arc from sunrise/sunset */
+#idle-screen:not(.idle-theme-colourful) .idle-main-hero { display: none !important; }
+#idle-screen.idle-theme-colourful .idle-main-classic { display: none !important; }
+#idle-screen:not(.idle-theme-colourful) .idle-main-classic {
+  flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  gap: clamp(28px, 7vw, 96px);
+  padding: clamp(12px, 3vh, 32px) clamp(32px, 8vw, 100px);
+  position: relative; z-index: 1;
+}
+#idle-screen:not(.idle-theme-colourful) #idle-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#idle-screen.idle-theme-colourful #idle-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; }
+#idle-screen.idle-theme-colourful .idle-main-hero {
+  position: relative; z-index: 1; flex: 1; min-height: 0; width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  column-gap: clamp(20px, 3.5vw, 48px);
+  align-items: center;
+  padding: clamp(10px, 1.8vh, 22px) clamp(20px, 4.5vw, 52px) clamp(4px, 0.8vh, 10px);
+  max-width: min(1280px, 100vw);
+  margin: 0 auto;
+}
+.idle-hero-left {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  min-width: 0; gap: clamp(7px, 1.6vh, 16px);
+  padding-right: 6px;
+}
+.idle-hero-date-block { display: flex; flex-direction: column; align-items: flex-start; gap: 0.12em; margin: 0.1em 0 0.18em; }
+.idle-hero-dow {
+  font-size: clamp(1.52rem, 2.9vw, 2.4rem);
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  line-height: 1.1;
+  color: var(--idle-hero-date, rgba(255, 255, 255, 0.92));
+  text-shadow: 0 1px 4px rgba(0,0,0,0.14);
+  font-variant-numeric: tabular-nums;
+}
+.idle-hero-dmy {
+  font-size: clamp(1.3rem, 2.2vw, 1.9rem);
+  font-weight: 300;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  color: var(--idle-hero-date, rgba(255, 255, 255, 0.9));
+  text-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  opacity: 0.95;
+  white-space: nowrap;
+}
+.idle-hero-loc {
+  font-size: clamp(1.02rem, 1.45vw, 1.22rem);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--idle-hero-loc, rgba(255, 255, 255, 0.92));
+  text-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  margin-top: 0.12em;
+}
+#idle-hero-time-row, .idle-hero-time-row {
+  display: flex; flex-wrap: nowrap; align-items: baseline;
+  gap: 0; line-height: 0.86; margin: 0.02em 0 0.04em; white-space: nowrap;
+}
+/* 24h — HH + :MM + :SS, single clock cluster (ultra-light, reference-style) */
+.idle-hero-h {
+  font-size: clamp(7.5rem, 25vw, 18rem);
+  font-weight: 200;
+  letter-spacing: -0.045em;
+  line-height: 0.88;
+  font-variant-numeric: tabular-nums;
+  color: var(--idle-hero-h, rgba(255, 255, 255, 0.95));
+  text-shadow: 0 2px 18px rgba(0,0,0,0.12);
+}
+.idle-hero-time-sub { display: inline-flex; flex-wrap: nowrap; align-items: baseline; gap: 0; }
+.idle-hero-m {
+  font-size: clamp(5.8rem, 19.5vw, 14.5rem);
+  font-weight: 200;
+  letter-spacing: -0.04em;
+  line-height: 0.88;
+  font-variant-numeric: tabular-nums;
+  color: var(--idle-hero-sub, rgba(255, 255, 255, 0.95));
+  text-shadow: 0 2px 14px rgba(0,0,0,0.1);
+  margin: 0;
+}
+.idle-hero-sec {
+  display: inline;
+  font-size: clamp(1.6rem, 2.7vw, 2.1rem);
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
+  color: var(--idle-hero-sec, rgba(255, 255, 255, 0.62));
+  margin-left: 0.12em; letter-spacing: 0.02em;
+  align-self: flex-end; padding-bottom: 0.25em; opacity: 0.88;
+}
+.idle-hero-cond {
+  font-size: clamp(1.02rem, 1.2vw, 1.2rem);
+  font-weight: 500; letter-spacing: 0.01em;
+  color: var(--idle-hero-cond, rgba(255, 255, 255, 0.78));
+  text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  margin-top: 0.1em;
+}
+.idle-hero-feels {
+  font-size: clamp(0.92rem, 1.1vw, 1.04rem);
+  font-weight: 300;
+  color: var(--idle-hero-feels, rgba(255, 255, 255, 0.55));
+  margin-top: 0.1em;
+}
+/* Right: borderless sky — sun/moon is decorative; temperature is a large corner numeral (no “disc frame”) */
+.idle-hero-right { min-width: 0; }
+.idle-hero-sky-canvas {
+  position: relative; width: 100%;
+  min-height: clamp(220px, 38vh, 360px);
+  max-height: min(42vh, 400px);
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  outline: none;
+  isolation: isolate;
+}
+@media (min-width: 900px) and (max-height: 650px) {
+  .idle-hero-sky-canvas { min-height: min(32vh, 200px); max-height: 230px; }
+  .idle-hero-h { font-size: clamp(4.2rem, 12vw, 7.6rem); }
+  .idle-hero-m { font-size: clamp(3.1rem, 9.2vw, 6.2rem); }
+  .idle-hero-dow { font-size: clamp(1.1rem, 1.7vw, 1.45rem); letter-spacing: 0.16em; }
+  .idle-hero-dmy { font-size: clamp(1.05rem, 1.6vw, 1.32rem); }
+  .idle-hero-loc { font-size: clamp(0.92rem, 1.25vw, 1.1rem); }
+  .idle-hero-cond { font-size: clamp(0.92rem, 1.18vw, 1.06rem); }
+  .idle-hero-feels { font-size: clamp(0.85rem, 1.05vw, 0.98rem); }
+  .idle-hero-sec { font-size: clamp(1.25rem, 1.75vw, 1.55rem); }
+  #idle-weather-temp-hero, .idle-hero-weather-temp { font-size: clamp(2.4rem, 7.5vw, 4.2rem) !important; }
+}
+.idle-hero-photo {
+  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background-image: url("/nowplaying/sky/clouds-soft.webp");
+  background-size: cover; background-position: center 42%;
+  opacity: 0.52; mix-blend-mode: soft-light; filter: saturate(1.05) contrast(1.02);
+}
+#idle-main-hero[data-wmo="3"] .idle-hero-photo { opacity: 0.7; }
+#idle-main-hero[data-wmo="0"] .idle-hero-photo,
+#idle-main-hero[data-wmo="1"] .idle-hero-photo { opacity: 0.4; }
+#idle-main-hero[data-wmo^="6"] .idle-hero-photo,
+#idle-main-hero[data-wmo^="5"] .idle-hero-photo { opacity: 0.58; }
+.idle-hero-grad-mesh {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(20, 45, 90, 0.05) 70%, rgba(255,255,255,0.08) 100%);
+  border-radius: 0;
+}
+.idle-hero-orb {
+  position: absolute; z-index: 1;
+  width: min(30vw, 168px);
+  height: min(30vw, 168px);
+  min-width: 88px; min-height: 88px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: left 1.1s ease-out, top 1.1s ease-out;
+}
+.idle-hero-sun-disc {
+  position: absolute; left: 50%; top: 50%;
+  width: 88%; height: 88%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle at 35% 32%, #fff8e6 0%, #ffd14a 35%, #ff9a1a 100%);
+  box-shadow: 0 0 min(3vw, 24px) rgba(255, 200, 80, 0.45), 0 0 min(8vw, 64px) rgba(255, 200, 100, 0.22), inset 0 0 24px rgba(255, 255, 220, 0.38);
+  transition: background 0.5s, box-shadow 0.5s, opacity 0.4s;
+}
+#idle-weather-temp-hero, .idle-hero-weather-temp {
+  position: absolute; right: clamp(2px, 1.2vw, 16px); bottom: clamp(0px, 1.2vh, 14px); left: auto; top: auto;
+  z-index: 3;
+  transform: none;
+  max-width: 58%;
+  font-size: clamp(3.2rem, 9.5vw, 6.5rem);
+  font-weight: 200;
+  letter-spacing: -0.045em;
+  line-height: 0.92;
+  text-align: right; font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.97);
+  text-shadow: 0 2px 22px rgba(0, 0, 0, 0.2), 0 1px 0 rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+  margin: 0; padding: 0;
+  border: none; background: none; box-shadow: none;
+}
+#idle-main-hero[data-orb-day="0"] .idle-hero-sun-disc,
+.idle-hero-sun-disc.idle-hero-moon,
+#idle-main-hero[data-daytime="0"] .idle-hero-sun-disc {
+  background: radial-gradient(circle at 32% 28%, #f2f4fc 0%, #a8b8d8 40%, #6a7a9a 100%);
+  box-shadow: 0 0 min(3vw, 22px) rgba(180, 200, 240, 0.4), 0 0 min(6vw, 50px) rgba(80, 120, 200, 0.15), inset 0 0 22px rgba(220, 230, 255, 0.35);
+}
+#idle-main-hero[data-wmo="3"] .idle-hero-orb { opacity: 0.5; }
+.idle-hero-clouds-fg { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: visible; }
+.idle-hero-fg-cloud {
+  position: absolute; left: -4%; width: 56%; height: 22%;
+  bottom: 0; border-radius: 50%;
+  background: radial-gradient(ellipse 80% 100% at 50% 60%, rgba(255, 255, 255, 0.96) 0%, rgba(245, 250, 255, 0.35) 70%, transparent 100%);
+  box-shadow: 0 2px 24px rgba(0, 0, 0, 0.06);
+  filter: blur(0.2px);
+  opacity: 0.7;
+  transform: rotate(-2deg);
+}
+.idle-hero-fg-b {
+  left: 28%; width: 50%; height: 18%;
+  bottom: 4%;
+  opacity: 0.55; transform: rotate(3deg);
+}
+#idle-main-hero[data-wmo="2"] .idle-hero-fg-cloud { opacity: 0.8; }
+#idle-main-hero[data-wmo="0"] .idle-hero-fg-b { opacity: 0.3; }
+@media (max-width: 720px) {
+  #idle-screen.idle-theme-colourful .idle-main-hero {
+    grid-template-columns: 1fr; row-gap: 12px;
+    padding-left: 18px; padding-right: 18px;
+  }
+  .idle-hero-sky-canvas { min-height: 200px; }
+}
 
 
 #top-controls { position: absolute; top: 20px; right: max(22px, calc((100vw - min(100vw, var(--content-max-width))) / 2 + 22px)); z-index: 22; display: flex; align-items: center; gap: 10px; }
@@ -311,14 +564,7 @@ body::after {
 .idle-stat-lbl { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #3e4e6a; }
 .idle-stat-val { font-size: 0.92rem; font-weight: 400; color: #6e82a8; font-variant-numeric: tabular-nums; }
 
-/* ─── Main section ─────────────────────────────────────────── */
-#idle-main {
-  flex: 1; min-height: 0;
-  display: flex; align-items: center; justify-content: center;
-  gap: clamp(28px, 7vw, 96px);
-  padding: clamp(12px, 3vh, 32px) clamp(32px, 8vw, 100px);
-  position: relative; z-index: 1;
-}
+/* Main row layout: see `.idle-main-classic` and `#idle-screen.idle-theme-colourful #idle-main` above. */
 
 /* Clock */
 #idle-clock-widget { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; flex-shrink: 0; }
@@ -344,7 +590,16 @@ body::after {
   display: flex; align-items: stretch; justify-content: stretch;
   border-top: 1px solid rgba(255, 255, 255, 0.04);
   padding: clamp(8px, 1.8vh, 18px) clamp(24px, 5vw, 60px);
-  flex-shrink: 0; position: relative; z-index: 1; gap: 0;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 4;
+  gap: 0;
+}
+#idle-screen.idle-theme-colourful #idle-forecast {
+  /* Keeps 7-day row readable if sky art still bleeds slightly on very small heights */
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 .idle-fc-day {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;
@@ -427,7 +682,7 @@ body::after {
   #meta-chips { gap: 8px; }
   .chip { font-size: 0.72rem; padding: 4px 9px; }
   #idle-topbar { flex-wrap: wrap; gap: 10px; }
-  #idle-main { flex-direction: column; gap: 20px; }
+  #idle-screen:not(.idle-theme-colourful) .idle-main-classic { flex-direction: column; gap: 20px; }
   #idle-clock-widget { align-items: center; }
   #idle-forecast { flex-wrap: nowrap; overflow-x: auto; }
   #idle-meta-stats { gap: 16px; }

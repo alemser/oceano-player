@@ -57,13 +57,19 @@ if ! id "$KIOSK_USER" >/dev/null 2>&1; then
 fi
 
 echo ""
-echo "Installing X server and kiosk packages..."
+echo "Installing X server, virtual framebuffer, and Chromium (with full dependencies)..."
 export DEBIAN_FRONTEND=noninteractive
-apt-get install -y --no-install-recommends xorg openbox xvfb || true
+# Do not use "|| true" here — silent apt failures left Chromium half-installed and caused missing .so errors.
+apt-get update -qq || true
+apt-get install -y --no-install-recommends \
+  xserver-xorg-core xserver-xorg xinit xvfb x11-utils xauth \
+  || { echo "ERROR: could not install X / Xvfb packages." >&2; exit 1; }
 
-# chromium is assumed to be already installed
 if ! command -v chromium >/dev/null 2>&1 && ! [ -f /usr/lib/chromium/chromium ]; then
-    apt-get install -y --no-install-recommends chromium || true
+  # Install Chromium *with* Recommends so fonts and GTK/GBM stacks are present (avoids missing-library kiosk crashes).
+  apt-get install -y chromium \
+    || apt-get install -y chromium-browser \
+    || { echo "ERROR: could not install Chromium from apt." >&2; exit 1; }
 fi
 
 HOME_DIR=$(getent passwd "$KIOSK_USER" | cut -d: -f6)
@@ -120,6 +126,8 @@ sleep 2
 
 exec ${CHROMIUM_BIN} \
   --kiosk \
+  --no-sandbox \
+  --disable-dev-shm-usage \
   --noerrdialogs \
   --disable-infobars \
   --no-first-run \
@@ -144,33 +152,36 @@ XINITEOF
 chown "$KIOSK_USER:$KIOSK_USER" "${HOME_DIR}/.xinitrc"
 chmod 0755 "${HOME_DIR}/.xinitrc"
 
-# Configure autologin (use conf.d to avoid being overwritten by system updates)
-    mkdir -p /etc/lightdm/lightdm.conf.d
-    cat > /etc/lightdm/lightdm.conf.d/oceano-kiosk.conf <<AUTOLOGINEOF
-[Seat:*]
-autologin-user=${KIOSK_USER}
-autologin-user-timeout=0
-autologin-session=oceano-kiosk
-user-session=oceano-kiosk
-AUTOLOGINEOF
-
-    # Set user session in .dmrc (overrides previous session choice)
-    cat > "${HOME_DIR}/.dmrc" <<DMRCEOF
-[Desktop]
-Session=oceano-kiosk
-DMRCEOF
-    chown "$KIOSK_USER:$KIOSK_USER" "${HOME_DIR}/.dmrc"
-    chmod 0644 "${HOME_DIR}/.dmrc"
-
-    # Create X session file
-    mkdir -p /usr/share/xsessions
-    cat > /usr/share/xsessions/oceano-kiosk.desktop <<DESKTOPEOF
+# X session desktop (used if the user starts a graphical session manually)
+mkdir -p /usr/share/xsessions
+cat > /usr/share/xsessions/oceano-kiosk.desktop <<DESKTOPEOF
 [Desktop Entry]
 Name=Oceano Kiosk
 Comment=Oceano Now Playing Display
 Exec=/usr/local/bin/oceano-display-launch
 Type=Application
 DESKTOPEOF
+
+# LightDM autologin only when LightDM is actually installed (many Lite images have no display manager).
+if command -v lightdm >/dev/null 2>&1; then
+  mkdir -p /etc/lightdm/lightdm.conf.d
+  cat > /etc/lightdm/lightdm.conf.d/oceano-kiosk.conf <<AUTOLOGINEOF
+[Seat:*]
+autologin-user=${KIOSK_USER}
+autologin-user-timeout=0
+autologin-session=oceano-kiosk
+user-session=oceano-kiosk
+AUTOLOGINEOF
+  cat > "${HOME_DIR}/.dmrc" <<DMRCEOF
+[Desktop]
+Session=oceano-kiosk
+DMRCEOF
+  chown "$KIOSK_USER:$KIOSK_USER" "${HOME_DIR}/.dmrc"
+  chmod 0644 "${HOME_DIR}/.dmrc"
+  echo "LightDM autologin configured for user ${KIOSK_USER} (reboot to apply if you use a graphical boot)."
+else
+  echo "LightDM not installed — kiosk runs via systemd + Xvfb only. To use LightDM autologin: sudo apt install lightdm then re-run this script or copy conf from the README."
+fi
 
 # Create systemd service
 cat > /etc/systemd/system/oceano-display.service <<SVCEOF
@@ -196,12 +207,18 @@ SVCEOF
 chmod 0644 /etc/systemd/system/oceano-display.service
 systemctl daemon-reload
 systemctl enable oceano-display.service
+# Start immediately so the kiosk appears without an extra reboot (ExecCondition still requires a connected panel).
+if systemctl start oceano-display.service 2>/dev/null; then
+  echo "Started oceano-display.service now."
+else
+  echo "Note: oceano-display.service did not start (e.g. display disconnected). It will start on next boot if a panel is connected."
+fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Kiosk Setup Complete"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "Reboot to activate the display."
+echo "The service is enabled. If the screen did not turn on, reboot once: sudo reboot"
 echo ""
 echo "Monitor logs: journalctl -u oceano-display.service -f"

@@ -260,6 +260,10 @@ type NowPlayingConfig struct {
 	// AmbientColorEnabled extracts a dominant colour from the current track artwork
 	// and renders a soft radial glow behind the metadata column.
 	AmbientColorEnabled bool `json:"ambient_color_enabled"`
+	// IdleScreenTheme selects the clock/weather idle screen: "classic" (monochrome, default)
+	// or "colourful" (gradients and text colours driven by current weather, similar to
+	// Apple Weather). Rendered in the browser from /api/config; no service restart.
+	IdleScreenTheme string `json:"idle_screen_theme"`
 }
 
 // WeatherConfig controls idle-screen weather rendering in nowplaying.html.
@@ -575,6 +579,7 @@ func defaultConfig() Config {
 		},
 		NowPlaying: NowPlayingConfig{
 			AmbientColorEnabled: true,
+			IdleScreenTheme:     "classic",
 		},
 	}
 }

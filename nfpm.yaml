@@ -20,7 +20,7 @@ depends:
   - python3-venv
 
 recommends:
-  - chromium-browser
+  - chromium
 
 contents:
   # Binaries

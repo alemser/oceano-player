@@ -268,7 +268,10 @@ func run(name string, args ...string) {
 // ── Display (HDMI/DSI kiosk) ───────────────────────────────────────────────────
 
 func findChromium() string {
-	for _, bin := range []string{"chromium-browser", "chromium"} {
+	if st, err := os.Stat("/usr/lib/chromium/chromium"); err == nil && !st.IsDir() {
+		return "/usr/lib/chromium/chromium"
+	}
+	for _, bin := range []string{"chromium", "chromium-browser"} {
 		if path, err := exec.LookPath(bin); err == nil {
 			return path
 		}
@@ -279,10 +282,10 @@ func findChromium() string {
 func configureDisplay(user string, webAddr string) {
 	chromium := findChromium()
 	if chromium == "" {
-		logWarn("Chromium not found — installing chromium-browser...")
-		if err := exec.Command("apt-get", "install", "-y", "chromium-browser").Run(); err != nil {
-			logWarn("Could not install chromium-browser")
-			return
+		logWarn("Chromium not found — installing chromium (Bookworm) or chromium-browser (transitional)...")
+		// Bookworm/Raspberry Pi OS use the "chromium" package; "chromium-browser" is a transitional metapackage on older images.
+		if err := exec.Command("apt-get", "install", "-y", "chromium").Run(); err != nil {
+			_ = exec.Command("apt-get", "install", "-y", "chromium-browser").Run()
 		}
 		chromium = findChromium()
 	}
@@ -307,7 +310,7 @@ exit 1
 		return
 	}
 
-	displayLaunch := fmt.Sprintf("#!/bin/bash\nexec %s --kiosk --disable-gpu --disable-software-rasterizer \\\n  --disable-infobars --disable-session-crashed-bubble \\\n  --disable-dev-shm-usage --no-sandbox \\\n  %s/nowplaying.html\n", chromium, webAddr)
+	displayLaunch := fmt.Sprintf("#!/bin/bash\n# Minimal kiosk launch (no Xvfb). For a full Pi kiosk stack, prefer install-oceano-display.sh from the repo.\nexec %s --kiosk --no-sandbox --disable-dev-shm-usage --disable-gpu --disable-software-rasterizer \\\n  --disable-infobars --disable-session-crashed-bubble \\\n  %s/nowplaying.html\n", chromium, webAddr)
 	if err := os.WriteFile(displayLaunchBin, []byte(displayLaunch), 0755); err != nil {
 		logWarn("Could not write " + displayLaunchBin + ": " + err.Error())
 		return
