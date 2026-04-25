@@ -12,6 +12,7 @@ This document extends the earlier discussion into a concrete, incremental roadma
 - **Separate concerns:** (1) *when* to capture and fire triggers vs (2) *who* identifies the track (local vs cloud).
 - **Telemetry before policy changes:** log structured events and outcomes before tightening thresholds in production.
 - **Small PRs:** telemetry → optional local recognizer → optional statistical layer → optional ML-lite.
+- **User overrides:** optional per-library-track hints (e.g. *Boundary-sensitive*) must remain explicit, documented, and reversible.
 
 ---
 
@@ -105,6 +106,46 @@ Captured WAV is already available for each attempt. An optional **local-first** 
 
 ---
 
+## Axis 3 — False-positive diagnostics and user hints (not started; design only)
+
+This axis captures ideas that are **worth planning** but should stay **conservative** in product behavior: use them for telemetry, soft UI hints, and optional policy nudges — not hard errors or intrusive alerts.
+
+### Early re-recognition vs track end (“suspicious timing”)
+
+**Motivation:** Some material (e.g. a cappella or sparse vocals on CD) produces **vocal pauses** that resemble **inter-track silence**, so VU boundaries can fire **well before** the provider-reported track duration. That pattern is a **useful signal** for tuning and for spotting “difficult” albums; it is **not** proof of a bug (wrong metadata, alternate master, short hidden track, gapless segue, or intentional structure can all explain it).
+
+**Planned approach (when implemented):**
+
+- After a boundary-triggered recognition completes, persist **linkage** between the existing `boundary_events` row (or successor) and outcome: same recording ID vs new track vs no match, plus **seek/duration snapshot** at decision time.
+- Derive a conservative **“early boundary”** boolean (example only; thresholds TBD): e.g. provider `duration_ms` above a minimum **and** estimated progress below a fraction α of duration **and** boundary `outcome = fired`. Treat as **cohort analytics** first (counts on Listening Metrics, optional “tracks with repeated early boundaries”).
+- **Never** auto-block recognition from a single event; prefer **aggregates** and **repeat offenders** (same `collection_id` or stable title/artist key) before suggesting calibration review.
+
+Expose summaries on **Listening Metrics** under the same visibility contract as other recognition stats.
+
+### Per-track user flag (“hints” to recognition / boundaries)
+
+**Motivation:** Operators know problem tracks (e.g. a specific Tracy Chapman cut). A **library-level opt-in** lets the system apply **gentler or stricter** boundary/confirmation behaviour for those rows only, without changing global defaults for everyone.
+
+**Naming (UX / JSON — pick one primary; keep synonyms out of the schema):**
+
+| User-facing label (examples) | Notes |
+|------------------------------|--------|
+| **Boundary-sensitive** | Short, accurate: VU/track-boundary logic is what struggles. |
+| **Challenging for auto-boundaries** | Plain language; slightly long for a chip. |
+| **Ambiguous gaps** | Emphasises pause vs track-change confusion. |
+
+**Recommended schema direction:** a single boolean on `collection` (e.g. `boundary_sensitive INTEGER NOT NULL DEFAULT 0`) **or** a small enum if more hints are added later (e.g. `recognition_hint`: `none` | `boundary_sensitive`). The UI should explain in one sentence: *“More vocal pauses may be mistaken for track changes; the system can use stricter checks for this track.”*
+
+**Behaviour (when implemented; all behind explicit user toggle):**
+
+- **Hints**, not mandates: e.g. slightly **longer confirmation** window, **stricter** duration guard for that `collection_id`, or **prefer** continuity / provider duration for suppression — exact mapping is a product decision once telemetry exists.
+- Respect **Physical → Vinyl/CD** lag: the flag applies to the **library entry**; if the user changes format later, the hint remains on the same row.
+- Show the flag in the **library editor** and optionally a small badge in recognition/history context so operators remember why behaviour differs.
+
+**PR placeholder:** implement after boundary ↔ outcome linkage exists so the flag can be validated against real play data (avoid tuning a hint with no feedback loop).
+
+---
+
 ## Suggested PR sequence (can map to `recognition-phase2-precision`)
 
 | PR | Scope | Risk |
@@ -118,6 +159,8 @@ Captured WAV is already available for each attempt. An optional **local-first** 
 | R5 | Post-match fingerprint persistence + local lookup | Medium |
 | R6 | Offline-trained classifier for boundary confidence (optional) | Medium–high |
 | R6b | If R6 ships: model health / confidence distribution on metrics page (optional chart or percentile text) | Medium |
+| R7 | Link boundary events to post-recognition outcomes + **early-boundary** aggregates (conservative rules + Listening Metrics) | Medium |
+| R8 | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium |
 
 ---
 
@@ -126,6 +169,7 @@ Captured WAV is already available for each attempt. An optional **local-first** 
 - **False local matches** (alternate takes, live vs studio) — keep cloud confirmation for ambiguous scores.
 - **Physical format lag** — all analytics and models must support **late correction** (see above).
 - **Dependencies on Pi** — prefer optional components (like Shazam env) and clear install docs.
+- **“Early boundary” heuristics** — easy to over-interpret; keep as analytics until validated on real collections; never block playback or recognition on a single signal.
 
 ---
 
