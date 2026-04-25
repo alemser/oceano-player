@@ -358,7 +358,30 @@ func registerMicGainRoutes(mux *http.ServeMux, configPath string) {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		out, err := exec.Command("sudo", "/usr/sbin/alsactl", "store").CombinedOutput()
+
+		var cardNum int
+		if cardStr := r.URL.Query().Get("card"); cardStr != "" {
+			n, err := strconv.Atoi(cardStr)
+			if err != nil {
+				jsonError(w, "invalid card number", http.StatusBadRequest)
+				return
+			}
+			cardNum = n
+		} else {
+			cfg, loadErr := loadConfig(configPath)
+			if loadErr != nil {
+				jsonError(w, "failed to load config: "+loadErr.Error(), http.StatusInternalServerError)
+				return
+			}
+			var resolveErr error
+			cardNum, _, resolveErr = resolveCardNum(cfg.AudioInput)
+			if resolveErr != nil {
+				jsonError(w, "failed to resolve card number: "+resolveErr.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+
+		out, err := exec.Command("sudo", "/usr/sbin/alsactl", "store", strconv.Itoa(cardNum)).CombinedOutput()
 		if err != nil {
 			jsonError(w, "alsactl store failed: "+strings.TrimSpace(string(out)), http.StatusInternalServerError)
 			return
