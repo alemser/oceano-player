@@ -120,6 +120,47 @@ func TestShouldClearStaleRecognitionOnSilence_UnknownDurationDoesNotClear(t *tes
 	}
 }
 
+func TestShouldCoalesceIntraTrackSilenceAudio(t *testing.T) {
+	now := time.Now()
+	seekAt := now.Add(-20 * time.Second)
+	rec := &RecognitionResult{ACRID: "acr1", DurationMs: 106000}
+
+	if shouldCoalesceIntraTrackSilenceAudio("energy-change", rec, 106000, 10000, seekAt, now) {
+		t.Fatal("energy-change should not coalesce")
+	}
+	if shouldCoalesceIntraTrackSilenceAudio("silence->audio", nil, 106000, 10000, seekAt, now) {
+		t.Fatal("nil rec should not coalesce")
+	}
+	if shouldCoalesceIntraTrackSilenceAudio("silence->audio", &RecognitionResult{DurationMs: 106000}, 106000, 10000, seekAt, now) {
+		t.Fatal("rec without provider id should not coalesce")
+	}
+	if shouldCoalesceIntraTrackSilenceAudio("silence->audio", rec, 0, 10000, seekAt, now) {
+		t.Fatal("unknown duration should not coalesce")
+	}
+	// elapsed = 10s + 20s = 30s, maxEarly ≈ min(100s, 58.3s) => coalesce
+	if !shouldCoalesceIntraTrackSilenceAudio("silence->audio", rec, 106000, 10000, seekAt, now) {
+		t.Fatal("expected coalesce in early segment of known track")
+	}
+	// elapsed < min floor (4s wall + 2s reported seek) — still "just started"
+	earlyAnchor := now.Add(-2 * time.Second)
+	if shouldCoalesceIntraTrackSilenceAudio("silence->audio", rec, 106000, 2000, earlyAnchor, now) {
+		t.Fatal("expected no coalesce immediately after seek anchor")
+	}
+	// Very short track: maxEarly < 15s floor → no coalesce
+	if shouldCoalesceIntraTrackSilenceAudio("silence->audio", rec, 20000, 5000, seekAt, now) {
+		t.Fatal("expected no coalesce for very short track duration metadata")
+	}
+	// Late in track: elapsed past maxEarly
+	lateSeek := now.Add(-70 * time.Second)
+	if shouldCoalesceIntraTrackSilenceAudio("silence->audio", rec, 106000, 20000, lateSeek, now) {
+		t.Fatal("expected no coalesce past early window")
+	}
+	shazamOnly := &RecognitionResult{ShazamID: "5912597", DurationMs: 106000}
+	if !shouldCoalesceIntraTrackSilenceAudio("silence->audio", shazamOnly, 106000, 10000, seekAt, now) {
+		t.Fatal("Shazam-only id should still enable coalesce")
+	}
+}
+
 func TestPollSourceFile_TinyGapDoesNotQueueRecognition(t *testing.T) {
 	m := newTestMgr()
 	file := filepath.Join(t.TempDir(), "source.json")

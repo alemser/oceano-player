@@ -7,12 +7,13 @@ import (
 
 // Boundary telemetry outcomes for the VU / duration-boundary path (R1).
 const (
-	BoundaryOutcomeFired                   = "fired"
-	BoundaryOutcomeSuppressedDurationGuard = "suppressed_duration_guard"
-	BoundaryOutcomeIgnoredMatureProgress   = "ignored_mature_progress"
-	BoundaryOutcomeSuppressedNotPhysical   = "suppressed_not_physical"
-	BoundaryOutcomeTriggerChannelFull      = "trigger_channel_full"
-	BoundaryOutcomeEnergyChangeCooldown    = "energy_change_cooldown"
+	BoundaryOutcomeFired                       = "fired"
+	BoundaryOutcomeSuppressedDurationGuard     = "suppressed_duration_guard"
+	BoundaryOutcomeSuppressedIntraTrackSilence = "suppressed_intra_track_silence"
+	BoundaryOutcomeIgnoredMatureProgress       = "ignored_mature_progress"
+	BoundaryOutcomeSuppressedNotPhysical       = "suppressed_not_physical"
+	BoundaryOutcomeTriggerChannelFull          = "trigger_channel_full"
+	BoundaryOutcomeEnergyChangeCooldown        = "energy_change_cooldown"
 )
 
 // BoundaryEvent is one row in boundary_events (append-only telemetry).

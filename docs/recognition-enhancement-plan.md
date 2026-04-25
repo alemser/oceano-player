@@ -2,7 +2,7 @@
 
 This document extends the earlier discussion into a concrete, incremental roadmap. It is designed to preserve today’s stable behavior (VU monitor, calibration, coordinator, ACRCloud/Shazam chain, library) while improving precision over time.
 
-**Related work branch:** `recognition-phase2-precision` — use this branch for phased experiments and PRs aligned with this plan.
+**Status (2026-04):** Milestone **R1 + R1b** (boundary telemetry + Listening Metrics) is merged to **`main`**. **R1c** adds **intra-track silence→audio coalescing** in `source_vu_monitor.go` to cut repeated API calls on sparse passages when the duration-bypass guard is armed. Further experiments can branch from `main`.
 
 ---
 
@@ -148,21 +148,22 @@ Expose summaries on **Listening Metrics** under the same visibility contract as 
 
 ---
 
-## Suggested PR sequence (can map to `recognition-phase2-precision`)
+## Suggested PR sequence
 
-| PR | Scope | Risk |
-|----|--------|------|
-| R1 | `boundary_events` (or equivalent) + linkage ids for backfill; no trigger behavior change | Low |
-| R1b | (same milestone) Expose aggregates on **Listening Metrics** (API + `history.js`) — even a minimal “boundary events logged / period” card | Low |
-| R2 | Backfill job when user updates Vinyl/CD classification; docs + tests | Low |
-| R3 | Optional percentile-based nudges to calibration inputs (bounded) | Low–medium |
-| R4 | `LocalLibraryRecognizer` + config flag + tests | Medium |
-| R4b | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts | Low–medium |
-| R5 | Post-match fingerprint persistence + local lookup | Medium |
-| R6 | Offline-trained classifier for boundary confidence (optional) | Medium–high |
-| R6b | If R6 ships: model health / confidence distribution on metrics page (optional chart or percentile text) | Medium |
-| R7 | Link boundary events to post-recognition outcomes + **early-boundary** aggregates (conservative rules + Listening Metrics) | Medium |
-| R8 | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium |
+| PR | Scope | Risk | Status |
+|----|--------|------|--------|
+| R1 | `boundary_events` (or equivalent) + linkage ids for backfill; no trigger behavior change | Low | **Done** (on `main`) |
+| R1b | (same milestone) Expose aggregates on **Listening Metrics** (API + `history.js`) — even a minimal “boundary events logged / period” card | Low | **Done** |
+| R1c | Coalesce redundant **silence→audio** triggers in the **early** segment of an already-identified track (stable id + duration); telemetry outcome `suppressed_intra_track_silence` | Low | **Done** |
+| R2 | Backfill job when user updates Vinyl/CD classification; docs + tests | Low | Pending |
+| R3 | Optional percentile-based nudges to calibration inputs (bounded) | Low–medium | Pending |
+| R4 | `LocalLibraryRecognizer` + config flag + tests | Medium | Pending |
+| R4b | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts | Low–medium | Pending |
+| R5 | Post-match fingerprint persistence + local lookup | Medium | Pending |
+| R6 | Offline-trained classifier for boundary confidence (optional) | Medium–high | Pending |
+| R6b | If R6 ships: model health / confidence distribution on metrics page (optional chart or percentile text) | Medium | Pending |
+| R7 | Link boundary events to post-recognition outcomes + **early-boundary** aggregates (conservative rules + Listening Metrics) | Medium | Pending |
+| R8 | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium | Pending |
 
 ---
 
@@ -177,6 +178,4 @@ Expose summaries on **Listening Metrics** under the same visibility contract as 
 
 ## Immediate next step
 
-Open **`recognition-phase2-precision`** and land **R1 only**: append-only telemetry with stable IDs and `format_at_event` / `format_resolved` columns, **without** changing when boundaries fire. That unlocks everything else with minimal regression risk.
-
-Include **R1b** in the same milestone when feasible: wire the first aggregates to **Listening Metrics** (`/api/history/stats` or `/api/recognition/stats` + `history.js`) so new data is visible from day one.
+Land **R2** (format backfill for analytics when the user corrects Vinyl/CD on library rows) and continue telemetry-driven tuning using **Listening Metrics** counts (`suppressed_intra_track_silence` vs `fired`).

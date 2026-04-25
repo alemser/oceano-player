@@ -193,6 +193,7 @@ func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, err
 	actionableOutcomes := []string{
 		"fired",
 		"suppressed_duration_guard",
+		"suppressed_intra_track_silence",
 		"ignored_mature_progress",
 		"suppressed_not_physical",
 		"trigger_channel_full",
