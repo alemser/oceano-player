@@ -2,7 +2,7 @@
 
 This document extends the earlier discussion into a concrete, incremental roadmap. It is designed to preserve today’s stable behavior (VU monitor, calibration, coordinator, ACRCloud/Shazam chain, library) while improving precision over time.
 
-**Status (2026-04):** Milestone **R1 + R1b** (boundary telemetry + Listening Metrics) is on **`main`**. **R1c** (intra-track silence→audio coalesce) was **reverted** after field feedback: the heuristic suppressed too many legitimate track boundaries. A future attempt should be opt-in (config flag) and/or gated on **Boundary-sensitive** (R8), not global defaults.
+**Status (2026-04):** Milestone **R1 + R1b** (boundary telemetry + Listening Metrics) is on **`main`**. **R1c** (intra-track silence→audio coalesce) was **aborted** after field feedback: the heuristic suppressed too many legitimate track boundaries. Short-lived builds may still have rows with `outcome = suppressed_intra_track_silence` in `boundary_events`; the Listening Metrics UI labels those as **Legacy (intra-track experiment)** (`history.js`). A future retry should be **opt-in** (config flag) and/or gated on **Boundary-sensitive** (R8), not global defaults.
 
 ---
 
@@ -13,6 +13,7 @@ This document extends the earlier discussion into a concrete, incremental roadma
 - **Telemetry before policy changes:** log structured events and outcomes before tightening thresholds in production.
 - **Small PRs:** telemetry → optional local recognizer → optional statistical layer → optional ML-lite.
 - **User overrides:** optional per-library-track hints (e.g. *Boundary-sensitive*) must remain explicit, documented, and reversible.
+- **Pi-first resource budget:** heavy or optional work (fingerprints, local DB, inference) must not compete unfairly with **real-time** paths (VU socket read loop, PCM relay consumption). Prefer **strict concurrency limits**, **background/low-priority** execution where the runtime allows, and **load shedding** (skip local stage and fall through to cloud when CPU pressure or queues indicate risk to timely capture).
 
 ---
 
@@ -25,8 +26,9 @@ The **Listening Metrics** screen (`cmd/oceano-web/static/history.html`, title *L
 | Period plays, hours, top artists/albums, plays/hours by source | `GET /api/history/stats` | `cmd/oceano-web/static/history.js` (`loadStats`, `renderStats`, …) |
 | Stylus wear / hours (when enabled) | `GET /api/stylus` | `history.js` (`loadStylusSummary`, `renderStylusSummary`) |
 | Recognition provider counters (incl. **Trigger** boundary vs fallback timer, attempts/matches per provider) | `GET /api/recognition/stats` | `history.js` (`loadRecognitionStats`) — handler in `cmd/oceano-web/library.go` |
+| VU boundary decisions (`boundary_events`: fired / suppressed / ignored / …) | `GET /api/recognition/boundary-stats?days=` | `history.js` (`loadBoundaryStats`, `renderBoundaryStats`) — same period toggle as header stats |
 
-**Plan rule:** any optimisation that adds telemetry, a new recogniser stage, or new trigger semantics should **ship in the same change set** (or a immediately following PR) with:
+**Plan rule:** any optimisation that adds telemetry, a new recogniser stage, or new trigger semantics should **ship in the same change set** (or an immediately following PR) with:
 
 1. **Persistence** — counters or rows the metrics page can aggregate (extend `recognition_summary`, `play_history`, or new tables as needed).
 2. **API** — extend `playHistoryStatsResponse` / `/api/history/stats` and/or `/api/recognition/stats` (or a dedicated `GET` under `/api/recognition/…`) so the data is machine-readable and versioned.
@@ -35,6 +37,22 @@ The **Listening Metrics** screen (`cmd/oceano-web/static/history.html`, title *L
 This keeps “what is working well” obvious without reading logs on the Pi. Treat **empty states and failure copy** the same way as existing recognition stats (placeholder when no data or API errors).
 
 **Fresh installs:** see **README.md → First-time setup → §4** for user-facing expectations (empty metrics at first, no “mode switch”, telemetry only from the running binary’s lifetime after each deploy).
+
+---
+
+## Operational persistence — SQLite, SD wear, and telemetry volume
+
+Append-only **`boundary_events`** (and any growth in recognition event logging) increases **small random writes** on the library volume. On a Raspberry Pi this is often a **microSD card**, which can wear faster under sustained write amplification than SSD or eMMC.
+
+**Already in place:** Oceano opens the library database with **`PRAGMA journal_mode=WAL`** so readers (e.g. `oceano-web` metrics handlers, `internal/library/library.go` and `cmd/oceano-web/library.go` open paths) and the state-manager writer get **better concurrency** than rollback-journal defaults. Keep WAL on for production.
+
+**If insert rate becomes high** (dense boundary telemetry, micro-pauses):
+
+- Consider **batching** or short **in-memory coalescing** windows before flush (trade-off: loss of per-event resolution unless the batch stores aggregates).
+- Avoid holding **one huge write transaction** open during bursts; prefer **small, sequential commits** so read-heavy API paths stay responsive under WAL.
+- Operational escape hatch: move **`library.db`** to **USB SSD** or industrial-grade media if telemetry is kept forever at high frequency — document, don’t hard-require.
+
+Do not change **`PRAGMA synchronous`** or related durability knobs without measurement; Pi power-loss during a write is still a real risk.
 
 ---
 
@@ -62,33 +80,51 @@ Today the stack already combines **VU-driven boundaries** (`source_vu_monitor.go
 
 ### Phase 1A — Instrumentation (low risk, high value)
 
-For each boundary-related event (fired, suppressed hard/soft, coordinator skip), persist structured fields, for example:
+**Shipped (R1):** append-only `boundary_events` with outcome, boundary type, hard flag, physical source, `format_at_event`, duration/seek snapshots, reserved columns for `format_resolved` / linkage — enough for period aggregates on Listening Metrics.
+
+**Still open (feeds R7 / models):** richer fields per event, for example:
 
 - RMS summary around the transition (pre / during / post), silence duration, simple variance or “noise floor” proxies (live material often differs from steady studio pressings).
-- `format_at_event` / `format_resolved` (see above), approximate seek, provider-reported duration when available.
-- Outcome: trigger led to capture? match same track / new track / no match? confirmation path taken?
+- Tighter `format_resolved` backfill when the user corrects Vinyl/CD (see **R2**).
+- Outcome linkage: same recording vs new track vs no match after capture (not only VU outcome rows).
 
-Store in a dedicated table (e.g. `boundary_events`) or extend existing telemetry (`recognition_summary` / `play_history`) with clear foreign keys so **late format correction** can backfill.
+Persist new columns or a sidecar table with clear foreign keys to `play_history` / `collection` so **late format correction** can backfill without rewriting history.
 
 ### Phase 1B — Statistical layer (before “ML”)
 
 - Start with **percentiles and rolling aggregates** per cohort (`Vinyl`, `CD`, unresolved `Physical`) to suggest safer defaults for silence frames, thresholds, and guard windows.
 - Optional **lightweight classifiers** (logistic regression, small decision trees) trained **offline**; at runtime apply only **threshold nudges** within safe bounds, with fallback to current fixed calibration when confidence is low.
 
+**Analog front-end / non-stationary noise floor:** high-compliance styli and groove wear change **surface noise**, HF content, and **inner-groove** behaviour, so “silence” RMS distributions are **not static** over months of play. When building 1B cohorts, consider a **future covariate** such as **stylus hours** (or wear band) from existing **Phase 1D** / stylus metrics so suggested silence thresholds can **drift slowly** with equipment age — always bounded and opt-in to auto-apply.
+
 ### Phase 1C — ML-lite (only when data supports it)
+
+**Scope discipline:** treat ML-lite as **strictly optional** (“nice to have”). Well-calibrated **Phase 1B** outputs (rolling percentiles, bounded threshold nudges, simple logistic rules trained offline) are expected to capture the bulk of gain at a **fraction** of deploy complexity and RAM footprint versus shipping ONNX (or similar) on-device inference. Pursue 1C only when 1B is demonstrably insufficient on real telemetry.
 
 - Same features as 1B; export a small model (e.g. sklearn → ONNX or hand-rolled rules) and run **cheap inference** on the Pi, or even table lookup by feature bins initially.
 - Always keep **legacy path** when model confidence is below a cutoff or sample count is insufficient.
 
 ### Phase 1D — Stylus / groove wear (product)
 
-**Note:** Groove noise / stylus-oriented signals and UI already exist in the project. This plan treats 1D as **extend with longitudinal statistics** (trend + hysteresis + conservative messaging), not as greenfield. New work should integrate with existing calibration and display flows rather than duplicating parallel concepts.
+**Note:** Groove noise / stylus-oriented signals and UI already exist in the project. This plan treats 1D as **extend with longitudinal statistics** (trend + hysteresis + conservative messaging), not as greenfield. New work should integrate with existing calibration and display flows rather than duplicating parallel concepts. **Link to 1B:** stylus life and cartridge family are plausible **inputs** to statistical silence calibration (see 1B paragraph above), not only a separate dashboard.
 
 ---
 
 ## Axis 2 — Local identification before ACRCloud / Shazam
 
 Captured WAV is already available for each attempt. An optional **local-first** stage can reduce API usage and latency when the collection already knows the recording.
+
+### Raspberry Pi 5 — CPU, I/O, and realtime paths
+
+Chromaprint-style work (`fpcalc` or equivalent) plus **local DB lookups** concurrent with **PCM capture** and the **VU monitor** can create **CPU spikes or I/O contention** that are undesirable on a single-board host also running source-detector relay and recognition coordination.
+
+**Design responses (when implementing 2A / 2B):**
+
+- Use an explicit **worker pool** in Go: e.g. a **buffered channel** as a semaphore (`make(chan struct{}, N)`) plus a fixed maximum **N** concurrent fingerprint jobs, so rapid track boundaries cannot enqueue **unbounded** goroutines that starve the rest of the process.
+- Run fingerprint generation and cache queries on that **strictly bounded** pool (or a single worker) so they cannot stack unbounded goroutines behind rapid boundaries.
+- **Decouple** heavy steps from the hot path where practical: e.g. enqueue fingerprint-after-success **after** cloud match is committed, with backpressure and drop-to-skip if the queue is deep (metadata still correct from cloud).
+- **Load shedding:** if system load (or wall-clock budget for the recognition attempt) exceeds thresholds, **skip local** and proceed to cloud immediately — predictable behaviour beats marginal latency savings.
+- Never block the **VU reader** or PCM consumer on local recognition work; local stages run in the coordinator’s recognition flow with explicit **timeouts**, not unbounded CPU.
 
 ### Phase 2A — `LocalLibraryRecognizer` (new `Recognizer`)
 
@@ -102,9 +138,16 @@ Captured WAV is already available for each attempt. An optional **local-first** 
 - After ACRCloud/Shazam success, compute and store a fingerprint (and metadata) keyed by `collection.id`.
 - On subsequent plays, **match locally first**; on failure or low score, fall through to cloud as today.
 
+**Cache staleness / “good enough” local trap:** a locally matched **live** or **alternate** pressing might satisfy a coarse fingerprint or duration gate and **never** reach the cloud again, leaving the UI stuck on a suboptimal canonical. Mitigations to design in the same milestone as 2B:
+
+- **Sporadic cloud verification:** e.g. force a full cloud chain on **1 in N** successful local hits (configurable `N`, e.g. 10), or whenever **local confidence age** (wall time or play count since last cloud confirmation) exceeds a threshold.
+- **Confidence age / TTL:** store `last_cloud_verified_at` or play counter per cache entry; after TTL or N local-only plays, require cloud for the next attempt.
+- **Low-score local:** if local match score or margin is below a conservative cutoff, always fall through to cloud (same spirit as existing confirmation bypass rules).
+
 ### Phase 2C — Cost / latency policy
 
 - Gate local attempts on capture length, rate-limit state, or “soft boundary” context so behavior stays predictable on the Pi.
+- Combine with **Pi resource** rules above: same gates apply to **skipping** local work under pressure (see Raspberry Pi 5 subsection).
 
 ---
 
@@ -148,18 +191,34 @@ Expose summaries on **Listening Metrics** under the same visibility contract as 
 
 ---
 
+## R2 — Format backfill (implementation notes: bulk updates vs API reads)
+
+When the user bulk-edits format (e.g. **500** library rows **Vinyl** in one action), naïve “one transaction updates everything” work can still stress SQLite **writer throughput** and **lock windows** even with WAL — readers are much less blocked than rollback mode, but **one writer at a time** remains.
+
+**Recommended shape for R2:**
+
+1. **WAL stays on** (already enabled) so `GET` metrics and history pages can continue **concurrent reads** while the writer progresses.
+2. **Chunked writes:** apply `UPDATE` in **batches** (e.g. 50–200 rows per transaction, or `WHERE rowid BETWEEN …` pages), **commit** between chunks, and optionally `time.Sleep(1–5ms)` or `runtime.Gosched()` between chunks to yield to readers under interactive load.
+3. **Async job, fast HTTP response:** the web save handler should **enqueue** backfill work (in-process queue, or a `pending_backfill` table) and return **quickly** (e.g. 202 Accepted + job id, or success with “reconciliation running” flag). Do not block the browser until all 500 rows are rewritten.
+4. **Single writer discipline:** run the heavy backfill from **one goroutine** (or `oceano-state-manager` if library writes are centralized there) to avoid interleaved multi-writer contention on the same `library.db`.
+5. **Idempotent updates:** backfill should be safe to **retry** (same target `format_resolved` idempotently) so partial failures after power loss do not corrupt analytics linkage.
+
+This answers the “Listening Metrics API while mass categorisation runs” concern: **WAL + short transactions + async job** keeps the UI responsive; extreme bulk remains an **ops** problem (disk class, off-peak batch) if volumes grow further.
+
+---
+
 ## Suggested PR sequence
 
 | PR | Scope | Risk | Status |
 |----|--------|------|--------|
 | R1 | `boundary_events` (or equivalent) + linkage ids for backfill; no trigger behavior change | Low | **Done** (on `main`) |
 | R1b | (same milestone) Expose aggregates on **Listening Metrics** (API + `history.js`) — even a minimal “boundary events logged / period” card | Low | **Done** |
-| R1c | Coalesce redundant **silence→audio** in early segment of known track — **reverted** (too aggressive); retry behind flag / per-track hint | Low | **Aborted** |
+| R1c | Coalesce redundant **silence→audio** in early segment of known track — **aborted** (too aggressive); retry behind flag / per-track hint; legacy DB rows + UI label (see status) | Low | **Aborted** |
 | R2 | Backfill job when user updates Vinyl/CD classification; docs + tests | Low | Pending |
 | R3 | Optional percentile-based nudges to calibration inputs (bounded) | Low–medium | Pending |
 | R4 | `LocalLibraryRecognizer` + config flag + tests | Medium | Pending |
-| R4b | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts | Low–medium | Pending |
-| R5 | Post-match fingerprint persistence + local lookup | Medium | Pending |
+| R4b | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts; optional **ACR error class** breakdown (timeout vs rate limit vs DNS) for operator health | Low–medium | Pending |
+| R5 | Post-match fingerprint persistence + local lookup; **cloud re-verify** policy (TTL, 1-in-N plays, or low local score → cloud) bundled with cache | Medium | Pending |
 | R6 | Offline-trained classifier for boundary confidence (optional) | Medium–high | Pending |
 | R6b | If R6 ships: model health / confidence distribution on metrics page (optional chart or percentile text) | Medium | Pending |
 | R7 | Link boundary events to post-recognition outcomes + **early-boundary** aggregates (conservative rules + Listening Metrics) | Medium | Pending |
@@ -169,7 +228,8 @@ Expose summaries on **Listening Metrics** under the same visibility contract as 
 
 ## Risks
 
-- **False local matches** (alternate takes, live vs studio) — keep cloud confirmation for ambiguous scores.
+- **SD card wear / I/O** — high-frequency append-only telemetry and future local fingerprint stores increase **write volume** on typical Pi microSD; mitigate with **WAL** (already on), **bounded write batching**, optional DB relocation to better media, and monitoring free space (see **Operational persistence** above).
+- **False local matches** (alternate takes, live vs studio) — keep cloud confirmation for ambiguous scores; with a **fingerprint cache (2B)** the additional risk is **permanent local short-circuit** of cloud correction unless **sporadic verification** or **confidence age / TTL** (see 2B) is implemented from day one of caching.
 - **Physical format lag** — all analytics and models must support **late correction** (see above).
 - **Dependencies on Pi** — prefer optional components (like Shazam env) and clear install docs.
 - **“Early boundary” heuristics** — easy to over-interpret; keep as analytics until validated on real collections; never block playback or recognition on a single signal.
@@ -178,4 +238,4 @@ Expose summaries on **Listening Metrics** under the same visibility contract as 
 
 ## Immediate next step
 
-Land **R2** (format backfill for analytics when the user corrects Vinyl/CD on library rows) and continue telemetry-driven tuning using **Listening Metrics** boundary vs `fired` counts.
+Land **R2** (format backfill for analytics when the user corrects Vinyl/CD on library rows) and continue telemetry-driven tuning using **Listening Metrics** (`fired` vs suppression outcomes, **Trigger** boundary rate vs fallback timer, provider success vs **error** counts). Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators.
