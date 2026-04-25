@@ -1629,7 +1629,7 @@ function _micStep2(body, footer) {
         if (peakRMS > 0.005 && peakEl) {
           peakEl.style.display = 'block';
           peakEl.style.left = peakPct + '%';
-          peakEl.style.background = peakRMS > 0.35 ? '#e05577' : peakRMS > 0.25 ? 'rgba(240,192,96,0.9)' : 'rgba(126,207,126,0.85)';
+          peakEl.style.background = peakRMS > 0.38 ? '#e05577' : peakRMS > 0.25 ? 'rgba(240,192,96,0.9)' : 'rgba(126,207,126,0.85)';
         }
 
         if (avg < 0.01)       barEl.style.background = 'var(--muted)';
@@ -1643,7 +1643,6 @@ function _micStep2(body, footer) {
         if (minEl)     minEl.textContent     = sessionMin < Infinity ? sessionMin.toFixed(4) : '—';
         if (maxEl)     maxEl.textContent     = sessionMax > 0 ? sessionMax.toFixed(4) : '—';
 
-        const level = peakRMS > 0 ? peakRMS : avg;
         if (avg < 0.01) {
           statusEl.className = 'cal-wiz-rec-box';
           if (silenceThreshold > 0 && avg > silenceThreshold) {
@@ -1652,18 +1651,26 @@ function _micStep2(body, footer) {
           } else {
             statusEl.innerHTML = 'No signal detected — make sure music is playing.';
           }
-        } else if (level < 0.05) {
+        } else if (avg < 0.05) {
           statusEl.className = 'cal-wiz-warn-box';
           statusEl.innerHTML = 'Signal too low — increase gain with <b>+</b>.';
-        } else if (level <= 0.25) {
+        } else if (avg <= 0.25) {
+          const okSvg = `<span class="r-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></span>`;
           statusEl.className = 'cal-wiz-result-ok';
-          statusEl.innerHTML = `<span class="r-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></span><span class="r-text">Good level. Peak ${peakRMS.toFixed(4)} — recognition will capture a clean signal.</span>`;
-        } else if (level <= 0.35) {
+          if (peakRMS > 0.38) {
+            statusEl.className = 'cal-wiz-warn-box';
+            statusEl.innerHTML = `Average is good (${avg.toFixed(4)}) but peaks are near clipping (${peakRMS.toFixed(4)}) — consider reducing gain slightly with <b>−</b>.`;
+          } else if (peakRMS > 0.25) {
+            statusEl.innerHTML = `${okSvg}<span class="r-text">Good level. Occasional peaks at ${peakRMS.toFixed(4)} are normal for dynamic content — recognition will work well.</span>`;
+          } else {
+            statusEl.innerHTML = `${okSvg}<span class="r-text">Good level. Peak ${peakRMS > 0 ? peakRMS.toFixed(4) : avg.toFixed(4)} — recognition will capture a clean signal.</span>`;
+          }
+        } else if (avg <= 0.35) {
           statusEl.className = 'cal-wiz-warn-box';
-          statusEl.innerHTML = 'Peak is a bit high — consider reducing gain with <b>−</b>.';
+          statusEl.innerHTML = `Average high (${avg.toFixed(4)}) — consider reducing gain with <b>−</b>.`;
         } else {
           statusEl.className = 'cal-wiz-warn-box';
-          statusEl.innerHTML = 'Peak clipping — reduce gain with <b>−</b> to avoid distortion in recognition.';
+          statusEl.innerHTML = 'Clipping — reduce gain with <b>−</b> to avoid distortion in recognition.';
         }
 
         if (sessionCount >= 5 && sessionMin < Infinity && sessionMax > 0) {
