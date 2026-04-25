@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -131,7 +130,7 @@ func handlePower() http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-		go exec.Command("systemctl", args...).Run()
+		go serviceMgr.PowerAction(args[0])
 	}
 }
 
@@ -141,7 +140,7 @@ func handleRecognize() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if err := exec.Command("systemctl", "kill", "--kill-who=main", "--signal=SIGUSR1", managerUnit).Run(); err != nil {
+		if err := serviceMgr.SignalMain(managerUnit, "SIGUSR1"); err != nil {
 			http.Error(w, "failed to signal state manager", http.StatusInternalServerError)
 			return
 		}
@@ -213,7 +212,7 @@ func formatSSEDataFrame(data []byte) string {
 func apiGetBluetoothDevices(w http.ResponseWriter) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "bluetoothctl", "devices", "Paired").Output()
+	out, err := commandRunner.OutputContext(ctx, "bluetoothctl", "devices", "Paired")
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]BluetoothDevice{})
@@ -250,8 +249,7 @@ func apiRemoveBluetoothDevice(w http.ResponseWriter, mac string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "bluetoothctl", "remove", mac)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := commandRunner.CombinedOutputContext(ctx, "bluetoothctl", "remove", mac); err != nil {
 		http.Error(w, strings.TrimSpace(string(out)), http.StatusInternalServerError)
 		return
 	}

@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -343,15 +342,15 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 			return fmt.Errorf("rename %s: %w", confPath, err)
 		}
 		// Restart bluetoothd to pick up the new name from main.conf.
-		_ = exec.Command("systemctl", "restart", "bluetooth.service").Run()
+		_ = commandRunner.Run("systemctl", "restart", "bluetooth.service")
 		// Wait for bluetoothd D-Bus service to be ready before setting the alias.
 		time.Sleep(2 * time.Second)
 	}
 
 	if cfg.Enabled {
-		_ = exec.Command("bluetoothctl", "power", "on").Run()
-		_ = exec.Command("bluetoothctl", "discoverable", "on").Run()
-		_ = exec.Command("bluetoothctl", "pairable", "on").Run()
+		_ = commandRunner.Run("bluetoothctl", "power", "on")
+		_ = commandRunner.Run("bluetoothctl", "discoverable", "on")
+		_ = commandRunner.Run("bluetoothctl", "pairable", "on")
 	}
 
 	// Set adapter alias immediately via dbus-send and update the persistent
@@ -367,10 +366,10 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 
 		// Apply immediately to the running adapter. exec.Command args are not
 		// shell-parsed, so spaces in safeName are safe here.
-		_ = exec.Command("dbus-send", "--system", "--print-reply", "--dest=org.bluez",
+		_ = commandRunner.Run("dbus-send", "--system", "--print-reply", "--dest=org.bluez",
 			"/org/bluez/hci0", "org.freedesktop.DBus.Properties.Set",
 			"string:org.bluez.Adapter1", "string:Alias",
-			"variant:string:"+safeName).Run()
+			"variant:string:"+safeName)
 
 		// Build a quoted ExecStart argument so systemd does not split on spaces.
 		// Escape backslashes and double quotes within the name first.
@@ -387,8 +386,8 @@ func applyBluetoothConfig(cfg BluetoothConfig) error {
 			"string:org.bluez.Adapter1 string:Alias " + execArg + "\n" +
 			"RemainAfterExit=no\n\n[Install]\nWantedBy=multi-user.target\n"
 		_ = os.WriteFile("/etc/systemd/system/oceano-bt-alias.service", []byte(unit), 0o644)
-		_ = exec.Command("systemctl", "daemon-reload").Run()
-		_ = exec.Command("systemctl", "restart", "oceano-bt-alias.service").Run()
+		_ = commandRunner.Run("systemctl", "daemon-reload")
+		_ = commandRunner.Run("systemctl", "restart", "oceano-bt-alias.service")
 	}
 
 	return nil
@@ -434,15 +433,6 @@ WantedBy=multi-user.target
 }
 
 func restartService(unit string) error {
-	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
-		return fmt.Errorf("daemon-reload: %w", err)
-	}
-	cmd := exec.Command("systemctl", "restart", unit)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s: %s", unit, strings.TrimSpace(string(out)))
-	}
-	// Give the service a moment to start before responding.
-	time.Sleep(500 * time.Millisecond)
-	return nil
+	return serviceMgr.Restart(unit)
 }
 
