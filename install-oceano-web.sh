@@ -158,6 +158,11 @@ main() {
   mkdir -p "${CONFIG_DIR}"
   log_ok "Config directory ready at ${CONFIG_DIR}"
 
+  log_section "Sudoers for ALSA mixer save"
+  echo "oceano-web ALL=(root) NOPASSWD: /usr/sbin/alsactl store" > /etc/sudoers.d/oceano-alsactl
+  chmod 0440 /etc/sudoers.d/oceano-alsactl
+  log_ok "Sudoers configured for mic gain persistence"
+
   log_section "Build"
   build_binary
 

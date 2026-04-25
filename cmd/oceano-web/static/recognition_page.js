@@ -1713,7 +1713,8 @@ function _micSave() {
   const btn = document.getElementById('mic-save-btn');
   if (btn) btn.disabled = true;
 
-  fetch('/api/mic-gain/store', {method: 'POST'})
+  const card = _mic.info?.card_num != null ? `?card=${_mic.info.card_num}` : '';
+  fetch(`/api/mic-gain/store${card}`, {method: 'POST'})
     .then(r => r.json())
     .then(d => {
       if (d.error) {
