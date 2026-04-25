@@ -25,6 +25,10 @@ case "$1" in
             fi
         fi
 
+        # mDNS for AirPlay (shairport) discovery on iOS — .deb depends on avahi-daemon
+        systemctl --no-ask-password enable avahi-daemon.service 2>/dev/null || true
+        systemctl --no-ask-password start  avahi-daemon.service  2>/dev/null || true
+
         # Enable and start services
         systemctl --no-ask-password daemon-reload
         systemctl --no-ask-password enable oceano-source-detector.service

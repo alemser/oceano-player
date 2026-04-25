@@ -243,6 +243,8 @@ journalctl -u oceano-display.service -f
 
 ### AirPlay not listed on the phone / shairport-sync is `failed`
 
+**AirPlay not in the iOS picker while `shairport-sync` is `active`:** mDNS (Bonjour) is required. Install and run **`avahi-daemon`** — it is a dependency in current `install.sh` / `.deb` and is enabled from `oceano-setup` / `postinst`; on minimal or older systems: `sudo apt install avahi-daemon && sudo systemctl enable --now avahi-daemon`. Check client isolation on Wi-Fi (mDNS is blocked on many guest / isolated SSIDs). Wrong HDMI “resolution” is **not** an Oceano app fix — set the mode in `raspi-config` or `/boot/firmware/config.txt` (see README **Troubleshooting → HDMI**).
+
 **Symptom:** `systemctl status shairport-sync` is failed, logs show `failed to connect to the pulseaudio context` / `Connection refused`.
 
 `shairport-sync` runs as a **system** user, but PipeWire for the logged-in session listens at **/run/user/…/pulse**, so the `pa` backend is wrong for a stock `.deb` + `oceano-setup` without the full `install.sh` PipeWire wiring. **Current `oceano-setup` and the web “Save” path write the ALSA backend** to the DAC in `config.json`, and `oceano-web` can migrate a legacy `pa` config on startup. Re-run the wizard or **Save** in the web UI after upgrading the binary, then: `sudo systemctl restart oceano-web` (migration) and `systemctl status shairport-sync`.

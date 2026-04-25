@@ -1168,7 +1168,8 @@ main() {
   log_section "System Dependencies"
   log_info "Installing system packages..."
   apt-get update -qq
-  apt-get install -y --no-install-recommends shairport-sync alsa-utils ffmpeg bluez bluez-tools dbus libspa-0.2-bluetooth
+  # avahi-daemon: mDNS (Bonjour) — without it, iPhones never see the AirPlay receiver. Not pulled with --no-install-recommends.
+  apt-get install -y --no-install-recommends shairport-sync alsa-utils ffmpeg bluez bluez-tools dbus libspa-0.2-bluetooth avahi-daemon
   log_ok "System packages ready."
 
   # ── Bluetooth ──
@@ -1283,9 +1284,11 @@ EOF
   systemctl disable --now oceano-player.service >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/oceano-player.service
   systemctl daemon-reload
+  systemctl enable --now avahi-daemon.service
+  systemctl start avahi-daemon.service
   systemctl enable --now shairport-sync.service
   systemctl restart shairport-sync.service
-  log_ok "shairport-sync.service is running."
+  log_ok "shairport-sync.service is running; avahi-daemon provides mDNS for AirPlay discovery."
 
   # ── Version ──
   save_version

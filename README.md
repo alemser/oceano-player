@@ -59,7 +59,7 @@ troubleshooting notes:
 | Area | Handled by setup / installer |
 |------|------------------------------|
 | **Raspberry Pi OS + LightDM** | `oceano-kiosk` X11 session instead of Wayland `rpd-labwc`: `lightdm.conf.d/zz-…` **and** the **main** `/etc/lightdm/lightdm.conf` `user-session` / `autologin-session` (the main file overrides drop-ins; see [Troubleshooting](#troubleshooting)). |
-| **AirPlay (shairport)** | **ALSA** output to the chosen DAC (the `shairport-sync` system user cannot use the login user’s PipeWire). `oceano-web` migrates legacy `output_backend=pa` on startup. |
+| **AirPlay (shairport)** | **ALSA** output to the chosen DAC (the `shairport-sync` system user cannot use the login user’s PipeWire). `oceano-web` migrates legacy `output_backend=pa` on startup. **`avahi-daemon`** (mDNS/Bonjour) so iPhones can discover the receiver. |
 | **Bluetooth audio** | Default **PipeWire sink** = same DAC (script + user systemd oneshot, **linger** so it can run at boot; BlueZ **codec** list for AAC/LDAC/… when WirePlumber ≥ 0.5). |
 | **Multiple USB sound cards** | Warning in the wizard; `device_match` in `config.json` from the chosen `plughw:CARD=…`; do **not** point output at a capture dongle. |
 | **Kiosk / HDMI** | No `xrandr --auto` in the launch script (avoids a **black** screen on some panels). Use `/boot/firmware/config.txt` or `raspi-config` for HDMI mode if needed. |
@@ -252,6 +252,16 @@ Frame rate: ~22 fps (2048-sample buffer at 44.1 kHz ≈ 46 ms per frame).
 
 ### AirPlay not appearing on iPhone / devices
 
+- **mDNS / Avahi missing (very common on minimal installs)** — iOS uses Bonjour to find AirPlay. You need **`avahi-daemon` running**:
+  ```bash
+  sudo apt install -y avahi-daemon
+  sudo systemctl enable --now avahi-daemon.service
+  avahi-browse -a 2>/dev/null | head   # or: avahi-browse -t _raop._tcp  (if avahi-utils installed)
+  ```
+  Installs with `sudo oceano-setup` and current `.deb` / `install.sh` add this; older installs: install Avahi, then `sudo systemctl restart shairport-sync`.
+
+- **iPhone and Pi on the same L2 / Wi-Fi** — guest networks and **AP/client isolation** block mDNS. Put both on the same LAN, disable “isolate clients” for that SSID, or test Ethernet on the Pi.
+
 0. **shairport-sync is `failed` (PulseAudio / “Connection refused”)** — the service runs as
    `shairport-sync` and **cannot** use the logged-in user’s PipeWire. Current releases use the
    **ALSA** backend to your DAC. Open the web config and **Save** (or re-run
@@ -284,6 +294,18 @@ to `rpd-labwc` (Wayland). That **overrides** a `lightdm.conf.d` drop-in, so the 
 path (or run `install-oceano-display.sh` from a repo checkout). That updates the main `lightdm.conf`
 as well. Then `sudo reboot`. To verify which session is active: `loginctl show-user "$(whoami)"` and
 `loginctl show-session <n> -p Type -p Desktop` for the graphical seat session.
+
+### HDMI: wrong or stretched resolution (kiosk or desktop)
+
+Oceano only opens a full-screen **browser**; it does not set the **video mode**. If the image is
+letterboxed, scaled wrong, or 4:3 on a 16:9 TV, set the mode on the Pi side:
+
+- **`sudo raspi-config` → Display Options** (or the Display menu on your OS image) — pick a mode that
+  matches the panel, then reboot.
+- **Manual:** edit [`/boot/firmware/config.txt`](https://www.raspberrypi.com/documentation/computers/config-txt.html#video-options)
+  (older images: `/boot/config.txt`) — e.g. `hdmi_group`, `hdmi_mode`, or `hdmi_cvt` for custom timings.
+- After a valid mode, **X11 and Chromium** follow; avoid forcing `xrandr` in startup scripts (can black
+  some panels — see the kiosk/HDMI table above).
 
 ---
 

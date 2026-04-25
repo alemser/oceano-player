@@ -48,6 +48,30 @@ var stdin = bufio.NewReader(os.Stdin)
 func section(title string) { fmt.Printf("\n%s━━━ %s ━━━%s\n", bold, title, reset) }
 func logOK(msg string)     { fmt.Printf("%s✓%s %s\n", green, reset, msg) }
 func logWarn(msg string)   { fmt.Printf("%s!%s %s\n", yellow, reset, msg) }
+
+// printDisplayResolutionHints is shown at the end of setup so the user can fix wrong aspect
+// ratio or mode on the spot. The web UI does not control HDMI timing; the firmware/config does.
+func printDisplayResolutionHints() {
+	section("If the panel looks wrong (resolution / aspect)")
+	fmt.Println("The now-playing view fills the browser; it does not set HDMI timing. On the Pi, set the video mode, then reboot.")
+	fmt.Println()
+	fmt.Println("  1)  Easiest:  sudo raspi-config  →  Display Options  →  Resolution / “best” mode / (if offered) Waveshare or screen driver.")
+	fmt.Println("     Finish and allow reboot when the tool asks.")
+	fmt.Println()
+	fmt.Println("  2)  Direct edit (back up first:  sudo cp /boot/firmware/config.txt{,.bak}  — use /boot/config.txt on some older images).")
+	fmt.Println("      Relevant keys (see https://www.raspberrypi.com/documentation/computers/config-txt.html#video-options ):")
+	fmt.Println("     •  disable_overscan=1  —  removes extra black border on many HDMI TVs.")
+	fmt.Println("     •  hdmi_safe=1  —  conservative mode if you get a black or unstable picture.")
+	fmt.Println("     •  hdmi_force_hotplug=1  —  if the Pi thinks no display is connected.")
+	fmt.Println("     •  config_hdmi_boost=7  (try 4–11)  —  weak or long cable / marginal HDMI.")
+	fmt.Println("     •  CEA (TV) vs DMT (monitor) lists differ:  hdmi_group=1  (CEA)  /  hdmi_group=2  (DMT)  and a valid  hdmi_mode. Wrong group = wrong size.")
+	fmt.Println("     •  Custom panel size:  hdmi_group=2  ;  hdmi_mode=87  ;  and one line  hdmi_cvt=WIDTH HEIGHT FRAMERATE  (example:  hdmi_cvt=1024 600 60 ).")
+	fmt.Println("       Then  sudo sync  &&  sudo reboot   (never unplug during writes).")
+	fmt.Println()
+	fmt.Println("  3)  Keep using config.txt or raspi-config. Oceano’s kiosk does not use xrandr; ad‑hoc xrandr/\"randr --auto\" from login can black out some panels.")
+	fmt.Println("  4)  Deeper help:  README  →  Troubleshooting  →  “HDMI: wrong or stretched resolution (kiosk or desktop)”.")
+	fmt.Println()
+}
 func fatalf(f string, a ...interface{}) {
 	fmt.Fprintf(os.Stderr, red+"ERROR"+reset+" "+f+"\n", a...)
 	os.Exit(1)
@@ -246,6 +270,25 @@ func withDebianNoninteractive() []string {
 
 // installDisplayAptStack mirrors install-oceano-display.sh: Xvfb and minimal X
 // packages so Chromium can start under systemd with DISPLAY=:99.
+// ensureAvahiForAirPlay installs and starts mDNS. Without it, shairport-sync can run
+// but iPhones will not list the AirPlay target (Debian omits Recommends when
+// install.sh or minimal apt paths use --no-install-recommends).
+func ensureAvahiForAirPlay() {
+	_, err := os.Stat("/usr/sbin/avahi-daemon")
+	if err != nil {
+		logWarn("avahi-daemon not installed — installing (required for AirPlay / Bonjour on iPhone)…")
+		cmd := exec.Command("apt-get", "install", "-y", "avahi-daemon")
+		cmd.Env = withDebianNoninteractive()
+		if e := cmd.Run(); e != nil {
+			logWarn("Could not install avahi-daemon: " + e.Error())
+			return
+		}
+	}
+	run("systemctl", "enable", "--no-block", "avahi-daemon.service")
+	run("systemctl", "start", "--no-block", "avahi-daemon.service")
+	logOK("avahi-daemon (mDNS) — AirPlay discovery for iOS/macOS")
+}
+
 func installDisplayAptStack() {
 	cmd := exec.Command("apt-get", "update", "-qq")
 	cmd.Env = withDebianNoninteractive()
@@ -704,6 +747,7 @@ func main() {
 	// ── Apply ────────────────────────────────────────────────────────────────
 	section("Applying configuration")
 
+	ensureAvahiForAirPlay()
 	if err := shairport.WriteConfig(shairportConf, airplayName, outputDevice); err != nil {
 		logWarn("Could not write shairport-sync.conf: " + err.Error())
 	} else {
@@ -783,4 +827,5 @@ func main() {
 		fmt.Printf("Open %shttp://%s:8080%s to review your configuration.\n",
 			cyan, fields[0], reset)
 	}
+	printDisplayResolutionHints()
 }

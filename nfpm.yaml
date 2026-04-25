@@ -12,6 +12,7 @@ license: MIT
 
 depends:
   - shairport-sync
+  - avahi-daemon
   - alsa-utils
   - ffmpeg
   - bluez
