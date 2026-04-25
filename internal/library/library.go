@@ -38,15 +38,17 @@ var migrations = []string{
 		data     TEXT    NOT NULL
 	)`,
 	`CREATE INDEX fingerprints_entry_id ON fingerprints(entry_id)`,
-	`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,
-	`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,
-	`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,
+	// Legacy no-op placeholders kept to preserve historical migration numbering.
+	`SELECT 1`,
+	`SELECT 1`,
+	`SELECT 1`,
 	`CREATE TABLE IF NOT EXISTS fingerprints (
 		id       INTEGER PRIMARY KEY AUTOINCREMENT,
 		entry_id INTEGER NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
 		data     TEXT    NOT NULL
 	)`,
-	`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,
+	// Legacy no-op placeholder kept to preserve historical migration numbering.
+	`SELECT 1`,
 	`DROP TABLE IF EXISTS fingerprints`,
 	`CREATE TABLE fingerprints (
 		id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,8 +93,12 @@ var migrations = []string{
 		isrc                  TEXT    NOT NULL DEFAULT ''
 	)`,
 	`CREATE INDEX play_history_started_at ON play_history(started_at)`,
+	// Fingerprints are no longer used by the runtime path and are dropped to
+	// avoid maintaining stale schema objects.
 	`DROP TABLE IF EXISTS fingerprints`,
 }
+
+var currentSchemaVersion = len(migrations)
 
 // Library wraps a SQLite database that tracks recognised physical-media tracks.
 type Library struct {
@@ -284,15 +290,28 @@ func (l *Library) migrate() error {
 	for i, stmt := range migrations {
 		version := i + 1
 		var exists int
-		_ = l.db.QueryRow(`SELECT 1 FROM schema_migrations WHERE version = ?`, version).Scan(&exists)
-		if exists == 1 {
+		err := l.db.QueryRow(`SELECT 1 FROM schema_migrations WHERE version = ?`, version).Scan(&exists)
+		if err == nil && exists == 1 {
 			continue
 		}
-		if _, err := l.db.Exec(stmt); err != nil {
+		if err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("library: check migration v%d: %w", version, err)
+		}
+
+		tx, err := l.db.Begin()
+		if err != nil {
+			return fmt.Errorf("library: begin migration v%d: %w", version, err)
+		}
+		if _, err := tx.Exec(stmt); err != nil {
+			_ = tx.Rollback()
 			return fmt.Errorf("library: migration v%d: %w", version, err)
 		}
-		if _, err := l.db.Exec(`INSERT INTO schema_migrations (version) VALUES (?)`, version); err != nil {
+		if _, err := tx.Exec(`INSERT INTO schema_migrations (version) VALUES (?)`, version); err != nil {
+			_ = tx.Rollback()
 			return fmt.Errorf("library: record migration v%d: %w", version, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("library: commit migration v%d: %w", version, err)
 		}
 		log.Printf("library: applied migration v%d", version)
 	}
