@@ -18,7 +18,10 @@ This document assesses how easy it is to distribute Oceano Player today, identif
 
 ### Post-install messaging
 
-- `packaging/postinst` prints the web UI URL and tells users to run **`sudo ./install-oceano-display.sh`** for kiosk setup. On a **clean `.deb` install**, that script path **does not exist** unless the user cloned the repo — this is misleading and should be corrected to **`sudo oceano-setup`** (display section) or to a **shipped** installer path.
+- **`packaging/postinst`** (after Phase 1) prints the web UI URL and directs users
+  to **`sudo oceano-setup`** for AirPlay, Bluetooth, devices, and optional kiosk;
+  it no longer references `./install-oceano-display.sh` (which is not on disk for
+  `.deb`-only installs).
 
 ### Interactive wizard (`oceano-setup`)
 
@@ -64,11 +67,16 @@ This **duplication and drift** is a likely reason a previous attempt “did not 
 
 ## Recommended plan (phased)
 
-### Phase 1 — Documentation and messaging (low risk, immediate)
+### Phase 1 — Documentation and messaging (low risk, immediate) — **done**
 
 - Fix **`postinst`** (and README if needed) so kiosk instructions never reference `./install-oceano-display.sh` unless that file is **actually installed** by the package. Prefer: “Run `sudo oceano-setup` and enable the display step” **or** “see README — Display”.
 - Add a short **`docs/` or README** “Debian install checklist”: install → `oceano-setup` → web UI (ACRCloud + devices) → optional display → reboot.
 - Clarify in README that **`.deb` artifacts appear on GitHub Releases (tags)**, not on every CI run.
+
+Implemented in branch `install-improvements`: `packaging/postinst` now points to
+`sudo oceano-setup` and the README; README Option A documents Releases vs CI and
+adds the post-install checklist (with a note that `install-oceano-display.sh`
+applies to git clones only).
 
 ### Phase 2 — Unify kiosk installation (high impact)
 

@@ -13,6 +13,10 @@ Raspberry Pi OS 64-bit (Bookworm) recommended.
 Pre-built `arm64` binary, no compiler needed on the Pi. Downloads dependencies
 automatically via `apt`.
 
+**Where to get the `.deb`:** packages are attached to **GitHub Releases** when
+a version tag (`v*`) is pushed. CI on the default branch runs tests and a
+cross-compile check but **does not** publish a `.deb` on every run.
+
 ```bash
 # Download the latest release
 wget https://github.com/alemser/oceano-player/releases/latest/download/oceano-player_$(curl -s https://api.github.com/repos/alemser/oceano-player/releases/latest | grep -oP '"tag_name":\s*"v\K[^"]+')_arm64.deb
@@ -21,13 +25,21 @@ wget https://github.com/alemser/oceano-player/releases/latest/download/oceano-pl
 sudo apt install ./oceano-player_*_arm64.deb
 ```
 
-Services are enabled and started automatically. Open `http://<pi-ip>:8080` to
-configure audio devices and ACRCloud credentials.
+Services are enabled and started automatically.
 
-To set up AirPlay and Bluetooth run the interactive wizard after install:
-```bash
-sudo oceano-setup
-```
+**Suggested order after `apt install`:**
+
+1. Run **`sudo oceano-setup`** — AirPlay name, ALSA output and capture devices,
+   Bluetooth, optional HDMI/DSI kiosk prompt.
+2. Open **`http://<pi-ip>:8080`** — ACRCloud credentials, **Audio Input** (device,
+   silence threshold) if you need to fine-tune beyond the wizard.
+3. Calibrate **USB capture gain** (RMS in logs) for reliable recognition — see
+   [§1 Audio capture level](#1-audio-capture-level-required-for-track-recognition)
+   below.
+
+If you **cloned** this repository, you can alternatively run
+`sudo ./install-oceano-display.sh` for the full X11/LightDM kiosk installer; that
+script is **not** installed by the `.deb` package path today.
 
 ### Option B — Install from source
 
