@@ -223,6 +223,8 @@ const _boundaryOutcomeLabels = {
   suppressed_not_physical: 'Suppressed (not Physical)',
   trigger_channel_full: 'Trigger channel full',
   energy_change_cooldown: 'Energy dip (cooldown)',
+  // Logged only by short-lived R1c builds; DB rows may remain. Current state-manager does not emit this outcome.
+  suppressed_intra_track_silence: 'Legacy (intra-track experiment)',
 };
 
 async function loadBoundaryStats(statsReqSeq) {
@@ -270,7 +272,8 @@ function renderBoundaryStats(container, payload) {
   }
   for (const k of Object.keys(by).sort()) {
     if (order.includes(k)) continue;
-    rows += `<div class="rec-prov-row"><span class="lbl">${esc(k)}</span><span class="val">${by[k]}</span></div>`;
+    const extraLabel = _boundaryOutcomeLabels[k] || k;
+    rows += `<div class="rec-prov-row"><span class="lbl">${esc(extraLabel)}</span><span class="val">${by[k]}</span></div>`;
   }
 
   const rateLabel = actionable > 0 && typeof fr === 'number' && fr >= 0
