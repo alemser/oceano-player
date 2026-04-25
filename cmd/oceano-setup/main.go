@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -225,7 +226,10 @@ func configureBluetooth(deviceName string) {
 	}
 	_ = os.Rename(tmp, btConf)
 
-	_ = exec.Command("systemctl", "restart", "bluetooth.service").Run()
+	// Use --no-block: synchronous "systemctl restart bluetooth" can hang
+	// for minutes on some Pi/BlueZ setups while D-Bus waits for the job.
+	_ = exec.Command("systemctl", "restart", "--no-block", "bluetooth.service").Run()
+	time.Sleep(2 * time.Second)
 
 	// Set adapter alias (non-fatal — adapter may need a moment to start)
 	err = exec.Command("dbus-send", "--system", "--print-reply",
@@ -253,7 +257,8 @@ WantedBy=multi-user.target
 `
 		_ = os.WriteFile(btAgentService, []byte(svc), 0644)
 		_ = exec.Command("systemctl", "daemon-reload").Run()
-		_ = exec.Command("systemctl", "enable", "--now", "bt-agent.service").Run()
+		_ = exec.Command("systemctl", "enable", "bt-agent.service").Run()
+		_ = exec.Command("systemctl", "start", "--no-block", "bt-agent.service").Run()
 		logOK("Bluetooth auto-pairing agent enabled (bt-agent)")
 	} else {
 		logWarn("bt-agent not found — manual pairing required (install bluez-tools to fix)")
