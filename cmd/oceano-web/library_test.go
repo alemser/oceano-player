@@ -430,3 +430,40 @@ func TestBackupHandler_ReturnsGzipArchive(t *testing.T) {
 		t.Errorf("archive should contain library.db, got: %v", names)
 	}
 }
+
+func TestGetBoundaryEventStats(t *testing.T) {
+	dir := t.TempDir()
+	path := createTestDB(t, dir, nil)
+	lib, err := openLibraryDB(path)
+	if err != nil {
+		t.Fatalf("openLibraryDB: %v", err)
+	}
+	defer lib.close()
+	if _, err := lib.db.Exec(`
+		INSERT INTO boundary_events (occurred_at, outcome, boundary_type, is_hard, physical_source, format_at_event, duration_ms, seek_ms)
+		VALUES (datetime('now'), 'fired', 'silence->audio', 1, 'Physical', 'Physical', 0, 0),
+		       (datetime('now'), 'suppressed_duration_guard', 'silence->audio', 0, 'Physical', 'Vinyl', 180000, 60000),
+		       (datetime('now'), 'energy_change_cooldown', 'energy-change', 0, 'Physical', 'Physical', 0, 0)`); err != nil {
+		t.Fatalf("insert boundary_events: %v", err)
+	}
+	stats, err := lib.getBoundaryEventStats(0)
+	if err != nil {
+		t.Fatalf("getBoundaryEventStats: %v", err)
+	}
+	if stats.Total != 3 {
+		t.Fatalf("total = %d, want 3", stats.Total)
+	}
+	if stats.ByOutcome["fired"] != 1 || stats.ByOutcome["suppressed_duration_guard"] != 1 {
+		t.Fatalf("by_outcome mismatch: %+v", stats.ByOutcome)
+	}
+	if stats.ActionableTotal != 2 {
+		t.Fatalf("actionable_total = %d, want 2 (cooldown excluded)", stats.ActionableTotal)
+	}
+	if stats.FireRate < 0 || stats.FireRate > 1 {
+		t.Fatalf("fire_rate = %v, want 0..1", stats.FireRate)
+	}
+	wantRate := 0.5
+	if stats.FireRate != wantRate {
+		t.Fatalf("fire_rate = %v, want %v", stats.FireRate, wantRate)
+	}
+}

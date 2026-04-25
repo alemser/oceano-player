@@ -86,6 +86,22 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 			count    INTEGER DEFAULT 0,
 			PRIMARY KEY(provider, event)
 		)`,
+		`CREATE TABLE IF NOT EXISTS boundary_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			occurred_at TEXT NOT NULL,
+			outcome TEXT NOT NULL,
+			boundary_type TEXT NOT NULL DEFAULT '',
+			is_hard INTEGER NOT NULL DEFAULT 0,
+			physical_source TEXT NOT NULL DEFAULT '',
+			format_at_event TEXT NOT NULL DEFAULT '',
+			format_resolved TEXT,
+			format_resolved_at TEXT,
+			duration_ms INTEGER NOT NULL DEFAULT 0,
+			seek_ms INTEGER NOT NULL DEFAULT 0,
+			play_history_id INTEGER,
+			collection_id INTEGER
+		)`,
+		`CREATE INDEX IF NOT EXISTS boundary_events_occurred_at_idx ON boundary_events(occurred_at)`,
 	}
 	for _, stmt := range ensureCols {
 		if _, err := l.db.Exec(stmt); err != nil {
@@ -131,6 +147,63 @@ func (l *LibraryDB) getRecognitionStats() (map[string]map[string]int, error) {
 		stats[p][e] = c
 	}
 	return stats, nil
+}
+
+// boundaryStatsResponse is JSON for GET /api/recognition/boundary-stats.
+type boundaryStatsResponse struct {
+	PeriodDays       int            `json:"period_days"`
+	Total            int            `json:"total"`
+	ByOutcome        map[string]int `json:"by_outcome"`
+	ActionableTotal  int            `json:"actionable_total"`
+	FireRate         float64        `json:"fire_rate"` // fraction of actionable outcomes that fired; -1 if not applicable
+}
+
+func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, error) {
+	out := &boundaryStatsResponse{
+		PeriodDays: days,
+		ByOutcome:  make(map[string]int),
+		FireRate:   -1,
+	}
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if days <= 0 {
+		rows, err = l.db.Query(`SELECT outcome, COUNT(*) FROM boundary_events GROUP BY outcome`)
+	} else {
+		cut := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour).Format(time.RFC3339Nano)
+		rows, err = l.db.Query(`SELECT outcome, COUNT(*) FROM boundary_events WHERE occurred_at >= ? GROUP BY outcome`, cut)
+	}
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") {
+			return out, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var o string
+		var c int
+		if err := rows.Scan(&o, &c); err != nil {
+			return nil, err
+		}
+		out.ByOutcome[o] = c
+		out.Total += c
+	}
+	actionableOutcomes := []string{
+		"fired",
+		"suppressed_duration_guard",
+		"ignored_mature_progress",
+		"suppressed_not_physical",
+		"trigger_channel_full",
+	}
+	for _, k := range actionableOutcomes {
+		out.ActionableTotal += out.ByOutcome[k]
+	}
+	if out.ActionableTotal > 0 {
+		out.FireRate = float64(out.ByOutcome["fired"]) / float64(out.ActionableTotal)
+	}
+	return out, rows.Err()
 }
 
 func (l *LibraryDB) close() {
@@ -466,6 +539,40 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		defer lib.close()
 
 		stats, err := lib.getRecognitionStats()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(stats)
+	})
+
+	// GET /api/recognition/boundary-stats?days=30 — VU boundary telemetry (R1 / R1b).
+	mux.HandleFunc("/api/recognition/boundary-stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		lib, err := openLibraryDB(libraryDBPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		days := 30
+		if dStr := r.URL.Query().Get("days"); dStr != "" {
+			if d, err := strconv.Atoi(dStr); err == nil && d >= 0 {
+				days = d
+			}
+		}
+		if lib == nil {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(&boundaryStatsResponse{
+				PeriodDays: days, ByOutcome: map[string]int{}, FireRate: -1,
+			})
+			return
+		}
+		defer lib.close()
+		stats, err := lib.getBoundaryEventStats(days)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

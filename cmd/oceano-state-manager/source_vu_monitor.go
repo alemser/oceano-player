@@ -10,6 +10,8 @@ import (
 	"net"
 	"os"
 	"time"
+
+	internallibrary "github.com/alemser/oceano-player/internal/library"
 )
 
 const physicalResumeRecognitionGap = 2 * time.Second
@@ -347,6 +349,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 			suppressUntil := time.Duration(float64(trackDuration) * durationPessimism)
 			log.Printf("VU monitor: boundary suppressed (%s) — %s elapsed, checks active from %s (track %s)",
 				reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))
+			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeSuppressedDurationGuard, reason, isHardBoundary)
 			return
 		}
 		if shouldIgnoreBoundaryAtMatureProgress(durationMs, seekMS, seekUpdatedAt, now, durationPessimism) {
@@ -360,6 +363,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 				log.Printf("VU monitor: boundary ignored (%s) — mature progress guard active (%s >= %s, track %s)",
 					reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))
 			}
+			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeIgnoredMatureProgress, reason, isHardBoundary)
 			return
 		}
 
@@ -374,13 +378,16 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		m.mu.Unlock()
 		if !isSourcePhysical {
 			log.Printf("VU monitor: boundary suppressed (%s) — source is not Physical", reason)
+			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeSuppressedNotPhysical, reason, isHardBoundary)
 			return
 		}
 
 		log.Printf("VU monitor: track boundary detected (%s hard=%v) — triggering recognition", reason, isHardBoundary)
 		select {
 		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true, isHardBoundary: isHardBoundary, detectedAt: detectedAt}:
+			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeFired, reason, isHardBoundary)
 		default:
+			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeTriggerChannelFull, reason, isHardBoundary)
 		}
 	}
 
@@ -444,6 +451,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		}
 		if out.energySuppressedByCooldown {
 			log.Printf("VU monitor: energy-change boundary suppressed (cooldown active)")
+			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeEnergyChangeCooldown, "energy-change", false)
 		}
 
 		// Duration-exceeded trigger: when elapsed time passes the known track

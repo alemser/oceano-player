@@ -96,6 +96,22 @@ var migrations = []string{
 	// Fingerprints are no longer used by the runtime path and are dropped to
 	// avoid maintaining stale schema objects.
 	`DROP TABLE IF EXISTS fingerprints`,
+	`CREATE TABLE boundary_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		occurred_at TEXT NOT NULL,
+		outcome TEXT NOT NULL,
+		boundary_type TEXT NOT NULL DEFAULT '',
+		is_hard INTEGER NOT NULL DEFAULT 0,
+		physical_source TEXT NOT NULL DEFAULT '',
+		format_at_event TEXT NOT NULL DEFAULT '',
+		format_resolved TEXT,
+		format_resolved_at TEXT,
+		duration_ms INTEGER NOT NULL DEFAULT 0,
+		seek_ms INTEGER NOT NULL DEFAULT 0,
+		play_history_id INTEGER REFERENCES play_history(id),
+		collection_id INTEGER REFERENCES collection(id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS boundary_events_occurred_at_idx ON boundary_events(occurred_at)`,
 }
 
 var currentSchemaVersion = len(migrations)

@@ -50,6 +50,7 @@ async function loadStats() {
     const s = await res.json();
     if (reqSeq !== _statsRequestSeq) return;
     renderStats(s);
+    await loadBoundaryStats(reqSeq);
   } catch (_) {}
 }
 
@@ -212,6 +213,82 @@ function renderStylusSummary(payload) {
   const remaining = Number(metrics.remaining_hours || 0);
   const used      = Number(metrics.stylus_hours_total || 0);
   $stylusRemaining.textContent = `${remaining.toFixed(1)}h remaining · ${used.toFixed(1)}h used`;
+}
+
+// ─── Boundary telemetry (VU / duration-boundary path) ─────────────────────────
+const _boundaryOutcomeLabels = {
+  fired: 'Fired (recognition triggered)',
+  suppressed_duration_guard: 'Suppressed (duration guard)',
+  ignored_mature_progress: 'Ignored (mature progress)',
+  suppressed_not_physical: 'Suppressed (not Physical)',
+  trigger_channel_full: 'Trigger channel full',
+  energy_change_cooldown: 'Energy dip (cooldown)',
+};
+
+async function loadBoundaryStats(statsReqSeq) {
+  const container = document.getElementById('boundary-stats-grid');
+  if (!container) return;
+  const seq = statsReqSeq != null ? statsReqSeq : _statsRequestSeq;
+  try {
+    const r = await fetch(`/api/recognition/boundary-stats?days=${_periodDays}`, { cache: 'no-store' });
+    if (!r.ok) {
+      container.innerHTML = '<div class="rec-stats-placeholder">Unavailable</div>';
+      return;
+    }
+    const payload = await r.json();
+    if (seq !== _statsRequestSeq) return;
+    renderBoundaryStats(container, payload);
+  } catch {
+    if (container) container.innerHTML = '<div class="rec-stats-placeholder">Failed to load.</div>';
+  }
+}
+
+function renderBoundaryStats(container, payload) {
+  const total = Number(payload.total || 0);
+  const by = payload.by_outcome || {};
+  const actionable = Number(payload.actionable_total || 0);
+  const fr = payload.fire_rate;
+
+  if (total === 0) {
+    container.innerHTML = '<div class="rec-stats-placeholder">No boundary events in this period yet.</div>';
+    return;
+  }
+
+  const order = [
+    'fired',
+    'suppressed_duration_guard',
+    'ignored_mature_progress',
+    'suppressed_not_physical',
+    'trigger_channel_full',
+    'energy_change_cooldown',
+  ];
+  let rows = '';
+  for (const k of order) {
+    const n = Number(by[k] || 0);
+    const label = _boundaryOutcomeLabels[k] || k;
+    rows += `<div class="rec-prov-row"><span class="lbl">${esc(label)}</span><span class="val">${n}</span></div>`;
+  }
+  for (const k of Object.keys(by).sort()) {
+    if (order.includes(k)) continue;
+    rows += `<div class="rec-prov-row"><span class="lbl">${esc(k)}</span><span class="val">${by[k]}</span></div>`;
+  }
+
+  const rateLabel = actionable > 0 && typeof fr === 'number' && fr >= 0
+    ? `${Math.round(fr * 100)}%`
+    : '—';
+  const rateHint = actionable > 0
+    ? 'Share of actionable boundary decisions that triggered recognition (excludes energy-dip cooldown rows).'
+    : '';
+  const rateTitle = rateHint ? ` title="${esc(rateHint)}"` : '';
+
+  container.innerHTML =
+    `<div class="rec-prov-card boundary-stats-card">` +
+    `<div class="rec-prov-name">Summary</div>` +
+    `<div class="rec-prov-row"><span class="lbl">Total events</span><span class="val">${total}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Actionable decisions</span><span class="val">${actionable}</span></div>` +
+    `<div class="rec-prov-rate"><span class="lbl">Fire rate</span><span class="${rateLabel !== '—' ? 'val-ok' : 'val-none'}"${rateTitle}>${rateLabel}</span></div>` +
+    `<div class="boundary-outcome-block">${rows}</div>` +
+    `</div>`;
 }
 
 // ─── Recognition provider stats ───────────────────────────────────────────────
