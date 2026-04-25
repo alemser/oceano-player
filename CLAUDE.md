@@ -123,13 +123,19 @@ sudo ./install-oceano-web.sh
 - Idle clock screen when no source is active
 - Reconnecting SSE client with exponential back-off
 
-**Auto-launch on Pi boot:**
+**Auto-launch on Pi boot**
+
+- **Debian package install:** run **`sudo oceano-setup`** after `apt install` and answer **y**
+  when asked to install the display service (lighter kiosk wiring; see README for capture
+  calibration and limitations vs the full script).
+- **Repository clone:** use the full installer for X11/LightDM/Chromium wiring:
+
 ```bash
 sudo ./install-oceano-display.sh --web-addr http://localhost:8080 --user pi
 # optional: --web-addr http://localhost:8080  --user pi
 ```
 
-This installs `oceano-display.service`, which:
+`install-oceano-display.sh` installs `oceano-display.service`, which:
 1. Runs `oceano-display-check` to detect a connected HDMI or DSI panel via `/sys/class/drm`.
    If no display is found the service exits cleanly — safe for headless Pi deployments.
 2. Launches Chromium in kiosk mode pointing at `http://localhost:8080/nowplaying.html`.
@@ -148,7 +154,7 @@ cmd/
     static/
       index.html            #   Configuration UI (all screen sizes)
       nowplaying.html       #   Full-screen now playing UI for 5"–7" HDMI/DSI displays
-  oceano-setup/             # Go: interactive first-time setup wizard (run once after install)
+  oceano-setup/             # Go: interactive wizard (AirPlay/BT/devices; optional display — run after .deb or install.sh)
 scripts/
   test-acoustid.sh          # Legacy standalone AcoustID experiment (not used by services)
 install.sh                  # Installer: AirPlay + Bluetooth stack (shairport-sync, BlueZ, AAC codec plugin, PipeWire wiring)
@@ -198,12 +204,16 @@ Output: `/tmp/oceano-source.json`
 ## Deployment
 
 ```bash
-# On the Pi — installs everything (AirPlay stack + detector + state manager + web UI)
+# Debian package (recommended) — .deb from GitHub Releases (tagged builds); see README
+sudo apt install ./oceano-player_*_arm64.deb
+sudo oceano-setup   # AirPlay, Bluetooth, ALSA devices, optional HDMI/DSI kiosk prompt
+
+# Then open http://<pi-ip>:8080 for ACRCloud credentials and web-based fine-tuning.
+
+# Full install from this repository (AirPlay stack + detector + state manager + web UI)
 sudo ./install.sh
 
-# Then open http://<pi-ip>:8080 to set ACRCloud credentials and audio devices.
-
-# Install the now-playing kiosk display (HDMI/DSI screens):
+# Full now-playing kiosk (HDMI/DSI) — only when you have the repo checkout; not on .deb-only systems
 sudo ./install-oceano-display.sh --web-addr http://localhost:8080 --user pi
 # optional: --web-addr http://localhost:8080  --user pi
 
