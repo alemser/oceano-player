@@ -38,7 +38,11 @@ func (m *mgr) buildState() PlayerState {
 		state = "playing"
 	case physicalActive:
 		source = "Physical"
-		state = "playing"
+		if !m.vuInSilence {
+			state = "playing"
+		} else {
+			state = "idle"
+		}
 	}
 
 	var track *TrackInfo
@@ -90,6 +94,9 @@ func (m *mgr) buildState() PlayerState {
 			SeekUpdatedAt: m.bluetoothSeekUpdatedAt.UTC().Format(time.RFC3339),
 		}
 	case "Physical":
+		if m.vuInSilence {
+			break // track remains nil — display shows idle during inter-track silence
+		}
 		if r := m.recognitionResult; r != nil {
 			var sampleRate, bitDepth string
 			if strings.EqualFold(strings.TrimSpace(r.Format), "cd") {

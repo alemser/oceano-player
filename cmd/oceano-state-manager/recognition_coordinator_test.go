@@ -271,8 +271,10 @@ func TestComputeRecognizedSeekMS_NonBoundaryEquivalentMetadataKeepsProgress(t *t
 	if resetStartedAt {
 		t.Fatal("expected physicalStartedAt to be preserved for same-track metadata")
 	}
-	if seekMS < 110000 {
-		t.Fatalf("seekMS = %d, expected preserved monotonic progress", seekMS)
+	// Seek must be based on captureStartedAt (~6 s), not on physStartedAt (2 min).
+	// Using physStartedAt would inflate seek past the track duration (Bug 3).
+	if seekMS < 4000 || seekMS > 15000 {
+		t.Fatalf("seekMS = %d, expected ~6s from captureStartedAt (not 2min from physStartedAt)", seekMS)
 	}
 }
 
@@ -288,8 +290,9 @@ func TestComputeRecognizedSeekMS_NonBoundaryDifferentMetadataResetsProgress(t *t
 	if !resetStartedAt {
 		t.Fatal("expected physicalStartedAt reset for different track")
 	}
-	if seekMS < 115000 {
-		t.Fatalf("seekMS = %d, expected ~2min elapsed since physStartedAt", seekMS)
+	// Seek must be based on captureStartedAt (~6 s), not on physStartedAt (2 min).
+	if seekMS < 4000 || seekMS > 15000 {
+		t.Fatalf("seekMS = %d, expected ~6s from captureStartedAt (not 2min from physStartedAt)", seekMS)
 	}
 }
 
@@ -594,15 +597,22 @@ func TestComputeRecognizedSeekMS_NonBoundaryTrackChangeDoesNotReuseOldSessionEla
 	current := &RecognitionResult{ACRID: "new-acr", Title: "New", Artist: "Artist"}
 
 	seekMS, resetStart := computeRecognizedSeekMS(false, captureStartedAt, now, time.Time{}, physStartedAt, previous, current)
-	if seekMS < 170000 {
-		t.Fatalf("computeRecognizedSeekMS() seek=%d, want ~3min since physStartedAt", seekMS)
+	// Seek must NOT reuse the 3-min physStartedAt — that would produce seek=180s
+	// which exceeds most track durations and is the root cause of Bug 3.
+	// Expected: ~30s from captureStartedAt.
+	if seekMS < 28000 || seekMS > 36000 {
+		t.Fatalf("computeRecognizedSeekMS() seek=%dms, want ~30s from captureStartedAt (not 3min from physStartedAt)", seekMS)
 	}
 	if !resetStart {
 		t.Fatal("expected non-boundary track change to request physicalStartedAt reset")
 	}
 }
 
-func TestComputeRecognizedSeekMS_NonBoundarySameTrackCanReuseSessionElapsed(t *testing.T) {
+// TestComputeRecognizedSeekMS_NonBoundarySameTrackPreservesPhysicalStartedAt verifies
+// that for a same-track periodic re-confirmation physicalStartedAt is NOT reset
+// (so existing seek continues to advance from the previous anchor), and that seek
+// is based on captureStartedAt rather than the stale physStartedAt.
+func TestComputeRecognizedSeekMS_NonBoundarySameTrackPreservesPhysicalStartedAt(t *testing.T) {
 	now := time.Now()
 	captureStartedAt := now.Add(-4 * time.Second)
 	physStartedAt := now.Add(-90 * time.Second)
@@ -610,11 +620,13 @@ func TestComputeRecognizedSeekMS_NonBoundarySameTrackCanReuseSessionElapsed(t *t
 	current := &RecognitionResult{ACRID: "same-acr", Title: "Same", Artist: "Artist"}
 
 	seekMS, resetStart := computeRecognizedSeekMS(false, captureStartedAt, now, time.Time{}, physStartedAt, previous, current)
-	if seekMS < 90000 {
-		t.Fatalf("computeRecognizedSeekMS() seek=%d, want reused session elapsed", seekMS)
-	}
+	// physicalStartedAt must NOT be reset on same-track confirmation.
 	if resetStart {
 		t.Fatal("expected same-track re-confirmation not to reset physicalStartedAt")
+	}
+	// Seek is based on captureStartedAt (~4 s), not physStartedAt (90 s).
+	if seekMS < 2000 || seekMS > 10000 {
+		t.Fatalf("computeRecognizedSeekMS() seek=%dms, want ~4s from captureStartedAt", seekMS)
 	}
 }
 

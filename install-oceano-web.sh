@@ -159,9 +159,18 @@ main() {
   log_ok "Config directory ready at ${CONFIG_DIR}"
 
   log_section "Sudoers for ALSA mixer save"
-  echo "oceano-web ALL=(root) NOPASSWD: /usr/sbin/alsactl store" > /etc/sudoers.d/oceano-alsactl
+  # Allow "alsactl store" with or without a card-number argument.
+  # The mic-gain API calls "alsactl store <N>" to persist per-card state.
+  printf 'oceano-web ALL=(root) NOPASSWD: /usr/sbin/alsactl store, /usr/sbin/alsactl store *\n' > /etc/sudoers.d/oceano-alsactl
   chmod 0440 /etc/sudoers.d/oceano-alsactl
   log_ok "Sudoers configured for mic gain persistence"
+
+  log_section "ALSA state restore on boot"
+  if systemctl enable alsa-restore.service 2>/dev/null; then
+    log_ok "alsa-restore.service enabled — mic gain will survive reboots"
+  else
+    log_warn "alsa-restore.service not found — install alsa-utils if gain resets after reboot"
+  fi
 
   log_section "Build"
   build_binary

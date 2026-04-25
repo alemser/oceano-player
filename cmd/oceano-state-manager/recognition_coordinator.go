@@ -115,17 +115,15 @@ func computeRecognizedSeekMS(isBoundaryTrigger bool, captureStartedAt, now, last
 		return seekMS, true
 	}
 
+	// Non-boundary (periodic) trigger: use time elapsed since capture started.
+	// physStartedAt is the session or last-reset anchor; on long sessions it can
+	// be many minutes old, inflating seek far past the track duration (Bug 3).
 	seekMS := now.Sub(captureStartedAt).Milliseconds()
 	if seekMS < 0 {
 		seekMS = 0
 	}
-	if !physStartedAt.IsZero() {
-		if better := now.Sub(physStartedAt).Milliseconds(); better > seekMS {
-			seekMS = better
-		}
-	}
 	if sameTrackForStateContinuity(previousResult, newResult) && !physStartedAt.IsZero() {
-		return seekMS, false
+		return seekMS, false // same track — preserve physicalStartedAt, keep seek conservative
 	}
 
 	return seekMS, true
@@ -513,6 +511,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		isPhysical := c.mgr.physicalSource == "Physical"
 		isAirPlay := c.mgr.airplayPlaying
 		isBluetooth := c.mgr.bluetoothPlaying
+		vuInSilence := c.mgr.vuInSilence
 		c.mgr.mu.Unlock()
 		if shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth) {
 			if c.mgr.cfg.Verbose {
@@ -522,6 +521,12 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				case isBluetooth:
 					log.Printf("recognizer [%s]: skipping — Bluetooth is active", c.rec.Name())
 				}
+			}
+			continue
+		}
+		if vuInSilence {
+			if c.mgr.cfg.Verbose {
+				log.Printf("recognizer [%s]: skipping — VU in silence", c.rec.Name())
 			}
 			continue
 		}
