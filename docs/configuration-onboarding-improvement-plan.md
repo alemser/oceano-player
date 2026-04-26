@@ -1,13 +1,31 @@
 # Configuration & Onboarding — Improvement Plan
 
-This document describes how first-time configuration feels today, why it is hard, and a phased plan to make setup **guided, minimal by default, and opt-in** for advanced features (amplifier IR, per-input calibration, weather, etc.).
+This document describes how first-time configuration feels today, why it is hard, and a phased plan to make setup **guided, physical-media-first, minimal by default, and opt-in** for advanced features.
+
+---
+
+## Product positioning & primary audience
+
+**Primary audience:** People who care about **physical media** — vinyl, CD, and other line-level sources routed through a real amplifier. They want reliable **now playing** identification, sensible **track boundaries**, and a clear picture of **what is wired where**, without becoming AV installers.
+
+**Hero experience (invest here):**
+
+- **Track recognition** — credentials, capture level, chain choice, and understandable retry/backoff behaviour.
+- **Per-setup calibration** — noise floor and (where relevant) vinyl gap detection, scoped to the inputs that actually carry physical sources.
+- **Device topology** — “this box is my turntable on Phono”, “this is the CD deck on CD”, with optional IR where it helps.
+
+**Streaming (AirPlay / Bluetooth):** Important for day-to-day use, but **many products already excel** at discovery, pairing, and multi-room streaming. Oceano should ship **only what is needed** for a working stack (name, DAC/sink wiring, resilience hooks via `oceano-setup`) and **defer** streaming depth (fancy BT device management, UPnP, etc.) behind progressive disclosure or later releases.
+
+**Implication for onboarding:** The **first-run narrative** should read: *“Make your records and CDs shine on the wall display; streaming is here when you want it.”* Checklist order and copy should reflect that priority.
+
+---
 
 ## Goals
 
-- A new user should know **what to do first**, **what is optional**, and **what order** makes sense without reading the whole README.
-- **Defaults should not imply a specific amplifier** (e.g. Magnat MR 780) until the user explicitly chooses hardware that matches a built-in profile.
+- A new user should know **what to do first** for **physical playback + recognition**, **what is optional**, and **what order** makes sense without reading the whole README.
+- **No pre-configured amplifier** in a fresh install — amplifier identity, inputs, Broadlink, IR, and connected devices should be **introduced only inside a dedicated flow** (wizard or explicit “Set up amplifier”), not via baked-in `defaultConfig()` rows that look like “your amp is already a Magnat MR 780”.
 - Surface **contextual hints** (“you have not configured X”) in the main UI and config drawer, not only deep in sub-pages.
-- Complement existing **`oceano-setup`** (CLI on the Pi) with a **web-first welcome path** for credentials, devices, and “nice to have” options.
+- Complement **`oceano-setup`** (CLI on the Pi) with a **web-first path** tuned to **physical media** completion (capture, recognition, optional amp IR, optional calibration).
 
 ---
 
@@ -24,112 +42,198 @@ This document describes how first-time configuration feels today, why it is hard
 | `pair.html` | Broadlink pairing wizard |
 | `advanced.html` | Sockets, paths, library DB |
 
-A first user opening **Configuration** sees many sections and external links (“Configure Recognition ↗”, “Configure Amplifier ↗”) without a **single ordered checklist** or “you are 2/5 steps done” model.
+A first user opening **Configuration** sees many sections and external links without a **single ordered checklist** or “you are 2/5 steps done” model. For a **vinyl-first** user, the mental model (“REC OUT → capture → identify my records”) is disconnected from “Amplifier Control” and “Broadlink” until they read hints.
 
 ### Amplifier defaults feel “already decided”
 
-Fresh `defaultConfig()` in `cmd/oceano-web/config.go` sets:
+Fresh `defaultConfig()` in `cmd/oceano-web/config.go` currently seeds a **full Magnat-oriented** `amplifier` block (`profile_id`, maker/model, inputs, timings). `amplifier.enabled` is `false`, so IR is off — but the **UI still presents an active hardware profile**, which reads as “this product assumes my amp is X” even when the user only cares about turntable + capture.
 
-- `amplifier.profile_id`: `magnat_mr780`
-- `maker` / `model`: Magnat MR 780
-- Full input list and timing aligned with that product
-
-`amplifier.enabled` is `false` (zero value), so IR control is off — but the **UI still presents an active Magnat-oriented profile** in “Active Profile”. That reads as “this system is for a Magnat MR 780” even when the user has different hardware or does not want IR at all.
-
-**Desired behaviour:** built-in Magnat remains **available in the profile picker**, but **no hardware-specific profile is pre-selected** for a brand-new install. The user explicitly picks “I use Magnat MR 780 (built-in)” or “Generic / other”.
+**Desired behaviour:** On a **new** install, `amplifier` should look **unconfigured** (empty `profile_id`, no implied maker/model, empty or minimal `inputs` until the user runs setup). Built-in profiles (e.g. Magnat MR 780) remain **selectable inside the wizard**, not applied silently.
 
 ### Broadlink is a separate mental step
 
-Copying is roughly: enable amplifier → choose profile → open amplifier page → enter RM IP → open pairing wizard in another tab → learn IR commands → save → restart services.
+Rough flow today: enable amplifier → choose profile → amplifier page → RM IP → pairing wizard in another tab → learn IR → save → restart. Nothing in the **header / status** distinguishes “Broadlink not paired” from “IR ready”.
 
-There is good copy on `amplifier.html` and `pair.html`, but nothing in the **main header or status area** that says “Broadlink not paired” vs “IR ready”.
+### Calibration vs every input
 
-### Calibration and recognition are advanced but look mandatory
+The calibration wizard is powerful but **lists inputs in a generic way**. Users with **USB + Phono + CD** may not know that calibration matters most for **physical line paths** (and vinyl gap step only for turntable). There is no link between **“device on this input”** and **“should I calibrate this input?”**
 
-Calibration wizards (`recognition.html` + `calibration-wizard.js`) are powerful but buried behind “Physical Sources → Configure Recognition”. A new user may not understand **when** calibration is needed vs **optional** presets (“Standard — no calibration needed”).
+### Streaming section competes for attention
+
+AirPlay/BT blocks are legitimate but **visually parallel** to physical sources; for the target audience, the UI should **tier** content: physical path first, streaming as “Basics” or collapsible.
 
 ### Other defaults that look “wrong” for many users
 
-Examples worth revisiting in the same simplification pass:
-
-- **Weather**: defaults to Dublin with weather **enabled** in `defaultConfig()` — surprising on a fresh Pi in another country.
-- **Advanced calibration profiles** in `advanced.calibration_profiles`: ship with sample numeric data keyed by input IDs; useful for regression/dev but **opaque** to a first user (“where did these numbers come from?”).
+- **Weather**: Dublin + enabled by default — unrelated to physical-media onboarding.
+- **`advanced.calibration_profiles`** in `defaultConfig()`: numeric fixtures are great for **tests/dev** but **opaque** on a fresh Pi (“where did these numbers come from?”).
 
 ---
 
 ## Design principles
 
-1. **Progressive disclosure** — core path: devices + recognition credentials + save/restart. Amplifier IR, calibration, weather, SPI: clearly optional.
-2. **Explicit opt-in for hardware identity** — no implied Magnat (or any) model until chosen.
-3. **One checklist, many deep links** — welcome wizard or dashboard row: each item deep-links to the right page with `?from=onboarding` if needed.
-4. **Server-side “completeness”** — `GET /api/setup-status` (or extend `/api/status`) returning booleans: `has_capture_device`, `has_acrcloud`, `amplifier_ir_ready`, `calibration_any`, etc., so the UI does not duplicate logic.
-5. **Preserve power user flows** — do not remove `amplifier.html` / `recognition.html`; add a thin **orchestration layer** on top.
+1. **Physical-first progressive disclosure** — minimum path: capture + recognition credentials + save/restart. Then optional: amplifier IR, per-input calibration, weather, SPI.
+2. **No implied hardware** — no amplifier profile, maker/model, or input map until the user confirms hardware (wizard or import).
+3. **One orchestrated story, many deep pages** — welcome checklist or wizard steps may **embed** iframes / same-origin steps or deep-link with `?step=` / `?from=onboarding`; power pages (`amplifier.html`, `recognition.html`) stay for advanced edits.
+4. **Server-side completeness** — e.g. `GET /api/setup-status`: `has_capture`, `has_recognition_credentials`, `amplifier_configured`, `broadlink_paired`, `calibration_physical_complete`, etc.
+5. **Device roles drive calibration scope** — see below; avoids asking a vinyl listener to “calibrate USB streaming” unless they want to.
+
+---
+
+## Device roles (connected equipment → input usage)
+
+When the user defines a **connected device** (name + amplifier input IDs), they should optionally classify **what that device is for**:
+
+| Role | Meaning | Calibration wizard | Notes |
+|------|---------|-------------------|--------|
+| **Physical media** | Turntable, CD player, tape, etc. — sources you want to **identify** and boundary-detect | **Offer** noise-floor calibration for those inputs; offer **vinyl transition** step if format is vinyl/turntable | Primary Oceano value |
+| **Streaming** | PC/USB DAC, streamer, “Bluetooth” input on amp, etc. | **Skip by default** (no per-input noise floor required for recognition of **files** on that path — recognition is REC OUT–driven for physical). User can still override “calibrate anyway” for odd setups. | Keeps wizard short |
+| **Other** | Tuner, HDMI, unknown | **Skip** unless user opts in | Copy: “Skip unless this input carries a physical source you want to recognise” |
+
+**Config shape (proposal):** extend `ConnectedDeviceConfig` with something like `role: "physical_media" | "streaming" | "other"` (exact enum TBD). **Migration:** omit → treat as `physical_media` for backward compatibility *or* `unknown` that prompts once in UI.
+
+**Calibration wizard behaviour:** build the list of **calibratable inputs** as the union of input IDs attached to devices with `role = physical_media`, plus any input the user manually marks “always calibrate”. Hide or de-emphasise the rest. **Vinyl gap** sub-step only when at least one physical device is tagged as vinyl/turntable (either a sub-flag `format_hint: vinyl` on the device or a dedicated role `physical_vinyl`).
+
+**State manager / recognition:** today much logic keys off **source** and **calibration profiles** keyed by amplifier **input ID**. Device roles are primarily a **UX and scoping** layer; backend can keep using input IDs once calibration slots exist. Longer term, roles could feed **defaults** (e.g. continuity / boundary tuning) per format — out of scope for this doc except as a hook.
+
+---
+
+## Stylus (needle) life & listening context (roadmap-friendly)
+
+Physical-media enthusiasts often care about **stylus hours** and **record wear**. Oceano already has **play time**, **track boundaries**, and **format hints** (Vinyl vs CD) in the architecture conversation.
+
+**Possible additions (not committed scope):**
+
+- Soft **listening counters** per turntable device (increment while `Physical` + `Vinyl` + audio present).
+- Optional **reminder** UI (“~N hours on this stylus — replace or inspect per manufacturer guidance”) with **user-settable** target hours, not medical/engineering claims.
+- Tie reminders to **connected device** “turntable” entries from the amplifier wizard.
+
+This plan **does not** require implementing needle tracking in Phase 1–2; it records **audience alignment** so onboarding copy and future features stay coherent.
+
+---
+
+## Amplifier setup wizard (proposal)
+
+**Yes — a dedicated amplifier wizard is worthwhile**, because it bundles decisions that today span `index.html` → `amplifier.html` → `pair.html` and repeats Broadlink context.
+
+**Suggested flow (high level):**
+
+1. **Intent** — “Do you want IR control of your amplifier?” → No: skip entire block, leave `amplifier.enabled=false` and empty topology. Yes: continue.
+2. **Identity** — Maker / model (free text) **or** “Pick a built-in profile” (e.g. Magnat MR 780) to pre-fill inputs, warm-up, standby, USB-reset timings.
+3. **Inputs** — Confirm visible inputs and labels (editable); match real amp front panel.
+4. **Broadlink pairing (required for IR)** — If the user chose IR control, this step is **mandatory** before any IR learning: the RM4 Mini must be reachable and paired (token/device id persisted). **Implementation is flexible:** the pairing flow can stay as today’s **standalone** `pair.html` wizard (open in same tab, new tab, or embedded iframe) — separate wizards are fine. The amplifier wizard must still **surface this as an explicit gated step** (“Complete Broadlink pairing → Continue”) so nobody lands on IR learn with an unpaired bridge.
+5. **IR codes** — Guided learn sequence for `power_on`, `power_off`, `volume_up/down`, `next_input`, … with skip only where unsafe; show “learned ✓” per row. **Blocked** until step 4 is satisfied.
+6. **Connected devices** — For each box: name, **which input(s)** it uses, **role** (physical / streaming / other), optional “has IR remote” → second pass of IR learn for transport codes.
+7. **Review + Save & restart** — single commit point.
+
+**Relationship to existing pages:** Implement as a **new route** (e.g. `/amplifier-wizard.html`) or a modal sequence that **reuses** the same APIs as `amplifier.html` and the existing **Broadlink pairing** endpoints/UI (`pair.html`). Deprioritise requiring users to discover three unrelated URLs **without** a checklist — reusing `pair.html` as its own wizard is acceptable; the amplifier wizard **orchestrates order** and **blocks** IR steps until pairing is done.
+
+---
+
+## Streaming: “basics only” in product and in UI
+
+- **`oceano-setup`** remains the right place for **mDNS, PipeWire, Bluetooth codec, shairport ALSA backend** — one shot, expert-maintained.
+- **Web UI:** keep **AirPlay name**, **Bluetooth on/off**, and **output device match** visible but **collapsed** under a “Streaming basics” subsection after physical-media steps in the checklist.
+- **Defer:** rich BT device gallery, UPnP, multi-zone — document as **not differentiating** for v1 of this onboarding pass.
 
 ---
 
 ## Proposed work (phased)
 
-### Phase 1 — Neutral defaults & honest empty state (low risk)
+### Phase 1 — Empty amplifier by default + neutral globals
 
-- **Fresh config template**
-  - Set `amplifier.profile_id` to empty (or a literal sentinel like `none` if JSON empty is ambiguous in the UI).
-  - Clear `maker` / `model` or set to generic placeholders only shown when no profile is selected.
-  - Keep built-in `magnat_mr780` **only** in the profile registry / “activate profile” API, not as the implicit default in `defaultConfig()`.
-- **Migration**
-  - Existing installs: **no change** on load (already have `config.json`). Optional one-time migration only if you introduce a new explicit `profile_id` value and need to map old files.
-- **UI**
-  - Profile `<select>` default option: “Choose amplifier profile…” with built-ins listed below.
-  - Short hint: “Built-in profiles supply input maps and timings; IR codes still require learning on your amp.”
+- **`defaultConfig()`**
+  - Remove baked-in Magnat profile and input list; `amplifier.profile_id` empty; `inputs` empty or a single placeholder only if the UI requires non-empty array (prefer empty + UI handles).
+  - `amplifier.enabled` remains false until wizard completes or user toggles on manually.
+- **Weather:** default off; empty or null location until enabled.
+- **Calibration profiles:** empty map on fresh install; move numeric fixtures to **tests** or `docs/examples/*.json` if still needed for CI.
+- **UI:** “Set up amplifier” CTA opens wizard; no pre-selected profile in `<select>`.
 
-### Phase 2 — Web welcome checklist (“first 10 minutes”)
+### Phase 2 — Physical-first welcome checklist
 
-- After first load (or cookie / `localStorage` flag `onboarding_dismissed`), show a **compact checklist** (modal or top banner):
-  1. System audio (link: note “already covered by `oceano-setup`” + button “I ran setup”).
-  2. Capture device (device picker + link to Physical Sources).
-  3. Track recognition credentials (deep link to recognition / ACRCloud section).
-  4. *(Optional)* Enable amplifier control → Broadlink pairing → IR learn (ordered sub-steps).
-  5. *(Optional)* Run calibration wizard when using vinyl / strict boundaries.
-- **Dismiss** “Don’t show again” + restore entry under header (“Setup checklist”).
+Ordered for the target audience:
 
-### Phase 3 — Contextual hints everywhere
+1. **System foundation** — `oceano-setup` done (DAC, capture card present).
+2. **Capture** — REC OUT card, device match, optional mic-gain wizard link.
+3. **Recognition** — ACRCloud (and chain at **sensible defaults**).
+4. **Optional — Amplifier wizard** — identity → **Broadlink pairing (required before IR)** → IR learn → connected devices + **roles** (pairing may jump to the dedicated `pair.html` wizard; order stays explicit in the amp wizard).
+5. **Optional — Calibration** — only **physical_media** (and vinyl gap where applicable).
 
-- **Status bar / header**: chip or icon when `setup-status` reports missing ACRCloud or capture ambiguity (e.g. multiple USB cards).
-- **Config drawer**: reorder sections so **incomplete** items float to the top when `setup-status` says so.
-- **Amplifier widget**: only show when `amplifier.enabled`; when enabled but not paired, show “Pair Broadlink” instead of silent failures.
+Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Bluetooth (optional)”.
 
-### Phase 4 — Bridge CLI setup and web setup
+### Phase 3 — Amplifier wizard implementation
 
-- **`oceano-setup`**: optional final screen “Open `http://<pi>:8080` to finish: ACRCloud, optional amplifier IR.”
-- **Web**: link back to README section for resilience / Bluetooth only when relevant (already partially in header hint).
+- As specified in the previous section; **gate** IR-learning steps on successful Broadlink pairing (reuse `pair.html` and/or same APIs — **separate pairing wizard is OK**). Persist atomically at end (or per major milestone with explicit “saved draft” if needed).
 
-### Phase 5 — Weather & calibration template hygiene
+### Phase 4 — Calibration scoped by device role
 
-- **Weather**: default `enabled: false` and neutral lat/lon or empty until user enables (avoids “why Dublin?”).
-- **Calibration**: default `calibration_profiles` empty on fresh template; keep dev fixtures in test data or a `docs/examples/` JSON snippet rather than embedded defaults in production `defaultConfig()` (if that does not break tests — may require splitting “dev default” vs “shipping default”).
+- Extend config + UI for **device role**.
+- Filter calibration wizard input list; update `recognition_page.js` / `calibration-wizard.js` copy to explain **why** some inputs are hidden.
+- Ensure **state manager** still receives calibration keyed by input ID (no breaking change unless we add aliases).
+
+### Phase 5 — Contextual hints & API
+
+- `/api/setup-status` + header chips (“Missing ACRCloud”, “Amplifier not configured”, “Calibrate Phono for best vinyl boundaries”).
+- Config drawer **reorders** sections based on incomplete flags.
+
+### Phase 6 — CLI ↔ web bridge
+
+- **`oceano-setup`:** closing screen points to web checklist; emphasise **physical media** finish line.
 
 ---
 
 ## Success metrics (qualitative)
 
-- A new user can answer: “What is the **minimum** I must configure to get AirPlay + physical recognition?” without opening four pages.
-- No UI copy implies ownership of a **specific commercial amplifier** until the user selects that profile.
-- “Optional” features (IR, calibration, weather) are labeled consistently and discoverable from one checklist.
+- A vinyl/CD listener can complete **capture + recognition** without touching amplifier IR.
+- No fresh install JSON implies a **specific commercial amplifier**.
+- Calibration wizard **does not nag** for USB/streaming-only inputs unless the user opts in.
+- Streaming users can still get **minimal** AirPlay/BT from setup + one web subsection.
 
 ---
 
-## Out of scope (for this plan)
+## Editorial: what we would add, remove, or defer
+
+**Add**
+
+- **Amplifier wizard** as the primary path for IR topology (your suggestion aligns with reducing cognitive load).
+- **Device role** (`physical_media` / `streaming` / `other`) on connected devices — high leverage for calibration UX and future features (needle hours, format-specific copy).
+- **Physical-first checklist** copy and ordering in all first-run surfaces.
+- **Explicit Broadlink step** inside the amplifier wizard: **required** before IR commands; may **launch** the existing `pair.html` wizard rather than duplicating UI (separate wizards are fine — sequencing and copy matter).
+- **Roadmap note** for stylus/listening-time (audience-true even if shipped later).
+
+**Remove or shrink**
+
+- **Default Magnat profile** (and any other OEM-shaped defaults) from `defaultConfig()`.
+- **Default calibration numbers** from shipping defaults (keep in tests/examples).
+- **Default Dublin weather** as “on” — turn into explicit opt-in.
+
+**Keep (do not delete)**
+
+- Separate **advanced** pages for power users who outgrow the wizard.
+- **`oceano-setup`** for OS-level streaming resilience — do not try to replace it with pure web.
+
+**Defer / be cautious**
+
+- **Monolithic single-page app** — not required if wizard + checklist + status API are coherent.
+- **Automatic amp detection** without IR — usually impossible; avoid promising it.
+- **Over-automating role inference** from maker names — default to **user choice** with smart suggestions later.
+
+**Risk:** `role` migration must define behaviour for **existing** `connected_devices` with no role (treat as physical or prompt once). **Mitigation:** one-time banner “Tag your devices for smarter calibration” with safe default.
+
+---
+
+## Out of scope (for this plan document)
 
 - Replacing Broadlink with another IR stack.
-- Merging all HTML into a single SPA (not required for onboarding; checklist + status API is enough).
+- Full vinyl-vs-CD **automatic** classification without calibration (see CLAUDE.md — still future-heavy).
 
 ---
 
 ## Related code / docs
 
-- Default config: `cmd/oceano-web/config.go` (`defaultConfig`)
-- Built-in profile resolution: `cmd/oceano-web/amplifier_profiles.go` (`builtInAmplifierProfile`, `resolveAmplifierConfig`)
+- Default config: `cmd/oceano-web/config.go` (`defaultConfig`, `ConnectedDeviceConfig`)
+- Built-in profile resolution: `cmd/oceano-web/amplifier_profiles.go`
 - Pairing UI: `cmd/oceano-web/static/pair.html`
 - Amplifier UI: `cmd/oceano-web/static/amplifier.html`
 - Calibration: `cmd/oceano-web/static/recognition.html`, `static/recognition/calibration-wizard.js`
 - CLI wizard: `cmd/oceano-setup/`
-- Architecture reference: `docs/amplifier-device-architecture.md`, `docs/distribution-and-setup-improvements-plan.md`
+- Architecture: `docs/amplifier-device-architecture.md`, `docs/distribution-and-setup-improvements-plan.md`
