@@ -28,8 +28,8 @@ func TestPollSourceFile_ResumeWithinSessionQueuesRecognition(t *testing.T) {
 	if m.physicalSource != "Physical" {
 		t.Fatalf("physicalSource = %q, want Physical", m.physicalSource)
 	}
-	if m.recognitionResult == nil || m.recognitionResult.Title != "Track 1" {
-		t.Fatal("recognitionResult should be preserved on same-session resume")
+	if m.recognitionResult != nil {
+		t.Fatal("recognitionResult should be cleared on same-session None→Physical resume")
 	}
 	if !m.physicalStartedAt.After(beforeStartedAt) {
 		t.Fatal("physicalStartedAt should reset on same-session resume")

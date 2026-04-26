@@ -186,9 +186,10 @@ O VU monitor lê frames do socket `/tmp/oceano-vu.sock` a ~21.5 Hz (float32 L+R)
 1. Library lookup por ACRID + ShazamID
    - Se encontrado: usa metadata guardada (preserva edições do utilizador)
    - Se não encontrado: usa metadata do provedor
-2. Fetch de artwork se não existe:
-   - MusicBrainz Cover Art Archive
-   - Grava em /var/lib/oceano/artwork/
+2. Fetch de artwork se não existe (iTunes Search API):
+   - Com `album` preenchido: pesquisa `entity=album`
+   - Sem álbum (ex.: match só Shazam): fallback `entity=song` com artista+título
+   - Grava em `/var/lib/oceano/artwork/`
 3. lib.RecordPlay(result, artworkPath) → entryID + timestamp de início (back-dated por seekMS)
 4. Releitura da entry final (incorpora merges da library)
 5. Cálculo de seekMS (ver Fase 10)
