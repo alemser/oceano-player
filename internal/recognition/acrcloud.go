@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -116,7 +117,17 @@ func (r *ACRCloudRecognizer) Recognize(ctx context.Context, wavPath string) (*Re
 	if len(result.Metadata.Music) == 0 {
 		return nil, nil
 	}
-	m := result.Metadata.Music[0]
+	return resultFromACRMusic(result.Metadata.Music[0]), nil
+}
+
+// resultFromACRMusic maps ACR metadata.music[0] to a Result, or nil when the
+// provider echoes the album name as the track title (common mis-label for album-level hits).
+func resultFromACRMusic(m acrMusic) *Result {
+	title := strings.TrimSpace(m.Title)
+	albumName := strings.TrimSpace(m.Album.Name)
+	if title != "" && albumName != "" && strings.EqualFold(title, albumName) {
+		return nil
+	}
 	artist := ""
 	if len(m.Artists) > 0 {
 		artist = m.Artists[0].Name
@@ -131,7 +142,7 @@ func (r *ACRCloudRecognizer) Recognize(ctx context.Context, wavPath string) (*Re
 		Released:   m.ReleaseDate,
 		Score:      m.Score,
 		DurationMs: m.DurationMs,
-	}, nil
+	}
 }
 
 func (r *ACRCloudRecognizer) sign(timestamp int64) string {

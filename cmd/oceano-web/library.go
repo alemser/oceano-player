@@ -440,6 +440,15 @@ func (l *LibraryDB) deleteEntry(id int64) error {
 	if _, err := tx.Exec(`UPDATE play_history SET collection_id=NULL WHERE collection_id=?`, id); err != nil {
 		return err
 	}
+	// boundary_events.collection_id references collection when the schema was
+	// created by the state-manager migrations; without this UPDATE, DELETE fails
+	// with FOREIGN KEY constraint under PRAGMA foreign_keys=ON.
+	if _, err := tx.Exec(`UPDATE boundary_events SET collection_id=NULL WHERE collection_id=?`, id); err != nil {
+		errText := strings.ToLower(err.Error())
+		if !strings.Contains(errText, "no such table") && !strings.Contains(errText, "no such column") {
+			return err
+		}
+	}
 	if _, err := tx.Exec(`DELETE FROM collection WHERE id=?`, id); err != nil {
 		return err
 	}
