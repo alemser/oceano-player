@@ -152,8 +152,8 @@ works across the network, so you can see the live display from a laptop while th
 **Resilience (keep README in sync):** the README **Resilience** section tables what
 `oceano-setup` applies automatically: LightDM main `lightdm.conf`, ALSA shairport, PipeWire default
 sink for Bluetooth, multi-USB warning, `device_match` from `plughw`, no `xrandr` in the kiosk
-launch, WirePlumber BlueZ codecs, `loginctl enable-linger` for the GUI user, etc. The config UI
-header nudges users to run `oceano-setup` after `apt install`.
+launch, WirePlumber BlueZ codecs, `loginctl enable-linger` for the GUI user, etc. The README
+and install path document running `oceano-setup` after `apt install`.
 
 ## Repository layout
 

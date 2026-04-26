@@ -1,6 +1,6 @@
 {
   "audio_input": {
-    "device_match": "USB Microphone",
+    "device_match": "",
     "device": "",
     "silence_threshold": 0.025,
     "debounce_windows": 10

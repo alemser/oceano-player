@@ -1035,7 +1035,7 @@ write_initial_config() {
   python3 -c "
 import json, sys
 cfg = {
-  'audio_input':  {'device_match': 'USB Microphone', 'device': '', 'silence_threshold': 0.025, 'debounce_windows': 10},
+  'audio_input':  {'device_match': '', 'device': '', 'silence_threshold': 0.025, 'debounce_windows': 10},
   'audio_output': {'airplay_name': sys.argv[1], 'device_match': '', 'device': sys.argv[2]},
   'recognition':  {'acrcloud_host': 'identify-eu-west-1.acrcloud.com', 'acrcloud_access_key': '', 'acrcloud_secret_key': '', 'capture_duration_secs': 7, 'max_interval_secs': 300},
   'advanced':     {'vu_socket': '/tmp/oceano-vu.sock', 'pcm_socket': '/tmp/oceano-pcm.sock', 'source_file': '/tmp/oceano-source.json', 'state_file': '/tmp/oceano-state.json', 'artwork_dir': '/var/lib/oceano/artwork', 'metadata_pipe': '/tmp/shairport-sync-metadata'},

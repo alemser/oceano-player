@@ -96,9 +96,17 @@ func prompt(label, def string) string {
 type alsaDevice struct {
 	Label  string
 	Device string // e.g. plughw:CARD=M780,DEV=0
+	CardID int    // ALSA card index; set for arecord, -1 if unknown
+	IsUSB  bool   // /sys/.../sound/cardN → USB; typical for external interfaces
 }
 
 func listALSADevices(tool string) []alsaDevice {
+	return listALSAByTool(tool)
+}
+
+// listALSAByTool returns playback or capture device entries. Each card is probed
+// in sysfs to tag USB (typical for the REC loop line/ADC) vs on-board/HDMI.
+func listALSAByTool(tool string) []alsaDevice {
 	out, err := exec.Command(tool, "-l").Output()
 	if err != nil {
 		return nil
@@ -111,25 +119,248 @@ func listALSADevices(tool string) []alsaDevice {
 		if m == nil {
 			continue
 		}
+		cardID, _ := strconv.Atoi(m[1])
 		dev := "plughw:CARD=" + m[2] + ",DEV=0"
 		if !seen[dev] {
 			seen[dev] = true
-			devices = append(devices, alsaDevice{Label: m[3], Device: dev})
+			d := alsaDevice{Label: m[3], Device: dev, CardID: cardID, IsUSB: soundCardIsUSB(cardID)}
+			devices = append(devices, d)
 		}
 	}
 	return devices
 }
 
-func pickDevice(label string, devices []alsaDevice) string {
+// soundCardIsUSB is true when the card path under /sys/.../sound/cardN/ links into
+// the USB subsystem; USB mics, line/ADC, and the usual REC capture dongles; not on
+// the Pi's on-board, VC4, or HDM capture nodes.
+func soundCardIsUSB(card int) bool {
+	if card < 0 {
+		return false
+	}
+	p := filepath.Join("/sys/class/sound", fmt.Sprintf("card%d", card), "device")
+	abs, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return false
+	}
+	abs = strings.ToLower(abs)
+	return strings.Contains(abs, "/usb")
+}
+
+// listCaptureDevicesForREC lists capture endpoints and applies optional filtering: by default
+// only cards that are USB and/or not obviously built-in/HDMI are shown when at least one exists.
+// OCEANO_SETUP_LIST_ALL_CAPTURE=1 lists every card arecord reports.
+func listCaptureDevicesForREC(previous string) (devices []alsaDevice, note string) {
+	all := listALSAByTool("arecord")
+	if len(all) == 0 {
+		return nil, ""
+	}
+	if os.Getenv("OCEANO_SETUP_LIST_ALL_CAPTURE") == "1" {
+		return orderCaptureDevsForDisplay(all), "Listing all arecord devices (OCEANO_SETUP_LIST_ALL_CAPTURE=1)."
+	}
+	var ext, onboard []alsaDevice
+	for i := range all {
+		if all[i].isLikelyExternalRECCard() {
+			ext = append(ext, all[i])
+		} else {
+			onboard = append(onboard, all[i])
+		}
+	}
+	prev := strings.TrimSpace(previous)
+	prevInExt := prev != "" && deviceInListByPlughw(ext, prev)
+	if len(ext) == 0 {
+		// e.g. only on-board: nothing to filter
+		return all, "No external/USB capture card found — use the list below or a USB line-in/ADC; built-in/HDMI are rarely correct for REC OUT."
+	}
+	if len(onboard) == 0 {
+		return orderCaptureDevsForDisplay(all), ""
+	}
+	if prev == "" || prevInExt {
+		n := len(onboard)
+		who := "built-in/HDMI/VC4"
+		if n == 1 {
+			who = "entry"
+		}
+		return orderCaptureDevsForDisplay(ext),
+			fmt.Sprintf("Hiding %d %s capture (USB/external interfaces only; run with OCEANO_SETUP_LIST_ALL_CAPTURE=1 to list all).", n, who)
+	}
+	// User config points to a non-recommended (on-board) device — show external first, then the rest
+	return orderCaptureDevsForDisplay(append(append([]alsaDevice{}, ext...), onboard...)),
+		"Your saved config uses a non-USB or built-in capture. External/USB choices are listed first; switch to the USB line from the amplifier if possible."
+}
+
+// orderCaptureDevsForDisplay: USB first, then others (on-board, HDMI) for readability.
+func orderCaptureDevsForDisplay(devs []alsaDevice) []alsaDevice {
+	// arecord -l is usually card-index order; keep USB before non-USB for consistency
+	if len(devs) < 2 {
+		return devs
+	}
+	out := make([]alsaDevice, 0, len(devs))
+	var rest []alsaDevice
+	for _, d := range devs {
+		if d.IsUSB {
+			out = append(out, d)
+		} else {
+			rest = append(rest, d)
+		}
+	}
+	out = append(out, rest...)
+	return out
+}
+
+// isLikelyExternalRECCard: USB, or at least not clearly built-in/HDMI/VC4. Anything else
+// (PCIe, Firewire, I2S hat) is kept in the "external" bucket so we do not hide it.
+func (d *alsaDevice) isLikelyExternalRECCard() bool {
+	if d == nil {
+		return false
+	}
+	if d.IsUSB {
+		return true
+	}
+	if captureLabelLooksOnboard(*d) {
+		return false
+	}
+	return true
+}
+
+func deviceInListByPlughw(devs []alsaDevice, plughw string) bool {
+	if strings.TrimSpace(plughw) == "" {
+		return false
+	}
+	for i := range devs {
+		if devs[i].Device == plughw {
+			return true
+		}
+	}
+	// plughw:2,0 vs plughw:CARD=foo,DEV=0
+	pc := plughwCardName(plughw)
+	if pc == "" {
+		return false
+	}
+	for i := range devs {
+		if m := regexp.MustCompile(`plughw:CARD=([^,]+),`).FindStringSubmatch(devs[i].Device); len(m) > 1 && m[1] == pc {
+			return true
+		}
+	}
+	return false
+}
+
+// plughwCardName returns the short CARD= token from a plughw/hw string, or "".
+func plughwCardName(alsa string) string {
+	alsa = strings.TrimSpace(alsa)
+	if m := regexp.MustCompile(`(?i)(?:plughw|hw):CARD=([^,]+),`).FindStringSubmatch(alsa); len(m) > 1 {
+		return m[1]
+	}
+	// e.g. plughw:2,0  — no CARD= token; resolve via card id below.
+	if m := regexp.MustCompile(`(?i)(?:plughw|hw):([0-9]+),[0-9]+`).FindStringSubmatch(alsa); len(m) == 0 {
+		return ""
+	} else {
+		// map numeric card id to the same plughw we build in listALSADevices
+		return cardShortNameByID(strings.TrimSpace(m[1]))
+	}
+}
+
+// cardShortNameByID returns the "card" short id from aplay/arecord -l for a numeric card N.
+func cardShortNameByID(idStr string) string {
+	for _, which := range []string{"aplay", "arecord"} {
+		out, err := exec.Command(which, "-l").Output()
+		if err != nil {
+			continue
+		}
+		prefix := "card " + idStr + ":"
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, prefix) {
+				continue
+			}
+			// line: card 2: Device [Name]
+			re := regexp.MustCompile(`^card [0-9]+:\s*(\S+)\s+\[`)
+			if m := re.FindStringSubmatch(line); len(m) > 1 {
+				return m[1]
+			}
+		}
+	}
+	return ""
+}
+
+// defaultDeviceChoice returns a 1-based list index to use as the prompt default, or 1.
+func defaultDeviceChoice(devices []alsaDevice, previous string) int {
+	if len(devices) == 0 {
+		return 1
+	}
+	prev := strings.TrimSpace(previous)
+	if prev == "" {
+		return 1
+	}
+	// exact plughw string from last run
 	for i, d := range devices {
-		fmt.Printf("  %d. %-46s (%s)\n", i+1, d.Device, d.Label)
+		if d.Device == prev {
+			return i + 1
+		}
+	}
+	pc := plughwCardName(prev)
+	if pc == "" {
+		return 1
+	}
+	for i, d := range devices {
+		if m := regexp.MustCompile(`plughw:CARD=([^,]+),`).FindStringSubmatch(d.Device); len(m) > 1 && m[1] == pc {
+			return i + 1
+		}
+	}
+	return 1
+}
+
+// captureLabelLooksOnboard heuristics: Pi lists HDMI/VC4/bcm before USB — warn if the user
+// may have selected built-in instead of the REC OUT capture interface.
+func captureLabelLooksOnboard(d alsaDevice) bool {
+	joined := strings.ToLower(d.Label + " " + d.Device)
+	// "Headphones" (bcm2835) and vc4-hdmi / HDMI are common false picks for "microphone" problems.
+	needle := []string{
+		"vc4", "hdmi", "bcm2835", "bcm",
+		"headphones", "headset", "broadcom", "3f00b840",
+	}
+	for _, s := range needle {
+		if strings.Contains(joined, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func pickDevice(label string, devices []alsaDevice, previous string) string {
+	if len(devices) == 0 {
+		manual := prompt(label+" (e.g. plughw:2,0) — arecord -l did not list any device", strings.TrimSpace(previous))
+		if manual != "" {
+			return manual
+		}
+		return strings.TrimSpace(previous)
+	}
+	defN := defaultDeviceChoice(devices, previous)
+	for i, d := range devices {
+		usbTag := ""
+		if d.IsUSB {
+			usbTag = "  " + green + "[USB]" + reset
+		}
+		fmt.Printf("  %d. %-46s (%s)%s\n", i+1, d.Device, d.Label, usbTag)
 	}
 	fmt.Printf("  %d. Enter manually\n", len(devices)+1)
 
-	choice := prompt(fmt.Sprintf("Select %s", label), "1")
+	defStr := fmt.Sprintf("%d", defN)
+	if p := strings.TrimSpace(previous); p != "" {
+		if defN >= 1 && defN <= len(devices) {
+			if devices[defN-1].Device == p {
+				fmt.Printf("%s(Previous config: %s — press Enter to keep it)%s\n", cyan, p, reset)
+			} else {
+				fmt.Printf("%s(Previous config %s is not in the list — check USB / replug; default choice may not match the old path)%s\n", yellow, p, reset)
+			}
+		}
+	}
+	choice := prompt(fmt.Sprintf("Select %s", label), defStr)
 
 	for i, d := range devices {
 		if choice == fmt.Sprintf("%d", i+1) {
+			if strings.Contains(label, "capture") && captureLabelLooksOnboard(d) {
+				logWarn("This capture device looks like built-in/HDMI, not a USB line/mic from REC OUT. Wrong choice here breaks recognition; pick the USB interface used for the amplifier output loop.")
+			}
 			return d.Device
 		}
 	}
@@ -138,6 +369,19 @@ func pickDevice(label string, devices []alsaDevice) string {
 			return choice
 		}
 		return prompt(label+" (e.g. plughw:2,0)", "")
+	}
+	// unrecognised — prefer keeping previous if it still valid
+	if p := strings.TrimSpace(previous); p != "" {
+		for _, d := range devices {
+			if d.Device == p {
+				logWarn("Unrecognised choice — keeping previous " + p)
+				return p
+			}
+		}
+	}
+	if defN >= 1 && defN <= len(devices) {
+		logWarn("Unrecognised choice — using default index " + defStr)
+		return devices[defN-1].Device
 	}
 	if len(devices) > 0 {
 		return devices[0].Device
@@ -730,14 +974,19 @@ func main() {
 	fmt.Println("Detecting ALSA output devices...")
 	warnIfMultipleUSBAudioPlayback()
 	outputDevs := listALSADevices("aplay")
-	outputDevice := pickDevice("output device (DAC)", outputDevs)
+	outputDevice := pickDevice("output device (DAC)", outputDevs, getString(cfg, "audio_output", "device", ""))
 
 	// ── Capture device ───────────────────────────────────────────────────────
 	section("Capture Device (REC OUT → track recognition)")
 
-	fmt.Println("Detecting ALSA capture devices...")
-	captureDevs := listALSADevices("arecord")
-	captureDevice := pickDevice("capture device", captureDevs)
+	fmt.Println("On Raspberry Pi, the first entry in arecord is often the built-in or HDMI device.")
+	fmt.Println("Oceano needs the USB line-in / USB capture card wired from the amplifier REC OUT — not HDMI or analog headphone jack.")
+	fmt.Println("Detecting ALSA capture devices (USB/line and on-board/HDMI are marked when possible)…")
+	captureDevs, captureNote := listCaptureDevicesForREC(getString(cfg, "audio_input", "device", ""))
+	if strings.TrimSpace(captureNote) != "" {
+		logWarn(captureNote)
+	}
+	captureDevice := pickDevice("capture device (REC OUT loop)", captureDevs, getString(cfg, "audio_input", "device", ""))
 
 	// ── Bluetooth ────────────────────────────────────────────────────────────
 	section("Bluetooth")

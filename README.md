@@ -143,8 +143,7 @@ journalctl -u oceano-state-manager.service -f | grep recognizer
 
 ### 3. Audio input device (if auto-detection fails)
 
-The capture card is auto-detected by name (`USB Microphone`). If it is not found,
-set it explicitly in the web UI under **Audio Input → Device** (e.g. `plughw:3,0`).
+Set the capture path after install: `sudo oceano-setup` or the web UI **Audio Input** — use **Auto-detect name** with a **substring** that appears in your card’s line in `/proc/asound/cards` (e.g. `Device`, `UAC2`), or an explicit `plughw:N,0` / `plughw:CARD=Name,DEV=0`. The default is not tied to a fixed product name.
 
 To list available capture devices:
 ```bash
