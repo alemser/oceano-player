@@ -550,6 +550,104 @@ func TestBuildState_PhysicalVuSilenceHidesRecognizedTrack(t *testing.T) {
 	}
 }
 
+// TestBuildState_IdleDelayAfterDetectorNone_NotPlaying verifies that during the
+// post-Physical idle-delay window, if the source detector is already None we do
+// not emit state=playing (which would drive "Identifying…" on the display).
+func TestBuildState_IdleDelayAfterDetectorNone_NotPlaying(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "None"
+	m.lastPhysicalAt = time.Now()
+	m.vuInSilence = false
+	m.recognitionResult = nil
+
+	s := m.buildState()
+
+	if s.State != "stopped" {
+		t.Errorf("state = %q, want stopped when physicalSource is None during idle-delay tail", s.State)
+	}
+	if s.Source != "Physical" {
+		t.Errorf("source = %q, want Physical (grace label still applies)", s.Source)
+	}
+	if s.PhysicalDetectorActive {
+		t.Error("PhysicalDetectorActive should be false when detector reports None")
+	}
+}
+
+// During the idle-delay tail the detector is None but we may still expose the last
+// recognised track (e.g. writer tick) — state stays stopped so the client does not
+// show "Identifying…".
+func TestBuildState_IdleDelayTailNone_StillExposesLastTrack(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "None"
+	m.lastPhysicalAt = time.Now()
+	m.vuInSilence = false
+	m.recognitionResult = &RecognitionResult{
+		Title: "News", Artist: "Dire Straits", Album: "Communiqué", Format: "CD",
+	}
+	m.physicalFormat = "CD"
+
+	s := m.buildState()
+	if s.State != "stopped" {
+		t.Fatalf("state = %q, want stopped", s.State)
+	}
+	if s.Source != "CD" {
+		t.Fatalf("source = %q, want CD", s.Source)
+	}
+	if s.Track == nil || s.Track.Title != "News" {
+		t.Fatalf("track = %+v, want News metadata during tail", s.Track)
+	}
+	if s.PhysicalDetectorActive {
+		t.Fatal("PhysicalDetectorActive should be false during idle-delay tail with detector None")
+	}
+}
+
+// After IdleDelay from last Physical sighting, physicalActive is false — output
+// matches a cold idle system (no physical grace window).
+func TestBuildState_AfterIdleDelay_SourceNone(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "None"
+	m.lastPhysicalAt = time.Now().Add(-11 * time.Second)
+	m.vuInSilence = false
+	m.recognitionResult = &RecognitionResult{Title: "Ghost", Artist: "Artist", Format: "Vinyl"}
+	m.physicalFormat = "Vinyl"
+
+	s := m.buildState()
+	if s.Source != "None" {
+		t.Errorf("source = %q, want None once idle-delay window elapsed", s.Source)
+	}
+	if s.State != "stopped" {
+		t.Errorf("state = %q, want stopped", s.State)
+	}
+	if s.Track != nil {
+		t.Errorf("track should be nil when source is None (not physical branch)")
+	}
+}
+
+// Legitimate kiosk "identifying" path: detector says Physical, VU not in silence,
+// no recognition row yet — state must be playing with nil track.
+func TestBuildState_PhysicalActiveNoRecognition_IsPlayingWithoutTrack(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.lastPhysicalAt = time.Now()
+	m.vuInSilence = false
+	m.recognitionResult = nil
+	m.physicalFormat = ""
+
+	s := m.buildState()
+	if s.State != "playing" {
+		t.Fatalf("state = %q, want playing", s.State)
+	}
+	if s.Source != "Physical" {
+		t.Fatalf("source = %q, want Physical", s.Source)
+	}
+	if s.Track != nil {
+		t.Fatalf("track should be nil before first match (nowplaying shows Identifying…)")
+	}
+	if !s.PhysicalDetectorActive {
+		t.Fatal("PhysicalDetectorActive should be true when detector is Physical")
+	}
+}
+
 // TestBuildState_PhysicalNoVuSilenceIsPlaying verifies the normal (non-silence)
 // path is unaffected by the vuInSilence field when it is false.
 func TestBuildState_PhysicalNoVuSilenceIsPlaying(t *testing.T) {

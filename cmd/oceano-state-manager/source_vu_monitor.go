@@ -133,7 +133,7 @@ func (m *mgr) pollSourceFile() {
 	src := det.Source
 	if src == "" {
 		src = "None"
-}
+	}
 	m.mu.Lock()
 	changed := m.physicalSource != src
 	newSession := false
@@ -189,8 +189,19 @@ func (m *mgr) pollSourceFile() {
 		m.physicalSeekMS = 0
 		m.physicalSeekUpdatedAt = time.Time{}
 	} else if resumedAfterSilence {
+		// None→Physical within the same session (e.g. vinyl paused then CD started):
+		// clear stale metadata so the UI does not keep the previous record while a
+		// new capture runs. Needle-lift on the same album will briefly show empty
+		// until the next match, which matches user expectation better than a wrong title.
+		m.recognitionResult = nil
+		m.physicalArtworkPath = ""
+		m.physicalFormat = ""
+		m.shazamContinuityReady = false
+		m.lastContinuityMismatchAt = time.Time{}
+		m.lastContinuityMismatchFrom = ""
+		m.lastContinuityMismatchTo = ""
+		m.lastContinuityMismatchCount = 0
 		m.physicalStartedAt = time.Now()
-		// Same: invalidate seek on manual stop/start so the boundary guard is bypassed.
 		m.physicalSeekMS = 0
 		m.physicalSeekUpdatedAt = time.Time{}
 	}

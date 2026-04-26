@@ -330,6 +330,14 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 				artworkPath = ap
 			}
 		}
+		if artworkPath == "" && result.Artist != "" && result.Title != "" {
+			if ap, artErr := fetchArtworkFromSong(result.Artist, result.Title, c.mgr.cfg.ArtworkDir); artErr != nil {
+				log.Printf("recognizer: track artwork fetch error: %v", artErr)
+			} else if ap != "" {
+				log.Printf("recognizer: artwork saved at %s (song search)", ap)
+				artworkPath = ap
+			}
+		}
 
 		entryID, recErr := c.lib.RecordPlay(result, artworkPath)
 		if recErr != nil {

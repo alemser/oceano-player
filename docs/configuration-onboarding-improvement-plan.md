@@ -79,6 +79,51 @@ AirPlay/BT blocks are legitimate but **visually parallel** to physical sources; 
 
 ---
 
+## Configuration UI: cards, hub layout, and navigation
+
+### What exists today
+
+The main config surface is a **side drawer** (`index.html` + `index.css`) with **stacked blocks**. Each block uses `.section`, which already looks **card-like** (surface background, border, radius, padding). However:
+
+- The drawer **forces a single column** (`.config-drawer .sections { grid-template-columns: 1fr }`), so users get a **long vertical scroll** of dense form fields.
+- **Deep work** (recognition chain, calibration, amplifier IR) mostly lives on **separate pages**, reached via **small text links** (“Configure … ↗”), which read as secondary despite being important.
+
+So the product already has “cards” visually, but not a **hub mental model**: everything feels like one big form rather than “pick an area, go deep, come back.”
+
+### Opinion: yes — a hub of large cards would help
+
+**Recommendation:** treat the configuration entry point as a **hub** first, then **detail views** (existing or new routes).
+
+| Hub card (example) | Shows on card | Tap / primary action |
+|--------------------|---------------|------------------------|
+| **Physical media** | Capture status, “ACRCloud: set / missing”, mic gain hint | → `recognition.html` (or split: capture vs providers) |
+| **Amplifier & IR** | “Not set up” / “Broadlink OK, 4/8 IR learned” | → amplifier wizard or `amplifier.html` |
+| **Streaming basics** | AirPlay name, BT on/off summary | → inline quick fields *or* lightweight sub-page |
+| **Display & idle** | Now playing / weather summary | → existing sections or `nowplaying`-related UI |
+| **Advanced** | “Sockets, paths, library” | → `advanced.html` |
+
+**Large icons (or simple illustrations)** on each card are worthwhile **if**:
+
+- Every card has a **visible title and short subtitle** (never icon-only — accessibility and clarity on a Pi browser at arm’s length).
+- **Status text** is fed from real state (`/api/setup-status` or a slim summary endpoint), not static copy — e.g. “Capture: USB Audio OK” vs “Missing ACRCloud host”.
+- The hub stays **scannable in under five seconds**; icons support recognition, they do not replace explanations.
+
+**What to avoid**
+
+- **Duplicating** every field from `recognition.html` / `amplifier.html` on the hub — double maintenance and overwhelming first screen.
+- **More than ~5–7 hub tiles** without grouping — use a **“Physical media”** group and a **“Everything else”** collapsed region to preserve the audience-first story.
+- **Relying on the narrow drawer** for a rich 2×2 card grid on desktop — the drawer is ~520px wide; a **dedicated `/config` hub page** (full width) or widening the drawer on large breakpoints may be needed for comfortable large tiles.
+
+### Implementation sketch (non-prescriptive)
+
+1. **Phase A — Content-only:** reorder existing `.section` blocks inside the drawer (physical first, streaming collapsed) — low effort, partial win.
+2. **Phase B — Hub layer:** replace or precede the long form with **click-through cards**; keep **quick save** for users who only change one global field, or move “Save & restart” to a sticky footer visible from hub and detail pages.
+3. **Phase C — Responsive:** on wide viewports, **two columns of hub cards**; on mobile, single column; optional full-page hub when opened from first-run checklist.
+
+This aligns with the **physical-first onboarding** narrative and with **progressive disclosure**: the hub answers “where do I go?”; detail pages answer “how do I tune it?”
+
+---
+
 ## Device roles (connected equipment → input usage)
 
 When the user defines a **connected device** (name + amplifier input IDs), they should optionally classify **what that device is for**:
@@ -194,6 +239,7 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 
 **Add**
 
+- **Config hub with large navigational cards** (status line + icon + deep link) — documented in **Configuration UI: cards, hub layout, and navigation** (same document).
 - **Amplifier wizard** as the primary path for IR topology (your suggestion aligns with reducing cognitive load).
 - **Device role** (`physical_media` / `streaming` / `other`) on connected devices — high leverage for calibration UX and future features (needle hours, format-specific copy).
 - **Physical-first checklist** copy and ordering in all first-run surfaces.
@@ -237,3 +283,4 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 - Calibration: `cmd/oceano-web/static/recognition.html`, `static/recognition/calibration-wizard.js`
 - CLI wizard: `cmd/oceano-setup/`
 - Architecture: `docs/amplifier-device-architecture.md`, `docs/distribution-and-setup-improvements-plan.md`
+- Recognition roadmap (low-score **carousel of alternatives**): `docs/recognition-enhancement-plan.md` → section **Roadmap: low-confidence matches — primary pick + alternative carousel**; PR **R9** in the same document.

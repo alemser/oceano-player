@@ -17,6 +17,18 @@ import (
 // Idle delay: when physical audio stops, the last track is kept visible for
 // IdleDelay seconds before switching to the idle screen. This covers the normal
 // gap between tracks on a record without blanking the display.
+//
+// Invariants (now playing / kiosk):
+//   - physicalActive extends the Physical branch for IdleDelay after the detector
+//     reports None, so CD/Vinyl labels can decay gracefully.
+//   - While physicalSource is None during that tail only, state must not be
+//     "playing" — VU energy on an inactive line is not programme audio; "playing"
+//     with no track drives "Identifying…" in the display client.
+//   - When physicalSource is Physical and vuInSilence is false but recognition is
+//     nil, state is "playing" with no track — that is the legitimate identifying
+//     state (capture in progress or first needle drop).
+//   - vuInSilence suppresses track metadata (inter-track / side gap) while keeping
+//     source format labels where physicalFormat or the last result supplies them.
 func (m *mgr) buildState() PlayerState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -38,7 +50,14 @@ func (m *mgr) buildState() PlayerState {
 		state = "playing"
 	case physicalActive:
 		source = "Physical"
-		if !m.vuInSilence {
+		if m.physicalSource != "Physical" {
+			// Idle-delay tail only: the detector already reports None (user left the
+			// physical path), but we keep source labels for a short grace period.
+			// Do not claim "playing" from VU energy on a line that is no longer the
+			// active physical route — that made nowplaying show "Identifying…" with
+			// no music and no capture in progress.
+			state = "stopped"
+		} else if !m.vuInSilence {
 			state = "playing"
 		} else {
 			state = "idle"
@@ -124,11 +143,12 @@ func (m *mgr) buildState() PlayerState {
 	}
 
 	return PlayerState{
-		Source:    displaySource,
-		Format:    physFmt,
-		State:     state,
-		Track:     track,
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		Source:                 displaySource,
+		Format:                 physFmt,
+		State:                  state,
+		Track:                  track,
+		PhysicalDetectorActive: m.physicalSource == "Physical",
+		UpdatedAt:              time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
@@ -328,9 +348,10 @@ func (m *mgr) runWriter(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			_ = writeStateFile(m.cfg.OutputFile, PlayerState{
-				Source:    "None",
-				State:     "stopped",
-				UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+				Source:                 "None",
+				State:                  "stopped",
+				PhysicalDetectorActive: false,
+				UpdatedAt:              time.Now().UTC().Format(time.RFC3339),
 			})
 			return
 		case <-m.notify:

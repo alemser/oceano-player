@@ -467,3 +467,92 @@ func TestGetBoundaryEventStats(t *testing.T) {
 		t.Fatalf("fire_rate = %v, want %v", stats.FireRate, wantRate)
 	}
 }
+
+func TestDeleteEntry_ClearsBoundaryEventsCollectionRef(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "library.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=ON`); err != nil {
+		t.Fatal(err)
+	}
+	stmts := []string{
+		`CREATE TABLE collection (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			acrid TEXT UNIQUE,
+			shazam_id TEXT,
+			title TEXT NOT NULL,
+			artist TEXT NOT NULL,
+			album TEXT,
+			label TEXT,
+			released TEXT,
+			score INTEGER,
+			format TEXT DEFAULT 'Unknown',
+			track_number TEXT,
+			artwork_path TEXT,
+			play_count INTEGER NOT NULL DEFAULT 1,
+			first_played TEXT NOT NULL,
+			last_played TEXT NOT NULL,
+			user_confirmed INTEGER NOT NULL DEFAULT 0,
+			isrc TEXT,
+			duration_ms INTEGER NOT NULL DEFAULT 0,
+			duration_fp_elapsed_ms INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE play_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			collection_id INTEGER REFERENCES collection(id)
+		)`,
+		`CREATE TABLE boundary_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			occurred_at TEXT NOT NULL,
+			outcome TEXT NOT NULL,
+			boundary_type TEXT NOT NULL DEFAULT '',
+			is_hard INTEGER NOT NULL DEFAULT 0,
+			physical_source TEXT NOT NULL DEFAULT '',
+			format_at_event TEXT NOT NULL DEFAULT '',
+			duration_ms INTEGER NOT NULL DEFAULT 0,
+			seek_ms INTEGER NOT NULL DEFAULT 0,
+			collection_id INTEGER REFERENCES collection(id)
+		)`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("schema: %v\n%s", err, s)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO collection (title, artist, first_played, last_played) VALUES ('T', 'A', '2024-01-01', '2024-01-01')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO play_history (collection_id) VALUES (1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO boundary_events (occurred_at, outcome, collection_id) VALUES ('2024-01-01T00:00:00Z', 'fired', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
+	defer lib.close()
+	if err := lib.deleteEntry(1); err != nil {
+		t.Fatalf("deleteEntry: %v", err)
+	}
+	var n int
+	if err := lib.db.QueryRow(`SELECT COUNT(*) FROM collection`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("collection rows = %d, want 0", n)
+	}
+	var cid sql.NullInt64
+	if err := lib.db.QueryRow(`SELECT collection_id FROM boundary_events WHERE id=1`).Scan(&cid); err != nil {
+		t.Fatal(err)
+	}
+	if cid.Valid && cid.Int64 != 0 {
+		t.Fatalf("boundary_events.collection_id = %v, want NULL", cid)
+	}
+}

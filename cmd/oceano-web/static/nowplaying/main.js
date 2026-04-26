@@ -216,6 +216,12 @@ function applyState(state) {
   const stateFormat = String(state.format || '').trim();
   const playing = state.state === 'playing';
   const track   = state.track   || null;
+  // True only while the source-detector file says Physical. False during the
+  // idle-delay tail (amp already off physical) — avoids stuck "Identifying…"
+  // when state.state is still "playing" from VU noise on an inactive REC line.
+  // Missing field: older state-manager → treat as true for backward compatibility.
+  const physicalDetectorOn =
+    state.physical_detector_active === true || state.physical_detector_active === undefined;
 
   const isIdle = !playing || source === 'None';
   $idle.classList.toggle('visible', isIdle);
@@ -246,7 +252,7 @@ function applyState(state) {
     $artist.textContent = track.artist || '';
     $album.textContent  = track.album  || '';
     updateArtwork(track.artwork_path || null);
-  } else if (playing && (source === 'Physical' || source === 'CD' || source === 'Vinyl')) {
+  } else if (playing && physicalDetectorOn && (source === 'Physical' || source === 'CD' || source === 'Vinyl')) {
     // Without a configured capture path, the recognizer cannot run — do not show "Identifying…".
     if (_captureInputKnown && !_captureInputConfigured) {
       $title.textContent  = 'Unidentified';

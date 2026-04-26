@@ -34,9 +34,14 @@ var itemRE = regexp.MustCompile(
 type PlayerState struct {
 	Source    string     `json:"source"`           // AirPlay | Vinyl | CD | Physical | None
 	Format    string     `json:"format,omitempty"` // CD | Vinyl — only present when source is Physical with identified format
-	State     string     `json:"state"`            // playing | stopped
+	State     string     `json:"state"`            // playing | idle | stopped
 	Track     *TrackInfo `json:"track"`            // null when not playing or source is physical without metadata
-	UpdatedAt string     `json:"updated_at"`
+	// PhysicalDetectorActive is true only while /tmp/oceano-source.json reports
+	// Physical. False during the post-Physical idle-delay tail when source is
+	// still promoted to CD/Vinyl for UI grace — lets the display avoid "Identifying…"
+	// from REC noise after the amp left the physical path.
+	PhysicalDetectorActive bool `json:"physical_detector_active"`
+	UpdatedAt              string `json:"updated_at"`
 }
 
 // TrackInfo holds per-track metadata. SeekMS + SeekUpdatedAt allow the UI to
