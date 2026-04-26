@@ -212,8 +212,9 @@
           <li class="muted" style="list-style:none;margin-left:-1rem;margin-top:12px;color:var(--muted);font-size:0.8rem">Optional</li>
           <li id="chk-4">Optional: amplifier <strong>IR</strong> (Broadlink → IR learn) — or skip IR and still map <strong>inputs &amp; devices</strong> for calibration / UI</li>
           <li id="chk-5">Run calibration for <strong>physical media</strong> inputs only</li>
+          <li id="chk-6">Optional (vinyl path): <strong>Stylus tracking</strong> — set profile &amp; rated life on <code>amplifier.html</code>; hours accrue in Listening Metrics when playback is <strong>Vinyl + Physical</strong></li>
         </ol>
-        <p class="hint">Streaming (AirPlay name, BT) stays collapsible or a single short row below physical steps.</p>
+        <p class="hint">Streaming (AirPlay name, BT) stays collapsible or a single short row below physical steps. Row 6 appears when <code>vinyl_topology_present</code> / <code>stylus_tracking_recommended</code> (see plan → <code>GET /api/setup-status</code>).</p>
       </div>
     </section>
 
@@ -266,8 +267,8 @@
         </div>
       </div>
       <div id="wiz-5" class="wiz-panel">
-        <p>Connected devices — name, input(s), <strong>role</strong>: physical media / streaming / other</p>
-        <p class="hint">Same screen as the no-IR path: drives which inputs appear in the calibration wizard and how the input selector reads in the UI.</p>
+        <p>Connected devices — name, input(s), <strong>role</strong>: physical media / streaming / other; for <strong>physical media</strong>, <strong>physical_format</strong>: vinyl / CD / tape / mixed / unspecified.</p>
+        <p class="hint">Phono + “turntable?” → set <code>physical_format: vinyl</code> → unlocks optional <strong>stylus</strong> step (needle hours — shipped feature). Same screen drives calibration wizard inputs and labels.</p>
         <div class="wiz-actions">
           <button type="button" class="btn-ghost" onclick="wizGo(4)">Back</button>
           <button type="button" class="btn-ghost" onclick="alert('Prototype: Save & restart services')">Finish</button>
@@ -275,7 +276,7 @@
       </div>
       <div id="wiz-6" class="wiz-panel">
         <div class="callout">
-          <strong>IR disabled.</strong> Broadlink pairing and IR code learning were skipped. Configure <strong>connected devices</strong> (name, amplifier input(s), <strong>role</strong>: physical media / streaming / other) so the rest of the system can optimise boundaries, calibration prompts, and labels.
+          <strong>IR disabled.</strong> Broadlink pairing and IR code learning were skipped. Configure <strong>connected devices</strong> (name, amplifier input(s), <strong>role</strong>, and <strong>physical_format</strong> for vinyl/CD) so calibration scope, stylus prompts, and labels stay correct — no Broadlink required.
         </div>
         <p>Mock: table of devices → inputs → role (implementation would match <code>connected_devices</code> in config).</p>
         <div class="wiz-actions">
@@ -308,6 +309,7 @@
         <span style="font-size:0.76rem;color:#c8d0e0">Rega Planar</span>
       </div>
       <p class="hint" style="margin-top:14px"><strong>Touch only:</strong> tap the pill → elegant dropdown of visible inputs (not mocked here). Non-touch kiosk: line stays read-only.</p>
+      <p class="hint" style="margin-top:10px"><strong>Roadmap polish:</strong> optional read-only <strong>stylus</strong> chip (e.g. 12h / 500h) when vinyl + profile configured — see onboarding plan → Stylus section.</p>
     </section>
 
     <section id="panel-returning" class="panel" aria-labelledby="ret-title">
@@ -326,7 +328,7 @@
   <script>
     const hubPresets = {
       fresh: [
-        { icon: "\u{1F4BF}", title: "Physical media", status: "warn", text: "Capture: not verified — ACRCloud: missing", dest: "/recognition.html — capture, ACRCloud, mic gain" },
+        { icon: "\u{1F4BF}", title: "Physical media", status: "warn", text: "Capture: not verified — ACRCloud: missing (stylus CTA hidden until vinyl topology)", dest: "/recognition.html — capture, ACRCloud, mic gain" },
         { icon: "\u{1F50A}", title: "Streaming basics", status: "", text: "AirPlay / Bluetooth — optional after core path", dest: "index.html drawer — Streaming Sources" },
         { icon: "\u{1F39B}", title: "Amplifier & IR", status: "warn", text: "Not configured", dest: "/amplifier.html or amplifier wizard" },
         { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "warn", text: "Open for chain, mic gain, calibration wizard", dest: "/recognition.html" },
@@ -334,7 +336,7 @@
         { icon: "\u{2699}", title: "Advanced", status: "", text: "Sockets, paths, library DB", dest: "/advanced.html" },
       ],
       partial: [
-        { icon: "\u{1F4BF}", title: "Physical media", status: "ok", text: "Capture OK — ACRCloud: set", dest: "/recognition.html" },
+        { icon: "\u{1F4BF}", title: "Physical media", status: "warn", text: "Capture OK — ACRCloud: set — Stylus: not configured (~vinyl on Phono)", dest: "/recognition.html + amplifier.html (stylus)" },
         { icon: "\u{1F50A}", title: "Streaming basics", status: "ok", text: "AirPlay name set", dest: "index.html drawer — Streaming" },
         { icon: "\u{1F39B}", title: "Amplifier & IR", status: "warn", text: "Broadlink OK — IR 3 / 8 learned", dest: "/amplifier.html" },
         { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "warn", text: "Calibration: Phono incomplete", dest: "/recognition.html — Calibration" },
@@ -342,7 +344,7 @@
         { icon: "\u{2699}", title: "Advanced", status: "", text: "Paths unchanged", dest: "/advanced.html" },
       ],
       healthy: [
-        { icon: "\u{1F4BF}", title: "Physical media", status: "ok", text: "Capture OK — recognition active", dest: "/recognition.html" },
+        { icon: "\u{1F4BF}", title: "Physical media", status: "ok", text: "Capture OK — recognition active — Stylus ~12h / 500h rated", dest: "/recognition.html · Metrics · amplifier (stylus)" },
         { icon: "\u{1F50A}", title: "Streaming basics", status: "ok", text: "AirPlay + BT ready", dest: "index.html drawer" },
         { icon: "\u{1F39B}", title: "Amplifier & IR", status: "ok", text: "Paired — IR complete", dest: "/amplifier.html" },
         { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "ok", text: "Calibrated inputs: Phono, CD", dest: "/recognition.html" },
@@ -352,7 +354,7 @@
     };
 
     function syncChecklist(state) {
-      for (var i = 1; i <= 5; i++) {
+      for (var i = 1; i <= 6; i++) {
         var li = document.getElementById("chk-" + i);
         if (li) li.classList.remove("done");
       }
@@ -365,7 +367,7 @@
           if (li) li.classList.add("done");
         });
       } else if (state === "healthy") {
-        [1, 2, 3, 4, 5].forEach(function (n) {
+        [1, 2, 3, 4, 5, 6].forEach(function (n) {
           var li = document.getElementById("chk-" + n);
           if (li) li.classList.add("done");
         });
