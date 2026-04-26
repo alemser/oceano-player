@@ -10,16 +10,49 @@ import (
 	"strings"
 )
 
+// resolveCardFromPlughwNamedDevice maps plughw:CARD=ShortName,DEV=0 (as written by
+// oceano-setup) to a card index using the same /proc/asound/cards data as the UI.
+func resolveCardFromPlughwNamedDevice(device string, devices []ALSADevice) (int, bool) {
+	re := regexp.MustCompile(`(?i)(?:plughw|hw):CARD=([^,]+),`)
+	m := re.FindStringSubmatch(strings.TrimSpace(device))
+	if m == nil {
+		return 0, false
+	}
+	want := strings.TrimSpace(m[1])
+	if want == "" {
+		return 0, false
+	}
+	for _, d := range devices {
+		if strings.EqualFold(d.Name, want) {
+			return d.Card, true
+		}
+	}
+	wl := strings.ToLower(want)
+	for _, d := range devices {
+		if strings.Contains(strings.ToLower(d.Name), wl) || strings.Contains(strings.ToLower(d.Desc), wl) {
+			return d.Card, true
+		}
+	}
+	return 0, false
+}
+
 // resolveCardNum returns the ALSA card number for the configured capture device.
 // It parses /proc/asound/cards to match by DeviceMatch substring, or extracts
-// the card number from an explicit Device string like "plughw:3,0".
+// the card number from an explicit Device string like "plughw:3,0" or
+// "plughw:CARD=USBAudio,DEV=0" (name form from the setup wizard).
 func resolveCardNum(cfg AudioInputConfig) (int, string, error) {
 	if cfg.Device != "" {
-		// explicit: plughw:N,0 or hw:N,0
+		// Numeric card: plughw:2,0 or hw:1,0 (does not match plughw:CARD=... because
+		// the first character after "plughw:" is a digit, not "C" for CARD=).
 		re := regexp.MustCompile(`(?:plughw|hw):(\d+)`)
 		if m := re.FindStringSubmatch(cfg.Device); m != nil {
 			n, _ := strconv.Atoi(m[1])
 			return n, cfg.Device, nil
+		}
+		// Name form: plughw:CARD=ShortName,DEV=0 (oceano-setup, config editor save)
+		devs := scanALSADevices()
+		if c, ok := resolveCardFromPlughwNamedDevice(cfg.Device, devs); ok {
+			return c, cfg.Device, nil
 		}
 		return -1, "", fmt.Errorf("cannot parse card number from device %q", cfg.Device)
 	}
