@@ -16,7 +16,7 @@ SERVICE_DEST="/etc/systemd/system/${SERVICE_NAME}"
 OUTPUT_FILE="/tmp/oceano-source.json"
 
 DEFAULT_BRANCH="main"
-DEFAULT_DEVICE_MATCH="USB Microphone"
+DEFAULT_DEVICE_MATCH=""
 DEFAULT_ALSA_DEVICE=""
 DEFAULT_SILENCE_THRESHOLD="0.025"
 DEFAULT_DEBOUNCE="10"
@@ -119,7 +119,7 @@ write_service() {
 
   # Build ExecStart programmatically to avoid heredoc line-continuation pitfalls.
   local exec_start="${BINARY_DEST}"
-  exec_start+=" \\${NL}  --device-match \"${device_match}\""
+  [[ -n "${device_match}" ]] && exec_start+=" \\${NL}  --device-match \"${device_match}\""
   [[ -n "${alsa_device}" ]] && exec_start+=" \\${NL}  --device \"${alsa_device}\""
   exec_start+=" \\${NL}  --output \"${OUTPUT_FILE}\""
   exec_start+=" \\${NL}  --silence-threshold \"${silence_threshold}\""

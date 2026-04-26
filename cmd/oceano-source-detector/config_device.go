@@ -29,7 +29,7 @@ type VUFrame struct {
 
 type Config struct {
 	AlsaDevice       string
-	DeviceMatch      string  // substring to match in /proc/asound/cards (e.g. "USB Microphone")
+	DeviceMatch      string  // substring to match in /proc/asound/cards (e.g. "Device", "UAC2"); empty = use AlsaDevice only
 	SampleRate       int
 	BufferSize       int
 	SilenceThreshold float64 // upper cap on adaptive RMS threshold; 0 = uncapped
@@ -46,7 +46,7 @@ type Config struct {
 func defaultConfig() Config {
 	return Config{
 		AlsaDevice:       "",
-		DeviceMatch:      "USB Microphone",
+		DeviceMatch:      "",
 		SampleRate:       44100,
 		BufferSize:       2048,
 		SilenceThreshold: 0.025,

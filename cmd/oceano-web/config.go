@@ -454,7 +454,7 @@ type VinylTransitionCalibration struct {
 func defaultConfig() Config {
 	return Config{
 		AudioInput: AudioInputConfig{
-			DeviceMatch:      "USB Microphone",
+			DeviceMatch:      "",
 			SilenceThreshold: 0.025,
 			DebounceWindows:  10,
 		},

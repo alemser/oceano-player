@@ -6,7 +6,6 @@ Wants=sound.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/oceano-source-detector \
-  --device-match "USB Microphone" \
   --output "/tmp/oceano-source.json" \
   --silence-threshold "0.025" \
   --debounce "10" \

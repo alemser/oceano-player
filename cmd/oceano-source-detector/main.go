@@ -17,7 +17,7 @@ import (
 
 func parseFlags(cfg *Config) {
 	flag.StringVar(&cfg.DeviceMatch, "device-match", cfg.DeviceMatch, "Substring to match in /proc/asound/cards (auto-detects card number)")
-	flag.StringVar(&cfg.AlsaDevice, "device", cfg.AlsaDevice, "Explicit ALSA capture device (overridden by --device-match if both set)")
+	flag.StringVar(&cfg.AlsaDevice, "device", cfg.AlsaDevice, "Explicit ALSA capture (e.g. plughw:3,0 or plughw:CARD=Name,DEV=0). Used when --device-match is empty, or as fallback if no line matches")
 	flag.StringVar(&cfg.OutputFile, "output", cfg.OutputFile, "Output JSON file path")
 	flag.StringVar(&cfg.VUSocket, "vu-socket", cfg.VUSocket, "Unix socket path for VU meter frames (8 bytes: float32 L + float32 R)")
 	flag.StringVar(&cfg.PCMSocket, "pcm-socket", cfg.PCMSocket, "Unix socket path for raw PCM relay (S16_LE stereo at sample-rate Hz)")
