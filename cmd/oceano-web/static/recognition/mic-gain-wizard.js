@@ -85,8 +85,20 @@ function _micStep0(body, footer) {
     fetch('/api/mic-gain/info').then(r => r.json()).catch(() => null),
   ]).then(([devs, cfgInfo]) => {
     _mic.devices = devs || [];
-    const configuredCard = cfgInfo && cfgInfo.error == null ? cfgInfo.card_num : null;
-    _mic.selectedCard = configuredCard ?? (devs.length ? devs[0].card : null);
+    // /api/mic-gain/info may set "error" when amixer fails (no mixer, permissions)
+    // but still return card_num + device from config. Do not treat that as "no config"
+    // and fall back to the first /api/devices card (HDMI=0 on Pi).
+    let configuredCard = null;
+    if (cfgInfo) {
+      if (cfgInfo.device) {
+        configuredCard = cfgInfo.card_num;
+      } else if (!cfgInfo.error) {
+        configuredCard = cfgInfo.card_num;
+      }
+    }
+    _mic.selectedCard = (configuredCard != null && configuredCard !== undefined)
+      ? configuredCard
+      : (devs.length ? devs[0].card : null);
 
     if (!devs.length) {
       document.getElementById('mic-dev-list').innerHTML =
@@ -94,8 +106,26 @@ function _micStep0(body, footer) {
       return;
     }
 
-    const rows = devs.map(d => {
-      const isConf = d.card === configuredCard;
+    const devCardNums = devs.map(d => d.card);
+    if (configuredCard != null && !devCardNums.includes(configuredCard)) {
+      const firstUSB = devs.find(d => /usb|uac|generalplus|audio device/i.test((d.desc || '') + (d.name || '')));
+      if (firstUSB) {
+        _mic.selectedCard = firstUSB.card;
+      } else {
+        _mic.selectedCard = devs[0].card;
+      }
+    }
+
+    const configStaleWarning =
+      (cfgInfo && cfgInfo.device && !devCardNums.includes(cfgInfo.card_num))
+        ? `<div class="cal-wiz-warn-box" style="margin-bottom:10px">The saved <code>audio_input.device</code> points to card <b>${_esc(String(cfgInfo.card_num))}</b>, which is not in the system list (USB re-plug or reboot can renumber cards). Re-save the capture device in the config editor or run <code>sudo oceano-setup</code> — the selection below is a best guess.</div>`
+        : (cfgInfo && cfgInfo.error && _mic.selectedCard != null && (cfgInfo.device || ''))
+          ? `<div class="cal-wiz-warn-box" style="margin-bottom:10px;opacity:0.95">${_esc(cfgInfo.error)} (gain controls may be unavailable; check USB card and <code>amixer -c N</code> on the Pi.)</div>`
+          : '';
+
+    const inDevList = (c) => devCardNums.includes(c);
+    const rows = configStaleWarning + devs.map(d => {
+      const isConf = cfgInfo && inDevList(cfgInfo.card_num) && d.card === cfgInfo.card_num;
       const checked = d.card === _mic.selectedCard ? 'checked' : '';
       return `<label class="cal-wiz-cb-row" style="cursor:pointer" onclick="_micSelectCard(${d.card})">
         <input type="radio" name="mic-card" value="${d.card}" ${checked} style="width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;margin-top:2px;cursor:pointer">
