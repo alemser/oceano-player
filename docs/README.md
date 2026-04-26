@@ -2,7 +2,7 @@
 
 | Folder | Contents |
 |--------|----------|
-| **[plans/](plans/)** | Product and delivery **plans** (onboarding UX, recognition roadmap, distribution/setup). |
+| **[plans/](plans/)** | Product and delivery **plans** (onboarding UX, recognition roadmap, distribution/setup). Local display assumptions in those plans are **HDMI-first** until DSI is validated separately. |
 | **[architecture/](architecture/)** | **Architecture** and deep technical references (amplifier stack, recognition pipeline, reviews). |
 | **[prototypes/](prototypes/)** | Disposable **HTML mocks** for design review — not wired to services. |
 

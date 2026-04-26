@@ -135,13 +135,17 @@ This aligns with the **physical-first onboarding** narrative and with **progress
 
 ## Now Playing: amplifier line — kiosk / mobile parity + touch input switch
 
+### Display scope (this plan)
+
+**HDMI only:** kiosk and now playing UX below assume a **local panel attached via HDMI** (e.g. 7" 1024×600), which is what has been validated in testing. **DSI** (and other connectors) may work with the same installer stack but are **out of scope** for this plan until separately tested — do not infer parity or touch behaviour for DSI from this document.
+
 ### Today (baseline)
 
-In `cmd/oceano-web/static/nowplaying.css`, **`#top-controls`** (which contains **`#amp-indicator`**) is hidden under **`@media not (pointer: coarse)`** together with **`#input-selector`**. That matches the comment *“Non-touch displays (HDMI/DSI, desktop) — hide interactive touch controls”*: a **typical HDMI kiosk** with a mouse or fine pointer **does not show** the amplifier name chip, while a **phone** with coarse pointer often **does**. The playing UI therefore **under-communicates** “which amp / which input” on the very screen people watch from the sofa.
+In `cmd/oceano-web/static/nowplaying.css`, **`#top-controls`** (which contains **`#amp-indicator`**) is hidden under **`@media not (pointer: coarse)`** together with **`#input-selector`**. The stylesheet comment mentions *non-touch displays* broadly; **this plan** focuses on the observed **HDMI kiosk** case: a fine pointer (mouse / trackpad) **does not show** the amplifier name chip, while a **phone** with coarse pointer often **does**. The playing UI therefore **under-communicates** “which amp / which input” on the very screen people watch from the sofa.
 
 ### Target UX
 
-1. **Parity** — Show a **single compact line** (or pill cluster) on **both** touch-first and non-touch / kiosk layouts: **amplifier identity** (maker + model, or a user label), **current logical input** (e.g. Phono, CD, USB Audio), and **connected device name** when the topology maps one (e.g. *Rega Planar*, *Yamaha CD-S300*). Same information architecture on mobile and on **1024×600** (or similar) HDMI; only **density** and **interaction** differ.
+1. **Parity** — Show a **single compact line** (or pill cluster) on **both** touch-first and non-touch / **HDMI kiosk** layouts: **amplifier identity** (maker + model, or a user label), **current logical input** (e.g. Phono, CD, USB Audio), and **connected device name** when the topology maps one (e.g. *Rega Planar*, *Yamaha CD-S300*). Same information architecture on mobile and on **1024×600** (or similar) **HDMI**; only **density** and **interaction** differ.
 2. **Touch only for switching** — When the runtime reports **touch-capable** interaction (`pointer: coarse` and/or `maxTouchPoints` — same signals already used for hiding non-touch chrome), **tap the amplifier cluster** opens a **small, elegant** surface (dropdown anchored to the pill, or a slim sheet): list **visible inputs** from the same source as the main amp widget (`/api/amplifier/...`), current selection highlighted, dismiss on outside tap or timeout. Keep hit targets and motion **subtle** so the wall display does not feel like a tablet game.
 3. **Non-touch kiosk** — Still render the **read-only** line (amp + input + device). **No** mandatory dropdown under mouse hover at 2–3 m viewing distance; optional future: long-path to config UI only if product wants it.
 
@@ -309,7 +313,7 @@ Single JSON object (HTTP 200). **`schema_version`** lets clients evolve without 
 
 ### Phase 6 — Now Playing amplifier line (see dedicated section above)
 
-- **CSS:** stop tying **visibility** of the whole `#top-controls` / amp cluster only to `pointer: coarse` for **read-only** identity; reserve `not (pointer: coarse)` for hiding **touch-only** chrome (e.g. full `#input-selector` sheet) if still desired, or split selectors so **kiosk always** shows amp + input + device text.
+- **CSS:** stop tying **visibility** of the whole `#top-controls` / amp cluster only to `pointer: coarse` for **read-only** identity; reserve `not (pointer: coarse)` for hiding **touch-only** chrome (e.g. full `#input-selector` sheet) if still desired, or split selectors so **HDMI kiosk** always shows amp + input + device text (validate on **HDMI** first; revisit after DSI testing if needed).
 - **API/state:** expose logical input + connected device label for the now playing page.
 - **Touch:** tap amp cluster → compact input list; reuse existing amp APIs where possible.
 
@@ -325,7 +329,7 @@ Single JSON object (HTTP 200). **`schema_version`** lets clients evolve without 
 - No fresh install JSON implies a **specific commercial amplifier**.
 - Calibration wizard **does not nag** for USB/streaming-only inputs unless the user opts in.
 - Streaming users can still get **minimal** AirPlay/BT from setup + one web subsection.
-- **Kiosk and phone** both show **amplifier + input + device** when configured; touch surfaces can change input without opening the full config UI.
+- **HDMI kiosk and phone** both show **amplifier + input + device** when configured; touch surfaces can change input without opening the full config UI.
 
 ### Quantifiable targets (engineering “done” hints)
 
