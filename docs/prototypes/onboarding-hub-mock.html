@@ -87,7 +87,7 @@
     .card .status { font-size: 0.78rem; color: var(--muted); flex: 1; }
     .card .status.ok { color: var(--ok); }
     .card .status.warn { color: var(--warn); }
-    .card button {
+    .card .btn-open {
       align-self: flex-start;
       background: var(--accent);
       color: #111;
@@ -98,10 +98,15 @@
       font-size: 0.8rem;
       cursor: pointer;
     }
-    .card button.secondary {
+    .wiz-actions .btn-ghost {
       background: transparent;
       color: var(--accent);
       border: 1px solid var(--accent);
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.8rem;
+      cursor: pointer;
     }
     .mock-row { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .mock-row label { font-size: 0.78rem; color: var(--muted); }
@@ -168,7 +173,7 @@
 </head>
 <body>
   <div class="banner">
-    <strong>Disposable prototype</strong> — static HTML only. No backend, no <code>oceano-web</code>. Safe to delete the <code>docs/prototipo/</code> folder when the real UI ships.
+    <strong>Disposable prototype</strong> — static HTML only. No backend, no <code>oceano-web</code>. Safe to delete the <code>docs/prototypes/</code> folder when the real UI ships.
   </div>
   <header>
     <h1>Configuration — UX mock</h1>
@@ -178,6 +183,8 @@
     <button type="button" class="active" data-panel="hub">Hub</button>
     <button type="button" data-panel="checklist">First-run checklist</button>
     <button type="button" data-panel="wizard">Amplifier wizard</button>
+    <button type="button" data-panel="calibration">Calibration</button>
+    <button type="button" data-panel="nowplaying">Now playing line</button>
     <button type="button" data-panel="returning">Change amplifier</button>
   </nav>
   <main>
@@ -197,13 +204,14 @@
     <section id="panel-checklist" class="panel" aria-labelledby="cl-title">
       <h1 id="cl-title" style="font-size:1rem;margin:0 0 14px">First-run checklist</h1>
       <div class="checklist">
+        <p class="hint" style="margin-top:0">Checklist completion syncs with the <strong>Hub → Mock install state</strong> selector (simulates <code>GET /api/setup-status</code>).</p>
         <ol>
-          <li class="done">Run <code>sudo oceano-setup</code> on the Pi (DAC, capture, AirPlay/BT basics)</li>
-          <li>Choose capture device (REC OUT → USB interface)</li>
-          <li>Add ACRCloud credentials (recognition)</li>
+          <li id="chk-1">Run <code>sudo oceano-setup</code> on the Pi (DAC, capture, AirPlay/BT basics)</li>
+          <li id="chk-2">Choose capture device (REC OUT → USB interface)</li>
+          <li id="chk-3">Add ACRCloud credentials (recognition)</li>
           <li class="muted" style="list-style:none;margin-left:-1rem;margin-top:12px;color:var(--muted);font-size:0.8rem">Optional</li>
-          <li>Optional: amplifier <strong>IR</strong> (Broadlink → IR learn) — or skip IR and still map <strong>inputs &amp; devices</strong> for calibration / UI</li>
-          <li>Run calibration for <strong>physical media</strong> inputs only</li>
+          <li id="chk-4">Optional: amplifier <strong>IR</strong> (Broadlink → IR learn) — or skip IR and still map <strong>inputs &amp; devices</strong> for calibration / UI</li>
+          <li id="chk-5">Run calibration for <strong>physical media</strong> inputs only</li>
         </ol>
         <p class="hint">Streaming (AirPlay name, BT) stays collapsible or a single short row below physical steps.</p>
       </div>
@@ -216,8 +224,8 @@
         <p>Do you want IR control of your amplifier?</p>
         <p class="hint">If you choose <strong>No</strong>, you can still name inputs and attach turntable / CD / streamer so calibration scope, recognition context, and labels stay correct — without Broadlink or IR codes.</p>
         <div class="wiz-actions">
-          <button type="button" class="secondary" onclick="wizSetIR(true)">Yes, continue</button>
-          <button type="button" class="secondary" onclick="wizSetIR(false)">No — inputs &amp; devices only</button>
+          <button type="button" class="btn-ghost" onclick="wizSetIR(true)">Yes, continue</button>
+          <button type="button" class="btn-ghost" onclick="wizSetIR(false)">No — inputs &amp; devices only</button>
         </div>
       </div>
       <div id="wiz-2" class="wiz-panel">
@@ -236,33 +244,33 @@
           </select>
         </div>
         <div class="wiz-actions">
-          <button type="button" class="secondary" onclick="wizGo(1)">Back</button>
-          <button type="button" class="secondary" onclick="wizFromIdentityNext()">Next</button>
+          <button type="button" class="btn-ghost" onclick="wizGo(1)">Back</button>
+          <button type="button" class="btn-ghost" onclick="wizFromIdentityNext()">Next</button>
         </div>
       </div>
       <div id="wiz-3" class="wiz-panel">
         <p><strong>Broadlink pairing</strong> (required before IR commands)</p>
         <p class="hint">Prototype: separate <code>pair.html</code> wizard is OK. This step shows “Complete pairing → Continue” and blocks IR until token/host exist.</p>
         <div class="wiz-actions">
-          <button type="button" class="secondary" onclick="alert('Would open pairing wizard')">Open pairing wizard</button>
-          <button type="button" class="secondary" onclick="wizGo(2)">Back</button>
-          <button type="button" class="secondary" onclick="wizGo(4)">Paired — next</button>
+          <button type="button" class="btn-ghost" onclick="alert('Would open pairing wizard')">Open pairing wizard</button>
+          <button type="button" class="btn-ghost" onclick="wizGo(2)">Back</button>
+          <button type="button" class="btn-ghost" onclick="wizGo(4)">Paired — next</button>
         </div>
       </div>
       <div id="wiz-4" class="wiz-panel">
         <p>Learn IR commands (power, volume, input, …)</p>
         <p class="hint">Each row: Learn / ✓. Blocked until step 3 satisfied.</p>
         <div class="wiz-actions">
-          <button type="button" class="secondary" onclick="wizGo(3)">Back</button>
-          <button type="button" class="secondary" onclick="wizGo(5)">Next</button>
+          <button type="button" class="btn-ghost" onclick="wizGo(3)">Back</button>
+          <button type="button" class="btn-ghost" onclick="wizGo(5)">Next</button>
         </div>
       </div>
       <div id="wiz-5" class="wiz-panel">
         <p>Connected devices — name, input(s), <strong>role</strong>: physical media / streaming / other</p>
         <p class="hint">Same screen as the no-IR path: drives which inputs appear in the calibration wizard and how the input selector reads in the UI.</p>
         <div class="wiz-actions">
-          <button type="button" class="secondary" onclick="wizGo(4)">Back</button>
-          <button type="button" class="secondary" onclick="alert('Prototype: Save & restart services')">Finish</button>
+          <button type="button" class="btn-ghost" onclick="wizGo(4)">Back</button>
+          <button type="button" class="btn-ghost" onclick="alert('Prototype: Save & restart services')">Finish</button>
         </div>
       </div>
       <div id="wiz-6" class="wiz-panel">
@@ -271,10 +279,35 @@
         </div>
         <p>Mock: table of devices → inputs → role (implementation would match <code>connected_devices</code> in config).</p>
         <div class="wiz-actions">
-          <button type="button" class="secondary" onclick="wizGo(2)">Back</button>
-          <button type="button" class="secondary" onclick="alert('Prototype: Save & restart services (amplifier.enabled=false, topology saved)')">Finish</button>
+          <button type="button" class="btn-ghost" onclick="wizGo(2)">Back</button>
+          <button type="button" class="btn-ghost" onclick="alert('Prototype: Save & restart services (amplifier.enabled=false, topology saved)')">Finish</button>
         </div>
       </div>
+    </section>
+
+    <section id="panel-calibration" class="panel" aria-labelledby="cal-title">
+      <h1 id="cal-title" style="font-size:1rem;margin:0 0 14px">Calibration wizard (mock)</h1>
+      <div class="callout">
+        Only inputs tied to <strong>connected_devices[].role = physical_media</strong> appear here. USB/streaming-only paths are hidden unless the user opts in.
+      </div>
+      <ul style="color:#ccc;margin:0;padding-left:1.2rem">
+        <li>Phono — noise floor + optional vinyl gap</li>
+        <li>CD — noise floor</li>
+      </ul>
+      <p class="hint">Spec: <code>docs/plans/configuration-onboarding-improvement-plan.md</code> → Device roles + Phase 4.</p>
+    </section>
+
+    <section id="panel-nowplaying" class="panel" aria-labelledby="np-title">
+      <h1 id="np-title" style="font-size:1rem;margin:0 0 14px">Now playing — amplifier line (mock)</h1>
+      <p class="hint">Kiosk + mobile <strong>parity</strong>: same read-only line everywhere.</p>
+      <div style="margin-top:16px;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-radius:26px;display:inline-flex;align-items:center;gap:10px;max-width:100%">
+        <span style="font-size:0.76rem;font-weight:500;letter-spacing:0.04em;color:var(--text-dim)">Magnat MR 780</span>
+        <span style="opacity:0.45">·</span>
+        <span style="font-size:0.76rem;color:#9aacd5">Phono</span>
+        <span style="opacity:0.45">·</span>
+        <span style="font-size:0.76rem;color:#c8d0e0">Rega Planar</span>
+      </div>
+      <p class="hint" style="margin-top:14px"><strong>Touch only:</strong> tap the pill → elegant dropdown of visible inputs (not mocked here). Non-touch kiosk: line stays read-only.</p>
     </section>
 
     <section id="panel-returning" class="panel" aria-labelledby="ret-title">
@@ -286,51 +319,79 @@
           <li>IR codes: usually re-learn for a new amp.</li>
           <li>Calibration keys use input IDs → warn if profile changed IDs (“re-run calibration for Phono”).</li>
         </ul>
-        <button type="button" class="secondary" style="padding:8px 14px;border-radius:6px;cursor:pointer" onclick="document.querySelector('[data-panel=wizard]').click()">Go to wizard mock</button>
+        <button type="button" class="btn-ghost" style="margin-top:8px" onclick="document.querySelector('[data-panel=wizard]').click()">Go to wizard mock</button>
       </div>
     </section>
   </main>
   <script>
     const hubPresets = {
       fresh: [
-        { icon: "\u{1F4BF}", title: "Physical media", status: "warn", text: "Capture: not verified — ACRCloud: missing" },
-        { icon: "\u{1F50A}", title: "Streaming basics", status: "", text: "AirPlay / Bluetooth — optional after core path" },
-        { icon: "\u{1F39B}", title: "Amplifier & IR", status: "warn", text: "Not configured" },
-        { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "warn", text: "Open for chain, mic gain, calibration wizard" },
-        { icon: "\u{1F5A5}", title: "Now playing / idle", status: "", text: "Weather, themes — optional" },
-        { icon: "\u{2699}", title: "Advanced", status: "", text: "Sockets, paths, library DB" },
+        { icon: "\u{1F4BF}", title: "Physical media", status: "warn", text: "Capture: not verified — ACRCloud: missing", dest: "/recognition.html — capture, ACRCloud, mic gain" },
+        { icon: "\u{1F50A}", title: "Streaming basics", status: "", text: "AirPlay / Bluetooth — optional after core path", dest: "index.html drawer — Streaming Sources" },
+        { icon: "\u{1F39B}", title: "Amplifier & IR", status: "warn", text: "Not configured", dest: "/amplifier.html or amplifier wizard" },
+        { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "warn", text: "Open for chain, mic gain, calibration wizard", dest: "/recognition.html" },
+        { icon: "\u{1F5A5}", title: "Now playing / idle", status: "", text: "Weather, themes — optional", dest: "index.html — Now Playing (HDMI/DSI)" },
+        { icon: "\u{2699}", title: "Advanced", status: "", text: "Sockets, paths, library DB", dest: "/advanced.html" },
       ],
       partial: [
-        { icon: "\u{1F4BF}", title: "Physical media", status: "ok", text: "Capture OK — ACRCloud: set" },
-        { icon: "\u{1F50A}", title: "Streaming basics", status: "ok", text: "AirPlay name set" },
-        { icon: "\u{1F39B}", title: "Amplifier & IR", status: "warn", text: "Broadlink OK — IR 3 / 8 learned" },
-        { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "warn", text: "Calibration: Phono incomplete" },
-        { icon: "\u{1F5A5}", title: "Now playing / idle", status: "", text: "Optional" },
-        { icon: "\u{2699}", title: "Advanced", status: "", text: "Paths unchanged" },
+        { icon: "\u{1F4BF}", title: "Physical media", status: "ok", text: "Capture OK — ACRCloud: set", dest: "/recognition.html" },
+        { icon: "\u{1F50A}", title: "Streaming basics", status: "ok", text: "AirPlay name set", dest: "index.html drawer — Streaming" },
+        { icon: "\u{1F39B}", title: "Amplifier & IR", status: "warn", text: "Broadlink OK — IR 3 / 8 learned", dest: "/amplifier.html" },
+        { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "warn", text: "Calibration: Phono incomplete", dest: "/recognition.html — Calibration" },
+        { icon: "\u{1F5A5}", title: "Now playing / idle", status: "", text: "Optional", dest: "/nowplaying.html" },
+        { icon: "\u{2699}", title: "Advanced", status: "", text: "Paths unchanged", dest: "/advanced.html" },
       ],
       healthy: [
-        { icon: "\u{1F4BF}", title: "Physical media", status: "ok", text: "Capture OK — recognition active" },
-        { icon: "\u{1F50A}", title: "Streaming basics", status: "ok", text: "AirPlay + BT ready" },
-        { icon: "\u{1F39B}", title: "Amplifier & IR", status: "ok", text: "Paired — IR complete" },
-        { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "ok", text: "Calibrated inputs: Phono, CD" },
-        { icon: "\u{1F5A5}", title: "Now playing / idle", status: "ok", text: "Weather off" },
-        { icon: "\u{2699}", title: "Advanced", status: "ok", text: "No warnings" },
+        { icon: "\u{1F4BF}", title: "Physical media", status: "ok", text: "Capture OK — recognition active", dest: "/recognition.html" },
+        { icon: "\u{1F50A}", title: "Streaming basics", status: "ok", text: "AirPlay + BT ready", dest: "index.html drawer" },
+        { icon: "\u{1F39B}", title: "Amplifier & IR", status: "ok", text: "Paired — IR complete", dest: "/amplifier.html" },
+        { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "ok", text: "Calibrated inputs: Phono, CD", dest: "/recognition.html" },
+        { icon: "\u{1F5A5}", title: "Now playing / idle", status: "ok", text: "Weather off", dest: "/nowplaying.html" },
+        { icon: "\u{2699}", title: "Advanced", status: "ok", text: "No warnings", dest: "/advanced.html" },
       ],
     };
 
+    function syncChecklist(state) {
+      for (var i = 1; i <= 5; i++) {
+        var li = document.getElementById("chk-" + i);
+        if (li) li.classList.remove("done");
+      }
+      if (state === "fresh") {
+        var a = document.getElementById("chk-1");
+        if (a) a.classList.add("done");
+      } else if (state === "partial") {
+        [1, 2, 3].forEach(function (n) {
+          var li = document.getElementById("chk-" + n);
+          if (li) li.classList.add("done");
+        });
+      } else if (state === "healthy") {
+        [1, 2, 3, 4, 5].forEach(function (n) {
+          var li = document.getElementById("chk-" + n);
+          if (li) li.classList.add("done");
+        });
+      }
+    }
+
     function renderHub(state) {
       const grid = document.getElementById("hub-cards");
-      grid.innerHTML = hubPresets[state].map(function (c) {
+      grid.innerHTML = hubPresets[state].map(function (c, idx) {
         var cls = c.status === "ok" ? "ok" : c.status === "warn" ? "warn" : "";
+        var dest = c.dest || "(detail route TBD)";
+        var esc = String(dest).replace(/"/g, "&quot;");
         return (
           '<div class="card">' +
             '<div class="icon" aria-hidden="true">' + c.icon + "</div>" +
             "<h2>" + c.title + "</h2>" +
             '<div class="status ' + cls + '">' + c.text + "</div>" +
-            '<button type="button">Open</button>' +
+            '<button type="button" class="btn-open" title="Would navigate to: ' + esc + '" data-dest="' + esc + '">Open</button>' +
           "</div>"
         );
       }).join("");
+      grid.querySelectorAll(".btn-open").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          alert("Prototype — would open:\\n" + (btn.getAttribute("data-dest") || ""));
+        });
+      });
     }
 
     document.querySelectorAll("nav.tabs button").forEach(function (btn) {
@@ -346,8 +407,10 @@
 
     document.getElementById("hub-mock").addEventListener("change", function () {
       renderHub(this.value);
+      syncChecklist(this.value);
     });
     renderHub("fresh");
+    syncChecklist("fresh");
 
     var wizStep = 1;
     var wizWantsIR = true;
@@ -368,9 +431,10 @@
         if (wizWantsIR) {
           on = wizStep === i + 1;
         } else {
+          var last = labels.length - 1;
           if (wizStep === 1) on = i === 0;
           else if (wizStep === 2) on = i === 1;
-          else if (wizStep === 6) on = i === 2;
+          else if (wizStep === 6) on = i === last;
         }
         return '<span class="' + (on ? "on" : "") + '">' + (i + 1) + ". " + label + "</span>";
       }).join("");

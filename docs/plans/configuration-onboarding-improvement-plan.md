@@ -2,6 +2,12 @@
 
 This document describes how first-time configuration feels today, why it is hard, and a phased plan to make setup **guided, physical-media-first, minimal by default, and opt-in** for advanced features.
 
+### At a glance
+
+- **Hub + wizard + roles:** [Configuration UI](#configuration-ui-cards-hub-layout-and-navigation) → [Amplifier setup wizard](#amplifier-setup-wizard-proposal) → [Device roles](#device-roles-connected-equipment--input-usage) → [Now Playing amp line](#now-playing-amplifier-line--kiosk--mobile-parity--touch-input-switch).
+- **Concrete implementation order:** [Proposed work (phased)](#proposed-work-phased) — Phases **1–7** (sequential numbering; no `5b`).
+- **Skim / backlog bullets:** [Editorial](#editorial-what-we-would-add-remove-or-defer) at the end intentionally mirrors roadmap intent for readers who jump to the bottom; **normative detail** remains in the body sections above.
+
 ---
 
 ## Product positioning & primary audience
@@ -74,8 +80,9 @@ AirPlay/BT blocks are legitimate but **visually parallel** to physical sources; 
 1. **Physical-first progressive disclosure** — minimum path: capture + recognition credentials + save/restart. Then optional: amplifier IR, per-input calibration, weather, SPI.
 2. **No implied hardware** — no amplifier profile, maker/model, or input map until the user confirms hardware (wizard or import).
 3. **One orchestrated story, many deep pages** — welcome checklist or wizard steps may **embed** iframes / same-origin steps or deep-link with `?step=` / `?from=onboarding`; power pages (`amplifier.html`, `recognition.html`) stay for advanced edits.
-4. **Server-side completeness** — e.g. `GET /api/setup-status`: `has_capture`, `has_recognition_credentials`, `amplifier_configured`, `broadlink_paired`, `calibration_physical_complete`, etc.
-5. **Device roles drive calibration scope** — see below; avoids asking a vinyl listener to “calibrate USB streaming” unless they want to.
+4. **Device roles drive calibration scope** — see below; avoids asking a vinyl listener to “calibrate USB streaming” unless they want to.
+
+**Implementation note (not a principle):** first-run checklist completion and hub status text should be driven by **`GET /api/setup-status`** — see **Phase 5** and the **draft JSON contract** below for field names.
 
 ---
 
@@ -114,11 +121,13 @@ So the product already has “cards” visually, but not a **hub mental model**:
 - **More than ~5–7 hub tiles** without grouping — use a **“Physical media”** group and a **“Everything else”** collapsed region to preserve the audience-first story.
 - **Relying on the narrow drawer** for a rich 2×2 card grid on desktop — the drawer is ~520px wide; a **dedicated `/config` hub page** (full width) or widening the drawer on large breakpoints may be needed for comfortable large tiles.
 
-### Implementation sketch (non-prescriptive)
+### Hub rollout steps (non-prescriptive — **not** the same numbers as [Proposed work (phased)](#proposed-work-phased))
 
-1. **Phase A — Content-only:** reorder existing `.section` blocks inside the drawer (physical first, streaming collapsed) — low effort, partial win.
-2. **Phase B — Hub layer:** replace or precede the long form with **click-through cards**; keep **quick save** for users who only change one global field, or move “Save & restart” to a sticky footer visible from hub and detail pages.
-3. **Phase C — Responsive:** on wide viewports, **two columns of hub cards**; on mobile, single column; optional full-page hub when opened from first-run checklist.
+These three steps are **UI sequencing** for the hub only; do not confuse them with roadmap **Phase 1–7**.
+
+1. **Hub step 1 — Content-only:** reorder existing `.section` blocks inside the drawer (physical first, streaming collapsed) — low effort, partial win.
+2. **Hub step 2 — Hub layer:** replace or precede the long form with **click-through cards**; keep **quick save** for users who only change one global field, or move “Save & restart” to a sticky footer visible from hub and detail pages.
+3. **Hub step 3 — Responsive:** on wide viewports, **two columns of hub cards**; on mobile, single column; optional full-page hub when opened from first-run checklist.
 
 This aligns with the **physical-first onboarding** narrative and with **progressive disclosure**: the hub answers “where do I go?”; detail pages answer “how do I tune it?”
 
@@ -156,7 +165,9 @@ When the user defines a **connected device** (name + amplifier input IDs), they 
 | **Streaming** | PC/USB DAC, streamer, “Bluetooth” input on amp, etc. | **Skip by default** (no per-input noise floor required for recognition of **files** on that path — recognition is REC OUT–driven for physical). User can still override “calibrate anyway” for odd setups. | Keeps wizard short |
 | **Other** | Tuner, HDMI, unknown | **Skip** unless user opts in | Copy: “Skip unless this input carries a physical source you want to recognise” |
 
-**Config shape (proposal):** extend `ConnectedDeviceConfig` with something like `role: "physical_media" | "streaming" | "other"` (exact enum TBD). **Migration:** omit → treat as `physical_media` for backward compatibility *or* `unknown` that prompts once in UI.
+**Config shape:** extend `ConnectedDeviceConfig` with **`role`** — JSON string enum, one of: **`physical_media`**, **`streaming`**, **`other`** (snake_case to match existing config keys).
+
+**Migration (decided):** if `role` is **absent** on an existing `connected_devices[]` row, treat it as **`physical_media`** (safest default for today’s users who wired turntables/CD decks). Optionally show a **one-time** banner in the web UI: “Refine device roles for smarter calibration filtering” — no blocking modal required for v1.
 
 **Calibration wizard behaviour:** build the list of **calibratable inputs** as the union of input IDs attached to devices with `role = physical_media`, plus any input the user manually marks “always calibrate”. Hide or de-emphasise the rest. **Vinyl gap** sub-step only when at least one physical device is tagged as vinyl/turntable (either a sub-flag `format_hint: vinyl` on the device or a dedicated role `physical_vinyl`).
 
@@ -188,6 +199,7 @@ This plan **does not** require implementing needle tracking in Phase 1–2; it r
 2. **Identity** — Maker / model (free text) **or** “Pick a built-in profile” (e.g. Magnat MR 780) to pre-fill inputs, warm-up, standby, USB-reset timings.
 3. **Inputs** — Confirm visible inputs and labels (editable); match real amp front panel.
 4. **Broadlink pairing (required for IR)** — If the user chose IR control, this step is **mandatory** before any IR learning: the RM4 Mini must be reachable and paired (token/device id persisted). **Implementation is flexible:** the pairing flow can stay as today’s **standalone** `pair.html` wizard (open in same tab, new tab, or embedded iframe) — separate wizards are fine. The amplifier wizard must still **surface this as an explicit gated step** (“Complete Broadlink pairing → Continue”) so nobody lands on IR learn with an unpaired bridge.
+   - **Gate mechanism:** the **Next** control that advances from Broadlink → IR learn stays **disabled** until persisted credentials exist (`broadlink.host` + non-empty `token` / `device_id` as today’s save path requires). Returning users see **Already paired — continue** when the config already satisfies the gate. (The disposable HTML prototype models this with an explicit “Paired — next” affordance.)
 5. **IR codes** — Guided learn sequence for `power_on`, `power_off`, `volume_up/down`, `next_input`, … with skip only where unsafe; show “learned ✓” per row. **Blocked** until step 4 is satisfied.
 6. **Connected devices** — For each box: name, **which input(s)** it uses, **role** (physical / streaming / other), optional “has IR remote” → second pass of IR learn for transport codes.
 7. **Review + Save & restart** — single commit point.
@@ -238,28 +250,70 @@ Ordered for the target audience:
 
 Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Bluetooth (optional)”.
 
+**Checklist “done” rules (implementation):** each row is **complete** when the corresponding booleans from **`GET /api/setup-status`** are true — use the **field names in the draft contract** below (`capture_configured`, `recognition_credentials_set`, `amplifier_topology_complete`, `calibration_physical_complete`, etc.). **Dismissed checklist** can remain a **client** flag (`localStorage`) so we do not invent new server state unless product wants sync across browsers.
+
 ### Phase 3 — Amplifier wizard implementation
 
 - As specified in the previous section; **gate** IR-learning steps on successful Broadlink pairing (reuse `pair.html` and/or same APIs — **separate pairing wizard is OK**). Persist atomically at end (or per major milestone with explicit “saved draft” if needed).
 
 ### Phase 4 — Calibration scoped by device role
 
-- Extend config + UI for **device role**.
+- Extend config + UI for **`role`** on `connected_devices` (`physical_media` | `streaming` | `other`); **migration:** missing `role` → **`physical_media`** (see [Device roles](#device-roles-connected-equipment--input-usage)).
 - Filter calibration wizard input list; update `recognition_page.js` / `calibration-wizard.js` copy to explain **why** some inputs are hidden.
 - Ensure **state manager** still receives calibration keyed by input ID (no breaking change unless we add aliases).
 
 ### Phase 5 — Contextual hints & API
 
-- `/api/setup-status` + header chips (“Missing ACRCloud”, “Amplifier not configured”, “Calibrate Phono for best vinyl boundaries”).
+- Implement **`GET /api/setup-status`** (or extend an existing aggregate) returning the booleans needed for the hub, checklist, and header chips (“Missing ACRCloud”, “Amplifier not configured”, “Calibrate Phono for best vinyl boundaries”, etc.).
 - Config drawer **reorders** sections based on incomplete flags.
 
-### Phase 5b — Now Playing amplifier line (see dedicated section above)
+#### `GET /api/setup-status` — draft JSON contract
+
+Single JSON object (HTTP 200). **`schema_version`** lets clients evolve without silent breakage.
+
+| Field | Type | Meaning |
+|-------|------|--------|
+| `schema_version` | `int` | Start at **1**; bump when fields are added or semantics change. |
+| `oceano_setup_acknowledged` | `bool` | User confirmed CLI wizard (optional; may stay `false` forever if product skips). |
+| `capture_configured` | `bool` | Non-empty capture device resolution (explicit ALSA or successful `device_match`). |
+| `recognition_credentials_set` | `bool` | ACRCloud host + key + secret present (or whichever provider is “required”). |
+| `amplifier_topology_complete` | `bool` | At least one input map **or** wizard marked “inputs OK” (exact rule TBD when empty amp is valid). |
+| `amplifier_ir_enabled` | `bool` | `amplifier.enabled === true`. |
+| `broadlink_paired` | `bool` | Host + token/device id present when IR enabled. |
+| `calibration_physical_recommended` | `bool` | At least one `connected_devices[].role === physical_media` and no calibration row for that input yet. |
+| `calibration_physical_complete` | `bool` | All **recommended** physical inputs have usable `calibration_profiles` entries (product-defined “complete”). |
+| `services_healthy` | `object` | Map service id → bool (optional; sourced from systemd or last heartbeat). |
+
+**Example (fresh install):**
+
+```json
+{
+  "schema_version": 1,
+  "oceano_setup_acknowledged": false,
+  "capture_configured": false,
+  "recognition_credentials_set": false,
+  "amplifier_topology_complete": false,
+  "amplifier_ir_enabled": false,
+  "broadlink_paired": false,
+  "calibration_physical_recommended": false,
+  "calibration_physical_complete": false,
+  "services_healthy": {
+    "oceano_source_detector": true,
+    "oceano_state_manager": true,
+    "oceano_web": true
+  }
+}
+```
+
+**Checklist row mapping (suggested):** row 1 ↔ `oceano_setup_acknowledged`; row 2 ↔ `capture_configured`; row 3 ↔ `recognition_credentials_set`; row 4 (optional amp) ↔ `amplifier_topology_complete` **or** explicit skip flag if added; row 5 ↔ `calibration_physical_complete` **or** “skipped” boolean if product adds it.
+
+### Phase 6 — Now Playing amplifier line (see dedicated section above)
 
 - **CSS:** stop tying **visibility** of the whole `#top-controls` / amp cluster only to `pointer: coarse` for **read-only** identity; reserve `not (pointer: coarse)` for hiding **touch-only** chrome (e.g. full `#input-selector` sheet) if still desired, or split selectors so **kiosk always** shows amp + input + device text.
 - **API/state:** expose logical input + connected device label for the now playing page.
 - **Touch:** tap amp cluster → compact input list; reuse existing amp APIs where possible.
 
-### Phase 6 — CLI ↔ web bridge
+### Phase 7 — CLI ↔ web bridge
 
 - **`oceano-setup`:** closing screen points to web checklist; emphasise **physical media** finish line.
 
@@ -273,9 +327,19 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 - Streaming users can still get **minimal** AirPlay/BT from setup + one web subsection.
 - **Kiosk and phone** both show **amplifier + input + device** when configured; touch surfaces can change input without opening the full config UI.
 
+### Quantifiable targets (engineering “done” hints)
+
+These complement the qualitative list; tune thresholds during implementation.
+
+- **`/api/setup-status`:** returns 200 with all **required** booleans true within **N s** after a valid `config.json` + services healthy (define `N` per environment).
+- **First-run checklist:** ≥ **90%** of checklist rows derive from server booleans (not only `localStorage`), so a second browser session agrees with the first.
+- **Calibration wizard:** with only `streaming` / `other` roles on all devices, **zero** per-input calibration slots offered (manual override excluded) — covered by an automated UI test or integration assertion where feasible.
+
 ---
 
 ## Editorial: what we would add, remove, or defer
+
+*Skim-oriented duplicate of roadmap intent; **authoritative** acceptance criteria live in phased sections and in [Success metrics](#success-metrics-qualitative) above.*
 
 **Add**
 
@@ -284,7 +348,7 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 - **Device role** (`physical_media` / `streaming` / `other`) on connected devices — high leverage for calibration UX and future features (needle hours, format-specific copy).
 - **Physical-first checklist** copy and ordering in all first-run surfaces.
 - **Explicit Broadlink step** inside the amplifier wizard: **required** before IR commands; may **launch** the existing `pair.html` wizard rather than duplicating UI (separate wizards are fine — sequencing and copy matter).
-- **Now Playing amplifier line** — kiosk/mobile parity, optional touch-only input dropdown (**Now Playing: amplifier line** section + Phase **5b**).
+- **Now Playing amplifier line** — kiosk/mobile parity, optional touch-only input dropdown (**Now Playing: amplifier line** section + **Phase 6**).
 - **Roadmap note** for stylus/listening-time (audience-true even if shipped later).
 
 **Remove or shrink**
@@ -304,7 +368,7 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 - **Automatic amp detection** without IR — usually impossible; avoid promising it.
 - **Over-automating role inference** from maker names — default to **user choice** with smart suggestions later.
 
-**Risk:** `role` migration must define behaviour for **existing** `connected_devices` with no role (treat as physical or prompt once). **Mitigation:** one-time banner “Tag your devices for smarter calibration” with safe default.
+**Risk (resolved in body):** missing `role` → **`physical_media`**; optional banner to refine roles.
 
 ---
 
@@ -323,6 +387,6 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 - Amplifier UI: `cmd/oceano-web/static/amplifier.html`
 - Calibration: `cmd/oceano-web/static/recognition.html`, `static/recognition/calibration-wizard.js`
 - CLI wizard: `cmd/oceano-setup/`
-- Architecture: `docs/amplifier-device-architecture.md`, `docs/distribution-and-setup-improvements-plan.md`
-- Recognition roadmap (low-score **carousel of alternatives**): `docs/recognition-enhancement-plan.md` → section **Roadmap: low-confidence matches — primary pick + alternative carousel**; PR **R9** in the same document.
+- Architecture: `docs/architecture/amplifier-device-architecture.md`, `docs/plans/distribution-and-setup-improvements-plan.md`
+- Recognition roadmap (low-score **carousel of alternatives**): `docs/plans/recognition-enhancement-plan.md` → section **Roadmap: low-confidence matches — primary pick + alternative carousel**; PR **R9** in the same document.
 - Now playing layout: `cmd/oceano-web/static/nowplaying.html`, `nowplaying.css` (search `pointer: coarse`, `#top-controls`, `#amp-indicator`, `#input-selector`), `nowplaying/main.js` (`loadAmpPowerState`).
