@@ -38,7 +38,14 @@ func (m *mgr) buildState() PlayerState {
 		state = "playing"
 	case physicalActive:
 		source = "Physical"
-		if !m.vuInSilence {
+		if m.physicalSource != "Physical" {
+			// Idle-delay tail only: the detector already reports None (user left the
+			// physical path), but we keep source labels for a short grace period.
+			// Do not claim "playing" from VU energy on a line that is no longer the
+			// active physical route — that made nowplaying show "Identifying…" with
+			// no music and no capture in progress.
+			state = "stopped"
+		} else if !m.vuInSilence {
 			state = "playing"
 		} else {
 			state = "idle"

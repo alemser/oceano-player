@@ -207,6 +207,47 @@ This answers the “Listening Metrics API while mass categorisation runs” conc
 
 ---
 
+## Roadmap: low-confidence matches — primary pick + alternative carousel
+
+### Product idea
+
+When automatic detection returns a **low confidence** match, the UI should:
+
+1. Still **promote the best-ranked result** (highest relevance / score) as the default “now playing” line.
+2. Offer a **small horizontal carousel** (or equivalent) of **other candidates** returned by the same identification pass, so the listener can **tap the correct track** without re-running capture.
+
+This targets ambiguous segments (live vs studio, compilations, short samples, noisy vinyl).
+
+### Is it feasible?
+
+**Yes, with provider-specific work.**
+
+| Provider | Multi-candidate data today | Notes |
+|----------|----------------------------|--------|
+| **ACRCloud** | Response JSON already includes `metadata.music` as an **array** of hits with per-hit **`score`** (0–100). | `internal/recognition/acrcloud.go` currently maps **`Music[0]` only** and discards the rest. Extending the recognizer to return **top N** (e.g. 3–5) ordered by score is straightforward. |
+| **Shazam (shazamio)** | The daemon reads **`matches[0]`** for score/duration only. | Shazam’s full JSON may expose **multiple `matches`**; the Python bridge would need to **serialize** additional matches (title/artist/album/shazam id/score if present) for a carousel. Verify against real `recognize()` payloads. |
+
+**Coordinator / state:** Today a single `recognition.Result` flows into library + `oceano-state.json`. A carousel needs either:
+
+- **`track` + `recognition_alternatives`** (or `candidates`)** on unified state** — populated only when `score < threshold` (configurable, e.g. 85) **and** `len(alternatives) > 0`; or
+- A dedicated **short-lived “disambiguation”** object with TTL until user picks or next boundary fires.
+
+**UI surfaces:** `nowplaying.html` (primary + carousel), optionally the web status row / config “last recognition” debug. **SSE** (`/api/stream`) must carry the extra field when present.
+
+**User correction:** `POST` (or existing library/history endpoint extended) to **apply selected candidate** → update SQLite library row / play history / clear alternatives in state — aligns with **user overrides** principle already in this doc.
+
+**Risks**
+
+- **Extra API payload** on every match if alternatives are always sent — mitigate by **gating** on low score or explicit “always show top-3” flag.
+- **Wrong tap** — treat selection as **explicit user_confirmed** (or equivalent) for analytics.
+- **Shazam** — if only one match is ever returned, carousel is a no-op for that provider; ACR-only path still delivers value.
+
+### Suggested implementation milestone (new PR row)
+
+Ship **after** stable multi-candidate parsing + state schema; UI can be phase 2.
+
+---
+
 ## Suggested PR sequence
 
 | PR | Scope | Risk | Status |
@@ -223,6 +264,7 @@ This answers the “Listening Metrics API while mass categorisation runs” conc
 | R6b | If R6 ships: model health / confidence distribution on metrics page (optional chart or percentile text) | Medium | Pending |
 | R7 | Link boundary events to post-recognition outcomes + **early-boundary** aggregates (conservative rules + Listening Metrics) | Medium | Pending |
 | R8 | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium | Pending |
+| R9 | **Low-confidence UX:** parse ACRCloud `metadata.music[1..]` (and Shazam multi-match if available) → optional `recognition_alternatives` in state + threshold config; **now playing carousel** + API to **apply user-selected candidate** (library/history integration) | Medium | Pending |
 
 ---
 

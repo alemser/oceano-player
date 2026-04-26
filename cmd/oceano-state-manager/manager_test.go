@@ -550,6 +550,26 @@ func TestBuildState_PhysicalVuSilenceHidesRecognizedTrack(t *testing.T) {
 	}
 }
 
+// TestBuildState_IdleDelayAfterDetectorNone_NotPlaying verifies that during the
+// post-Physical idle-delay window, if the source detector is already None we do
+// not emit state=playing (which would drive "Identifying…" on the display).
+func TestBuildState_IdleDelayAfterDetectorNone_NotPlaying(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "None"
+	m.lastPhysicalAt = time.Now()
+	m.vuInSilence = false
+	m.recognitionResult = nil
+
+	s := m.buildState()
+
+	if s.State != "stopped" {
+		t.Errorf("state = %q, want stopped when physicalSource is None during idle-delay tail", s.State)
+	}
+	if s.Source != "Physical" {
+		t.Errorf("source = %q, want Physical (grace label still applies)", s.Source)
+	}
+}
+
 // TestBuildState_PhysicalNoVuSilenceIsPlaying verifies the normal (non-silence)
 // path is unaffected by the vuInSilence field when it is false.
 func TestBuildState_PhysicalNoVuSilenceIsPlaying(t *testing.T) {

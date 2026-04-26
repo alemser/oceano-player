@@ -283,3 +283,4 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 - Calibration: `cmd/oceano-web/static/recognition.html`, `static/recognition/calibration-wizard.js`
 - CLI wizard: `cmd/oceano-setup/`
 - Architecture: `docs/amplifier-device-architecture.md`, `docs/distribution-and-setup-improvements-plan.md`
+- Recognition roadmap (low-score **carousel of alternatives**): `docs/recognition-enhancement-plan.md` → section **Roadmap: low-confidence matches — primary pick + alternative carousel**; PR **R9** in the same document.
