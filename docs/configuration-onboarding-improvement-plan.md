@@ -124,6 +124,28 @@ This aligns with the **physical-first onboarding** narrative and with **progress
 
 ---
 
+## Now Playing: amplifier line — kiosk / mobile parity + touch input switch
+
+### Today (baseline)
+
+In `cmd/oceano-web/static/nowplaying.css`, **`#top-controls`** (which contains **`#amp-indicator`**) is hidden under **`@media not (pointer: coarse)`** together with **`#input-selector`**. That matches the comment *“Non-touch displays (HDMI/DSI, desktop) — hide interactive touch controls”*: a **typical HDMI kiosk** with a mouse or fine pointer **does not show** the amplifier name chip, while a **phone** with coarse pointer often **does**. The playing UI therefore **under-communicates** “which amp / which input” on the very screen people watch from the sofa.
+
+### Target UX
+
+1. **Parity** — Show a **single compact line** (or pill cluster) on **both** touch-first and non-touch / kiosk layouts: **amplifier identity** (maker + model, or a user label), **current logical input** (e.g. Phono, CD, USB Audio), and **connected device name** when the topology maps one (e.g. *Rega Planar*, *Yamaha CD-S300*). Same information architecture on mobile and on **1024×600** (or similar) HDMI; only **density** and **interaction** differ.
+2. **Touch only for switching** — When the runtime reports **touch-capable** interaction (`pointer: coarse` and/or `maxTouchPoints` — same signals already used for hiding non-touch chrome), **tap the amplifier cluster** opens a **small, elegant** surface (dropdown anchored to the pill, or a slim sheet): list **visible inputs** from the same source as the main amp widget (`/api/amplifier/...`), current selection highlighted, dismiss on outside tap or timeout. Keep hit targets and motion **subtle** so the wall display does not feel like a tablet game.
+3. **Non-touch kiosk** — Still render the **read-only** line (amp + input + device). **No** mandatory dropdown under mouse hover at 2–3 m viewing distance; optional future: long-path to config UI only if product wants it.
+
+### Data
+
+Requires **stable strings** in unified state and/or **`GET /api/amplifier/state`** (and related) for: resolved maker/model, **active input logical name**, and **resolved connected device label** for that input. If any piece is missing today, extend the contract once — the **wizard’s connected devices** model is the natural source of device names.
+
+### Fit in this plan
+
+Yes — this belongs here as **cross-cutting display + configuration outcome**: users invest in the amplifier wizard / topology so the **living room screen** should reflect it **everywhere**, not only on coarse pointers. Track implementation under **`nowplaying.html` / `nowplaying.css` / `nowplaying/main.js`** and small API/state extensions as needed.
+
+---
+
 ## Device roles (connected equipment → input usage)
 
 When the user defines a **connected device** (name + amplifier input IDs), they should optionally classify **what that device is for**:
@@ -162,7 +184,7 @@ This plan **does not** require implementing needle tracking in Phase 1–2; it r
 
 **Suggested flow (high level):**
 
-1. **Intent** — “Do you want IR control of your amplifier?” → No: skip entire block, leave `amplifier.enabled=false` and empty topology. Yes: continue.
+1. **Intent** — “Do you want IR control of your amplifier?” → **No:** set `amplifier.enabled=false`, **skip Broadlink and IR learning**, but **still offer** identity (maker/model or built-in profile for **input map / IDs**) and the **connected devices** step (name, input IDs, **role**: physical media / streaming / other) so calibration scoping, UI labels, and recognition context stay correct. **Yes:** continue with full IR path.
 2. **Identity** — Maker / model (free text) **or** “Pick a built-in profile” (e.g. Magnat MR 780) to pre-fill inputs, warm-up, standby, USB-reset timings.
 3. **Inputs** — Confirm visible inputs and labels (editable); match real amp front panel.
 4. **Broadlink pairing (required for IR)** — If the user chose IR control, this step is **mandatory** before any IR learning: the RM4 Mini must be reachable and paired (token/device id persisted). **Implementation is flexible:** the pairing flow can stay as today’s **standalone** `pair.html` wizard (open in same tab, new tab, or embedded iframe) — separate wizards are fine. The amplifier wizard must still **surface this as an explicit gated step** (“Complete Broadlink pairing → Continue”) so nobody lands on IR learn with an unpaired bridge.
@@ -171,6 +193,17 @@ This plan **does not** require implementing needle tracking in Phase 1–2; it r
 7. **Review + Save & restart** — single commit point.
 
 **Relationship to existing pages:** Implement as a **new route** (e.g. `/amplifier-wizard.html`) or a modal sequence that **reuses** the same APIs as `amplifier.html` and the existing **Broadlink pairing** endpoints/UI (`pair.html`). Deprioritise requiring users to discover three unrelated URLs **without** a checklist — reusing `pair.html` as its own wizard is acceptable; the amplifier wizard **orchestrates order** and **blocks** IR steps until pairing is done.
+
+### Returning users: new amplifier or rewiring (e.g. owner swaps hardware)
+
+The same wizard should remain useful **after** the first day — not only for strangers. For **you** changing amp or rearranging inputs:
+
+- **Entry point:** a clear **“Change amplifier / re-run setup”** (or re-open wizard) so you do not hunt through `amplifier.html` fields from memory.
+- **IR:** almost always **re-learn** amp commands when the model changes; Broadlink credentials often **stay** (same RM4) — the doc’s **gated Broadlink step** can show “already paired — continue” when token/host are valid.
+- **Calibration:** `advanced.calibration_profiles` are keyed by **amplifier input ID**. If the new amp or profile uses **different IDs**, stale rows should be **surfaced** (“Phono used to be `20`, now it is `10` — re-run calibration for Phono”) instead of silently wrong behaviour. Optional: **export calibration** before swap, or a one-click “clear profiles for IDs no longer present”.
+- **Connected devices + roles:** re-attach turntable/CD to the **new** input labels in the wizard; keeps the **physical-first calibration filter** accurate.
+
+This closes the loop for **repeat configuration** as a first-class story, not only first boot.
 
 ---
 
@@ -220,6 +253,12 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 - `/api/setup-status` + header chips (“Missing ACRCloud”, “Amplifier not configured”, “Calibrate Phono for best vinyl boundaries”).
 - Config drawer **reorders** sections based on incomplete flags.
 
+### Phase 5b — Now Playing amplifier line (see dedicated section above)
+
+- **CSS:** stop tying **visibility** of the whole `#top-controls` / amp cluster only to `pointer: coarse` for **read-only** identity; reserve `not (pointer: coarse)` for hiding **touch-only** chrome (e.g. full `#input-selector` sheet) if still desired, or split selectors so **kiosk always** shows amp + input + device text.
+- **API/state:** expose logical input + connected device label for the now playing page.
+- **Touch:** tap amp cluster → compact input list; reuse existing amp APIs where possible.
+
 ### Phase 6 — CLI ↔ web bridge
 
 - **`oceano-setup`:** closing screen points to web checklist; emphasise **physical media** finish line.
@@ -232,6 +271,7 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 - No fresh install JSON implies a **specific commercial amplifier**.
 - Calibration wizard **does not nag** for USB/streaming-only inputs unless the user opts in.
 - Streaming users can still get **minimal** AirPlay/BT from setup + one web subsection.
+- **Kiosk and phone** both show **amplifier + input + device** when configured; touch surfaces can change input without opening the full config UI.
 
 ---
 
@@ -244,6 +284,7 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 - **Device role** (`physical_media` / `streaming` / `other`) on connected devices — high leverage for calibration UX and future features (needle hours, format-specific copy).
 - **Physical-first checklist** copy and ordering in all first-run surfaces.
 - **Explicit Broadlink step** inside the amplifier wizard: **required** before IR commands; may **launch** the existing `pair.html` wizard rather than duplicating UI (separate wizards are fine — sequencing and copy matter).
+- **Now Playing amplifier line** — kiosk/mobile parity, optional touch-only input dropdown (**Now Playing: amplifier line** section + Phase **5b**).
 - **Roadmap note** for stylus/listening-time (audience-true even if shipped later).
 
 **Remove or shrink**
@@ -284,3 +325,4 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 - CLI wizard: `cmd/oceano-setup/`
 - Architecture: `docs/amplifier-device-architecture.md`, `docs/distribution-and-setup-improvements-plan.md`
 - Recognition roadmap (low-score **carousel of alternatives**): `docs/recognition-enhancement-plan.md` → section **Roadmap: low-confidence matches — primary pick + alternative carousel**; PR **R9** in the same document.
+- Now playing layout: `cmd/oceano-web/static/nowplaying.html`, `nowplaying.css` (search `pointer: coarse`, `#top-controls`, `#amp-indicator`, `#input-selector`), `nowplaying/main.js` (`loadAmpPowerState`).

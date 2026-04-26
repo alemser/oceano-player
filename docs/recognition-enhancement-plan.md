@@ -248,6 +248,51 @@ Ship **after** stable multi-candidate parsing + state schema; UI can be phase 2.
 
 ---
 
+## Roadmap: shadow calibration evaluation → optional autonomous thresholds
+
+### Motivation
+
+Today, **per-input calibration** (wizard + `calibration_profiles`) and **VU-driven boundaries** assume the capture path delivers **RMS that is stable enough** to be meaningful. Users who skip the wizard rely on **global defaults**; users who calibrate depend on **manual** measurements staying valid as gain, stylus, or room noise drift.
+
+The idea is to **keep the current mechanism as production** while, in the background, **collecting and periodically analysing** whether the **active calibration** behaves better than a **reference (“standard”) policy** on the same live stream of VU / boundary telemetry.
+
+### Proposed behaviour (conceptual)
+
+1. **Shadow / challenger** — On a fixed cadence (e.g. **every 4 hours**, configurable), a **batch job** (or low-priority goroutine in the state manager) replays or re-evaluates recent windows of **stored signals** (RMS summaries, `boundary_events` outcomes, optional aggregates from **Phase 1A**) under two policies in parallel **for comparison only**:
+   - **A:** current user calibration (per-input profiles + existing detector).
+   - **B:** **reference** policy — e.g. shipped **defaults** (`advanced.vu_silence_threshold` + no per-input profile, or a conservative “uncalibrated” branch), clearly documented so it is not circular with the same tuned numbers.
+
+2. **Fidelity / accuracy metric** — Define **explicit, testable** scores before shipping, for example (examples, not final):
+   - agreement rate on **hard vs soft** boundary classifications vs a human-labelled holdout **or** vs downstream outcomes (e.g. recognition success rate conditional on boundary type);
+   - rate of **false intra-track** fires vs **missed** track changes compared to **R7**-linked post-recognition outcomes;
+   - stability across **cohorts** (Vinyl / CD / unresolved Physical) as in **Phase 1B**.
+
+   The job answers: “Over the last window, did **A** beat **B** by at least **Δ** with sufficient sample size?”
+
+3. **Promotion** — When a **positive threshold** holds for **K** consecutive windows (or cumulative evidence), either:
+   - **Auto-apply** a promoted set of thresholds (true “autonomous calibration” / auto-tuned profile), **or**
+   - **Recommend** in Listening Metrics and require one confirmation tap (safer first ship).
+
+4. **User control** — **`auto_calibration_enabled`** (or similar) default **off** or **“suggest only”**; when off, **no** background promotion runs. Clear copy: “Automatic calibration tuning uses listening statistics; you can disable it.”
+
+5. **Auditability** — Log **when** the system changed thresholds, **from → to**, and **which metric** triggered promotion; surface a one-line event on Listening Metrics so operators trust the feature.
+
+### Opinion (worth adding?)
+
+**Yes, it belongs in this plan** as a **late** milestone: it **reuses** the telemetry and cohort story from **Phase 1A / 1B** and fits the principle **telemetry before policy changes**. It must **not** ship before (a) **stable metrics**, (b) **shadow-only** soak, and (c) **opt-out** — otherwise a noisy evening could rewrite calibration silently.
+
+**Caveats**
+
+- **Non-stationary noise** (hum, HVAC, stylus wear) means a 4-hour window can **lie**; use **minimum sample size**, **hysteresis** (K consecutive wins), and **bounds** on how far auto-tuning may move any threshold (same spirit as **Phase 1B** “nudges within safe bounds”).
+- **Reference policy B** must be a **true** baseline, not another hidden tuned copy of A.
+- **CPU / SD** — batch analysis should be **bounded** (time-box, row limit) and respect **Pi-first resource budget** (see Design principles).
+
+### Suggested PR row
+
+Treat as **research + metrics** first; auto-apply only after shadow soak.
+
+---
+
 ## Suggested PR sequence
 
 | PR | Scope | Risk | Status |
@@ -265,6 +310,7 @@ Ship **after** stable multi-candidate parsing + state schema; UI can be phase 2.
 | R7 | Link boundary events to post-recognition outcomes + **early-boundary** aggregates (conservative rules + Listening Metrics) | Medium | Pending |
 | R8 | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium | Pending |
 | R9 | **Low-confidence UX:** parse ACRCloud `metadata.music[1..]` (and Shazam multi-match if available) → optional `recognition_alternatives` in state + threshold config; **now playing carousel** + API to **apply user-selected candidate** (library/history integration) | Medium | Pending |
+| R10 | **Shadow calibration evaluation:** periodic job compares active calibration vs **reference** defaults on recent telemetry; gated **promotion** to auto-tuned thresholds (or suggest-only); **`auto_calibration_enabled`** off by default; audit log + metrics UI | High | Pending (design) |
 
 ---
 
@@ -275,6 +321,7 @@ Ship **after** stable multi-candidate parsing + state schema; UI can be phase 2.
 - **Physical format lag** — all analytics and models must support **late correction** (see above).
 - **Dependencies on Pi** — prefer optional components (like Shazam env) and clear install docs.
 - **“Early boundary” heuristics** — easy to over-interpret; keep as analytics until validated on real collections; never block playback or recognition on a single signal.
+- **Auto-tuned calibration (R10)** — silent threshold drift can **worsen** recognition or boundaries on one bad window; mitigate with **shadow-only** period, **hard bounds**, **opt-out**, and **never** promote without minimum evidence + hysteresis.
 
 ---
 
