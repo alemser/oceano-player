@@ -2,11 +2,17 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"sort"
 	"strings"
 	"time"
 )
+
+// minCalibrationOffOnGap is the minimum discriminative delta between calibrated
+// "off" and "on" RMS samples. Smaller gaps hug the noise floor and are treated
+// as invalid for profile-derived VU silence thresholds (R2c).
+const minCalibrationOffOnGap = float32(0.002)
 
 type calibrationProfileSample struct {
 	AvgRMS float64 `json:"avg_rms"`
@@ -86,16 +92,21 @@ func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32,
 		on := float32(profile.On.AvgRMS)
 		if on > off && off > 0 {
 			gap := on - off
-			enter := off + gap*0.35
-			exit := off + gap*0.55
-			if enter < 0.001 {
-				enter = 0.001
+			if gap < minCalibrationOffOnGap {
+				log.Printf("calibration profile %s: off→on gap %.6f below minimum %.6f; using global VU silence thresholds",
+					model.profileID, gap, minCalibrationOffOnGap)
+			} else {
+				enter := off + gap*0.35
+				exit := off + gap*0.55
+				if enter < 0.001 {
+					enter = 0.001
+				}
+				if exit <= enter {
+					exit = enter + 0.0005
+				}
+				model.enterSilenceThreshold = enter
+				model.exitSilenceThreshold = exit
 			}
-			if exit <= enter {
-				exit = enter + 0.0005
-			}
-			model.enterSilenceThreshold = enter
-			model.exitSilenceThreshold = exit
 		}
 	}
 

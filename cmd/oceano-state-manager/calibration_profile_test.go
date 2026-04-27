@@ -178,13 +178,13 @@ func TestLoadBoundaryCalibrationModel_CDFormatFallsBackToInputSelection(t *testi
 func TestLoadBoundaryCalibrationModel_ClampsDerivedThresholdsToGlobalFloor(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
-	// Tiny off→on gap yields enter/exit far below a conservative global VU threshold.
+	// Gap above R2c ε but profile-derived enter/exit still below global floor (R2b clamp).
 	json := `{
 	  "advanced": {
 	    "calibration_profiles": {
 	      "20": {
-	        "off": {"avg_rms": 0.0100},
-	        "on": {"avg_rms": 0.0111}
+	        "off": {"avg_rms": 0.0180},
+	        "on": {"avg_rms": 0.0210}
 	      }
 	    }
 	  },
@@ -213,5 +213,39 @@ func TestClampSilenceThresholdsToFloor_NoOpWhenDerivedAboveFloor(t *testing.T) {
 	e, x := clampSilenceThresholdsToFloor(0.015, 0.016, 0.0095)
 	if e != 0.015 || x != 0.016 {
 		t.Fatalf("unexpected clamp: enter=%f exit=%f", e, x)
+	}
+}
+
+func TestLoadBoundaryCalibrationModel_SkipsDerivedThresholdsWhenOffOnGapTooSmall(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	json := `{
+	  "advanced": {
+	    "calibration_profiles": {
+	      "20": {
+	        "off": {"avg_rms": 0.0100},
+	        "on": {"avg_rms": 0.0110}
+	      }
+	    }
+	  },
+	  "amplifier_runtime": {
+	    "last_known_input_id": "20"
+	  }
+	}`
+	if err := os.WriteFile(cfgPath, []byte(json), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	const fallback float32 = 0.0095
+	model := loadBoundaryCalibrationModel(cfgPath, fallback, "")
+	if model.profileID != "20" {
+		t.Fatalf("profileID = %q, want 20", model.profileID)
+	}
+	if model.enterSilenceThreshold != fallback {
+		t.Fatalf("enter=%f want %f (profile-derived skipped)", model.enterSilenceThreshold, fallback)
+	}
+	const minHysteresisGap float32 = 0.0005
+	if model.exitSilenceThreshold != fallback+minHysteresisGap {
+		t.Fatalf("exit=%f want %f after hysteresis preserve", model.exitSilenceThreshold, fallback+minHysteresisGap)
 	}
 }
