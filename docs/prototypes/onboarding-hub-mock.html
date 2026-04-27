@@ -85,6 +85,7 @@
       display: flex;
       align-items: center;
       justify-content: flex-start;
+      color: var(--text);
     }
     .card .icon svg {
       width: 2rem;
@@ -386,18 +387,22 @@
     </section>
   </main>
   <script>
-    /** Hub card icon: vinyl disc + tonearm / stylus (replaces optical-disc emoji for Physical media). */
+    /**
+     * Physical media hub icon — same markup as SOURCE_ICONS.Vinyl in
+     * cmd/oceano-web/static/icons.js (stroke/fill use currentColor).
+     */
     const ICON_PHYSICAL_MEDIA =
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" aria-hidden="true" focusable="false">' +
-      '<circle cx="16" cy="18" r="11" fill="#12151c" stroke="#4a5568" stroke-width="0.85"/>' +
-      '<circle cx="16" cy="18" r="7.8" stroke="#323946" stroke-width="0.4" fill="none" opacity="0.85"/>' +
-      '<circle cx="16" cy="18" r="5.2" stroke="#323946" stroke-width="0.35" fill="none" opacity="0.55"/>' +
-      '<circle cx="16" cy="18" r="2.9" fill="#2a3140" opacity="0.65"/>' +
-      '<circle cx="16" cy="18" r="1.05" fill="#d8dce8"/>' +
-      '<path d="M26.2 4.8 L27.4 6.05 L20.8 17.6 Q19.9 19.2 18.1 19.4 L17.2 18.85" fill="none" stroke="#8b95aa" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>' +
-      '<line x1="26.2" y1="4.8" x2="24.5" y2="3.85" stroke="#5c6578" stroke-width="1.05" stroke-linecap="round"/>' +
-      '<line x1="18.1" y1="19.35" x2="17.35" y2="18.15" stroke="#aeb6c8" stroke-width="0.9" stroke-linecap="round"/>' +
-      '<circle cx="17.15" cy="17.75" r="0.82" fill="#e8d4d0" stroke="#907070" stroke-width="0.22"/>' +
+      '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">' +
+      '<g class="vinyl-disc">' +
+      '<circle cx="16" cy="16" r="13" stroke="currentColor" stroke-width="1.5"/>' +
+      '<circle cx="16" cy="16" r="9.5" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>' +
+      '<circle cx="16" cy="16" r="6" stroke="currentColor" stroke-width="0.8" opacity="0.35"/>' +
+      '<circle cx="16" cy="16" r="2.5" fill="currentColor" opacity="0.6"/>' +
+      '<path d="M16 3 A13 13 0 0 1 24.2 5.8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity="0.55"/>' +
+      '</g>' +
+      '<path d="M23 6 L28 11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>' +
+      '<path d="M28 11 L22.3 16.7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>' +
+      '<circle cx="22.1" cy="16.9" r="1.1" fill="currentColor" opacity="0.95"/>' +
       '</svg>';
 
     const hubPresets = {
