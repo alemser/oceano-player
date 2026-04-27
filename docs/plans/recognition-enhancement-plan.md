@@ -4,6 +4,10 @@ This document extends the earlier discussion into a concrete, incremental roadma
 
 **Status (2026-04):** Milestone **R1 + R1b** (boundary telemetry + Listening Metrics) is on **`main`**. **R1c** (intra-track silence→audio coalesce) was **aborted** after field feedback: the heuristic suppressed too many legitimate track boundaries. Short-lived builds may still have rows with `outcome = suppressed_intra_track_silence` in `boundary_events`; the Listening Metrics UI labels those as **Legacy (intra-track experiment)** (`history.js`). A future retry should be **opt-in** (config flag) and/or gated on **Boundary-sensitive** (R8), not global defaults.
 
+### Priority (concrete next work)
+
+Land **R2** (format backfill for analytics when the user corrects Vinyl/CD on library rows) and continue telemetry-driven tuning using **Listening Metrics** (`fired` vs suppression outcomes, **Trigger** boundary rate vs fallback timer, provider success vs **error** counts). Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators. *(Repeated at document end for readers who scroll the PR table first.)*
+
 ---
 
 ## Design principles (avoid regressions)
@@ -227,10 +231,21 @@ This targets ambiguous segments (live vs studio, compilations, short samples, no
 | **ACRCloud** | Response JSON already includes `metadata.music` as an **array** of hits with per-hit **`score`** (0–100). | `internal/recognition/acrcloud.go` currently maps **`Music[0]` only** and discards the rest. Extending the recognizer to return **top N** (e.g. 3–5) ordered by score is straightforward. |
 | **Shazam (shazamio)** | The daemon reads **`matches[0]`** for score/duration only. | Shazam’s full JSON may expose **multiple `matches`**; the Python bridge would need to **serialize** additional matches (title/artist/album/shazam id/score if present) for a carousel. Verify against real `recognize()` payloads. |
 
-**Coordinator / state:** Today a single `recognition.Result` flows into library + `oceano-state.json`. A carousel needs either:
+**Coordinator / state (decision):** extend the **existing** `track` object (or sibling field at the same level as `track` in unified state — match whatever `oceano-state.json` already uses for “now playing”) with an **optional** array:
 
-- **`track` + `recognition_alternatives`** (or `candidates`)** on unified state** — populated only when `score < threshold` (configurable, e.g. 85) **and** `len(alternatives) > 0`; or
-- A dedicated **short-lived “disambiguation”** object with TTL until user picks or next boundary fires.
+```json
+"recognition_alternatives": [
+  { "title": "", "artist": "", "album": "", "score": 0, "acrid": "", "shazam_id": "" }
+]
+```
+
+Omit the field when `score >= threshold` or when the provider returned a single candidate. **Rationale:** one schema for SSE + file consumers; TTL is implicit (“cleared on next state write / boundary”).
+
+**Prerequisite (before betting UX on Shazam):** log capture or a one-off experiment proving whether **shazamio** returns **multiple** `matches[]` for real vinyl/CD captures. If only one match ever appears, R9’s carousel is **ACR-first**; document outcome in this file and trim R9 scope accordingly.
+
+**Pre-backlog gate (not a PR):** the prerequisite above is **time-boxed investigation** (issue optional, branch optional). It does **not** need its own PR row — **record the conclusion** (single vs multi match, with example payload redacted) in a short subsection **“R9 — Shazam cardinality (resolved)”** in this document **before** R9 enters the active backlog. Until then, treat R9 as **blocked on that write-up**, not on an invisible “spike” dependency.
+
+**Independence:** R9 does **not** depend on **R4 / R5** (local library / fingerprints); it only extends provider parsing + state + UI.
 
 **UI surfaces:** `nowplaying.html` (primary + carousel), optionally the web status row / config “last recognition” debug. **SSE** (`/api/stream`) must carry the extra field when present.
 
@@ -246,25 +261,108 @@ This targets ambiguous segments (live vs studio, compilations, short samples, no
 
 Ship **after** stable multi-candidate parsing + state schema; UI can be phase 2.
 
+### Resolution log — Shazam `matches[]` (for R9)
+
+Append a row after the pre-backlog investigation completes. Until then, plan **ACR-first** multi-candidate UX; add Shazam alternatives only if this log shows **multi**-match payloads are available in production.
+
+| Date | Outcome | Notes |
+|------|---------|-------|
+| — | *pending* | *Replace with finding (e.g. “single match only”) + optional link to redacted sample / version pin.* |
+
+---
+
+## Roadmap: shadow calibration evaluation → optional autonomous thresholds
+
+### Motivation
+
+Today, **per-input calibration** (wizard + `calibration_profiles`) and **VU-driven boundaries** assume the capture path delivers **RMS that is stable enough** to be meaningful. Users who skip the wizard rely on **global defaults**; users who calibrate depend on **manual** measurements staying valid as gain, stylus, or room noise drift.
+
+The idea is to **keep the current mechanism as production** while, in the background, **collecting and periodically analysing** whether the **active calibration** behaves better than a **reference (“standard”) policy** on the same live stream of VU / boundary telemetry.
+
+### Proposed behaviour (conceptual)
+
+1. **Shadow / challenger** — On a fixed cadence (e.g. **every 4 hours**, configurable), a **batch job** (or low-priority goroutine in the state manager) replays or re-evaluates recent windows of **stored signals** (RMS summaries, `boundary_events` outcomes, optional aggregates from **Phase 1A**) under two policies in parallel **for comparison only**:
+   - **A:** current user calibration (per-input profiles + existing detector).
+   - **B:** **reference** policy — e.g. shipped **defaults** (`advanced.vu_silence_threshold` + no per-input profile, or a conservative “uncalibrated” branch), clearly documented so it is not circular with the same tuned numbers.
+
+2. **Fidelity / accuracy metric** — Define **explicit, testable** scores before shipping, for example (examples, not final):
+   - agreement rate on **hard vs soft** boundary classifications vs a human-labelled holdout **or** vs downstream outcomes (e.g. recognition success rate conditional on boundary type);
+   - rate of **false intra-track** fires vs **missed** track changes compared to **R7**-linked post-recognition outcomes;
+   - stability across **cohorts** (Vinyl / CD / unresolved Physical) as in **Phase 1B**.
+
+   The job answers: “Over the last window, did **A** beat **B** by at least **Δ** with sufficient sample size?”
+
+3. **Promotion** — When a **positive threshold** holds for **K** consecutive windows (or cumulative evidence), either:
+   - **Auto-apply** a promoted set of thresholds (true “autonomous calibration” / auto-tuned profile), **or**
+   - **Recommend** in Listening Metrics and require one confirmation tap (safer first ship).
+
+4. **User control** — **`auto_calibration_enabled`** (or similar) default **off** or **“suggest only”**; when off, **no** background promotion runs. Clear copy: “Automatic calibration tuning uses listening statistics; you can disable it.”
+
+5. **Auditability** — Log **when** the system changed thresholds, **from → to**, and **which metric** triggered promotion; surface a one-line event on Listening Metrics so operators trust the feature.
+
+### UX / product principles (first ship and beyond)
+
+These complement items 3–5 above; they were discussed as operator-trust requirements and should stay **normative** when implementing R10:
+
+- **Suggest-first** — Ship **recommendation + explicit “Apply” / “Dismiss”** before any silent auto-apply. Full background promotion remains gated on **`auto_calibration_enabled`** (or equivalent) and user expectation.
+- **Legible feedback** — Prefer short **outcome-oriented** copy on Listening Metrics (e.g. “fewer wasted recognition attempts this week vs last” when metrics support it) alongside technical detail for power users; avoid **only** raw percentiles as the sole surface.
+- **Reversibility** — Provide a **clear rollback**: restore **previous saved calibration** (snapshot before apply) or fall back to **Policy B / documented defaults**, without requiring SSH. Users who experiment should not feel locked in.
+
+### Opinion (worth adding?)
+
+**Yes, it belongs in this plan** as a **late** milestone: it **reuses** the telemetry and cohort story from **Phase 1A / 1B** and fits the principle **telemetry before policy changes**. It must **not** ship before (a) **stable metrics**, (b) **shadow-only** soak, and (c) **opt-out** — otherwise a noisy evening could rewrite calibration silently.
+
+**Caveats**
+
+- **Non-stationary noise** (hum, HVAC, stylus wear) means a 4-hour window can **lie**; use **minimum sample size**, **hysteresis** (K consecutive wins), and **bounds** on how far auto-tuning may move any threshold (same spirit as **Phase 1B** “nudges within safe bounds”).
+- **Reference policy B** must be a **true** baseline, not another hidden tuned copy of A.
+- **CPU / SD** — batch analysis should be **bounded** (time-box, row limit) and respect **Pi-first resource budget** (see Design principles). **Reads** of large `boundary_events` windows every 4h add **read** traffic on microSD — align with [Operational persistence](#operational-persistence--sqlite-sd-wear-and-telemetry-volume) and size limits.
+
+**Policy B (concrete):** ship as **versioned constants** in code (e.g. `internal/.../calibration_reference_v1.go` or documented defaults table in **README / this doc**) — values are the **factory defaults** for `advanced.vu_silence_threshold` and **no per-input** `calibration_profiles` entries. Bump a **`reference_policy_version`** field whenever those constants change so shadow comparisons remain reproducible.
+
+### Interaction today: global VU threshold vs calibration profiles
+
+The state manager builds VU silence enter/exit from **`loadBoundaryCalibrationModel`** (`cmd/oceano-state-manager/calibration_profile.go`): when Off/On samples yield a positive gap, **profile-derived thresholds replace** the detector defaults seeded from **`advanced.vu_silence_threshold`** — there is **no clamp** enforcing “never below global”. A profile with enter/exit **below** idle REC hum therefore **overrides** a carefully set global threshold until the profile is corrected or removed. **R10** shadow comparison should treat this as first-class when comparing Policy **A** vs **B**.
+
+**Operational gap vs long-term roadmap:** Shadow evaluation (R10) and percentile nudges (R3) assume **meaningful inputs** and time to ship; they do **not** stop a bad JSON profile from breaking boundaries **today**. **R2b** / **R2c** below are deliberate **small, low-risk** guards (floor clamp + profile validation); implement before or independent of **R3**.
+
+### VU reconnect (implemented behaviour)
+
+After each **new connection** to the VU Unix socket, the monitor **suppresses the first `silence→audio` boundary only** (`source_vu_monitor.go`) — separate from calibration. It reduces false triggers after stream/detector restarts (`unexpected EOF`) but **does not** replace threshold tuning when hum ramps **above** the effective silence threshold on a **single** stable connection.
+
+### Suggested PR row
+
+Treat as **research + metrics** first; auto-apply only after shadow soak.
+
 ---
 
 ## Suggested PR sequence
+
+### Completed / aborted (archive — do not use for sprint planning)
 
 | PR | Scope | Risk | Status |
 |----|--------|------|--------|
 | R1 | `boundary_events` (or equivalent) + linkage ids for backfill; no trigger behavior change | Low | **Done** (on `main`) |
 | R1b | (same milestone) Expose aggregates on **Listening Metrics** (API + `history.js`) — even a minimal “boundary events logged / period” card | Low | **Done** |
 | R1c | Coalesce redundant **silence→audio** in early segment of known track — **aborted** (too aggressive); retry behind flag / per-track hint; legacy DB rows + UI label (see status) | Low | **Aborted** |
-| R2 | Backfill job when user updates Vinyl/CD classification; docs + tests | Low | Pending |
-| R3 | Optional percentile-based nudges to calibration inputs (bounded) | Low–medium | Pending |
-| R4 | `LocalLibraryRecognizer` + config flag + tests | Medium | Pending |
-| R4b | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts; optional **ACR error class** breakdown (timeout vs rate limit vs DNS) for operator health | Low–medium | Pending |
-| R5 | Post-match fingerprint persistence + local lookup; **cloud re-verify** policy (TTL, 1-in-N plays, or low local score → cloud) bundled with cache | Medium | Pending |
-| R6 | Offline-trained classifier for boundary confidence (optional) | Medium–high | Pending |
-| R6b | If R6 ships: model health / confidence distribution on metrics page (optional chart or percentile text) | Medium | Pending |
-| R7 | Link boundary events to post-recognition outcomes + **early-boundary** aggregates (conservative rules + Listening Metrics) | Medium | Pending |
-| R8 | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium | Pending |
-| R9 | **Low-confidence UX:** parse ACRCloud `metadata.music[1..]` (and Shazam multi-match if available) → optional `recognition_alternatives` in state + threshold config; **now playing carousel** + API to **apply user-selected candidate** (library/history integration) | Medium | Pending |
+
+### Active backlog
+
+| PR | Depends on / prerequisite | Scope | Risk | Status |
+|----|---------------------------|--------|------|--------|
+| R2 | — | Backfill job when user updates Vinyl/CD classification; docs + tests | Low | Pending |
+| R2b | — | **Calibration floor clamp:** after computing profile-derived `enter` / `exit` in `loadBoundaryCalibrationModel`, ensure neither falls **below** `fallbackSilenceThreshold` (**`advanced.vu_silence_threshold`** passed from the VU monitor). Preserve hysteresis (**exit > enter**) after clamping (re-order if needed). Mitigates corrupted profiles driving silence thresholds under idle hum while global is intentionally high | Low | Pending |
+| R2c | — | **Calibration profile validation:** reject or warn when `on_avg - off_avg < ε` (product-tuned ε, e.g. ~0.002) or when profiles are otherwise **non-discriminative**; optionally surface in web UI on save and/or log at load time. Does not replace **`on <= off`** branch (already skips derivation); catches **tiny positive gaps** that hug noise. Complements **R3** — nudges assume usable base profiles | Low | Pending |
+| R3 | — | Optional percentile-based nudges to calibration inputs (bounded). **Does not fix** garbage-in profiles by itself — prefer **R2c** hygiene and **R2b** floor | Low–medium | Pending |
+| R4 | — | `LocalLibraryRecognizer` + config flag + tests | Medium | Pending |
+| R4b | **R4** | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts; optional **ACR error class** breakdown (timeout vs rate limit vs DNS) for operator health | Low–medium | Pending |
+| R5 | — | Post-match fingerprint persistence + local lookup; **cloud re-verify** policy (TTL, 1-in-N plays, or low local score → cloud) bundled with cache | Medium | Pending |
+| R6 | — | Offline-trained classifier for boundary confidence (optional) | Medium–high | Pending |
+| R6b | **R6** | If R6 ships: model health / confidence distribution on metrics page (optional chart or percentile text) | Medium | Pending |
+| R7 | — | Link boundary events to post-recognition outcomes + **early-boundary** aggregates (conservative rules + Listening Metrics) | Medium | Pending |
+| R8 | — | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium | Pending |
+| R9 | **Pre-R9 investigation** documented in this file (Shazam `matches[]` cardinality — see **Low-confidence UX** + pre-backlog gate above). **Not** blocked on R4/R5 | **Low-confidence UX:** parse ACRCloud `metadata.music[1..]` (and Shazam multi-match **if** investigation showed it is feasible) → optional `recognition_alternatives` in state + threshold config; **now playing carousel** + API to **apply user-selected candidate** (library/history integration) | Medium | Pending |
+| R10 | **R7** stable metrics + Policy B frozen | **Shadow calibration evaluation:** periodic job compares active calibration vs **reference** defaults on recent telemetry; gated **promotion** to auto-tuned thresholds (or suggest-only); **`auto_calibration_enabled`** off by default; audit log + metrics UI | High | **Research** — do not implement before R7 + metric definitions are stable (detail below may go stale) |
 
 ---
 
@@ -275,9 +373,10 @@ Ship **after** stable multi-candidate parsing + state schema; UI can be phase 2.
 - **Physical format lag** — all analytics and models must support **late correction** (see above).
 - **Dependencies on Pi** — prefer optional components (like Shazam env) and clear install docs.
 - **“Early boundary” heuristics** — easy to over-interpret; keep as analytics until validated on real collections; never block playback or recognition on a single signal.
+- **Auto-tuned calibration (R10)** — silent threshold drift can **worsen** recognition or boundaries on one bad window; mitigate with **shadow-only** period, **hard bounds**, **opt-out**, and **never** promote without minimum evidence + hysteresis. **SD / I/O:** periodic batch reads over `boundary_events` add **read** load — bound batch size and window (see R10 body + [Operational persistence](#operational-persistence--sqlite-sd-wear-and-telemetry-volume)).
 
 ---
 
 ## Immediate next step
 
-Land **R2** (format backfill for analytics when the user corrects Vinyl/CD on library rows) and continue telemetry-driven tuning using **Listening Metrics** (`fired` vs suppression outcomes, **Trigger** boundary rate vs fallback timer, provider success vs **error** counts). Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators.
+See **[Priority (concrete next work)](#priority-concrete-next-work)** at the top of this document.
