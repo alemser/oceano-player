@@ -322,9 +322,9 @@ These complement items 3–5 above; they were discussed as operator-trust requir
 
 ### Interaction today: global VU threshold vs calibration profiles
 
-The state manager builds VU silence enter/exit from **`loadBoundaryCalibrationModel`** (`cmd/oceano-state-manager/calibration_profile.go`): when Off/On samples yield a positive gap, **profile-derived thresholds replace** the detector defaults seeded from **`advanced.vu_silence_threshold`** — there is **no clamp** enforcing “never below global”. A profile with enter/exit **below** idle REC hum therefore **overrides** a carefully set global threshold until the profile is corrected or removed. **R10** shadow comparison should treat this as first-class when comparing Policy **A** vs **B**.
+The state manager builds VU silence enter/exit from **`loadBoundaryCalibrationModel`** (`cmd/oceano-state-manager/calibration_profile.go`): when Off/On samples yield a discriminative gap (**R2c** ε), **profile-derived thresholds replace** the detector defaults seeded from **`advanced.vu_silence_threshold`**, then **R2b** clamps both so neither falls **below** that global floor (with hysteresis preserved). **R10** shadow comparison should treat Policy **A** vs **B** behavior as first-class when evaluating calibration overrides.
 
-**Operational gap vs long-term roadmap:** Shadow evaluation (R10) and percentile nudges (R3) assume **meaningful inputs** and time to ship; they do **not** stop a bad JSON profile from breaking boundaries **today**. **R2b** / **R2c** below are deliberate **small, low-risk** guards (floor clamp + profile validation); implement before or independent of **R3**.
+**Operational gap vs long-term roadmap:** Shadow evaluation (R10) and percentile nudges (R3) assume **meaningful inputs** and time to ship. **R2b** / **R2c** now mitigate bad JSON calibration at load time (**floor clamp**, **minimum off→on gap**, load-time log); **R3** nudges still assume profiles are not nonsense.
 
 ### VU reconnect (implemented behaviour)
 
@@ -350,9 +350,9 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 
 | PR | Depends on / prerequisite | Scope | Risk | Status |
 |----|---------------------------|--------|------|--------|
-| R2 | — | Backfill job when user updates Vinyl/CD classification; docs + tests | Low | Pending |
-| R2b | — | **Calibration floor clamp:** after computing profile-derived `enter` / `exit` in `loadBoundaryCalibrationModel`, ensure neither falls **below** `fallbackSilenceThreshold` (**`advanced.vu_silence_threshold`** passed from the VU monitor). Preserve hysteresis (**exit > enter**) after clamping (re-order if needed). Mitigates corrupted profiles driving silence thresholds under idle hum while global is intentionally high | Low | Pending |
-| R2c | — | **Calibration profile validation:** reject or warn when `on_avg - off_avg < ε` (product-tuned ε, e.g. ~0.002) or when profiles are otherwise **non-discriminative**; optionally surface in web UI on save and/or log at load time. Does not replace **`on <= off`** branch (already skips derivation); catches **tiny positive gaps** that hug noise. Complements **R3** — nudges assume usable base profiles | Low | Pending |
+| R2 | — | Backfill **`format_resolved`** on **`boundary_events`** when the user saves Vinyl/CD/Unknown for a library row (`LibraryDB.update` → chunked policy optional for future bulk editors); docs + tests | Low | **Done** (single-row save path; async bulk notes remain in plan body) |
+| R2b | — | **Calibration floor clamp:** after computing profile-derived `enter` / `exit` in `loadBoundaryCalibrationModel`, ensure neither falls **below** `fallbackSilenceThreshold` (**`advanced.vu_silence_threshold`** passed from the VU monitor). Preserve hysteresis (**exit > enter**) after clamping (re-order if needed). Mitigates corrupted profiles driving silence thresholds under idle hum while global is intentionally high | Low | **Done** |
+| R2c | — | **Calibration profile validation:** reject or warn when `on_avg - off_avg < ε` (product-tuned ε, e.g. ~0.002) or when profiles are otherwise **non-discriminative**; optionally surface in web UI on save and/or log at load time. Does not replace **`on <= off`** branch (already skips derivation); catches **tiny positive gaps** that hug noise. Complements **R3** — nudges assume usable base profiles | Low | **Done** |
 | R3 | — | Optional percentile-based nudges to calibration inputs (bounded). **Does not fix** garbage-in profiles by itself — prefer **R2c** hygiene and **R2b** floor | Low–medium | Pending |
 | R4 | — | `LocalLibraryRecognizer` + config flag + tests | Medium | Pending |
 | R4b | **R4** | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts; optional **ACR error class** breakdown (timeout vs rate limit vs DNS) for operator health | Low–medium | Pending |

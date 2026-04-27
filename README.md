@@ -156,6 +156,8 @@ Open **`http://<pi-ip>:8080/history.html`** (also linked from the main config pa
 
 On a **fresh install**, expect **low or zero counts** for the first hours or days. After a **service upgrade**, boundary rows are recorded from the **new process start onward** (events before the restart are not backfilled into the database). Totals become more useful after **a week or two** of normal listening if you want to compare suppression rates or tune calibration—but the system is fully operational before then.
 
+When you correct a library entry’s format (**Vinyl**, **CD**, or **Unknown**), existing **boundary telemetry** rows linked to that entry receive **`format_resolved`** / **`format_resolved_at`** so aggregates can favour the corrected label without rewriting historical **`format_at_event`** values.
+
 ---
 
 ## Update

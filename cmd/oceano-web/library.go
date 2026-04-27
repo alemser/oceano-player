@@ -328,7 +328,57 @@ func (l *LibraryDB) update(id int64, title, artist, album, label, released, form
 		artworkPath, artworkPath,
 		id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return l.backfillBoundaryEventsFormatResolvedForCollection(id, format)
+}
+
+// backfillBoundaryEventsFormatResolvedForCollection sets format_resolved on
+// boundary telemetry rows for this library entry (R2). Idempotent for the same
+// resolved label; clearing Unknown removes resolution so analytics fall back to
+// format_at_event only.
+func (l *LibraryDB) backfillBoundaryEventsFormatResolvedForCollection(collectionID int64, libraryFormat string) error {
+	if l == nil || l.db == nil {
+		return nil
+	}
+	norm := strings.TrimSpace(libraryFormat)
+	if norm == "" {
+		norm = "Unknown"
+	}
+	switch norm {
+	case "Vinyl", "CD":
+		ts := time.Now().UTC().Format(time.RFC3339Nano)
+		_, err := l.db.Exec(`
+			UPDATE boundary_events
+			SET format_resolved = ?, format_resolved_at = ?
+			WHERE collection_id = ?`,
+			norm, ts, collectionID,
+		)
+		if err != nil {
+			errText := strings.ToLower(err.Error())
+			if strings.Contains(errText, "no such table") || strings.Contains(errText, "no such column") {
+				return nil
+			}
+			return err
+		}
+		return nil
+	default:
+		_, err := l.db.Exec(`
+			UPDATE boundary_events
+			SET format_resolved = NULL, format_resolved_at = NULL
+			WHERE collection_id = ?`,
+			collectionID,
+		)
+		if err != nil {
+			errText := strings.ToLower(err.Error())
+			if strings.Contains(errText, "no such table") || strings.Contains(errText, "no such column") {
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
 }
 
 // resolveStub merges an unconfirmed entry (stub) into an existing confirmed

@@ -42,7 +42,8 @@ func createTestDB(t *testing.T, dir string, artworkPaths []string) string {
 		artwork_path TEXT,
 		play_count   INTEGER NOT NULL DEFAULT 1,
 		first_played TEXT    NOT NULL,
-		last_played  TEXT    NOT NULL
+		last_played  TEXT    NOT NULL,
+		duration_ms  INTEGER NOT NULL DEFAULT 0
 	)`)
 	if err != nil {
 		db.Close()
@@ -554,5 +555,71 @@ func TestDeleteEntry_ClearsBoundaryEventsCollectionRef(t *testing.T) {
 	}
 	if cid.Valid && cid.Int64 != 0 {
 		t.Fatalf("boundary_events.collection_id = %v, want NULL", cid)
+	}
+}
+
+func TestUpdate_BackfillsBoundaryEventsFormatResolved(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := createTestDB(t, dir, nil)
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
+	defer lib.close()
+
+	if _, err := lib.db.Exec(`CREATE TABLE IF NOT EXISTS play_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		collection_id INTEGER,
+		title TEXT NOT NULL DEFAULT '',
+		artist TEXT NOT NULL DEFAULT '',
+		album TEXT,
+		track_number TEXT,
+		media_format TEXT,
+		artwork_path TEXT
+	)`); err != nil {
+		t.Fatalf("create play_history: %v", err)
+	}
+
+	if _, err := lib.db.Exec(`
+		INSERT INTO boundary_events (
+			occurred_at, outcome, boundary_type, is_hard, physical_source,
+			format_at_event, duration_ms, seek_ms, collection_id
+		) VALUES ('2026-04-01T12:00:00Z','fired','silence->audio',1,'Physical','Physical',0,0,1)`); err != nil {
+		t.Fatalf("insert boundary_events: %v", err)
+	}
+
+	if err := lib.update(1, "Track", "Artist", "", "", "", "Vinyl", "", "", 0); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	var resolved sql.NullString
+	var resolvedAt sql.NullString
+	if err := lib.db.QueryRow(`SELECT format_resolved, format_resolved_at FROM boundary_events WHERE id=1`).Scan(&resolved, &resolvedAt); err != nil {
+		t.Fatal(err)
+	}
+	if !resolved.Valid || resolved.String != "Vinyl" {
+		t.Fatalf("format_resolved = %v, want Vinyl", resolved)
+	}
+	if !resolvedAt.Valid || resolvedAt.String == "" {
+		t.Fatalf("format_resolved_at should be set")
+	}
+
+	if err := lib.update(1, "Track", "Artist", "", "", "", "Unknown", "", "", 0); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if err := lib.db.QueryRow(`SELECT format_resolved, format_resolved_at FROM boundary_events WHERE id=1`).Scan(&resolved, &resolvedAt); err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Valid || resolvedAt.Valid {
+		t.Fatalf("want NULL resolution after Unknown, got resolved=%v at=%v", resolved, resolvedAt)
+	}
+
+	if err := lib.update(1, "Track", "Artist", "", "", "", "CD", "", "", 0); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if err := lib.db.QueryRow(`SELECT format_resolved FROM boundary_events WHERE id=1`).Scan(&resolved); err != nil {
+		t.Fatal(err)
+	}
+	if !resolved.Valid || resolved.String != "CD" {
+		t.Fatalf("format_resolved = %v, want CD", resolved)
 	}
 }

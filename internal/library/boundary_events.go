@@ -30,7 +30,8 @@ type BoundaryEvent struct {
 }
 
 // RecordBoundaryEvent inserts a boundary telemetry row. It is safe to call with
-// l == nil (no-op). format_resolved columns are reserved for R2 backfill.
+// l == nil (no-op). format_resolved / format_resolved_at are populated later by the
+// web UI when the user saves a concrete Vinyl/CD format for the linked collection row (R2).
 func (l *Library) RecordBoundaryEvent(ev BoundaryEvent) error {
 	if l == nil || l.db == nil {
 		return nil
