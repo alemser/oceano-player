@@ -422,6 +422,27 @@ type AdvancedConfig struct {
 	// recognition calibration wizard. Keys are amplifier input IDs (for example
 	// "10"=Phono, "20"=CD).
 	CalibrationProfiles map[string]CalibrationProfile `json:"calibration_profiles,omitempty"`
+	// R3TelemetryNudges optionally adjusts effective VU silence thresholds and
+	// duration pessimism from boundary_events follow-up telemetry (same_track_restored vs matched).
+	R3TelemetryNudges *R3TelemetryNudgesConfig `json:"r3_telemetry_nudges,omitempty"`
+}
+
+// R3TelemetryNudgesConfig enables bounded calibration nudges driven by Listening Metrics telemetry (R3).
+type R3TelemetryNudgesConfig struct {
+	Enabled bool `json:"enabled"`
+	// LookbackDays restricts boundary_events aggregation (default 14).
+	LookbackDays int `json:"lookback_days,omitempty"`
+	// MinFollowupPairs requires at least this many (same_track_restored + matched) rows before nudging.
+	MinFollowupPairs int `json:"min_followup_pairs,omitempty"`
+	// BaselineFalsePositiveRatio is the target acceptable rate of same_track_restored among pairs (default 0.10).
+	BaselineFalsePositiveRatio float64 `json:"baseline_false_positive_ratio,omitempty"`
+	// MaxSilenceThresholdDelta caps the absolute additive change to RMS silence enter/exit (default 0.004).
+	MaxSilenceThresholdDelta float64 `json:"max_silence_threshold_delta,omitempty"`
+	// MaxDurationPessimismDelta caps the additive adjustment to duration pessimism (default 0.06).
+	MaxDurationPessimismDelta float64 `json:"max_duration_pessimism_delta,omitempty"`
+	// EarlyTrackProgressP75Threshold: when P75 seek/duration among matched fires is below this, apply an extra silence nudge (default 0.18).
+	EarlyTrackProgressP75Threshold float64 `json:"early_track_progress_p75_threshold,omitempty"`
+	EarlyTrackExtraSilenceDelta      float64 `json:"early_track_extra_silence_delta,omitempty"`
 }
 
 // CalibrationProfile stores OFF/ON RMS snapshots captured by the recognition

@@ -38,9 +38,22 @@ type calibrationProfile struct {
 	VinylTransition *calibrationVinylTransition `json:"vinyl_transition"`
 }
 
+// r3TelemetryNudgesJSON mirrors advanced.r3_telemetry_nudges in config.json (R3).
+type r3TelemetryNudgesJSON struct {
+	Enabled                        bool    `json:"enabled"`
+	LookbackDays                   int     `json:"lookback_days"`
+	MinFollowupPairs               int     `json:"min_followup_pairs"`
+	BaselineFalsePositiveRatio     float64 `json:"baseline_false_positive_ratio"`
+	MaxSilenceThresholdDelta       float64 `json:"max_silence_threshold_delta"`
+	MaxDurationPessimismDelta      float64 `json:"max_duration_pessimism_delta"`
+	EarlyTrackProgressP75Threshold float64 `json:"early_track_progress_p75_threshold"`
+	EarlyTrackExtraSilenceDelta    float64 `json:"early_track_extra_silence_delta"`
+}
+
 type calibrationConfigSnapshot struct {
 	Advanced struct {
 		CalibrationProfiles map[string]calibrationProfile `json:"calibration_profiles"`
+		R3TelemetryNudges   *r3TelemetryNudgesJSON        `json:"r3_telemetry_nudges,omitempty"`
 	} `json:"advanced"`
 	Amplifier struct {
 		Inputs []struct {
@@ -65,31 +78,88 @@ type boundaryCalibrationModel struct {
 	transitionSamplesHz   float32
 }
 
-func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32, preferredMediaFormat string) boundaryCalibrationModel {
+// r3TelemetryFileConfig is the resolved R3 settings after merging JSON with defaults.
+type r3TelemetryFileConfig struct {
+	Enabled                        bool
+	LookbackDays                   int
+	MinFollowupPairs               int
+	BaselineFalsePositiveRatio     float64
+	MaxSilenceThresholdDelta       float64
+	MaxDurationPessimismDelta      float64
+	EarlyTrackProgressP75Threshold float64
+	EarlyTrackExtraSilenceDelta    float64
+}
+
+func defaultR3TelemetryFileConfig() r3TelemetryFileConfig {
+	return r3TelemetryFileConfig{
+		LookbackDays:                   14,
+		MinFollowupPairs:               25,
+		BaselineFalsePositiveRatio:     0.10,
+		MaxSilenceThresholdDelta:       0.004,
+		MaxDurationPessimismDelta:      0.06,
+		EarlyTrackProgressP75Threshold: 0.18,
+		EarlyTrackExtraSilenceDelta:    0.001,
+	}
+}
+
+func mergeR3TelemetryFileConfig(raw *r3TelemetryNudgesJSON) r3TelemetryFileConfig {
+	out := defaultR3TelemetryFileConfig()
+	if raw == nil {
+		return out
+	}
+	out.Enabled = raw.Enabled
+	if raw.LookbackDays > 0 {
+		out.LookbackDays = raw.LookbackDays
+	}
+	if raw.MinFollowupPairs > 0 {
+		out.MinFollowupPairs = raw.MinFollowupPairs
+	}
+	if raw.BaselineFalsePositiveRatio > 0 {
+		out.BaselineFalsePositiveRatio = raw.BaselineFalsePositiveRatio
+	}
+	if raw.MaxSilenceThresholdDelta > 0 {
+		out.MaxSilenceThresholdDelta = raw.MaxSilenceThresholdDelta
+	}
+	if raw.MaxDurationPessimismDelta > 0 {
+		out.MaxDurationPessimismDelta = raw.MaxDurationPessimismDelta
+	}
+	if raw.EarlyTrackProgressP75Threshold > 0 {
+		out.EarlyTrackProgressP75Threshold = raw.EarlyTrackProgressP75Threshold
+	}
+	if raw.EarlyTrackExtraSilenceDelta > 0 {
+		out.EarlyTrackExtraSilenceDelta = raw.EarlyTrackExtraSilenceDelta
+	}
+	return out
+}
+
+func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32, preferredMediaFormat string) (boundaryCalibrationModel, r3TelemetryFileConfig) {
+	r3cfg := defaultR3TelemetryFileConfig()
 	model := boundaryCalibrationModel{
 		enterSilenceThreshold: fallbackSilenceThreshold,
 		exitSilenceThreshold:  fallbackSilenceThreshold,
 	}
 	if path == "" {
-		return model
+		return model, r3cfg
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return model
+		return model, mergeR3TelemetryFileConfig(nil)
 	}
 
 	var snap calibrationConfigSnapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
-		return model
+		return model, mergeR3TelemetryFileConfig(nil)
 	}
+	r3cfg = mergeR3TelemetryFileConfig(snap.Advanced.R3TelemetryNudges)
+
 	if len(snap.Advanced.CalibrationProfiles) == 0 {
-		return model
+		return model, r3cfg
 	}
 
 	profileID, profile, ok := chooseCalibrationProfile(snap, preferredMediaFormat)
 	if !ok {
-		return model
+		return model, r3cfg
 	}
 	model.profileID = profileID
 
@@ -131,7 +201,7 @@ func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32,
 	model.enterSilenceThreshold, model.exitSilenceThreshold = clampSilenceThresholdsToFloor(
 		model.enterSilenceThreshold, model.exitSilenceThreshold, fallbackSilenceThreshold,
 	)
-	return model
+	return model, r3cfg
 }
 
 // deriveVUThresholdsFromCalibratedOffOn maps calibrated off/on RMS samples to VU

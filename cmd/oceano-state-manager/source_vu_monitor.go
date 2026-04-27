@@ -292,7 +292,26 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 			durationGuardBypassWindow = 20 * time.Second
 		}
 		detectorCfg := defaultVUBoundaryDetectorConfig(silenceThreshold, silenceFrames, activeFrames)
-		calModel := loadBoundaryCalibrationModel(m.cfg.CalibrationConfigPath, silenceThreshold, m.currentPhysicalFormatForCalibration())
+		calModel, r3FileCfg := loadBoundaryCalibrationModel(m.cfg.CalibrationConfigPath, silenceThreshold, m.currentPhysicalFormatForCalibration())
+		calFormat := m.currentPhysicalFormatForCalibration()
+		silNudge, pessNudge, r3Summary := computeR3CalibrationNudges(m.lib, r3FileCfg, calFormat)
+		m.mu.Lock()
+		if !r3FileCfg.Enabled || m.lib == nil {
+			m.r3DurationPessimismDelta = 0
+		} else {
+			m.r3DurationPessimismDelta = pessNudge
+		}
+		m.mu.Unlock()
+		if r3FileCfg.Enabled && r3Summary != "" {
+			log.Printf("VU monitor: R3 telemetry nudges — %s", r3Summary)
+		}
+		if silNudge != 0 {
+			calModel.enterSilenceThreshold += silNudge
+			calModel.exitSilenceThreshold += silNudge
+			calModel.enterSilenceThreshold, calModel.exitSilenceThreshold = clampSilenceThresholdsToFloor(
+				calModel.enterSilenceThreshold, calModel.exitSilenceThreshold, silenceThreshold,
+			)
+		}
 		if calModel.enterSilenceThreshold > 0 {
 			detectorCfg.silenceEnterThreshold = calModel.enterSilenceThreshold
 		}
@@ -319,7 +338,7 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 		if calModel.profileID != "" {
 			log.Printf("VU monitor: calibration profile=%s silenceEnter=%.4f silenceExit=%.4f gapRMS=%.4f gapDur=%s", calModel.profileID, detectorCfg.silenceEnterThreshold, detectorCfg.silenceExitThreshold, detectorCfg.transitionGapRMS, calModel.transitionGapDuration.Round(100*time.Millisecond))
 		}
-		m.readVUFrames(ctx, conn, detectorCfg, durationGuardBypassWindow, m.cfg.DurationPessimism)
+		m.readVUFrames(ctx, conn, detectorCfg, durationGuardBypassWindow, m.effectiveDurationPessimismForPhysicalPolicy())
 		conn.Close()
 
 		if ctx.Err() != nil {

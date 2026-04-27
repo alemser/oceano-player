@@ -700,7 +700,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				if preBoundaryResult != nil {
 					knownDurationMS = preBoundaryResult.DurationMs
 				}
-				thresholdMS := restoreThresholdMS(knownDurationMS, c.mgr.cfg.DurationPessimism)
+				thresholdMS := restoreThresholdMS(knownDurationMS, c.mgr.effectiveDurationPessimismForPhysicalPolicy())
 				elapsedPct := elapsedPercentOfDuration(preBoundaryElapsedMS, knownDurationMS)
 				// Conservative policy:
 				// 1) Soft boundaries: restore only when prior seek is mature.
@@ -712,7 +712,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 					preBoundaryElapsedMS,
 					knownDurationMS,
 					minSeekForRestore,
-					c.mgr.cfg.DurationPessimism,
+					c.mgr.effectiveDurationPessimismForPhysicalPolicy(),
 				)
 
 				if canRestore {

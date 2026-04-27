@@ -10,7 +10,7 @@ This document extends the earlier discussion into a concrete, incremental roadma
 
 ### Priority (concrete next work)
 
-Pick up **R3** (optional bounded percentile **nudges** to calibration inputs, behind feature flag) — inputs are now grounded by **R7** linkage + **R2/R2c** hygiene. **R8** (library *Boundary-sensitive* hint) is **Done** on **`feat/recognition-enhancement-plan`**. Continue telemetry-driven tuning using **Listening Metrics**. Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators.
+**R3** (optional bounded telemetry **nudges** to effective VU silence thresholds + duration pessimism, `advanced.r3_telemetry_nudges` in config, Advanced Settings UI) is **Done** on **`feat/recognition-enhancement-plan`**. **R8** (*Boundary-sensitive*) is also **Done** there. Continue telemetry-driven tuning using **Listening Metrics**. Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators.
 
 ---
 
@@ -358,7 +358,7 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 
 | PR | Depends on / prerequisite | Scope | Risk | Status |
 |----|---------------------------|--------|------|--------|
-| R3 | — | Optional percentile-based nudges to calibration inputs (bounded). **Does not fix** garbage-in profiles by itself — prefer **R2c** hygiene and **R2b** floor | Low–medium | Pending |
+| R3 | — | Optional telemetry-based bounded nudges (same_track_restored vs matched + P75 seek/duration on matched fires); **off** by default via `advanced.r3_telemetry_nudges` | Low–medium | **Done** (`feat/recognition-enhancement-plan`) |
 | R4 | — | `LocalLibraryRecognizer` + config flag + tests | Medium | Pending |
 | R4b | **R4** | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts; optional **ACR error class** breakdown (timeout vs rate limit vs DNS) for operator health | Low–medium | Pending |
 | R5 | — | Post-match fingerprint persistence + local lookup; **cloud re-verify** policy (TTL, 1-in-N plays, or low local score → cloud) bundled with cache | Medium | Pending |
@@ -383,4 +383,4 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 
 ## Immediate next step
 
-See **[Priority (concrete next work)](#priority-concrete-next-work)** — next suggested milestone: **R3** (**R2**, **R7**, and **R8** are archived as **Done** above).
+See **[Priority (concrete next work)](#priority-concrete-next-work)** — next suggested milestone: **R4** (local library recognizer) or **R5**; **R2**, **R3**, **R7**, and **R8** are archived as **Done** above.
