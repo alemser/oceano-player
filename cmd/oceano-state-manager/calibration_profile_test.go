@@ -174,3 +174,44 @@ func TestLoadBoundaryCalibrationModel_CDFormatFallsBackToInputSelection(t *testi
 		t.Fatalf("profileID = %q, want 20 for CD", model.profileID)
 	}
 }
+
+func TestLoadBoundaryCalibrationModel_ClampsDerivedThresholdsToGlobalFloor(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	// Tiny off→on gap yields enter/exit far below a conservative global VU threshold.
+	json := `{
+	  "advanced": {
+	    "calibration_profiles": {
+	      "20": {
+	        "off": {"avg_rms": 0.0100},
+	        "on": {"avg_rms": 0.0111}
+	      }
+	    }
+	  },
+	  "amplifier_runtime": {
+	    "last_known_input_id": "20"
+	  }
+	}`
+	if err := os.WriteFile(cfgPath, []byte(json), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	const floor float32 = 0.0220
+	model := loadBoundaryCalibrationModel(cfgPath, floor, "")
+	if model.enterSilenceThreshold < floor {
+		t.Fatalf("enter=%f should be >= floor %f", model.enterSilenceThreshold, floor)
+	}
+	if model.exitSilenceThreshold < floor {
+		t.Fatalf("exit=%f should be >= floor %f", model.exitSilenceThreshold, floor)
+	}
+	if model.exitSilenceThreshold <= model.enterSilenceThreshold {
+		t.Fatalf("exit=%f must be > enter=%f after clamp", model.exitSilenceThreshold, model.enterSilenceThreshold)
+	}
+}
+
+func TestClampSilenceThresholdsToFloor_NoOpWhenDerivedAboveFloor(t *testing.T) {
+	e, x := clampSilenceThresholdsToFloor(0.015, 0.016, 0.0095)
+	if e != 0.015 || x != 0.016 {
+		t.Fatalf("unexpected clamp: enter=%f exit=%f", e, x)
+	}
+}

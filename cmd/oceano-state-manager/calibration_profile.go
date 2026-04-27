@@ -120,7 +120,30 @@ func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32,
 		}
 	}
 
+	model.enterSilenceThreshold, model.exitSilenceThreshold = clampSilenceThresholdsToFloor(
+		model.enterSilenceThreshold, model.exitSilenceThreshold, fallbackSilenceThreshold,
+	)
 	return model
+}
+
+// clampSilenceThresholdsToFloor ensures profile-derived VU silence enter/exit never
+// sit below advanced.vu_silence_threshold (the fallback passed from the VU monitor).
+// Preserves exit > enter after clamping.
+func clampSilenceThresholdsToFloor(enter, exit, floor float32) (float32, float32) {
+	if floor <= 0 {
+		return enter, exit
+	}
+	if enter < floor {
+		enter = floor
+	}
+	if exit < floor {
+		exit = floor
+	}
+	const minHysteresisGap = 0.0005
+	if exit <= enter {
+		exit = enter + minHysteresisGap
+	}
+	return enter, exit
 }
 
 func chooseCalibrationProfile(snap calibrationConfigSnapshot, preferredMediaFormat string) (string, calibrationProfile, bool) {
