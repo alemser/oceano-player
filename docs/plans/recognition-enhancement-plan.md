@@ -4,9 +4,11 @@ This document extends the earlier discussion into a concrete, incremental roadma
 
 **Status (2026-04):** Milestone **R1 + R1b** (boundary telemetry + Listening Metrics) is on **`main`**. **R1c** (intra-track silence→audio coalesce) was **aborted** after field feedback: the heuristic suppressed too many legitimate track boundaries. Short-lived builds may still have rows with `outcome = suppressed_intra_track_silence` in `boundary_events`; the Listening Metrics UI labels those as **Legacy (intra-track experiment)** (`history.js`). A future retry should be **opt-in** (config flag) and/or gated on **Boundary-sensitive** (R8), not global defaults.
 
+**R2 + R2b + R2c** are **Done** on branch **`feat/recognition-enhancement-plan`** (merge to `main` when ready): library **`format_resolved`** backfill on save; calibration **floor clamp** + **minimum off→on gap** + load-time log in `loadBoundaryCalibrationModel`.
+
 ### Priority (concrete next work)
 
-Land **R2** (format backfill for analytics when the user corrects Vinyl/CD on library rows) and continue telemetry-driven tuning using **Listening Metrics** (`fired` vs suppression outcomes, **Trigger** boundary rate vs fallback timer, provider success vs **error** counts). Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators. *(Repeated at document end for readers who scroll the PR table first.)*
+Pick up **R3** (optional **bounded percentile nudges** to calibration inputs, behind feature flag) or **R7** (link boundary events to post-recognition outcomes + Listening Metrics aggregates), depending on whether you prioritise tuning inputs vs richer telemetry feedback loops. Continue telemetry-driven tuning using **Listening Metrics** (`fired` vs suppression outcomes, **Trigger** boundary rate vs fallback timer, provider success vs **error** counts). Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators.
 
 ---
 
@@ -345,14 +347,14 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 | R1 | `boundary_events` (or equivalent) + linkage ids for backfill; no trigger behavior change | Low | **Done** (on `main`) |
 | R1b | (same milestone) Expose aggregates on **Listening Metrics** (API + `history.js`) — even a minimal “boundary events logged / period” card | Low | **Done** |
 | R1c | Coalesce redundant **silence→audio** in early segment of known track — **aborted** (too aggressive); retry behind flag / per-track hint; legacy DB rows + UI label (see status) | Low | **Aborted** |
+| R2 | Backfill **`format_resolved`** / **`format_resolved_at`** on **`boundary_events`** when the user saves Vinyl/CD/Unknown for a library row (`LibraryDB.update`; async bulk-edit queue remains future-only per plan notes) | Low | **Done** (`feat/recognition-enhancement-plan`) |
+| R2b | **Calibration floor clamp** in `loadBoundaryCalibrationModel`: profile-derived enter/exit never below global `fallbackSilenceThreshold`; hysteresis preserved | Low | **Done** (`feat/recognition-enhancement-plan`) |
+| R2c | **Minimum off→on gap** ε for profile-derived thresholds; tiny-gap profiles fall back to global thresholds; load-time log | Low | **Done** (`feat/recognition-enhancement-plan`) |
 
 ### Active backlog
 
 | PR | Depends on / prerequisite | Scope | Risk | Status |
 |----|---------------------------|--------|------|--------|
-| R2 | — | Backfill **`format_resolved`** on **`boundary_events`** when the user saves Vinyl/CD/Unknown for a library row (`LibraryDB.update` → chunked policy optional for future bulk editors); docs + tests | Low | **Done** (single-row save path; async bulk notes remain in plan body) |
-| R2b | — | **Calibration floor clamp:** after computing profile-derived `enter` / `exit` in `loadBoundaryCalibrationModel`, ensure neither falls **below** `fallbackSilenceThreshold` (**`advanced.vu_silence_threshold`** passed from the VU monitor). Preserve hysteresis (**exit > enter**) after clamping (re-order if needed). Mitigates corrupted profiles driving silence thresholds under idle hum while global is intentionally high | Low | **Done** |
-| R2c | — | **Calibration profile validation:** reject or warn when `on_avg - off_avg < ε` (product-tuned ε, e.g. ~0.002) or when profiles are otherwise **non-discriminative**; optionally surface in web UI on save and/or log at load time. Does not replace **`on <= off`** branch (already skips derivation); catches **tiny positive gaps** that hug noise. Complements **R3** — nudges assume usable base profiles | Low | **Done** |
 | R3 | — | Optional percentile-based nudges to calibration inputs (bounded). **Does not fix** garbage-in profiles by itself — prefer **R2c** hygiene and **R2b** floor | Low–medium | Pending |
 | R4 | — | `LocalLibraryRecognizer` + config flag + tests | Medium | Pending |
 | R4b | **R4** | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts; optional **ACR error class** breakdown (timeout vs rate limit vs DNS) for operator health | Low–medium | Pending |
@@ -379,4 +381,4 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 
 ## Immediate next step
 
-See **[Priority (concrete next work)](#priority-concrete-next-work)** at the top of this document.
+See **[Priority (concrete next work)](#priority-concrete-next-work)** — next scheduled milestone: **R3** or **R7** (not R2 trilogy; **R2 / R2b / R2c** are archived as **Done** above).
