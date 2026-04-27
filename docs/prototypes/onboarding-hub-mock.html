@@ -82,6 +82,16 @@
       font-size: 2rem;
       line-height: 1;
       opacity: 0.9;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      color: var(--text);
+    }
+    .card .icon svg {
+      width: 2rem;
+      height: 2rem;
+      display: block;
+      flex-shrink: 0;
     }
     .card h2 { margin: 0; font-size: 0.95rem; font-weight: 600; }
     .card .status { font-size: 0.78rem; color: var(--muted); flex: 1; }
@@ -377,9 +387,27 @@
     </section>
   </main>
   <script>
+    /**
+     * Physical media hub icon — same markup as SOURCE_ICONS.Vinyl in
+     * cmd/oceano-web/static/icons.js (stroke/fill use currentColor).
+     */
+    const ICON_PHYSICAL_MEDIA =
+      '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">' +
+      '<g class="vinyl-disc">' +
+      '<circle cx="16" cy="16" r="13" stroke="currentColor" stroke-width="1.5"/>' +
+      '<circle cx="16" cy="16" r="9.5" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>' +
+      '<circle cx="16" cy="16" r="6" stroke="currentColor" stroke-width="0.8" opacity="0.35"/>' +
+      '<circle cx="16" cy="16" r="2.5" fill="currentColor" opacity="0.6"/>' +
+      '<path d="M16 3 A13 13 0 0 1 24.2 5.8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity="0.55"/>' +
+      '</g>' +
+      '<path d="M23 6 L28 11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>' +
+      '<path d="M28 11 L22.3 16.7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>' +
+      '<circle cx="22.1" cy="16.9" r="1.1" fill="currentColor" opacity="0.95"/>' +
+      '</svg>';
+
     const hubPresets = {
       fresh: [
-        { icon: "\u{1F4BF}", title: "Physical media", status: "warn", text: "Capture: not verified — ACRCloud: missing (stylus CTA hidden until vinyl topology)", dest: "/recognition.html — capture, ACRCloud, mic gain" },
+        { icon: ICON_PHYSICAL_MEDIA, title: "Physical media", status: "warn", text: "Capture: not verified — ACRCloud: missing (stylus CTA hidden until vinyl topology)", dest: "/recognition.html — capture, ACRCloud, mic gain" },
         { icon: "\u{1F50A}", title: "Streaming basics", status: "", text: "AirPlay / Bluetooth — optional after core path", dest: "index.html drawer — Streaming Sources" },
         { icon: "\u{1F39B}", title: "Amplifier & IR", status: "warn", text: "Not configured", dest: "/amplifier.html or amplifier wizard" },
         { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "warn", text: "Open for chain, mic gain, calibration wizard", dest: "/recognition.html" },
@@ -387,7 +415,7 @@
         { icon: "\u{2699}", title: "Advanced", status: "", text: "Sockets, paths, library DB", dest: "/advanced.html" },
       ],
       partial: [
-        { icon: "\u{1F4BF}", title: "Physical media", status: "warn", text: "Capture OK — ACRCloud: set — Stylus: not configured (~vinyl on Phono)", dest: "/recognition.html + amplifier.html (stylus)" },
+        { icon: ICON_PHYSICAL_MEDIA, title: "Physical media", status: "warn", text: "Capture OK — ACRCloud: set — Stylus: not configured (~vinyl on Phono)", dest: "/recognition.html + amplifier.html (stylus)" },
         { icon: "\u{1F50A}", title: "Streaming basics", status: "ok", text: "AirPlay name set", dest: "index.html drawer — Streaming" },
         { icon: "\u{1F39B}", title: "Amplifier & IR", status: "warn", text: "Broadlink OK — IR 3 / 8 learned", dest: "/amplifier.html" },
         { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "warn", text: "Calibration: Phono incomplete", dest: "/recognition.html — Calibration" },
@@ -395,7 +423,7 @@
         { icon: "\u{2699}", title: "Advanced", status: "", text: "Paths unchanged", dest: "/advanced.html" },
       ],
       healthy: [
-        { icon: "\u{1F4BF}", title: "Physical media", status: "ok", text: "Capture OK — recognition active — Stylus ~12h / 500h rated", dest: "/recognition.html · Metrics · amplifier (stylus)" },
+        { icon: ICON_PHYSICAL_MEDIA, title: "Physical media", status: "ok", text: "Capture OK — recognition active — Stylus ~12h / 500h rated", dest: "/recognition.html · Metrics · amplifier (stylus)" },
         { icon: "\u{1F50A}", title: "Streaming basics", status: "ok", text: "AirPlay + BT ready", dest: "index.html drawer" },
         { icon: "\u{1F39B}", title: "Amplifier & IR", status: "ok", text: "Paired — IR complete", dest: "/amplifier.html" },
         { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "ok", text: "Calibrated inputs: Phono, CD", dest: "/recognition.html" },
