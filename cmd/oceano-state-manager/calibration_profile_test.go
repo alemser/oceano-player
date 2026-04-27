@@ -1,10 +1,15 @@
 package main
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func approxEq32(a, b float32) bool {
+	return math.Abs(float64(a-b)) < 1e-5
+}
 
 func TestLoadBoundaryCalibrationModel_UsesLastKnownInputProfile(t *testing.T) {
 	dir := t.TempDir()
@@ -209,13 +214,6 @@ func TestLoadBoundaryCalibrationModel_ClampsDerivedThresholdsToGlobalFloor(t *te
 	}
 }
 
-func TestClampSilenceThresholdsToFloor_NoOpWhenDerivedAboveFloor(t *testing.T) {
-	e, x := clampSilenceThresholdsToFloor(0.015, 0.016, 0.0095)
-	if e != 0.015 || x != 0.016 {
-		t.Fatalf("unexpected clamp: enter=%f exit=%f", e, x)
-	}
-}
-
 func TestLoadBoundaryCalibrationModel_SkipsDerivedThresholdsWhenOffOnGapTooSmall(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
@@ -244,8 +242,98 @@ func TestLoadBoundaryCalibrationModel_SkipsDerivedThresholdsWhenOffOnGapTooSmall
 	if model.enterSilenceThreshold != fallback {
 		t.Fatalf("enter=%f want %f (profile-derived skipped)", model.enterSilenceThreshold, fallback)
 	}
-	const minHysteresisGap float32 = 0.0005
-	if model.exitSilenceThreshold != fallback+minHysteresisGap {
-		t.Fatalf("exit=%f want %f after hysteresis preserve", model.exitSilenceThreshold, fallback+minHysteresisGap)
+	if model.exitSilenceThreshold != fallback+minSilenceThresholdHysteresisGap {
+		t.Fatalf("exit=%f want %f after hysteresis preserve", model.exitSilenceThreshold, fallback+minSilenceThresholdHysteresisGap)
+	}
+}
+
+func TestDeriveVUThresholdsFromCalibratedOffOn_EpsilonBoundary(t *testing.T) {
+	t.Run("gap_below_epsilon_not_derived", func(t *testing.T) {
+		_, _, gap, derived := deriveVUThresholdsFromCalibratedOffOn(0.010, 0.011)
+		if derived || !approxEq32(gap, 0.001) {
+			t.Fatalf("want gap≈0.001 derived=false, got gap=%f derived=%v", gap, derived)
+		}
+	})
+	t.Run("gap_equal_epsilon_derived", func(t *testing.T) {
+		enter, exit, gap, derived := deriveVUThresholdsFromCalibratedOffOn(0.010, 0.012)
+		if !derived || !approxEq32(gap, minCalibrationOffOnGap) {
+			t.Fatalf("want derived at gap≈epsilon, got gap=%f derived=%v", gap, derived)
+		}
+		if exit <= enter {
+			t.Fatalf("exit=%f must exceed enter=%f", exit, enter)
+		}
+	})
+	t.Run("invalid_pair", func(t *testing.T) {
+		_, _, _, derived := deriveVUThresholdsFromCalibratedOffOn(0.02, 0.01)
+		if derived {
+			t.Fatal("want derived=false when on<=off")
+		}
+	})
+}
+
+func TestClampSilenceThresholdsToFloor_Table(t *testing.T) {
+	tests := []struct {
+		name        string
+		enter, exit float32
+		floor       float32
+		wantEnter   float32
+		wantExit    float32
+	}{
+		{
+			name: "both_above_floor_unchanged", enter: 0.015, exit: 0.016, floor: 0.0095,
+			wantEnter: 0.015, wantExit: 0.016,
+		},
+		{
+			name: "floor_zero_no_change", enter: 0.01, exit: 0.02, floor: 0,
+			wantEnter: 0.01, wantExit: 0.02,
+		},
+		{
+			name: "both_below_floor", enter: 0.01, exit: 0.011, floor: 0.02,
+			wantEnter: 0.02, wantExit: 0.0205,
+		},
+		{
+			name: "equal_after_floor_need_hysteresis", enter: 0.015, exit: 0.015, floor: 0.02,
+			wantEnter: 0.02, wantExit: 0.0205,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotE, gotX := clampSilenceThresholdsToFloor(tt.enter, tt.exit, tt.floor)
+			if !approxEq32(gotE, tt.wantEnter) || !approxEq32(gotX, tt.wantExit) {
+				t.Fatalf("clamp(%f,%f,%f) = (%f,%f), want (%f,%f)",
+					tt.enter, tt.exit, tt.floor, gotE, gotX, tt.wantEnter, tt.wantExit)
+			}
+		})
+	}
+}
+
+func TestLoadBoundaryCalibrationModel_GapEqualEpsilonUsesDerivedThresholds(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	json := `{
+	  "advanced": {
+	    "calibration_profiles": {
+	      "20": {
+	        "off": {"avg_rms": 0.0100},
+	        "on": {"avg_rms": 0.0120}
+	      }
+	    }
+	  },
+	  "amplifier_runtime": {
+	    "last_known_input_id": "20"
+	  }
+	}`
+	if err := os.WriteFile(cfgPath, []byte(json), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	wantEnter, wantExit, _, derived := deriveVUThresholdsFromCalibratedOffOn(0.010, 0.012)
+	if !derived {
+		t.Fatal("fixture must derive")
+	}
+	model := loadBoundaryCalibrationModel(cfgPath, 0.0095, "")
+	if !approxEq32(model.enterSilenceThreshold, wantEnter) || !approxEq32(model.exitSilenceThreshold, wantExit) {
+		t.Fatalf("enter=%f exit=%f want enter=%f exit=%f",
+			model.enterSilenceThreshold, model.exitSilenceThreshold, wantEnter, wantExit)
 	}
 }

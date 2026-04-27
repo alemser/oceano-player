@@ -14,6 +14,12 @@ import (
 // as invalid for profile-derived VU silence thresholds (R2c).
 const minCalibrationOffOnGap = float32(0.002)
 
+// minSilenceThresholdHysteresisGap separates enter vs exit after floor clamp or
+// when raw derived exit would equal enter (must match clamp behavior).
+const minSilenceThresholdHysteresisGap = float32(0.0005)
+
+const minDerivedEnterSilenceRMS = float32(0.001)
+
 type calibrationProfileSample struct {
 	AvgRMS float64 `json:"avg_rms"`
 }
@@ -90,23 +96,14 @@ func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32,
 	if profile.Off != nil && profile.On != nil {
 		off := float32(profile.Off.AvgRMS)
 		on := float32(profile.On.AvgRMS)
-		if on > off && off > 0 {
-			gap := on - off
-			if gap < minCalibrationOffOnGap {
-				log.Printf("calibration profile %s: off→on gap %.6f below minimum %.6f; using global VU silence thresholds",
-					model.profileID, gap, minCalibrationOffOnGap)
-			} else {
-				enter := off + gap*0.35
-				exit := off + gap*0.55
-				if enter < 0.001 {
-					enter = 0.001
-				}
-				if exit <= enter {
-					exit = enter + 0.0005
-				}
-				model.enterSilenceThreshold = enter
-				model.exitSilenceThreshold = exit
-			}
+		enter, exit, gap, derived := deriveVUThresholdsFromCalibratedOffOn(off, on)
+		switch {
+		case derived:
+			model.enterSilenceThreshold = enter
+			model.exitSilenceThreshold = exit
+		case on > off && off > 0 && gap < minCalibrationOffOnGap:
+			log.Printf("calibration profile %s: off→on gap %.6f below minimum %.6f; using global VU silence thresholds",
+				model.profileID, gap, minCalibrationOffOnGap)
 		}
 	}
 
@@ -137,6 +134,28 @@ func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32,
 	return model
 }
 
+// deriveVUThresholdsFromCalibratedOffOn maps calibrated off/on RMS samples to VU
+// silence enter/exit. Returns derived=false when the pair is unusable (invalid
+// ordering) or when the gap is below minCalibrationOffOnGap (R2c).
+func deriveVUThresholdsFromCalibratedOffOn(off, on float32) (enter, exit, gap float32, derived bool) {
+	if !(on > off && off > 0) {
+		return 0, 0, 0, false
+	}
+	gap = on - off
+	if gap < minCalibrationOffOnGap {
+		return 0, 0, gap, false
+	}
+	enter = off + gap*0.35
+	exit = off + gap*0.55
+	if enter < minDerivedEnterSilenceRMS {
+		enter = minDerivedEnterSilenceRMS
+	}
+	if exit <= enter {
+		exit = enter + minSilenceThresholdHysteresisGap
+	}
+	return enter, exit, gap, true
+}
+
 // clampSilenceThresholdsToFloor ensures profile-derived VU silence enter/exit never
 // sit below advanced.vu_silence_threshold (the fallback passed from the VU monitor).
 // Preserves exit > enter after clamping.
@@ -150,9 +169,8 @@ func clampSilenceThresholdsToFloor(enter, exit, floor float32) (float32, float32
 	if exit < floor {
 		exit = floor
 	}
-	const minHysteresisGap = 0.0005
 	if exit <= enter {
-		exit = enter + minHysteresisGap
+		exit = enter + minSilenceThresholdHysteresisGap
 	}
 	return enter, exit
 }
