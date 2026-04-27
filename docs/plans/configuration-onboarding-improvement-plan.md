@@ -179,6 +179,10 @@ When the user defines a **connected device** (name + amplifier input IDs), they 
 
 **Calibration wizard behaviour:** calibratable inputs = union of input IDs on `physical_media` devices, plus manual “always calibrate”. **Vinyl gap** sub-step only when **`physical_format === vinyl`** (or product-approved equivalent).
 
+**Off/On wizard limitations (CD and some line paths):** The wizard assumes two measurably different RMS levels (“off” vs “on” / programme). On many **CD** setups the REC OUT path shows **similar idle hum** whether transport is idle or outputs are muted — there is **no usable differential**, so wizard-derived thresholds may be noise or collapse to meaningless gaps. Copy should **not promise** universal Off/On calibration; steer users toward (a) a conservative **`advanced.vu_silence_threshold`** above idle hum on REC, (b) re-running wizard only when contrast is audible, and (c) the statistical / shadow path in **`recognition-enhancement-plan.md`** (Phase **1B**, **R10**) rather than insisting on per-input profiles for CD-only rigs.
+
+**Systemd / config drift:** Saving from the web UI regenerates **`oceano-state-manager`** with **`--vu-silence-threshold`** from JSON. Older unit files generated before that flag existed leave the binary on **compiled defaults**, so operational docs and support should remind: after changing VU threshold, **Save & Restart** (or verify `ExecStart` contains the flag).
+
 **Stylus onboarding gating:** show **“Configure stylus tracking”** in the **first-run checklist**, **hub Physical media card**, and optionally a **wizard sub-step** when **`physical_format === vinyl`** *or* when the device is mapped to a **Phono** input and the user has confirmed vinyl — not for CD-only or `unspecified` unless the user opts in.
 
 **State manager / recognition:** roles and `physical_format` are primarily **UX and scoping**; backend continues to use **source**, **format**, and **input ID**–keyed calibration. Align config with what **`/api/stylus`** and session logic already expect for **Vinyl** play time.

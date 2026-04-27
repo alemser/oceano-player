@@ -300,6 +300,14 @@ The idea is to **keep the current mechanism as production** while, in the backgr
 
 5. **Auditability** — Log **when** the system changed thresholds, **from → to**, and **which metric** triggered promotion; surface a one-line event on Listening Metrics so operators trust the feature.
 
+### UX / product principles (first ship and beyond)
+
+These complement items 3–5 above; they were discussed as operator-trust requirements and should stay **normative** when implementing R10:
+
+- **Suggest-first** — Ship **recommendation + explicit “Apply” / “Dismiss”** before any silent auto-apply. Full background promotion remains gated on **`auto_calibration_enabled`** (or equivalent) and user expectation.
+- **Legible feedback** — Prefer short **outcome-oriented** copy on Listening Metrics (e.g. “fewer wasted recognition attempts this week vs last” when metrics support it) alongside technical detail for power users; avoid **only** raw percentiles as the sole surface.
+- **Reversibility** — Provide a **clear rollback**: restore **previous saved calibration** (snapshot before apply) or fall back to **Policy B / documented defaults**, without requiring SSH. Users who experiment should not feel locked in.
+
 ### Opinion (worth adding?)
 
 **Yes, it belongs in this plan** as a **late** milestone: it **reuses** the telemetry and cohort story from **Phase 1A / 1B** and fits the principle **telemetry before policy changes**. It must **not** ship before (a) **stable metrics**, (b) **shadow-only** soak, and (c) **opt-out** — otherwise a noisy evening could rewrite calibration silently.
@@ -311,6 +319,16 @@ The idea is to **keep the current mechanism as production** while, in the backgr
 - **CPU / SD** — batch analysis should be **bounded** (time-box, row limit) and respect **Pi-first resource budget** (see Design principles). **Reads** of large `boundary_events` windows every 4h add **read** traffic on microSD — align with [Operational persistence](#operational-persistence--sqlite-sd-wear-and-telemetry-volume) and size limits.
 
 **Policy B (concrete):** ship as **versioned constants** in code (e.g. `internal/.../calibration_reference_v1.go` or documented defaults table in **README / this doc**) — values are the **factory defaults** for `advanced.vu_silence_threshold` and **no per-input** `calibration_profiles` entries. Bump a **`reference_policy_version`** field whenever those constants change so shadow comparisons remain reproducible.
+
+### Interaction today: global VU threshold vs calibration profiles
+
+The state manager builds VU silence enter/exit from **`loadBoundaryCalibrationModel`** (`cmd/oceano-state-manager/calibration_profile.go`): when Off/On samples yield a positive gap, **profile-derived thresholds replace** the detector defaults seeded from **`advanced.vu_silence_threshold`** — there is **no clamp** enforcing “never below global”. A profile with enter/exit **below** idle REC hum therefore **overrides** a carefully set global threshold until the profile is corrected or removed. **R10** shadow comparison should treat this as first-class when comparing Policy **A** vs **B**.
+
+**Operational gap vs long-term roadmap:** Shadow evaluation (R10) and percentile nudges (R3) assume **meaningful inputs** and time to ship; they do **not** stop a bad JSON profile from breaking boundaries **today**. **R2b** / **R2c** below are deliberate **small, low-risk** guards (floor clamp + profile validation); implement before or independent of **R3**.
+
+### VU reconnect (implemented behaviour)
+
+After each **new connection** to the VU Unix socket, the monitor **suppresses the first `silence→audio` boundary only** (`source_vu_monitor.go`) — separate from calibration. It reduces false triggers after stream/detector restarts (`unexpected EOF`) but **does not** replace threshold tuning when hum ramps **above** the effective silence threshold on a **single** stable connection.
 
 ### Suggested PR row
 
@@ -333,7 +351,9 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 | PR | Depends on / prerequisite | Scope | Risk | Status |
 |----|---------------------------|--------|------|--------|
 | R2 | — | Backfill job when user updates Vinyl/CD classification; docs + tests | Low | Pending |
-| R3 | — | Optional percentile-based nudges to calibration inputs (bounded) | Low–medium | Pending |
+| R2b | — | **Calibration floor clamp:** after computing profile-derived `enter` / `exit` in `loadBoundaryCalibrationModel`, ensure neither falls **below** `fallbackSilenceThreshold` (**`advanced.vu_silence_threshold`** passed from the VU monitor). Preserve hysteresis (**exit > enter**) after clamping (re-order if needed). Mitigates corrupted profiles driving silence thresholds under idle hum while global is intentionally high | Low | Pending |
+| R2c | — | **Calibration profile validation:** reject or warn when `on_avg - off_avg < ε` (product-tuned ε, e.g. ~0.002) or when profiles are otherwise **non-discriminative**; optionally surface in web UI on save and/or log at load time. Does not replace **`on <= off`** branch (already skips derivation); catches **tiny positive gaps** that hug noise. Complements **R3** — nudges assume usable base profiles | Low | Pending |
+| R3 | — | Optional percentile-based nudges to calibration inputs (bounded). **Does not fix** garbage-in profiles by itself — prefer **R2c** hygiene and **R2b** floor | Low–medium | Pending |
 | R4 | — | `LocalLibraryRecognizer` + config flag + tests | Medium | Pending |
 | R4b | **R4** | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts; optional **ACR error class** breakdown (timeout vs rate limit vs DNS) for operator health | Low–medium | Pending |
 | R5 | — | Post-match fingerprint persistence + local lookup; **cloud re-verify** policy (TTL, 1-in-N plays, or low local score → cloud) bundled with cache | Medium | Pending |
