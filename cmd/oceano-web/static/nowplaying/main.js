@@ -412,27 +412,109 @@ connect();
 // Load ambient colour setting from config.
 loadAmbientConfig();
 
-// ─── Amplifier power state indicator ────────────────────────────────────────
-// Single indicator that appears above all screens. Z-index ensures visibility.
+// ─── Amplifier line (read-only chip) ───────────────────────────────────────────
+// Matches index.amplifier.js renderAmpInputSelect: when a connected device names
+// a single input, that device name replaces the logical input (e.g. Phono) label.
+
+/**
+ * @param {{ id?: string, logical_name?: string, visible?: boolean }|null|undefined} input
+ * @param {Array<{ name?: string, input_ids?: string[] }>} connectedDevices
+ * @returns {string}
+ */
+function resolveAmpInputDropdownLabel(input, connectedDevices) {
+  if (!input || !input.id) return '';
+  const inputId = String(input.id);
+  const inputToDevice = new Map();
+  (connectedDevices || []).forEach((dev) => {
+    const name = String(dev?.name || '').trim();
+    if (!name) return;
+    (dev.input_ids || []).forEach((id) => {
+      inputToDevice.set(String(id), name);
+    });
+  });
+  const devName = inputToDevice.get(inputId);
+  if (devName) {
+    const dev = (connectedDevices || []).find((d) =>
+      (d.input_ids || []).map(String).includes(inputId)
+    );
+    const multiInput = !!(dev && (dev.input_ids || []).length > 1);
+    const logical = String(input.logical_name || '').trim();
+    return multiInput ? `${devName} — ${logical || 'Input'}` : devName;
+  }
+  return String(input.logical_name || '').trim() || inputId;
+}
+
+/**
+ * @param {Array<{ id?: string, logical_name?: string, visible?: boolean }>} inputs
+ * @param {string} lastKnownId
+ */
+function pickAmplifierInputForLine(inputs, lastKnownId) {
+  const list = (inputs || []).filter((it) => it && it.id && it.visible);
+  if (!list.length) return null;
+  const id = String(lastKnownId || '').trim();
+  if (id) {
+    const found = list.find((it) => String(it.id) === id);
+    if (found) return found;
+  }
+  return list[0];
+}
 
 async function loadAmpPowerState() {
+  const el = document.getElementById('amp-indicator');
+  const labelEl = document.getElementById('amp-label');
+  const sepEl = document.getElementById('amp-indicator-sep');
+  const inputLineEl = document.getElementById('amp-input-line');
+  if (!el || !labelEl) return;
+
+  let cfg = null;
+  try {
+    const rc = await fetch('/api/config', { cache: 'no-store' });
+    if (rc.ok) cfg = await rc.json();
+  } catch { /* ignore — still show amp name from state */ }
+
   try {
     const r = await fetch('/api/amplifier/state');
-    if (!r.ok) return; // 404 → amp not configured; keep indicator hidden
+    if (!r.ok) {
+      el.style.display = 'none';
+      return;
+    }
     const s = await r.json();
     const maker = String(s.maker || '').trim();
     const model = String(s.model || '').trim();
     const ampName = [maker, model].filter(Boolean).join(' ') || 'Amplifier';
 
-    const el = document.getElementById('amp-indicator');
-    const labelEl = document.getElementById('amp-label');
-    if (!el) return;
-
     el.style.display = 'flex';
-    if (labelEl) labelEl.textContent = ampName;
-    el.title = ampName;
-    el.setAttribute('aria-label', ampName);
-  } catch { /* network error or amp not available — leave indicator hidden */ }
+    labelEl.textContent = ampName;
+
+    const ps = String(s.power_state || '').toLowerCase();
+    el.classList.toggle('ps-on', ps === 'on' || ps === 'warming_up');
+    el.classList.toggle('ps-off', ps === 'off' || ps === 'standby');
+
+    const amp = cfg?.amplifier;
+    const inputs = Array.isArray(amp?.inputs) ? amp.inputs : [];
+    const connected = Array.isArray(amp?.connected_devices) ? amp.connected_devices : [];
+    const lastId = String(cfg?.amplifier_runtime?.last_known_input_id ?? '').trim();
+    const input = pickAmplifierInputForLine(inputs, lastId);
+    const second = input ? resolveAmpInputDropdownLabel(input, connected) : '';
+
+    if (sepEl && inputLineEl) {
+      if (second) {
+        sepEl.style.display = '';
+        inputLineEl.style.display = '';
+        inputLineEl.textContent = second;
+      } else {
+        sepEl.style.display = 'none';
+        inputLineEl.style.display = 'none';
+        inputLineEl.textContent = '';
+      }
+    }
+
+    const fullTitle = second ? `${ampName} · ${second}` : ampName;
+    el.title = fullTitle;
+    el.setAttribute('aria-label', fullTitle);
+  } catch {
+    el.style.display = 'none';
+  }
 }
 
 loadAmpPowerState();

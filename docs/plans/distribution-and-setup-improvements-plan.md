@@ -1,6 +1,8 @@
 # Distribution and first-time setup — improvement plan
 
-This document assesses how easy it is to distribute Oceano Player today, identifies gaps (especially microphone capture calibration and HDMI/DSI kiosk setup), and proposes a phased plan to make installs predictable for end users.
+This document assesses how easy it is to distribute Oceano Player today, identifies gaps (especially microphone capture calibration and **HDMI** kiosk setup), and proposes a phased plan to make installs predictable for end users.
+
+**Display note:** installers and DRM checks may still mention **DSI** or **DP** connectors; **this plan** treats the **HDMI-attached** kiosk path as the validated reference. Extend the plan to DSI after hardware testing.
 
 ---
 
@@ -41,15 +43,15 @@ Recognition and `Physical` vs `None` detection depend on:
 
 Today this is **documented** in README (manual `journalctl` + `amixer` + `alsactl store`) but **not guided** in `oceano-setup` or a dedicated tool. Users must discover troubleshooting docs after failures.
 
-### Screen (HDMI/DSI kiosk)
+### Screen (HDMI kiosk)
 
-Two different approaches exist in the repo:
+Two different approaches exist in the repo. **Scope here:** behaviour and smoke tests are framed around **HDMI**; DSI is not assumed equivalent until tested.
 
 | Aspect | `install-oceano-display.sh` | `oceano-setup` → `configureDisplay()` |
 |--------|-----------------------------|----------------------------------------|
 | Stack | Installs Xorg-related packages, Chromium detection, **Xvfb**-based launch script, optional LightDM autologin / xsession | Writes minimal `oceano-display-check`, `oceano-display-launch`, systemd unit; tries `apt-get install chromium-browser` |
 | Chromium flags / URL | Richer flags (`--app=`, window size, hide cursor, etc.) | Simpler `--kiosk` + URL |
-| Display detection | Filters HDMI/DSI/DP in DRM status loop | Any `connected` DRM connector |
+| Display detection | Script filters DRM for HDMI / DSI / DP (implementation detail) | Any `connected` DRM connector |
 | Operational risk | Complex (Xvfb + LightDM + systemd story must stay consistent) | **Running Chromium from a systemd service** often needs a **real user graphical session** or the same Xvfb pattern — current Go path may **fail silently** or behave differently than the bash installer |
 
 This **duplication and drift** is a likely reason a previous attempt “did not work well”: users may follow `postinst` → non-existent script, or `oceano-setup` → incomplete display stack vs `install-oceano-display.sh`.
