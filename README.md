@@ -158,6 +158,8 @@ On a **fresh install**, expect **low or zero counts** for the first hours or day
 
 When you correct a library entry’s format (**Vinyl**, **CD**, or **Unknown**), existing **boundary telemetry** rows linked to that entry receive **`format_resolved`** / **`format_resolved_at`** so aggregates can favour the corrected label without rewriting historical **`format_at_event`** values.
 
+After each **fired** boundary, the state manager records **post-recognition follow-up** columns on the same row (outcome, optional IDs, **early-boundary** cohort flag). **Listening Metrics** shows linked counts under the boundary summary when data exists.
+
 ---
 
 ## Update

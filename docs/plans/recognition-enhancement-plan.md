@@ -6,9 +6,11 @@ This document extends the earlier discussion into a concrete, incremental roadma
 
 **R2 + R2b + R2c** are **Done** on branch **`feat/recognition-enhancement-plan`** (merge to `main` when ready): library **`format_resolved`** backfill on save; calibration **floor clamp** + **minimum off→on gap** + load-time log in `loadBoundaryCalibrationModel`.
 
+**R7** (**boundary ↔ recognition follow-up** + **early-boundary** cohort flag + Listening Metrics aggregates) is **Done** on **`feat/recognition-enhancement-plan`** — see `boundary_events.followup_*`, **`GET /api/recognition/boundary-stats`**, `history.js`.
+
 ### Priority (concrete next work)
 
-Pick up **R3** (optional **bounded percentile nudges** to calibration inputs, behind feature flag) or **R7** (link boundary events to post-recognition outcomes + Listening Metrics aggregates), depending on whether you prioritise tuning inputs vs richer telemetry feedback loops. Continue telemetry-driven tuning using **Listening Metrics** (`fired` vs suppression outcomes, **Trigger** boundary rate vs fallback timer, provider success vs **error** counts). Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators.
+Pick up **R3** (optional bounded percentile **nudges** to calibration inputs, behind feature flag) — inputs are now grounded by **R7** linkage + **R2/R2c** hygiene — or **R8** (library *Boundary-sensitive* hint). Continue telemetry-driven tuning using **Listening Metrics**. Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators.
 
 ---
 
@@ -350,6 +352,7 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 | R2 | Backfill **`format_resolved`** / **`format_resolved_at`** on **`boundary_events`** when the user saves Vinyl/CD/Unknown for a library row (`LibraryDB.update`; async bulk-edit queue remains future-only per plan notes) | Low | **Done** (`feat/recognition-enhancement-plan`) |
 | R2b | **Calibration floor clamp** in `loadBoundaryCalibrationModel`: profile-derived enter/exit never below global `fallbackSilenceThreshold`; hysteresis preserved | Low | **Done** (`feat/recognition-enhancement-plan`) |
 | R2c | **Minimum off→on gap** ε for profile-derived thresholds; tiny-gap profiles fall back to global thresholds; load-time log | Low | **Done** (`feat/recognition-enhancement-plan`) |
+| R7 | Link **`boundary_events`** to post-recognition outcomes (`followup_*`, `early_boundary`); VU path inserts fired row **before** enqueueing recognition so rows carry stable ids; coordinator writes outcomes (matched / no_match / errors / skipped / same-track restored); Metrics API + **Listening Metrics** UI | Medium | **Done** (`feat/recognition-enhancement-plan`) |
 
 ### Active backlog
 
@@ -361,10 +364,9 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 | R5 | — | Post-match fingerprint persistence + local lookup; **cloud re-verify** policy (TTL, 1-in-N plays, or low local score → cloud) bundled with cache | Medium | Pending |
 | R6 | — | Offline-trained classifier for boundary confidence (optional) | Medium–high | Pending |
 | R6b | **R6** | If R6 ships: model health / confidence distribution on metrics page (optional chart or percentile text) | Medium | Pending |
-| R7 | — | Link boundary events to post-recognition outcomes + **early-boundary** aggregates (conservative rules + Listening Metrics) | Medium | Pending |
 | R8 | — | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium | Pending |
 | R9 | **Pre-R9 investigation** documented in this file (Shazam `matches[]` cardinality — see **Low-confidence UX** + pre-backlog gate above). **Not** blocked on R4/R5 | **Low-confidence UX:** parse ACRCloud `metadata.music[1..]` (and Shazam multi-match **if** investigation showed it is feasible) → optional `recognition_alternatives` in state + threshold config; **now playing carousel** + API to **apply user-selected candidate** (library/history integration) | Medium | Pending |
-| R10 | **R7** stable metrics + Policy B frozen | **Shadow calibration evaluation:** periodic job compares active calibration vs **reference** defaults on recent telemetry; gated **promotion** to auto-tuned thresholds (or suggest-only); **`auto_calibration_enabled`** off by default; audit log + metrics UI | High | **Research** — do not implement before R7 + metric definitions are stable (detail below may go stale) |
+| R10 | **R7** soaked on real collections + Policy B frozen | **Shadow calibration evaluation:** periodic job compares active calibration vs **reference** defaults on recent telemetry; gated **promotion** to auto-tuned thresholds (or suggest-only); **`auto_calibration_enabled`** off by default; audit log + metrics UI | High | **Research** — do not implement before follow-up metrics are stable in production (detail below may go stale) |
 
 ---
 
@@ -381,4 +383,4 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 
 ## Immediate next step
 
-See **[Priority (concrete next work)](#priority-concrete-next-work)** — next scheduled milestone: **R3** or **R7** (not R2 trilogy; **R2 / R2b / R2c** are archived as **Done** above).
+See **[Priority (concrete next work)](#priority-concrete-next-work)** — next suggested milestone: **R3** or **R8** (**R2** trilogy + **R7** are archived as **Done** above).

@@ -457,6 +457,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 	defer fallbackTimer.Stop()
 
 	for {
+		var boundaryEventID int64
 		isBoundaryTrigger := false
 		isHardBoundaryTrigger := false
 		var boundaryDetectedAt time.Time
@@ -472,6 +473,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			isBoundaryTrigger = trig.isBoundary
 			isHardBoundaryTrigger = trig.isHardBoundary
 			boundaryDetectedAt = trig.detectedAt
+			boundaryEventID = trig.boundaryEventID
 			if !fallbackTimer.Stop() {
 				select {
 				case <-fallbackTimer.C:
@@ -530,12 +532,18 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 					log.Printf("recognizer [%s]: skipping — Bluetooth is active", c.rec.Name())
 				}
 			}
+			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
+				Outcome: internallibrary.FollowupOutcomeSkippedCoordinator,
+			})
 			continue
 		}
 		if vuInSilence {
 			if c.mgr.cfg.Verbose {
 				log.Printf("recognizer [%s]: skipping — VU in silence", c.rec.Name())
 			}
+			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
+				Outcome: internallibrary.FollowupOutcomeSkippedCoordinator,
+			})
 			continue
 		}
 
@@ -561,6 +569,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		c.mgr.mu.Unlock()
 		if !isPhysicalNow || isAirPlayNow || isBluetoothNow {
 			log.Printf("recognizer [%s]: ABORTING recognition — source changed: isPhysical=%v isAirPlay=%v isBluetooth=%v", c.rec.Name(), isPhysicalNow, isAirPlayNow, isBluetoothNow)
+			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
+				Outcome: internallibrary.FollowupOutcomeSkippedCoordinator,
+			})
 			continue
 		}
 
@@ -618,6 +629,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			log.Printf("recognizer [%s]: capture error: %v", c.rec.Name(), err)
 			backoffUntil = time.Now().Add(errorBackoff)
 			backoffRateLimited = false
+			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
+				Outcome: internallibrary.FollowupOutcomeCaptureError,
+			})
 			continue
 		}
 
@@ -628,9 +642,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		}
 
 		if err != nil {
-			if c.handleRecognitionError(err, &backoffUntil, &backoffRateLimited) {
-				continue
-			}
+			_ = c.handleRecognitionError(err, &backoffUntil, &backoffRateLimited)
+			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
+				Outcome: internallibrary.FollowupOutcomeRecognitionError,
+			})
 			continue
 		}
 
@@ -646,6 +661,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		if !isPhysicalFinal || isAirPlayFinal || isBluetoothFinal {
 			log.Printf("recognizer [%s]: discarding result — source changed during capture/recognition (isPhysical=%v isAirPlay=%v isBluetooth=%v)",
 				c.rec.Name(), isPhysicalFinal, isAirPlayFinal, isBluetoothFinal)
+			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
+				Outcome: internallibrary.FollowupOutcomeDiscarded,
+			})
 			continue
 		}
 
@@ -719,6 +737,11 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 					if shouldMarkDirty {
 						c.mgr.markDirty()
 					}
+					same := false
+					c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
+						Outcome:       internallibrary.FollowupOutcomeSameTrackRestored,
+						NewRecording:  &same,
+					})
 					continue
 				}
 				log.Printf("recognizer [%s]: same track re-confirmed but restore blocked (%s, seek=%ds elapsed=%ds duration=%ds threshold=%ds elapsed_pct=%.1f min=%ds) — applying fresh result (%s — %s)",
@@ -741,6 +764,20 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 
 			c.applyRecognizedResult(result, isBoundaryTrigger, isShazamFallback, shazamMatchedACR, captureStartedAt)
 
+			var collID, phID int64
+			c.mgr.mu.Lock()
+			collID = c.mgr.physicalLibraryEntryID
+			phID = c.mgr.currentPlayHistoryID
+			c.mgr.mu.Unlock()
+			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
+				Outcome:           internallibrary.FollowupOutcomeMatched,
+				PostACRID:         result.ACRID,
+				PostShazamID:      result.ShazamID,
+				PostCollectionID:  collID,
+				PostPlayHistoryID: phID,
+				NewRecording:      recognitionFollowupNewRecording(preBoundaryResult, result),
+			})
+
 			// Detect false-positive boundary: the boundary trigger fired but
 			if c.shazamRec != nil && result.ACRID != "" && !shazamMatchedACR {
 				go c.mgr.tryEnableShazamContinuity(ctx, c.shazamRec, result)
@@ -756,6 +793,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		drained:
 		} else {
 			c.handleNoMatch(isBoundaryTrigger, isHardBoundaryTrigger, &backoffUntil, &backoffRateLimited)
+			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
+				Outcome: internallibrary.FollowupOutcomeNoMatch,
+			})
 			if backoffUntil.IsZero() {
 				continue
 			}

@@ -112,6 +112,15 @@ var migrations = []string{
 		collection_id INTEGER REFERENCES collection(id)
 	)`,
 	`CREATE INDEX IF NOT EXISTS boundary_events_occurred_at_idx ON boundary_events(occurred_at)`,
+	// R7: link boundary_events to post-recognition outcomes + early-boundary cohort flag.
+	`ALTER TABLE boundary_events ADD COLUMN followup_outcome TEXT`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_acrid TEXT`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_shazam_id TEXT`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_collection_id INTEGER`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_play_history_id INTEGER`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_new_recording INTEGER`,
+	`ALTER TABLE boundary_events ADD COLUMN early_boundary INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_recorded_at TEXT`,
 }
 
 var currentSchemaVersion = len(migrations)

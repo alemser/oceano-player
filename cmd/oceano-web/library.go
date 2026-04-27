@@ -102,6 +102,14 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 			collection_id INTEGER
 		)`,
 		`CREATE INDEX IF NOT EXISTS boundary_events_occurred_at_idx ON boundary_events(occurred_at)`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_outcome TEXT`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_acrid TEXT`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_shazam_id TEXT`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_collection_id INTEGER`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_play_history_id INTEGER`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_new_recording INTEGER`,
+		`ALTER TABLE boundary_events ADD COLUMN early_boundary INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_recorded_at TEXT`,
 	}
 	for _, stmt := range ensureCols {
 		if _, err := l.db.Exec(stmt); err != nil {
@@ -151,11 +159,14 @@ func (l *LibraryDB) getRecognitionStats() (map[string]map[string]int, error) {
 
 // boundaryStatsResponse is JSON for GET /api/recognition/boundary-stats.
 type boundaryStatsResponse struct {
-	PeriodDays       int            `json:"period_days"`
-	Total            int            `json:"total"`
-	ByOutcome        map[string]int `json:"by_outcome"`
-	ActionableTotal  int            `json:"actionable_total"`
-	FireRate         float64        `json:"fire_rate"` // fraction of actionable outcomes that fired; -1 if not applicable
+	PeriodDays           int            `json:"period_days"`
+	Total                int            `json:"total"`
+	ByOutcome            map[string]int `json:"by_outcome"`
+	ActionableTotal      int            `json:"actionable_total"`
+	FireRate             float64        `json:"fire_rate"` // fraction of actionable outcomes that fired; -1 if not applicable
+	FollowupTotals       map[string]int `json:"followup_totals,omitempty"`
+	EarlyBoundaryTotal   int            `json:"early_boundary_total"`
+	FollowupLinkedTotal  int            `json:"followup_linked_total"`
 }
 
 func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, error) {
@@ -203,6 +214,53 @@ func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, err
 	if out.ActionableTotal > 0 {
 		out.FireRate = float64(out.ByOutcome["fired"]) / float64(out.ActionableTotal)
 	}
+
+	out.FollowupTotals = make(map[string]int)
+	var fuRows *sql.Rows
+	if days <= 0 {
+		fuRows, err = l.db.Query(`SELECT COALESCE(followup_outcome,''), COUNT(*) FROM boundary_events WHERE followup_outcome IS NOT NULL AND followup_outcome != '' GROUP BY followup_outcome`)
+	} else {
+		cut := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour).Format(time.RFC3339Nano)
+		fuRows, err = l.db.Query(`SELECT COALESCE(followup_outcome,''), COUNT(*) FROM boundary_events WHERE occurred_at >= ? AND followup_outcome IS NOT NULL AND followup_outcome != '' GROUP BY followup_outcome`, cut)
+	}
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such column") {
+			return out, rows.Err()
+		}
+		return nil, err
+	}
+	defer fuRows.Close()
+	for fuRows.Next() {
+		var o string
+		var c int
+		if err := fuRows.Scan(&o, &c); err != nil {
+			return nil, err
+		}
+		out.FollowupTotals[o] = c
+		out.FollowupLinkedTotal += c
+	}
+	if err := fuRows.Err(); err != nil {
+		return nil, err
+	}
+
+	var earlyN int
+	if days <= 0 {
+		err = l.db.QueryRow(`
+			SELECT COUNT(*) FROM boundary_events
+			WHERE IFNULL(early_boundary,0) != 0 AND followup_outcome IS NOT NULL AND followup_outcome != ''`).Scan(&earlyN)
+	} else {
+		cut := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour).Format(time.RFC3339Nano)
+		err = l.db.QueryRow(`
+			SELECT COUNT(*) FROM boundary_events
+			WHERE occurred_at >= ? AND IFNULL(early_boundary,0) != 0 AND followup_outcome IS NOT NULL AND followup_outcome != ''`, cut).Scan(&earlyN)
+	}
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such column") {
+			return out, rows.Err()
+		}
+		return nil, err
+	}
+	out.EarlyBoundaryTotal = earlyN
 	return out, rows.Err()
 }
 

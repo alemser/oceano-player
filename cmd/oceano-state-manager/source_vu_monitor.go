@@ -394,11 +394,30 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		}
 
 		log.Printf("VU monitor: track boundary detected (%s hard=%v) — triggering recognition", reason, isHardBoundary)
+		var evID int64
+		if m.lib != nil {
+			ev := m.buildBoundaryEvent(internallibrary.BoundaryOutcomeFired, reason, isHardBoundary)
+			var err error
+			evID, err = m.lib.RecordBoundaryEvent(ev)
+			if err != nil {
+				log.Printf("boundary telemetry: %v", err)
+				evID = 0
+			}
+		}
 		select {
-		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true, isHardBoundary: isHardBoundary, detectedAt: detectedAt}:
-			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeFired, reason, isHardBoundary)
+		case m.recognizeTrigger <- recognizeTrigger{
+			isBoundary: true, isHardBoundary: isHardBoundary, detectedAt: detectedAt,
+			boundaryEventID: evID,
+		}:
 		default:
-			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeTriggerChannelFull, reason, isHardBoundary)
+			if evID > 0 && m.lib != nil {
+				if err := m.lib.ConvertBoundaryEventOutcome(evID,
+					internallibrary.BoundaryOutcomeTriggerChannelFull, reason, isHardBoundary); err != nil {
+					log.Printf("boundary telemetry: %v", err)
+				}
+			} else {
+				m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeTriggerChannelFull, reason, isHardBoundary)
+			}
 		}
 	}
 

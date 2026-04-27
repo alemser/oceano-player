@@ -227,6 +227,17 @@ const _boundaryOutcomeLabels = {
   suppressed_intra_track_silence: 'Legacy (intra-track experiment)',
 };
 
+// R7: post-recognition follow-up on boundary rows (internal DB values)
+const _followupOutcomeLabels = {
+  matched: 'Follow-up: matched',
+  no_match: 'Follow-up: no match',
+  same_track_restored: 'Follow-up: same track (restored)',
+  recognition_error: 'Follow-up: provider error',
+  capture_error: 'Follow-up: capture error',
+  discarded_source_changed: 'Follow-up: discarded (source changed)',
+  skipped_coordinator: 'Follow-up: skipped (coordinator guard)',
+};
+
 async function loadBoundaryStats(statsReqSeq) {
   const container = document.getElementById('boundary-stats-grid');
   if (!container) return;
@@ -284,6 +295,25 @@ function renderBoundaryStats(container, payload) {
     : '';
   const rateTitle = rateHint ? ` title="${esc(rateHint)}"` : '';
 
+  const fu = payload.followup_totals || {};
+  const fuKeys = Object.keys(fu).sort();
+  let fuRows = '';
+  for (const k of fuKeys) {
+    const n = Number(fu[k] || 0);
+    const label = _followupOutcomeLabels[k] || ('Follow-up: ' + k);
+    fuRows += `<div class="rec-prov-row"><span class="lbl">${esc(label)}</span><span class="val">${n}</span></div>`;
+  }
+  const fuLinked = Number(payload.followup_linked_total || 0);
+  const earlyB = Number(payload.early_boundary_total || 0);
+  const followupBlock = fuLinked > 0 || earlyB > 0 || fuRows
+    ? `<div class="boundary-followup-block">` +
+      `<div class="rec-prov-subname">Post-recognition linkage (R7)</div>` +
+      `<div class="rec-prov-row"><span class="lbl">Linked follow-ups</span><span class="val">${fuLinked}</span></div>` +
+      `<div class="rec-prov-row"><span class="lbl">Early-boundary cohort</span><span class="val" title="Fired boundary while progress was well below nominal track duration (conservative analytics).">${earlyB}</span></div>` +
+      fuRows +
+      `</div>`
+    : '';
+
   container.innerHTML =
     `<div class="rec-prov-card boundary-stats-card">` +
     `<div class="rec-prov-name">Summary</div>` +
@@ -291,6 +321,7 @@ function renderBoundaryStats(container, payload) {
     `<div class="rec-prov-row"><span class="lbl">Actionable decisions</span><span class="val">${actionable}</span></div>` +
     `<div class="rec-prov-rate"><span class="lbl">Fire rate</span><span class="${rateLabel !== '—' ? 'val-ok' : 'val-none'}"${rateTitle}>${rateLabel}</span></div>` +
     `<div class="boundary-outcome-block">${rows}</div>` +
+    followupBlock +
     `</div>`;
 }
 

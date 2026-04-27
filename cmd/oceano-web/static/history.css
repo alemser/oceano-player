@@ -371,6 +371,21 @@ html, body {
   border-top: 1px solid var(--border);
 }
 
+.boundary-stats-card .boundary-followup-block {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.boundary-stats-card .rec-prov-subname {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
 /* ─── Recognition provider stats ───────────────────────────────────────────── */
 #rec-stats-section {
   margin-top: clamp(24px, 4vw, 40px);

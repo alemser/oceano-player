@@ -243,6 +243,9 @@ type recognizeTrigger struct {
 	// it as the seek anchor instead of time.Now() to avoid over-estimating
 	// elapsed time in the new track.
 	detectedAt time.Time
+	// boundaryEventID is the SQLite row id from RecordBoundaryEvent when the VU
+	// path inserts a "fired" row before enqueueing recognition (R7 follow-up).
+	boundaryEventID int64
 }
 
 func triggerPeriodicRecognition() recognizeTrigger {
