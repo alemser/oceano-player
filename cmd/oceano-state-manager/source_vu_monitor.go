@@ -339,6 +339,11 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 	// track is confirmed (recognition sets a fresh seekUpdatedAt). Avoids requiring
 	// an explicit reset signal for fully gapless albums where no VU boundary fires.
 	var durationExceededFiredForSeek time.Time
+	// After each new connection to the VU socket the detector starts cold; the
+	// first silence→audio transition is often noise from stream stabilisation
+	// (matches journal: reconnect → silence detected → false hard boundary ~20 s).
+	// Suppress exactly one silence→audio boundary per connection — not energy-change.
+	suppressFirstSilenceAudioAfterVUConnect := true
 
 	fireBoundaryTrigger := func(reason string, isHardBoundary bool, detectedAt time.Time) {
 		m.mu.Lock()
@@ -458,6 +463,13 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 
 		if out.boundary {
 			durationExceededFiredForSeek = time.Time{} // VU boundary = new track; reset so next track can fire too
+			if out.boundaryType == "silence->audio" && suppressFirstSilenceAudioAfterVUConnect {
+				suppressFirstSilenceAudioAfterVUConnect = false
+				log.Printf("VU monitor: boundary suppressed (%s hard=%v) — initial silence→audio after VU socket connect",
+					out.boundaryType, out.boundaryHard)
+				m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeSuppressedVUReconnect, out.boundaryType, out.boundaryHard)
+				continue
+			}
 			fireBoundaryTrigger(out.boundaryType, out.boundaryHard, time.Time{})
 		}
 		if out.energySuppressedByCooldown {

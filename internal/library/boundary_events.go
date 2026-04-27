@@ -11,6 +11,7 @@ const (
 	BoundaryOutcomeSuppressedDurationGuard = "suppressed_duration_guard"
 	BoundaryOutcomeIgnoredMatureProgress   = "ignored_mature_progress"
 	BoundaryOutcomeSuppressedNotPhysical   = "suppressed_not_physical"
+	BoundaryOutcomeSuppressedVUReconnect   = "suppressed_vu_reconnect"
 	BoundaryOutcomeTriggerChannelFull      = "trigger_channel_full"
 	BoundaryOutcomeEnergyChangeCooldown    = "energy_change_cooldown"
 )
