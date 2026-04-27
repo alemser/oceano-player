@@ -159,6 +159,36 @@
       color: var(--text);
     }
     .hint { font-size: 0.75rem; color: var(--muted); margin-top: 6px; max-width: 520px; }
+    .np-mock-dropdown {
+      margin-top: 12px;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(18, 25, 44, 0.92);
+      max-width: 440px;
+    }
+    .np-mock-dropdown h3 {
+      margin: 0 0 10px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+    .np-mock-inputs { display: flex; gap: 10px; flex-wrap: wrap; }
+    .np-mock-input-btn {
+      padding: 10px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(74, 158, 255, 0.45);
+      background: rgba(26, 50, 90, 0.4);
+      color: var(--accent);
+      font-size: 0.76rem;
+      font-weight: 500;
+    }
+    .np-mock-input-btn.active {
+      border-color: rgba(74, 158, 255, 0.95);
+      box-shadow: 0 0 0 1px rgba(74, 158, 255, 0.3);
+    }
     .callout {
       background: rgba(106, 176, 255, 0.08);
       border: 1px solid rgba(106, 176, 255, 0.35);
@@ -271,7 +301,7 @@
         <p class="hint">Phono + “turntable?” → set <code>physical_format: vinyl</code> → unlocks optional <strong>stylus</strong> step (needle hours — shipped feature). Same screen drives calibration wizard inputs and labels.</p>
         <div class="wiz-actions">
           <button type="button" class="btn-ghost" onclick="wizGo(4)">Back</button>
-          <button type="button" class="btn-ghost" onclick="alert('Prototype: Save & restart services')">Finish</button>
+          <button type="button" class="btn-ghost" onclick="wizGo(7)">Next</button>
         </div>
       </div>
       <div id="wiz-6" class="wiz-panel">
@@ -281,7 +311,17 @@
         <p>Mock: table of devices → inputs → role (implementation would match <code>connected_devices</code> in config).</p>
         <div class="wiz-actions">
           <button type="button" class="btn-ghost" onclick="wizGo(2)">Back</button>
-          <button type="button" class="btn-ghost" onclick="alert('Prototype: Save & restart services (amplifier.enabled=false, topology saved)')">Finish</button>
+          <button type="button" class="btn-ghost" onclick="wizGo(7)">Next</button>
+        </div>
+      </div>
+      <div id="wiz-7" class="wiz-panel">
+        <p><strong>Optional — Stylus (vinyl path)</strong></p>
+        <p class="hint">Shown when <code>physical_format === vinyl</code> (plan step 7). User picks profile + rated life on <code>amplifier.html</code> or via Listening Metrics; hours accrue on <strong>Vinyl + Physical</strong> playback.</p>
+        <p class="hint">Product rule: CTA stays available when <code>vinyl_topology_present</code> even if <code>amplifier.enabled === false</code>.</p>
+        <div class="wiz-actions">
+          <button type="button" class="btn-ghost" onclick="wizStylusBack()">Back</button>
+          <button type="button" class="btn-ghost" onclick="alert('Prototype: open amplifier.html#stylus (or history metrics)')">Open stylus setup</button>
+          <button type="button" class="btn-ghost" onclick="alert('Prototype: Save & restart services')">Finish</button>
         </div>
       </div>
     </section>
@@ -307,7 +347,19 @@
         <span style="font-size:0.76rem;color:#9aacd5">Rega Planar</span>
       </div>
       <p class="hint" style="margin-top:10px">When Phono is tied to one connected device, the chip matches the remote <strong>input dropdown</strong>: device name only (no redundant “Phono”). Multi-input devices still use <code>Device — logical input</code>.</p>
-      <p class="hint" style="margin-top:14px"><strong>Touch only:</strong> tap the pill → elegant dropdown of visible inputs (not mocked here). Non-touch kiosk: line stays read-only.</p>
+      <div class="mock-row" style="margin-top:14px">
+        <button type="button" class="btn-ghost" onclick="npToggleTouchDemo()">Simulate tap (touch) — input picker</button>
+      </div>
+      <div id="np-touch-dropdown" class="np-mock-dropdown" style="display:none">
+        <h3>Inputs</h3>
+        <p class="hint" style="margin-top:0">Coarse pointer / phone: tap outside or pick an input. Kiosk read-only line stays; this sheet is touch-only in product.</p>
+        <div class="np-mock-inputs" aria-hidden="true">
+          <span class="np-mock-input-btn active">Rega Planar</span>
+          <span class="np-mock-input-btn">CD</span>
+          <span class="np-mock-input-btn">USB Audio</span>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:14px"><strong>Touch only:</strong> tap the pill → compact picker (mocked above). Non-touch kiosk: line stays read-only.</p>
       <p class="hint" style="margin-top:10px"><strong>Roadmap polish:</strong> optional read-only <strong>stylus</strong> chip (e.g. 12h / 500h) when vinyl + profile configured — see onboarding plan → Stylus section.</p>
     </section>
 
@@ -422,33 +474,47 @@
     function wizFromIdentityNext() {
       wizGo(wizWantsIR ? 3 : 6);
     }
+    /** Map wizard step number to highlighted dot index (IR: 1–5,7 no-IR: 1,2,6,7). */
+    function wizActiveDotIndex() {
+      if (wizWantsIR) {
+        if (wizStep >= 1 && wizStep <= 5) return wizStep - 1;
+        if (wizStep === 7) return 5;
+        return -1;
+      }
+      if (wizStep === 1) return 0;
+      if (wizStep === 2) return 1;
+      if (wizStep === 6) return 2;
+      if (wizStep === 7) return 3;
+      return -1;
+    }
     function wizDots() {
       var labels = wizWantsIR
-        ? ["Intent", "Identity", "Broadlink", "IR learn", "Devices"]
-        : ["Intent", "Identity", "Inputs & devices"];
+        ? ["Intent", "Identity", "Broadlink", "IR learn", "Devices", "Stylus (opt.)"]
+        : ["Intent", "Identity", "Devices", "Stylus (opt.)"];
+      var activeIdx = wizActiveDotIndex();
       var el = document.getElementById("wiz-steps");
       el.innerHTML = labels.map(function (label, i) {
-        var on = false;
-        if (wizWantsIR) {
-          on = wizStep === i + 1;
-        } else {
-          var last = labels.length - 1;
-          if (wizStep === 1) on = i === 0;
-          else if (wizStep === 2) on = i === 1;
-          else if (wizStep === 6) on = i === last;
-        }
+        var on = i === activeIdx;
         return '<span class="' + (on ? "on" : "") + '">' + (i + 1) + ". " + label + "</span>";
       }).join("");
     }
     function wizGo(n) {
       wizStep = n;
-      for (var i = 1; i <= 6; i++) {
+      for (var i = 1; i <= 7; i++) {
         var p = document.getElementById("wiz-" + i);
         if (p) p.classList.toggle("on", i === wizStep);
       }
       var note = document.getElementById("wiz-2-noir-note");
       if (note) note.style.display = wizStep === 2 && !wizWantsIR ? "block" : "none";
       wizDots();
+    }
+    function wizStylusBack() {
+      wizGo(wizWantsIR ? 5 : 6);
+    }
+    function npToggleTouchDemo() {
+      var d = document.getElementById("np-touch-dropdown");
+      if (!d) return;
+      d.style.display = d.style.display === "none" ? "block" : "none";
     }
     wizDots();
   </script>

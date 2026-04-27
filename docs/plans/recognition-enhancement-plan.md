@@ -241,7 +241,9 @@ This targets ambiguous segments (live vs studio, compilations, short samples, no
 
 Omit the field when `score >= threshold` or when the provider returned a single candidate. **Rationale:** one schema for SSE + file consumers; TTL is implicit (“cleared on next state write / boundary”).
 
-**Prerequisite (before betting UX on Shazam):** spike or log capture proving whether **shazamio** returns **multiple** `matches[]` for real vinyl/CD captures. If only one match ever appears, R9’s carousel is **ACR-first**; document outcome in this file and trim R9 scope accordingly.
+**Prerequisite (before betting UX on Shazam):** log capture or a one-off experiment proving whether **shazamio** returns **multiple** `matches[]` for real vinyl/CD captures. If only one match ever appears, R9’s carousel is **ACR-first**; document outcome in this file and trim R9 scope accordingly.
+
+**Pre-backlog gate (not a PR):** the prerequisite above is **time-boxed investigation** (issue optional, branch optional). It does **not** need its own PR row — **record the conclusion** (single vs multi match, with example payload redacted) in a short subsection **“R9 — Shazam cardinality (resolved)”** in this document **before** R9 enters the active backlog. Until then, treat R9 as **blocked on that write-up**, not on an invisible “spike” dependency.
 
 **Independence:** R9 does **not** depend on **R4 / R5** (local library / fingerprints); it only extends provider parsing + state + UI.
 
@@ -258,6 +260,14 @@ Omit the field when `score >= threshold` or when the provider returned a single 
 ### Suggested implementation milestone (new PR row)
 
 Ship **after** stable multi-candidate parsing + state schema; UI can be phase 2.
+
+### Resolution log — Shazam `matches[]` (for R9)
+
+Append a row after the pre-backlog investigation completes. Until then, plan **ACR-first** multi-candidate UX; add Shazam alternatives only if this log shows **multi**-match payloads are available in production.
+
+| Date | Outcome | Notes |
+|------|---------|-------|
+| — | *pending* | *Replace with finding (e.g. “single match only”) + optional link to redacted sample / version pin.* |
 
 ---
 
@@ -331,7 +341,7 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 | R6b | **R6** | If R6 ships: model health / confidence distribution on metrics page (optional chart or percentile text) | Medium | Pending |
 | R7 | — | Link boundary events to post-recognition outcomes + **early-boundary** aggregates (conservative rules + Listening Metrics) | Medium | Pending |
 | R8 | — | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium | Pending |
-| R9 | **Spike:** Shazam `matches[]` cardinality (see R9 section). **Not** blocked on R4/R5 | **Low-confidence UX:** parse ACRCloud `metadata.music[1..]` (and Shazam multi-match **if** proven) → optional `recognition_alternatives` in state + threshold config; **now playing carousel** + API to **apply user-selected candidate** (library/history integration) | Medium | Pending |
+| R9 | **Pre-R9 investigation** documented in this file (Shazam `matches[]` cardinality — see **Low-confidence UX** + pre-backlog gate above). **Not** blocked on R4/R5 | **Low-confidence UX:** parse ACRCloud `metadata.music[1..]` (and Shazam multi-match **if** investigation showed it is feasible) → optional `recognition_alternatives` in state + threshold config; **now playing carousel** + API to **apply user-selected candidate** (library/history integration) | Medium | Pending |
 | R10 | **R7** stable metrics + Policy B frozen | **Shadow calibration evaluation:** periodic job compares active calibration vs **reference** defaults on recent telemetry; gated **promotion** to auto-tuned thresholds (or suggest-only); **`auto_calibration_enabled`** off by default; audit log + metrics UI | High | **Research** — do not implement before R7 + metric definitions are stable (detail below may go stale) |
 
 ---

@@ -142,21 +142,21 @@ This aligns with the **physical-first onboarding** narrative and with **progress
 
 ### Today (baseline)
 
-In `cmd/oceano-web/static/nowplaying.css`, **`#top-controls`** (which contains **`#amp-indicator`**) is hidden under **`@media not (pointer: coarse)`** together with **`#input-selector`**. The stylesheet comment mentions *non-touch displays* broadly; **this plan** focuses on the observed **HDMI kiosk** case: a fine pointer (mouse / trackpad) **does not show** the amplifier name chip, while a **phone** with coarse pointer often **does**. The playing UI therefore **under-communicates** “which amp / which input” on the very screen people watch from the sofa.
+In the Now Playing stylesheet, the **top bar cluster** that holds the **amplifier identity chip** is currently hidden under **`@media not (pointer: coarse)`** together with the **full-screen / sheet input picker** used for touch input switching. The stylesheet comment mentions *non-touch displays* broadly; **this plan** focuses on the observed **HDMI kiosk** case: a fine pointer (mouse / trackpad) **does not show** the amplifier chip, while a **phone** with coarse pointer often **does**. The playing UI therefore **under-communicates** “which amp / which input” on the very screen people watch from the sofa. *(Concrete selectors in code change over time — treat “top bar cluster” and “touch input sheet” as the functional targets.)*
 
 ### Target UX
 
 1. **Parity** — Show a **single compact line** (or pill cluster) on **both** touch-first and non-touch / **HDMI kiosk** layouts: **amplifier identity** (maker + model, or a user label) and **one resolved input line** that uses the **same labelling rules as the remote input dropdown** (`index.amplifier.js` / `renderAmpInputSelect`): when a connected device maps to **a single** amplifier input, **the device name replaces the logical input** (e.g. *Rega Planar* instead of duplicating *Phono*); when a device spans **multiple** inputs, show **`Device — logical`** (e.g. *Streamer — USB Audio*). If no device is mapped, show the **logical input** only (e.g. *Phono*). Same information architecture on mobile and on **1024×600** (or similar) **HDMI**; only **density** and **interaction** differ.
 2. **Touch only for switching** — When the runtime reports **touch-capable** interaction (`pointer: coarse` and/or `maxTouchPoints` — same signals already used for hiding non-touch chrome), **tap the amplifier cluster** opens a **small, elegant** surface (dropdown anchored to the pill, or a slim sheet): list **visible inputs** from the same source as the main amp widget (`/api/amplifier/...`), current selection highlighted, dismiss on outside tap or timeout. Keep hit targets and motion **subtle** so the wall display does not feel like a tablet game.
-3. **Non-touch kiosk** — Still render the **read-only** line (amp + input + device). **No** mandatory dropdown under mouse hover at 2–3 m viewing distance; optional future: long-path to config UI only if product wants it.
+3. **Non-touch kiosk** — Still render the **read-only** line (amp + **resolved** input label per dropdown rules). **No** mandatory dropdown under mouse hover at 2–3 m viewing distance; optional future: long-path to config UI only if product wants it.
 
 ### Data
 
-Requires **stable strings** in unified state and/or **`GET /api/amplifier/state`** (and related) for: resolved maker/model, **active input logical name**, and **resolved connected device label** for that input. If any piece is missing today, extend the contract once — the **wizard’s connected devices** model is the natural source of device names.
+Requires **stable strings** for: resolved maker/model and the **same resolved input label** the remote UI would show (logical name and/or device name per **connected_devices**). **`GET /api/amplifier/state`** today may only expose maker/model/power — the Now Playing bundle may compose the second segment from **`GET /api/config`** (`amplifier.inputs`, `connected_devices`, `amplifier_runtime.last_known_input_id`). If a future client cannot use config, extend the HTTP contract **once** — the **wizard’s connected devices** model remains the source of device names.
 
 ### Fit in this plan
 
-Yes — this belongs here as **cross-cutting display + configuration outcome**: users invest in the amplifier wizard / topology so the **living room screen** should reflect it **everywhere**, not only on coarse pointers. Track implementation under **`nowplaying.html` / `nowplaying.css` / `nowplaying/main.js`** and small API/state extensions as needed.
+Yes — this belongs here as **cross-cutting display + configuration outcome**: users invest in the amplifier wizard / topology so the **living room screen** should reflect it **everywhere**, not only on coarse pointers. Track implementation in the **Now Playing** static bundle (`nowplaying.html`, CSS, `nowplaying/main.js`) and small API/state extensions as needed.
 
 ---
 
@@ -199,7 +199,7 @@ Most listeners **cannot estimate** how many **vinyl hours** they have put on a s
 
 ### Onboarding & configuration (target)
 
-1. **Gate on intent, not on IR** — Stylus setup must remain available when **`amplifier.enabled === false`** (no Broadlink): topology + `physical_format: vinyl` is enough to show the CTA. If the current UI ties stylus visibility to “amplifier enabled”, consider **relaxing** that for vinyl-first users (implementation detail — product call).
+1. **Product decision (gating)** — **Stylus / needle CTAs** (checklist row, hub Physical media line, wizard step 7) are **shown whenever `vinyl_topology_present` is true**, **independent of `amplifier.enabled`** and **independent of Broadlink / IR**. Vinyl-first users must reach stylus configuration without enabling IR. **Implementation note:** if `amplifier.html` / `amplifier_page.js` currently hides the stylus block behind “amplifier enabled”, **change the UI** so stylus + `/api/stylus` remain reachable from **Listening Metrics** and/or a **direct route** when topology says vinyl (document the chosen entry points in the same PR).
 2. **Wizard / connected devices** — After naming a deck and assigning **Phono**, prompt: **“Is this turntable (vinyl)?”** → sets `physical_format: vinyl` → unlocks checklist row **“Optional: set stylus model & rated life”** with deep link to existing stylus controls.
 3. **Checklist & hub** — Add **`stylus_tracking_recommended`** / **`stylus_profile_configured`** (names TBD) to **`GET /api/setup-status`** so the Physical media card can show **progress**, not a dead link.
 4. **Copy discipline** — Frame as **observability** (“hours vs your chosen rated life”), not medical or guaranteed wear science.
@@ -304,10 +304,10 @@ Single JSON object (HTTP 200). **`schema_version`** lets clients evolve without 
 | Field | Type | Meaning |
 |-------|------|--------|
 | `schema_version` | `int` | Start at **1**; bump when fields are added or semantics change. |
-| `oceano_setup_acknowledged` | `bool` | User confirmed CLI wizard (optional; may stay `false` forever if product skips). |
+| `oceano_setup_acknowledged` | `bool` | **How it becomes true (pick one and implement):** **(A)** `oceano-setup` writes a persistent flag in `config.json` on successful completion (e.g. `advanced.oceano_setup_completed_at` ISO timestamp or `oceano_setup_acknowledged: true` under a dedicated key — exact key is an implementation choice, but **must** be documented next to this field). **(B)** **Infer** from existing config: e.g. non-empty output + capture resolution **and** streaming stack markers the wizard normally sets (document the exact boolean expression in code comments + here). **`oceano-web` has no direct visibility into the CLI** unless (A) or (B) is implemented — do not leave the derivation undefined. If the product **drops** the checklist row for CLI entirely, this field may remain `false` forever and row 1 is **hidden** or **not required** for “setup complete”. |
 | `capture_configured` | `bool` | Non-empty capture device resolution (explicit ALSA or successful `device_match`). |
 | `recognition_credentials_set` | `bool` | ACRCloud host + key + secret present (or whichever provider is “required”). |
-| `amplifier_topology_complete` | `bool` | At least one input map **or** wizard marked “inputs OK” (exact rule TBD when empty amp is valid). |
+| `amplifier_topology_complete` | `bool` | **`true`** when the saved `amplifier.inputs` array contains **≥ 1** entry with a non-empty **`id`** and a non-empty trimmed **`logical_name`** (the minimum persisted after the **identity + inputs** wizard steps, including the **no-IR** path where `amplifier.enabled === false`). **`false`** on fresh empty defaults (Phase 1). Optional stricter rule (product): also require non-empty **`amplifier.maker`** or **`amplifier.model`** or non-empty **`amplifier.profile_id`** — if adopted, document it here and in `setup-status` tests. |
 | `amplifier_ir_enabled` | `bool` | `amplifier.enabled === true`. |
 | `broadlink_paired` | `bool` | Host + token/device id present when IR enabled. |
 | `calibration_physical_recommended` | `bool` | At least one `connected_devices[].role === physical_media` and no calibration row for that input yet. |
@@ -315,7 +315,7 @@ Single JSON object (HTTP 200). **`schema_version`** lets clients evolve without 
 | `vinyl_topology_present` | `bool` | At least one `connected_devices[]` row has `role === physical_media` and `physical_format === vinyl`, **or** product-defined equivalent (e.g. Phono + user-confirmed turntable flag). |
 | `stylus_tracking_recommended` | `bool` | `vinyl_topology_present` and the user has **not** yet completed stylus onboarding (e.g. no active stylus profile / rated hours — exact rule should mirror what the Metrics card considers “not set up”). |
 | `stylus_profile_configured` | `bool` | Stylus settings sufficient for wear display (e.g. active profile + rated hours in config/DB — align with `GET /api/stylus` success semantics). |
-| `services_healthy` | `object` | Map service id → bool (optional; sourced from systemd or last heartbeat). |
+| `services_healthy` | `object` | Map **service key** → `bool` (optional). **Key convention (normative):** use **`snake_case`** short identifiers **without** the `.service` suffix — one stable key per supervised unit, e.g. systemd unit `oceano-source-detector.service` → key **`oceano_source_detector`**; `oceano-state-manager.service` → **`oceano_state_manager`**; `oceano-web.service` → **`oceano_web`**. The implementation maps **`systemctl is-active`** (or heartbeat) **once**; clients must not assume hyphenated or `.service` keys in JSON. |
 
 **Example (fresh install):**
 
@@ -341,13 +341,15 @@ Single JSON object (HTTP 200). **`schema_version`** lets clients evolve without 
 }
 ```
 
-**Checklist row mapping (suggested):** row 1 ↔ `oceano_setup_acknowledged`; row 2 ↔ `capture_configured`; row 3 ↔ `recognition_credentials_set`; row 4 (optional amp) ↔ `amplifier_topology_complete` **or** explicit skip flag if added; row 5 ↔ `calibration_physical_complete` **or** “skipped” boolean if product adds it; row 6 (optional stylus) ↔ `stylus_profile_configured` **or** dismiss when `stylus_tracking_recommended` is false.
+**Checklist row mapping (suggested):** row 1 ↔ `oceano_setup_acknowledged` **only if** the product ships a defined derivation (see table) **or** omit row 1; row 2 ↔ `capture_configured`; row 3 ↔ `recognition_credentials_set`; row 4 (optional amp) ↔ `amplifier_topology_complete` **or** explicit skip flag if added; row 5 ↔ `calibration_physical_complete` **or** “skipped” boolean if product adds it; row 6 (optional stylus) ↔ `stylus_profile_configured` **or** dismiss when `stylus_tracking_recommended` is false.
+
+**`services_healthy` example keys** must match the **snake_case** convention above (the example JSON in this doc is authoritative).
 
 ### Phase 6 — Now Playing amplifier line (see dedicated section above)
 
-- **CSS:** stop tying **visibility** of the whole `#top-controls` / amp cluster only to `pointer: coarse` for **read-only** identity; reserve `not (pointer: coarse)` for hiding **touch-only** chrome (e.g. full `#input-selector` sheet) if still desired, or split selectors so **HDMI kiosk** always shows amp + input + device text (validate on **HDMI** first; revisit after DSI testing if needed).
-- **API/state:** expose logical input + connected device label for the now playing page.
-- **Touch:** tap amp cluster → compact input list; reuse existing amp APIs where possible.
+- **CSS / layout:** stop tying **visibility** of the entire **top bar cluster** (read-only amplifier identity + resolved input line) **only** to coarse pointer (`pointer: coarse`) when the goal is **read-only** parity on **HDMI kiosk**; reserve the non-touch media query for **touch-only** affordances (e.g. the **slide-down input picker**) if still desired, or split rules so **HDMI kiosk** always shows the read-only line (validate on **HDMI** first; revisit after DSI testing if needed).
+- **API/state:** ensure the **resolved input line** (same semantics as the remote input dropdown) is available to the Now Playing client — extend unified state and/or existing amplifier HTTP APIs only if the static bundle cannot derive it from **`GET /api/config`** today.
+- **Touch:** tap the **amplifier cluster** → compact **input list**; reuse existing amplifier APIs where possible.
 
 ### Phase 7 — CLI ↔ web bridge
 
@@ -361,7 +363,7 @@ Single JSON object (HTTP 200). **`schema_version`** lets clients evolve without 
 - No fresh install JSON implies a **specific commercial amplifier**.
 - Calibration wizard **does not nag** for USB/streaming-only inputs unless the user opts in.
 - Streaming users can still get **minimal** AirPlay/BT from setup + one web subsection.
-- **HDMI kiosk and phone** both show **amplifier + input + device** when configured; touch surfaces can change input without opening the full config UI.
+- **HDMI kiosk and phone** both show **amplifier identity + resolved input line** when configured; touch surfaces can change input without opening the full config UI.
 - A **vinyl-first** user who maps **Phono** sees a **clear path** to **stylus tracking** (checklist + hub) without discovering `history.html` by accident.
 
 ### Quantifiable targets (engineering “done” hints)
@@ -426,4 +428,4 @@ These complement the qualitative list; tune thresholds during implementation.
 - CLI wizard: `cmd/oceano-setup/`
 - Architecture: `docs/architecture/amplifier-device-architecture.md`, `docs/plans/distribution-and-setup-improvements-plan.md`
 - Recognition roadmap (low-score **carousel of alternatives**): `docs/plans/recognition-enhancement-plan.md` → section **Roadmap: low-confidence matches — primary pick + alternative carousel**; PR **R9** in the same document.
-- Now playing layout: `cmd/oceano-web/static/nowplaying.html`, `nowplaying.css` (search `pointer: coarse`, `#top-controls`, `#amp-indicator`, `#input-selector`), `nowplaying/main.js` (`loadAmpPowerState`).
+- Now playing layout: `cmd/oceano-web/static/nowplaying.html`, `nowplaying.css`, `nowplaying/main.js` — search for **coarse pointer** / **touch** visibility rules affecting the **top bar amplifier cluster** and the **touch input picker** (selector IDs change; use those keywords when navigating the tree).
