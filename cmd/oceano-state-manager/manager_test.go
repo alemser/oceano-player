@@ -182,14 +182,17 @@ func TestBuildState_PhysicalWhenNoStreaming(t *testing.T) {
 	m := newTestMgr()
 	m.airplayPlaying = false
 	m.physicalSource = "Physical"
+	// No metadata and no active recognizer capture — loud REC noise alone must not
+	// emit "playing" (kiosk would show Identifying forever with CD player off).
+	m.recognizerBusyUntil = time.Time{}
 
 	s := m.buildState()
 
 	if s.Source != "Physical" {
 		t.Errorf("source = %q, want Physical", s.Source)
 	}
-	if s.State != "playing" {
-		t.Errorf("state = %q, want playing", s.State)
+	if s.State != "idle" {
+		t.Errorf("state = %q, want idle when no track and recognizer not busy", s.State)
 	}
 	if s.Track != nil {
 		t.Error("track should be nil for physical source (no metadata yet)")
@@ -623,8 +626,8 @@ func TestBuildState_AfterIdleDelay_SourceNone(t *testing.T) {
 	}
 }
 
-// Legitimate kiosk "identifying" path: detector says Physical, VU not in silence,
-// no recognition row yet — state must be playing with nil track.
+// Legitimate kiosk "identifying" path: active capture window (recognizer busy)
+// while metadata is not yet committed.
 func TestBuildState_PhysicalActiveNoRecognition_IsPlayingWithoutTrack(t *testing.T) {
 	m := newTestMgr()
 	m.physicalSource = "Physical"
@@ -632,10 +635,11 @@ func TestBuildState_PhysicalActiveNoRecognition_IsPlayingWithoutTrack(t *testing
 	m.vuInSilence = false
 	m.recognitionResult = nil
 	m.physicalFormat = ""
+	m.recognizerBusyUntil = time.Now().Add(30 * time.Second)
 
 	s := m.buildState()
 	if s.State != "playing" {
-		t.Fatalf("state = %q, want playing", s.State)
+		t.Fatalf("state = %q, want playing while recognizer is busy", s.State)
 	}
 	if s.Source != "Physical" {
 		t.Fatalf("source = %q, want Physical", s.Source)
@@ -645,6 +649,24 @@ func TestBuildState_PhysicalActiveNoRecognition_IsPlayingWithoutTrack(t *testing
 	}
 	if !s.PhysicalDetectorActive {
 		t.Fatal("PhysicalDetectorActive should be true when detector is Physical")
+	}
+}
+
+func TestClearRecognizerBusyUntil_NoMatchBackoffShowsIdle(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.vuInSilence = false
+	m.recognitionResult = nil
+	m.recognizerBusyUntil = time.Now().Add(30 * time.Second)
+
+	m.clearRecognizerBusyUntil()
+
+	if !m.recognizerBusyUntil.IsZero() {
+		t.Fatal("recognizerBusyUntil should be cleared after coordinator no-match teardown")
+	}
+	s := m.buildState()
+	if s.State != "idle" {
+		t.Fatalf("state = %q, want idle between retries when busy window is cleared", s.State)
 	}
 }
 

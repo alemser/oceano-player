@@ -148,11 +148,13 @@ func (c *recognitionCoordinator) handleRecognitionError(err error, backoffUntil 
 		log.Printf("recognizer [%s]: rate limited — backing off %s", c.rec.Name(), rateLimitBackoff)
 		*backoffUntil = time.Now().Add(rateLimitBackoff)
 		*backoffRateLimited = true
+		c.mgr.clearRecognizerBusyUntil()
 		return true
 	}
 	const errorBackoff = 30 * time.Second
 	*backoffUntil = time.Now().Add(errorBackoff)
 	*backoffRateLimited = false
+	c.mgr.clearRecognizerBusyUntil()
 	return true
 }
 
@@ -175,6 +177,7 @@ func (c *recognitionCoordinator) handleNoMatch(isBoundaryTrigger bool, isHardBou
 
 	*backoffUntil = time.Now().Add(noMatchBackoff)
 	*backoffRateLimited = false
+	c.mgr.clearRecognizerBusyUntil()
 }
 
 func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, result *RecognitionResult, isBoundaryTrigger bool) (bool, bool) {
@@ -618,6 +621,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			log.Printf("recognizer [%s]: capture error: %v", c.rec.Name(), err)
 			backoffUntil = time.Now().Add(errorBackoff)
 			backoffRateLimited = false
+			c.mgr.clearRecognizerBusyUntil()
+			c.mgr.markDirty()
 			continue
 		}
 
@@ -628,9 +633,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		}
 
 		if err != nil {
-			if c.handleRecognitionError(err, &backoffUntil, &backoffRateLimited) {
-				continue
-			}
+			c.handleRecognitionError(err, &backoffUntil, &backoffRateLimited)
+			c.mgr.markDirty()
 			continue
 		}
 
@@ -646,6 +650,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		if !isPhysicalFinal || isAirPlayFinal || isBluetoothFinal {
 			log.Printf("recognizer [%s]: discarding result — source changed during capture/recognition (isPhysical=%v isAirPlay=%v isBluetooth=%v)",
 				c.rec.Name(), isPhysicalFinal, isAirPlayFinal, isBluetoothFinal)
+			c.mgr.clearRecognizerBusyUntil()
+			c.mgr.markDirty()
 			continue
 		}
 

@@ -149,6 +149,17 @@ func (m *mgr) markDirty() {
 	}
 }
 
+// clearRecognizerBusyUntil resets the capture window used by buildState for the
+// kiosk "Identifying…" hint and by the Shazam continuity monitor to skip polls
+// during primary capture. Call when an attempt finishes without persisting a track
+// (no match, recognition error, capture failure, discarded result) so state does
+// not stay "playing" with nil track across long backoffs or idle noise.
+func (m *mgr) clearRecognizerBusyUntil() {
+	m.mu.Lock()
+	m.recognizerBusyUntil = time.Time{}
+	m.mu.Unlock()
+}
+
 // runRecognizer waits for triggers from m.recognizeTrigger (sent on Physical source
 // activation and on track boundaries detected by runVUMonitor) and identifies the
 // playing track via the given Recognizer. It is a no-op when rec is nil.

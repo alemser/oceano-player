@@ -24,9 +24,12 @@ import (
 //   - While physicalSource is None during that tail only, state must not be
 //     "playing" — VU energy on an inactive line is not programme audio; "playing"
 //     with no track drives "Identifying…" in the display client.
-//   - When physicalSource is Physical and vuInSilence is false but recognition is
-//     nil, state is "playing" with no track — that is the legitimate identifying
-//     state (capture in progress or first needle drop).
+//   - When physicalSource is Physical, vuInSilence is false, and recognition is
+//     nil, state is "playing" only while recognizerBusyUntil is in the future
+//     (active capture). The coordinator clears busy when an attempt ends without
+//     a track (no match / error), so long no-match backoffs do not keep the kiosk
+//     in "Identifying…". Otherwise state is "idle" — REC noise with the CD player
+//     off must not drive endless "Identifying…" on the kiosk.
 //   - vuInSilence suppresses track metadata (inter-track / side gap) while keeping
 //     source format labels where physicalFormat or the last result supplies them.
 func (m *mgr) buildState() PlayerState {
@@ -58,7 +61,13 @@ func (m *mgr) buildState() PlayerState {
 			// no music and no capture in progress.
 			state = "stopped"
 		} else if !m.vuInSilence {
-			state = "playing"
+			if m.recognitionResult != nil {
+				state = "playing"
+			} else if time.Now().Before(m.recognizerBusyUntil) {
+				state = "playing"
+			} else {
+				state = "idle"
+			}
 		} else {
 			state = "idle"
 		}
