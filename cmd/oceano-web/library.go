@@ -163,14 +163,14 @@ func (l *LibraryDB) getRecognitionStats() (map[string]map[string]int, error) {
 
 // boundaryStatsResponse is JSON for GET /api/recognition/boundary-stats.
 type boundaryStatsResponse struct {
-	PeriodDays           int            `json:"period_days"`
-	Total                int            `json:"total"`
-	ByOutcome            map[string]int `json:"by_outcome"`
-	ActionableTotal      int            `json:"actionable_total"`
-	FireRate             float64        `json:"fire_rate"` // fraction of actionable outcomes that fired; -1 if not applicable
-	FollowupTotals       map[string]int `json:"followup_totals,omitempty"`
-	EarlyBoundaryTotal   int            `json:"early_boundary_total"`
-	FollowupLinkedTotal  int            `json:"followup_linked_total"`
+	PeriodDays          int            `json:"period_days"`
+	Total               int            `json:"total"`
+	ByOutcome           map[string]int `json:"by_outcome"`
+	ActionableTotal     int            `json:"actionable_total"`
+	FireRate            float64        `json:"fire_rate"` // fraction of actionable outcomes that fired; -1 if not applicable
+	FollowupTotals      map[string]int `json:"followup_totals,omitempty"`
+	EarlyBoundaryTotal  int            `json:"early_boundary_total"`
+	FollowupLinkedTotal int            `json:"followup_linked_total"`
 }
 
 func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, error) {
@@ -204,6 +204,9 @@ func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, err
 		}
 		out.ByOutcome[o] = c
 		out.Total += c
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	actionableOutcomes := []string{
 		"fired",

@@ -40,20 +40,20 @@ type calibrationProfile struct {
 
 // telemetryNudgesJSON mirrors advanced.r3_telemetry_nudges in config.json (R3).
 type telemetryNudgesJSON struct {
-	Enabled                        bool    `json:"enabled"`
-	LookbackDays                   int     `json:"lookback_days"`
-	MinFollowupPairs               int     `json:"min_followup_pairs"`
-	BaselineFalsePositiveRatio     float64 `json:"baseline_false_positive_ratio"`
-	MaxSilenceThresholdDelta       float64 `json:"max_silence_threshold_delta"`
-	MaxDurationPessimismDelta      float64 `json:"max_duration_pessimism_delta"`
-	EarlyTrackProgressP75Threshold float64 `json:"early_track_progress_p75_threshold"`
-	EarlyTrackExtraSilenceDelta    float64 `json:"early_track_extra_silence_delta"`
+	Enabled                        bool     `json:"enabled"`
+	LookbackDays                   *int     `json:"lookback_days,omitempty"`
+	MinFollowupPairs               *int     `json:"min_followup_pairs,omitempty"`
+	BaselineFalsePositiveRatio     *float64 `json:"baseline_false_positive_ratio,omitempty"`
+	MaxSilenceThresholdDelta       *float64 `json:"max_silence_threshold_delta,omitempty"`
+	MaxDurationPessimismDelta      *float64 `json:"max_duration_pessimism_delta,omitempty"`
+	EarlyTrackProgressP75Threshold *float64 `json:"early_track_progress_p75_threshold,omitempty"`
+	EarlyTrackExtraSilenceDelta    *float64 `json:"early_track_extra_silence_delta,omitempty"`
 }
 
 type calibrationConfigSnapshot struct {
 	Advanced struct {
 		CalibrationProfiles map[string]calibrationProfile `json:"calibration_profiles"`
-		TelemetryNudges   *telemetryNudgesJSON        `json:"r3_telemetry_nudges,omitempty"`
+		TelemetryNudges     *telemetryNudgesJSON          `json:"r3_telemetry_nudges,omitempty"`
 	} `json:"advanced"`
 	Amplifier struct {
 		Inputs []struct {
@@ -108,26 +108,26 @@ func mergeTelemetryNudgesConfig(raw *telemetryNudgesJSON) telemetryNudgesConfig 
 		return out
 	}
 	out.Enabled = raw.Enabled
-	if raw.LookbackDays > 0 {
-		out.LookbackDays = raw.LookbackDays
+	if raw.LookbackDays != nil {
+		out.LookbackDays = *raw.LookbackDays
 	}
-	if raw.MinFollowupPairs > 0 {
-		out.MinFollowupPairs = raw.MinFollowupPairs
+	if raw.MinFollowupPairs != nil {
+		out.MinFollowupPairs = *raw.MinFollowupPairs
 	}
-	if raw.BaselineFalsePositiveRatio > 0 {
-		out.BaselineFalsePositiveRatio = raw.BaselineFalsePositiveRatio
+	if raw.BaselineFalsePositiveRatio != nil {
+		out.BaselineFalsePositiveRatio = *raw.BaselineFalsePositiveRatio
 	}
-	if raw.MaxSilenceThresholdDelta > 0 {
-		out.MaxSilenceThresholdDelta = raw.MaxSilenceThresholdDelta
+	if raw.MaxSilenceThresholdDelta != nil {
+		out.MaxSilenceThresholdDelta = *raw.MaxSilenceThresholdDelta
 	}
-	if raw.MaxDurationPessimismDelta > 0 {
-		out.MaxDurationPessimismDelta = raw.MaxDurationPessimismDelta
+	if raw.MaxDurationPessimismDelta != nil {
+		out.MaxDurationPessimismDelta = *raw.MaxDurationPessimismDelta
 	}
-	if raw.EarlyTrackProgressP75Threshold > 0 {
-		out.EarlyTrackProgressP75Threshold = raw.EarlyTrackProgressP75Threshold
+	if raw.EarlyTrackProgressP75Threshold != nil {
+		out.EarlyTrackProgressP75Threshold = *raw.EarlyTrackProgressP75Threshold
 	}
-	if raw.EarlyTrackExtraSilenceDelta > 0 {
-		out.EarlyTrackExtraSilenceDelta = raw.EarlyTrackExtraSilenceDelta
+	if raw.EarlyTrackExtraSilenceDelta != nil {
+		out.EarlyTrackExtraSilenceDelta = *raw.EarlyTrackExtraSilenceDelta
 	}
 	return out
 }
@@ -174,6 +174,9 @@ func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32,
 		case on > off && off > 0 && gap < minCalibrationOffOnGap:
 			log.Printf("calibration profile %s: off→on gap %.6f below minimum %.6f; using global VU silence thresholds",
 				model.profileID, gap, minCalibrationOffOnGap)
+		default:
+			log.Printf("calibration profile %s: invalid off/on samples (off=%.6f on=%.6f); using global VU silence thresholds",
+				model.profileID, off, on)
 		}
 	}
 

@@ -261,6 +261,9 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 		silenceFrames = 22 // ~1 s of silence (vinyl inter-track gaps can be < 2 s)
 		activeFrames  = 11 // ~0.5 s of audio resumption
 		retryDelay    = 5 * time.Second
+		// Rebuild detector settings periodically so telemetry nudges stay fresh
+		// during long uptimes even when the VU socket remains connected.
+		telemetryRefreshInterval = 24 * time.Hour
 	)
 
 	silenceThreshold := float32(m.cfg.VUSilenceThreshold)
@@ -338,7 +341,11 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 		if calModel.profileID != "" {
 			log.Printf("VU monitor: calibration profile=%s silenceEnter=%.4f silenceExit=%.4f gapRMS=%.4f gapDur=%s", calModel.profileID, detectorCfg.silenceEnterThreshold, detectorCfg.silenceExitThreshold, detectorCfg.transitionGapRMS, calModel.transitionGapDuration.Round(100*time.Millisecond))
 		}
-		m.readVUFrames(ctx, conn, detectorCfg, durationGuardBypassWindow, m.effectiveDurationPessimismForPhysicalPolicy())
+		refreshInterval := time.Duration(0)
+		if telemetryCfg.Enabled {
+			refreshInterval = telemetryRefreshInterval
+		}
+		m.readVUFrames(ctx, conn, detectorCfg, durationGuardBypassWindow, m.effectiveDurationPessimismForPhysicalPolicy(), refreshInterval)
 		conn.Close()
 
 		if ctx.Err() != nil {
@@ -365,7 +372,7 @@ func (m *mgr) currentPhysicalFormatForCalibration() string {
 	return ""
 }
 
-func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBoundaryDetectorConfig, durationGuardBypassWindow time.Duration, durationPessimism float64) {
+func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBoundaryDetectorConfig, durationGuardBypassWindow time.Duration, durationPessimism float64, refreshInterval time.Duration) {
 	// Reset silence state on reconnect — without a live stream we have no
 	// reliable VU state; clear it so the display doesn't stay frozen as idle.
 	m.mu.Lock()
@@ -380,6 +387,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 	// track is confirmed (recognition sets a fresh seekUpdatedAt). Avoids requiring
 	// an explicit reset signal for fully gapless albums where no VU boundary fires.
 	var durationExceededFiredForSeek time.Time
+	connectedAt := time.Now()
 
 	fireBoundaryTrigger := func(reason string, isHardBoundary bool, detectedAt time.Time) {
 		m.mu.Lock()
@@ -470,6 +478,10 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 	}()
 
 	for {
+		if refreshInterval > 0 && time.Since(connectedAt) >= refreshInterval {
+			log.Printf("VU monitor: refreshing detector settings after %s uptime", refreshInterval)
+			return
+		}
 		if _, err := io.ReadFull(conn, buf); err != nil {
 			return
 		}

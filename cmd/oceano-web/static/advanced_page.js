@@ -33,11 +33,11 @@ async function loadAdvancedPage() {
   const telemetryNudges = cfg.advanced?.r3_telemetry_nudges;
   const telemetryBox = document.getElementById('adv-telemetry-nudges-enabled');
   if (telemetryBox) telemetryBox.checked = !!telemetryNudges?.enabled;
-  _aset('adv-telemetry-lookback', r3?.lookback_days ?? '');
-  _aset('adv-telemetry-min-pairs', r3?.min_followup_pairs ?? '');
-  _aset('adv-telemetry-baseline-fp', r3?.baseline_false_positive_ratio ?? '');
-  _aset('adv-telemetry-max-silence', r3?.max_silence_threshold_delta ?? '');
-  _aset('adv-telemetry-max-pess', r3?.max_duration_pessimism_delta ?? '');
+  _aset('adv-telemetry-lookback', telemetryNudges?.lookback_days ?? '');
+  _aset('adv-telemetry-min-pairs', telemetryNudges?.min_followup_pairs ?? '');
+  _aset('adv-telemetry-baseline-fp', telemetryNudges?.baseline_false_positive_ratio ?? '');
+  _aset('adv-telemetry-max-silence', telemetryNudges?.max_silence_threshold_delta ?? '');
+  _aset('adv-telemetry-max-pess', telemetryNudges?.max_duration_pessimism_delta ?? '');
 }
 
 async function saveAdvancedPage() {

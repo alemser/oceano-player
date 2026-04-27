@@ -7,6 +7,9 @@ import (
 	"testing"
 )
 
+func intPtr(v int) *int           { return &v }
+func floatPtr(v float64) *float64 { return &v }
+
 func approxEq32(a, b float32) bool {
 	return math.Abs(float64(a-b)) < 1e-5
 }
@@ -335,5 +338,27 @@ func TestLoadBoundaryCalibrationModel_GapEqualEpsilonUsesDerivedThresholds(t *te
 	if !approxEq32(model.enterSilenceThreshold, wantEnter) || !approxEq32(model.exitSilenceThreshold, wantExit) {
 		t.Fatalf("enter=%f exit=%f want enter=%f exit=%f",
 			model.enterSilenceThreshold, model.exitSilenceThreshold, wantEnter, wantExit)
+	}
+}
+
+func TestMergeTelemetryNudgesConfig_AllowsExplicitZeroValues(t *testing.T) {
+	raw := &telemetryNudgesJSON{
+		Enabled:                    true,
+		LookbackDays:               intPtr(0),
+		MinFollowupPairs:           intPtr(0),
+		BaselineFalsePositiveRatio: floatPtr(0),
+		MaxSilenceThresholdDelta:   floatPtr(0),
+		MaxDurationPessimismDelta:  floatPtr(0),
+	}
+	cfg := mergeTelemetryNudgesConfig(raw)
+	if !cfg.Enabled {
+		t.Fatal("enabled should be true")
+	}
+	if cfg.LookbackDays != 0 || cfg.MinFollowupPairs != 0 {
+		t.Fatalf("expected explicit zero ints to be preserved, got lookback=%d minPairs=%d", cfg.LookbackDays, cfg.MinFollowupPairs)
+	}
+	if cfg.BaselineFalsePositiveRatio != 0 || cfg.MaxSilenceThresholdDelta != 0 || cfg.MaxDurationPessimismDelta != 0 {
+		t.Fatalf("expected explicit zero floats to be preserved, got baseline=%f maxSil=%f maxPess=%f",
+			cfg.BaselineFalsePositiveRatio, cfg.MaxSilenceThresholdDelta, cfg.MaxDurationPessimismDelta)
 	}
 }

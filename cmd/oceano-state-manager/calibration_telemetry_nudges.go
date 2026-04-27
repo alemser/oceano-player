@@ -57,7 +57,7 @@ func computeTelemetryCalibrationNudges(lib *internallibrary.Library, cfg telemet
 
 	def := defaultTelemetryNudgesConfig()
 	lookback := cfg.LookbackDays
-	if lookback <= 0 {
+	if lookback < 0 {
 		lookback = def.LookbackDays
 	}
 	since := time.Now().Add(-time.Duration(lookback) * 24 * time.Hour)
@@ -70,7 +70,7 @@ func computeTelemetryCalibrationNudges(lib *internallibrary.Library, cfg telemet
 
 	pairs := tel.SameTrackRestored + tel.Matched
 	minP := cfg.MinFollowupPairs
-	if minP <= 0 {
+	if minP < 0 {
 		minP = def.MinFollowupPairs
 	}
 	if pairs < minP {
@@ -79,11 +79,11 @@ func computeTelemetryCalibrationNudges(lib *internallibrary.Library, cfg telemet
 
 	fpRatio := float64(tel.SameTrackRestored) / float64(pairs)
 	baseline := cfg.BaselineFalsePositiveRatio
-	if baseline <= 0 {
+	if baseline < 0 {
 		baseline = def.BaselineFalsePositiveRatio
 	}
 	maxSil := cfg.MaxSilenceThresholdDelta
-	if maxSil <= 0 {
+	if maxSil < 0 {
 		maxSil = def.MaxSilenceThresholdDelta
 	}
 	scale := maxSil / 0.25
@@ -94,18 +94,18 @@ func computeTelemetryCalibrationNudges(lib *internallibrary.Library, cfg telemet
 	silence := clampFloat64(rawSilence, -maxSil, maxSil)
 
 	maxPess := cfg.MaxDurationPessimismDelta
-	if maxPess <= 0 {
+	if maxPess < 0 {
 		maxPess = def.MaxDurationPessimismDelta
 	}
 	rawPess := math.Max(0, fpRatio-baseline) * (maxPess / 0.25)
 	pessimism := math.Min(maxPess, rawPess)
 
 	thP75 := cfg.EarlyTrackProgressP75Threshold
-	if thP75 <= 0 {
+	if thP75 < 0 {
 		thP75 = def.EarlyTrackProgressP75Threshold
 	}
 	extras := cfg.EarlyTrackExtraSilenceDelta
-	if extras <= 0 {
+	if extras < 0 {
 		extras = def.EarlyTrackExtraSilenceDelta
 	}
 	nFrac := len(tel.MatchedSeekFractions)
