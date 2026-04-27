@@ -78,14 +78,21 @@
     </div>
   </div>
 
-  <!-- ── R3: telemetry-based calibration nudges ───────────────────────── -->
+  <!-- ── Autonomous + R3: telemetry-based calibration ───────────────── -->
   <div class="section" style="margin-bottom:24px">
-    <div class="section-title">Calibration telemetry nudges (R3)</div>
-    <p class="hint" style="margin:0 0 12px">When enabled, the state manager reads <code>boundary_events</code> follow-ups (same track vs new match) and applies <strong>small bounded</strong> adjustments to VU silence thresholds and duration pessimism. Off by default.</p>
+    <div class="section-title">Telemetry-driven calibration (R3)</div>
+    <p class="hint" style="margin:0 0 12px">The state manager uses <code>boundary_events</code> follow-ups (matched vs same-track-restored) and applies <strong>small bounded</strong> adjustments to VU silence thresholds and duration pessimism. RMS time series are <strong>not</strong> logged per boundary row; RMS snapshots live in <code>calibration_profiles</code> from the wizard, while live RMS comes from the VU socket.</p>
+    <div class="field">
+      <label class="modal-check" for="adv-autonomous-calibration-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="adv-autonomous-calibration-enabled" style="width:auto">
+        <span>Autonomous calibration mode</span>
+      </label>
+      <div class="hint" style="margin-top:6px">When on, telemetry nudges run whenever paired follow-ups meet the minimum — you do not need the R3 checkbox below. Does not auto-edit calibration JSON; only bounded runtime nudges.</div>
+    </div>
     <div class="field">
       <label class="modal-check" for="adv-telemetry-nudges-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <input type="checkbox" id="adv-telemetry-nudges-enabled" style="width:auto">
-        <span>Enable R3 telemetry nudges</span>
+        <span>Enable R3 telemetry nudges (manual)</span>
       </label>
     </div>
     <div class="field">
@@ -111,6 +118,41 @@
     </div>
   </div>
 
+  <!-- ── RMS percentile learning (autonomous silence thresholds) ───── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">RMS percentile learning</div>
+    <p class="hint" style="margin:0 0 12px">While <strong>Physical</strong> is active, the state manager records RMS into per-format histograms (stable silence vs stable music) in the library database and derives VU silence enter/exit from percentiles. When <strong>Autonomous apply</strong> is on, those thresholds override wizard profiles once sample counts are met. The manual wizard remains optional for transition (vinyl gap) metrics.</p>
+    <div class="field">
+      <label class="modal-check" for="adv-rms-learning-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="adv-rms-learning-enabled" style="width:auto">
+        <span>Enable RMS histogram learning</span>
+      </label>
+    </div>
+    <div class="field">
+      <label class="modal-check" for="adv-rms-learning-apply" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="adv-rms-learning-apply" style="width:auto">
+        <span>Autonomous apply (use learned enter/exit for VU)</span>
+      </label>
+    </div>
+    <div class="field">
+      <label><span>Min silence samples</span></label>
+      <input type="number" id="adv-rms-min-silence" min="50" max="50000" step="1" placeholder="400">
+    </div>
+    <div class="field">
+      <label><span>Min music samples</span></label>
+      <input type="number" id="adv-rms-min-music" min="50" max="50000" step="1" placeholder="400">
+    </div>
+    <div class="field">
+      <label><span>Persist interval (seconds)</span></label>
+      <input type="number" id="adv-rms-persist-secs" min="30" max="86400" step="1" placeholder="120">
+    </div>
+    <div class="rms-snap-wrap" style="margin-top:14px">
+      <div class="rms-snap-heading">Library snapshot</div>
+      <p class="hint" style="margin:0 0 8px">Per-format stable silence vs music sample totals and derived VU enter/exit (from the library database).</p>
+      <div id="adv-rms-learning-summary"><span class="hint">Loading…</span></div>
+    </div>
+  </div>
+
   <!-- ── Save ──────────────────────────────────────────────────────────── -->
   <div class="adv-page-actions">
     <button type="button" class="btn-save" id="btn-adv-page-save" onclick="saveAdvancedPage()">Save &amp; Restart Services</button>
@@ -120,6 +162,7 @@
 
 <div id="toast"></div>
 
+<script src="rms_learning_snapshot.js"></script>
 <script src="advanced_page.js"></script>
 
 </body>

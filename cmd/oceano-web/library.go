@@ -114,6 +114,18 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		`ALTER TABLE boundary_events ADD COLUMN early_boundary INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE boundary_events ADD COLUMN followup_recorded_at TEXT`,
 		`ALTER TABLE collection ADD COLUMN boundary_sensitive INTEGER NOT NULL DEFAULT 0`,
+		`CREATE TABLE IF NOT EXISTS rms_learning (
+			format_key TEXT NOT NULL PRIMARY KEY,
+			updated_at TEXT NOT NULL,
+			bins INTEGER NOT NULL,
+			max_rms REAL NOT NULL,
+			silence_counts TEXT NOT NULL,
+			music_counts TEXT NOT NULL,
+			silence_total INTEGER NOT NULL DEFAULT 0,
+			music_total INTEGER NOT NULL DEFAULT 0,
+			derived_enter REAL,
+			derived_exit REAL
+		)`,
 	}
 	for _, stmt := range ensureCols {
 		if _, err := l.db.Exec(stmt); err != nil {
@@ -161,19 +173,171 @@ func (l *LibraryDB) getRecognitionStats() (map[string]map[string]int, error) {
 	return stats, nil
 }
 
-// boundaryStatsResponse is JSON for GET /api/recognition/boundary-stats.
-type boundaryStatsResponse struct {
-	PeriodDays          int            `json:"period_days"`
-	Total               int            `json:"total"`
-	ByOutcome           map[string]int `json:"by_outcome"`
-	ActionableTotal     int            `json:"actionable_total"`
-	FireRate            float64        `json:"fire_rate"` // fraction of actionable outcomes that fired; -1 if not applicable
-	FollowupTotals      map[string]int `json:"followup_totals,omitempty"`
-	EarlyBoundaryTotal  int            `json:"early_boundary_total"`
-	FollowupLinkedTotal int            `json:"followup_linked_total"`
+// rmsLearningRowDTO is one row for GET /api/recognition/rms-learning.
+type rmsLearningRowDTO struct {
+	FormatKey    string   `json:"format_key"`
+	SilenceTotal int64    `json:"silence_total"`
+	MusicTotal   int64    `json:"music_total"`
+	DerivedEnter *float64 `json:"derived_enter,omitempty"`
+	DerivedExit  *float64 `json:"derived_exit,omitempty"`
+	UpdatedAt    string   `json:"updated_at"`
 }
 
-func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, error) {
+// rmsLearningListResponse is JSON for GET /api/recognition/rms-learning.
+type rmsLearningListResponse struct {
+	Rows []rmsLearningRowDTO `json:"rows"`
+}
+
+func (l *LibraryDB) listRMSLearningRows() ([]rmsLearningRowDTO, error) {
+	rows, err := l.db.Query(`
+		SELECT format_key, silence_total, music_total, derived_enter, derived_exit, updated_at
+		FROM rms_learning
+		ORDER BY format_key`)
+	if err != nil {
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "no such table") {
+			return []rmsLearningRowDTO{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []rmsLearningRowDTO
+	for rows.Next() {
+		var r rmsLearningRowDTO
+		var de, dx sql.NullFloat64
+		if err := rows.Scan(&r.FormatKey, &r.SilenceTotal, &r.MusicTotal, &de, &dx, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if de.Valid {
+			v := de.Float64
+			r.DerivedEnter = &v
+		}
+		if dx.Valid {
+			v := dx.Float64
+			r.DerivedExit = &v
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []rmsLearningRowDTO{}
+	}
+	return out, nil
+}
+
+// boundaryStatsResponse is JSON for GET /api/recognition/boundary-stats.
+type boundaryStatsResponse struct {
+	PeriodDays           int                           `json:"period_days"`
+	Total                int                           `json:"total"`
+	ByOutcome            map[string]int                `json:"by_outcome"`
+	ActionableTotal      int                           `json:"actionable_total"`
+	FireRate             float64                       `json:"fire_rate"` // fraction of actionable outcomes that fired; -1 if not applicable
+	FollowupTotals       map[string]int                `json:"followup_totals,omitempty"`
+	EarlyBoundaryTotal   int                           `json:"early_boundary_total"`
+	FollowupLinkedTotal  int                           `json:"followup_linked_total"`
+	CalibrationReadiness *boundaryCalibrationReadiness `json:"calibration_readiness,omitempty"`
+}
+
+// boundaryCalibrationReadiness explains whether paired follow-up telemetry is
+// sufficient for bounded R3 nudges and clarifies what is (not) persisted as RMS.
+type boundaryCalibrationReadiness struct {
+	R3LookbackDays               int    `json:"r3_lookback_days"`
+	MinFollowupPairsRequired     int    `json:"min_followup_pairs_required"`
+	PairedFollowupsR3Window      int    `json:"paired_followups_r3_window"`
+	ReadinessLevel               string `json:"readiness_level"`
+	ReadinessMessage             string `json:"readiness_message"`
+	ReadyForR3Nudges             bool   `json:"ready_for_r3_nudges"`
+	R3TelemetryNudgesEnabled     bool   `json:"r3_telemetry_nudges_enabled"`
+	AutonomousCalibrationEnabled bool   `json:"autonomous_calibration_enabled"`
+	EffectiveCalibrationNudgesOn bool   `json:"effective_calibration_nudges_on"`
+	RmsLearningEnabled           bool   `json:"rms_learning_enabled"`
+	RmsAutonomousApply           bool   `json:"rms_autonomous_apply"`
+	RmsCaptureNote               string `json:"rms_capture_note"`
+}
+
+func (l *LibraryDB) countR3PairedFollowupsSince(sinceRFC3339 string) (int, error) {
+	var n int
+	err := l.db.QueryRow(`
+		SELECT COUNT(*) FROM boundary_events
+		WHERE occurred_at >= ?
+		  AND outcome = 'fired'
+		  AND followup_outcome IN ('matched', 'same_track_restored')`, sinceRFC3339).Scan(&n)
+	if err != nil {
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "no such table") || strings.Contains(errText, "no such column") {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return n, nil
+}
+
+func buildBoundaryCalibrationReadiness(l *LibraryDB, cfg *Config) *boundaryCalibrationReadiness {
+	lookback := 14
+	minPairs := 25
+	r3On := false
+	if cfg.Advanced.TelemetryNudges != nil {
+		t := cfg.Advanced.TelemetryNudges
+		r3On = t.Enabled
+		if t.LookbackDays > 0 {
+			lookback = t.LookbackDays
+		}
+		if t.MinFollowupPairs > 0 {
+			minPairs = t.MinFollowupPairs
+		}
+	}
+	auto := cfg.Advanced.AutonomousCalibration != nil && cfg.Advanced.AutonomousCalibration.Enabled
+	effective := r3On || auto
+
+	since := time.Now().UTC().Add(-time.Duration(lookback) * 24 * time.Hour).Format(time.RFC3339Nano)
+	paired, _ := l.countR3PairedFollowupsSince(since)
+
+	level, msg := classifyCalibrationReadinessLevel(paired, minPairs)
+	ready := paired >= minPairs
+
+	rmsEn := false
+	rmsAp := false
+	if cfg.Advanced.RMSPercentileLearning != nil {
+		rmsEn = cfg.Advanced.RMSPercentileLearning.Enabled
+		rmsAp = cfg.Advanced.RMSPercentileLearning.AutonomousApply
+	}
+
+	return &boundaryCalibrationReadiness{
+		R3LookbackDays:               lookback,
+		MinFollowupPairsRequired:     minPairs,
+		PairedFollowupsR3Window:      paired,
+		ReadinessLevel:               level,
+		ReadinessMessage:             msg,
+		ReadyForR3Nudges:             ready,
+		R3TelemetryNudgesEnabled:     r3On,
+		AutonomousCalibrationEnabled: auto,
+		EffectiveCalibrationNudgesOn: effective,
+		RmsLearningEnabled:           rmsEn,
+		RmsAutonomousApply:           rmsAp,
+		RmsCaptureNote:               "Per-event RMS is not stored in boundary_events. Optional RMS percentile learning writes aggregated histograms to table rms_learning (per format). Wizard calibration_profiles remain useful for vinyl gap (transition) metrics.",
+	}
+}
+
+func classifyCalibrationReadinessLevel(paired, minRequired int) (level, message string) {
+	if minRequired <= 0 {
+		minRequired = 25
+	}
+	switch {
+	case paired < minRequired:
+		return "insufficient", "Not enough paired follow-ups (matched + same_track_restored on fired rows) in the R3 lookback window; bounded nudges stay idle until the minimum is met."
+	case paired < minRequired*2:
+		return "low", "Borderline sample size; nudges may apply but false-positive ratio estimates are noisy."
+	case paired < minRequired*4:
+		return "adequate", "Enough paired events for stable bounded nudges under typical drift."
+	default:
+		return "strong", "Rich paired telemetry; good confidence for telemetry-driven calibration nudges within configured caps."
+	}
+}
+
+func (l *LibraryDB) getBoundaryEventStats(days int, cfg *Config) (*boundaryStatsResponse, error) {
 	out := &boundaryStatsResponse{
 		PeriodDays: days,
 		ByOutcome:  make(map[string]int),
@@ -232,7 +396,7 @@ func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, err
 	}
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "no such column") {
-			return out, rows.Err()
+			return out, nil
 		}
 		return nil, err
 	}
@@ -263,12 +427,15 @@ func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, err
 	}
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "no such column") {
-			return out, rows.Err()
+			return out, nil
 		}
 		return nil, err
 	}
 	out.EarlyBoundaryTotal = earlyN
-	return out, rows.Err()
+	if cfg != nil {
+		out.CalibrationReadiness = buildBoundaryCalibrationReadiness(l, cfg)
+	}
+	return out, nil
 }
 
 func (l *LibraryDB) close() {
@@ -582,7 +749,7 @@ func (l *LibraryDB) deleteEntry(id int64) error {
 // registerLibraryRoutes wires all /api/library/* endpoints into mux.
 // libraryDBPath is read from the running state-manager service file so the web
 // UI always talks to the same database without extra configuration.
-func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string, artworkDir string) {
+func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string, artworkDir string, configPath string) {
 	// GET  /api/library        → list all entries
 	// GET  /api/library/search?q=...&limit=20 → search confirmed tracks
 	// PUT  /api/library/{id}   → update entry metadata
@@ -703,13 +870,43 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			return
 		}
 		defer lib.close()
-		stats, err := lib.getBoundaryEventStats(days)
+		cfgSnap := defaultConfig()
+		if c, err := loadConfig(configPath); err == nil {
+			cfgSnap = c
+		}
+		stats, err := lib.getBoundaryEventStats(days, &cfgSnap)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(stats)
+	})
+
+	// GET /api/recognition/rms-learning — per-format histogram totals and derived VU thresholds.
+	mux.HandleFunc("/api/recognition/rms-learning", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		lib, err := openLibraryDB(libraryDBPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(&rmsLearningListResponse{Rows: []rmsLearningRowDTO{}})
+			return
+		}
+		defer lib.close()
+		list, err := lib.listRMSLearningRows()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(&rmsLearningListResponse{Rows: list})
 	})
 
 	// GET /api/library/artworks — recent tracks with artwork, for the picker.

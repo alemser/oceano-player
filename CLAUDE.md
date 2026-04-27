@@ -49,7 +49,7 @@ oceano-source-detector
 
 oceano-state-manager
   ├── reads /tmp/oceano-source.json      (physical source polling)
-  ├── reads /tmp/oceano-vu.sock          (VU monitor: silence→audio = track boundary trigger)
+  ├── reads /tmp/oceano-vu.sock          (VU monitor: silence→audio = track boundary trigger; optional RMS percentile learning → `rms_learning` in library SQLite)
   ├── reads /tmp/oceano-pcm.sock         (recognition capture — no second arecord needed)
   ├── reads shairport-sync metadata pipe (AirPlay metadata)
   ├── dbus-monitor subprocess            (Bluetooth: BlueZ AVRCP metadata + MediaTransport1 codec)

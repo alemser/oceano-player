@@ -539,6 +539,12 @@ body::after {
 
 #top-controls { position: absolute; top: 20px; right: max(22px, calc((100vw - min(100vw, var(--content-max-width))) / 2 + 22px)); z-index: 22; display: flex; align-items: center; gap: 10px; }
 
+/* Amplifier chip is for “now playing” context; hide it on the idle clock/weather screen
+   (loadAmpPowerState sets inline display — !important wins). */
+body:has(#idle-screen.visible) #amp-indicator {
+  display: none !important;
+}
+
 /* ─── Top bar ──────────────────────────────────────────────── */
 #idle-topbar {
   display: flex; align-items: center; justify-content: space-between;

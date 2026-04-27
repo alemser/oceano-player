@@ -160,6 +160,8 @@ When you correct a library entry’s format (**Vinyl**, **CD**, or **Unknown**),
 
 After each **fired** boundary, the state manager records **post-recognition follow-up** columns on the same row (outcome, optional IDs, **early-boundary** cohort flag). **Listening Metrics** shows linked counts under the boundary summary when data exists.
 
+**RMS percentile learning** (optional, Advanced settings): while **Physical** is active, the state manager accumulates **stable-silence vs stable-music** RMS histograms per format into the library database table **`rms_learning`**. With **Autonomous apply** enabled, derived silence enter/exit can **replace** wizard OFF/ON thresholds for VU boundaries once enough samples exist; the vinyl **transition** wizard step remains useful for gap/energy behaviour. Disable learning or autonomous apply if you change capture gain or hardware.
+
 ---
 
 ## Update

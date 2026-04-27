@@ -192,6 +192,10 @@ async function loadRecognitionPage() {
   renderCalibrationSummary();
   updateRecognitionUI();
 
+  if (typeof refreshRMSLearningSnapshot === 'function') {
+    refreshRMSLearningSnapshot('rec-rms-learning-summary');
+  }
+
   const sel = document.getElementById('rec-tuning-preset');
   if (sel) sel.value = detectTuningPreset();
 }
@@ -260,7 +264,12 @@ async function saveRecognitionPage() {
     });
     const res = await r.json().catch(() => ({}));
     if (!r.ok) { toast(res.error || 'Save failed.', true); }
-    else        { toast('Saved — services restarting…'); }
+    else {
+      toast('Saved — services restarting…');
+      if (typeof refreshRMSLearningSnapshot === 'function') {
+        refreshRMSLearningSnapshot('rec-rms-learning-summary');
+      }
+    }
   } catch {
     toast('Save failed.', true);
   }

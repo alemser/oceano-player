@@ -295,6 +295,12 @@
     <!-- Per-input summary rendered by renderCalibrationSummary() -->
     <div id="cal-summary-grid" style="margin-bottom:16px"></div>
 
+    <div class="rms-snap-wrap" style="margin-bottom:16px">
+      <div class="rms-snap-heading">RMS learning snapshot</div>
+      <p class="hint" style="margin:0 0 8px">Histogram totals and derived VU thresholds per format when <a href="/advanced.html">RMS percentile learning</a> is enabled. Full toggles live on Advanced.</p>
+      <div id="rec-rms-learning-summary"><span class="hint">Loading…</span></div>
+    </div>
+
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button type="button" class="btn-secondary" onclick="openCalibrationWizard()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>
@@ -542,6 +548,7 @@
   </div>
 </div>
 
+<script src="rms_learning_snapshot.js"></script>
 <script src="recognition/helpers.js"></script>
 <script src="recognition/calibration-wizard.js"></script>
 <script src="recognition/rms-monitor.js"></script>

@@ -386,6 +386,32 @@ html, body {
   margin-bottom: 6px;
 }
 
+.boundary-stats-stack {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.boundary-readiness-desc {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.45;
+  margin: 2px 0 4px;
+}
+
+.boundary-readiness-insufficient .boundary-readiness-level { color: #e0806a; }
+.boundary-readiness-low .boundary-readiness-level { color: #d4a843; }
+.boundary-readiness-adequate .boundary-readiness-level,
+.boundary-readiness-strong .boundary-readiness-level { color: #5ecb80; }
+
+.boundary-rms-note {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  margin-top: 8px;
+  line-height: 1.45;
+}
+
 /* ─── Recognition provider stats ───────────────────────────────────────────── */
 #rec-stats-section {
   margin-top: clamp(24px, 4vw, 40px);

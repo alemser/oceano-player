@@ -123,6 +123,19 @@ var migrations = []string{
 	`ALTER TABLE boundary_events ADD COLUMN followup_recorded_at TEXT`,
 	// R8: per-track hint for stricter VU / duration-guard behaviour.
 	`ALTER TABLE collection ADD COLUMN boundary_sensitive INTEGER NOT NULL DEFAULT 0`,
+	// RMS percentile learning: histograms of stable silence vs stable music (per format).
+	`CREATE TABLE rms_learning (
+		format_key TEXT NOT NULL PRIMARY KEY,
+		updated_at TEXT NOT NULL,
+		bins INTEGER NOT NULL,
+		max_rms REAL NOT NULL,
+		silence_counts TEXT NOT NULL,
+		music_counts TEXT NOT NULL,
+		silence_total INTEGER NOT NULL DEFAULT 0,
+		music_total INTEGER NOT NULL DEFAULT 0,
+		derived_enter REAL,
+		derived_exit REAL
+	)`,
 }
 
 var currentSchemaVersion = len(migrations)

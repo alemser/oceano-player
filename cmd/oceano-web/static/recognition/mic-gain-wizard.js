@@ -11,6 +11,8 @@ let _mic = {
   vuTimer: null,
   devices: [],
   selectedCard: null,
+  autoTuneRunning: false,
+  autoTuneAbort: false,
 };
 
 function openMicGainWizard() {
@@ -18,12 +20,15 @@ function openMicGainWizard() {
   _mic.info = null;
   _mic.devices = [];
   _mic.selectedCard = null;
+  _mic.autoTuneRunning = false;
+  _mic.autoTuneAbort = false;
   _stopMicVU();
   document.getElementById('mic-gain-overlay').classList.add('open');
   _micRenderStep();
 }
 
 function closeMicGainWizard() {
+  _mic.autoTuneAbort = true;
   _stopMicVU();
   document.getElementById('mic-gain-overlay').classList.remove('open');
 }
@@ -240,12 +245,9 @@ function _micStep2(body, footer) {
 
     <div id="mic-rms-status" class="cal-wiz-rec-box" style="margin-bottom:16px">Waiting for signal…</div>
 
-    <div style="display:flex;align-items:center;gap:8px;justify-content:center">
-      <button class="cal-wiz-cap-btn" onclick="_micAdjust('down',5)" title="Decrease by 5%">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>5%
-      </button>
-      <button class="cal-wiz-cap-btn" onclick="_micAdjust('down',1,true)" title="Decrease by 1 step" style="padding:7px 10px;font-size:0.78rem">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>1
+    <div style="display:flex;align-items:center;gap:12px;justify-content:center;flex-wrap:wrap">
+      <button type="button" class="cal-wiz-cap-btn mic-gain-step-btn" onclick="_micAdjust('down')" title="Decrease gain one step" style="min-width:52px;padding:10px 14px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
       <div style="text-align:center;min-width:72px">
         <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Gain</div>
@@ -253,12 +255,13 @@ function _micStep2(body, footer) {
         <div id="mic-gain-raw" style="font-size:0.68rem;color:var(--muted);margin-top:1px;font-family:monospace">${_mic.info?.gain_raw != null ? `${_mic.info.gain_raw}/${_mic.info.gain_max}` : ''}</div>
         <div style="font-size:0.62rem;color:var(--muted);margin-top:1px">${_esc(control)}</div>
       </div>
-      <button class="cal-wiz-cap-btn" onclick="_micAdjust('up',1,true)" title="Increase by 1 step" style="padding:7px 10px;font-size:0.78rem">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>1
+      <button type="button" class="cal-wiz-cap-btn mic-gain-step-btn" onclick="_micAdjust('up')" title="Increase gain one step" style="min-width:52px;padding:10px 14px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
-      <button class="cal-wiz-cap-btn" onclick="_micAdjust('up',5)" title="Increase by 5%">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>5%
-      </button>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:14px">
+      <button type="button" class="btn-secondary" id="mic-auto-tune-btn" onclick="_micStartAutoTune()" style="font-size:0.82rem">Auto-adjust gain</button>
+      <span class="hint" style="text-align:center;max-width:420px;margin:0">Uses the current music level to move gain toward the green zone (≈0.07–0.24 RMS avg, peaks under ~0.34). You can always override with <b>−</b> / <b>+</b>.</span>
     </div>`;
 
   footer.innerHTML = `
@@ -373,26 +376,158 @@ function _micStep2(body, footer) {
   }, 1200);
 }
 
-function _micAdjust(dir, step, rawStep) {
+function _micApplyGainResponse(d) {
+  if (!d || d.error) return;
+  const el = document.getElementById('mic-gain-val');
+  if (el) el.textContent = d.gain_pct + '%';
+  const rawEl = document.getElementById('mic-gain-raw');
+  if (rawEl && d.gain_raw != null) rawEl.textContent = `${d.gain_raw}/${d.gain_max}`;
+  if (_mic.info) {
+    _mic.info.gain_pct = d.gain_pct;
+    _mic.info.gain_raw = d.gain_raw;
+    _mic.info.gain_max = d.gain_max;
+  }
+}
+
+function _micAdjust(dir) {
   fetch('/api/mic-gain/adjust', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({direction: dir, step: step ?? 5, raw_step: rawStep ?? false, card_num: _mic.selectedCard}),
+    body: JSON.stringify({
+      direction: dir,
+      step: 1,
+      raw_step: true,
+      card_num: _mic.selectedCard,
+    }),
   })
     .then(r => r.json())
     .then(d => {
       if (d.error) { toast('Error: ' + d.error); return; }
-      const el = document.getElementById('mic-gain-val');
-      if (el) el.textContent = d.gain_pct + '%';
-      const rawEl = document.getElementById('mic-gain-raw');
-      if (rawEl && d.gain_raw != null) rawEl.textContent = `${d.gain_raw}/${d.gain_max}`;
-      if (_mic.info) {
-        _mic.info.gain_pct = d.gain_pct;
-        _mic.info.gain_raw = d.gain_raw;
-        _mic.info.gain_max = d.gain_max;
-      }
+      _micApplyGainResponse(d);
     })
     .catch(e => toast('Error: ' + e.message));
+}
+
+function _micAdjustAsync(dir) {
+  return fetch('/api/mic-gain/adjust', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      direction: dir,
+      step: 1,
+      raw_step: true,
+      card_num: _mic.selectedCard,
+    }),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) throw new Error(d.error);
+      _micApplyGainResponse(d);
+      return d;
+    });
+}
+
+async function _micVuSampleOnce() {
+  const r = await fetch('/api/calibration/vu-sample', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ seconds: 1 }),
+  });
+  if (!r.ok) throw new Error('VU sample failed');
+  return r.json();
+}
+
+function _micSetGainStepButtonsDisabled(disabled) {
+  document.querySelectorAll('.mic-gain-step-btn').forEach(b => {
+    b.disabled = disabled;
+  });
+}
+
+async function _micStartAutoTune() {
+  if (_mic.autoTuneRunning) return;
+  const btnAuto = document.getElementById('mic-auto-tune-btn');
+  const statusEl = document.getElementById('mic-rms-status');
+
+  _mic.autoTuneRunning = true;
+  _mic.autoTuneAbort = false;
+  if (btnAuto) {
+    btnAuto.disabled = true;
+    btnAuto.textContent = 'Adjusting…';
+  }
+  _micSetGainStepButtonsDisabled(true);
+
+  const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+  let noSignalTries = 0;
+  let success = false;
+
+  try {
+    for (let i = 0; i < 52 && !_mic.autoTuneAbort; i++) {
+      let sm;
+      try {
+        sm = await _micVuSampleOnce();
+      } catch {
+        await sleep(600);
+        continue;
+      }
+      const avg = sm.avg_rms ?? 0;
+      const peak = sm.max_rms ?? avg;
+
+      if (avg < 0.012) {
+        noSignalTries++;
+        if (statusEl) {
+          statusEl.className = 'cal-wiz-warn-box';
+          statusEl.innerHTML = 'Play music at normal volume — waiting for signal…';
+        }
+        if (noSignalTries >= 18) {
+          toast('No steady signal — start playback, then try Auto-adjust again.', true);
+          break;
+        }
+        await sleep(700);
+        continue;
+      }
+      noSignalTries = 0;
+
+      const okAvg = avg >= 0.07 && avg <= 0.24;
+      const okPeak = peak <= 0.34;
+      if (okAvg && okPeak) {
+        success = true;
+        toast('Auto-adjust: gain is in the recommended range. Fine-tune with − / + if you like.');
+        break;
+      }
+
+      const rawBefore = _mic.info?.gain_raw;
+      let dir = null;
+      if (peak > 0.38 || avg > 0.32) {
+        dir = 'down';
+      } else if (avg < 0.07) {
+        dir = 'up';
+      } else if (avg > 0.24) {
+        dir = 'down';
+      } else if (peak > 0.34) {
+        dir = 'down';
+      } else {
+        break;
+      }
+
+      await _micAdjustAsync(dir);
+      await sleep(800);
+
+      const rawAfter = _mic.info?.gain_raw;
+      if (rawBefore != null && rawAfter === rawBefore) {
+        toast('Mixer limit reached — use − / + manually if the level is still off.', true);
+        break;
+      }
+    }
+  } catch (e) {
+    toast(e.message || String(e), true);
+  } finally {
+    _mic.autoTuneRunning = false;
+    if (btnAuto) {
+      btnAuto.disabled = false;
+      btnAuto.textContent = 'Auto-adjust gain';
+    }
+    _micSetGainStepButtonsDisabled(false);
+  }
 }
 
 function _micStep3(body, footer) {
@@ -452,11 +587,13 @@ function _micSave() {
 }
 
 function _micNext() {
+  _mic.autoTuneAbort = true;
   _stopMicVU();
   if (_mic.step < MIC_STEPS - 1) { _mic.step++; _micRenderStep(); }
 }
 
 function _micPrev() {
+  _mic.autoTuneAbort = true;
   _stopMicVU();
   if (_mic.step > 0) { _mic.step--; _micRenderStep(); }
 }

@@ -50,10 +50,26 @@ type telemetryNudgesJSON struct {
 	EarlyTrackExtraSilenceDelta    *float64 `json:"early_track_extra_silence_delta,omitempty"`
 }
 
+type autonomousCalibrationJSON struct {
+	Enabled bool `json:"enabled"`
+}
+
+type rmsPercentileLearningJSON struct {
+	Enabled               bool     `json:"enabled"`
+	AutonomousApply       bool     `json:"autonomous_apply"`
+	MinSilenceSamples     *int     `json:"min_silence_samples,omitempty"`
+	MinMusicSamples       *int     `json:"min_music_samples,omitempty"`
+	PersistIntervalSecs   *int     `json:"persist_interval_secs,omitempty"`
+	HistogramBins         *int     `json:"histogram_bins,omitempty"`
+	HistogramMaxRMS       *float64 `json:"histogram_max_rms,omitempty"`
+}
+
 type calibrationConfigSnapshot struct {
 	Advanced struct {
-		CalibrationProfiles map[string]calibrationProfile `json:"calibration_profiles"`
-		TelemetryNudges     *telemetryNudgesJSON          `json:"r3_telemetry_nudges,omitempty"`
+		CalibrationProfiles     map[string]calibrationProfile   `json:"calibration_profiles"`
+		TelemetryNudges         *telemetryNudgesJSON            `json:"r3_telemetry_nudges,omitempty"`
+		AutonomousCalibration   *autonomousCalibrationJSON      `json:"autonomous_calibration,omitempty"`
+		RMSPercentileLearning   *rmsPercentileLearningJSON     `json:"rms_percentile_learning,omitempty"`
 	} `json:"advanced"`
 	Amplifier struct {
 		Inputs []struct {
@@ -88,6 +104,58 @@ type telemetryNudgesConfig struct {
 	MaxDurationPessimismDelta      float64
 	EarlyTrackProgressP75Threshold float64
 	EarlyTrackExtraSilenceDelta    float64
+}
+
+// rmsLearningRuntimeConfig controls autonomous RMS histogram learning (library DB).
+type rmsLearningRuntimeConfig struct {
+	Enabled             bool
+	AutonomousApply     bool
+	MinSilenceSamples   int
+	MinMusicSamples     int
+	PersistInterval     time.Duration
+	Bins                int
+	MaxRMS              float32
+}
+
+func defaultRMSLearningRuntimeConfig() rmsLearningRuntimeConfig {
+	return rmsLearningRuntimeConfig{
+		MinSilenceSamples: 400,
+		MinMusicSamples:   400,
+		PersistInterval:   2 * time.Minute,
+		Bins:              80,
+		MaxRMS:            0.25,
+	}
+}
+
+func mergeRMSLearningConfig(raw *rmsPercentileLearningJSON) rmsLearningRuntimeConfig {
+	out := defaultRMSLearningRuntimeConfig()
+	if raw == nil {
+		return out
+	}
+	out.Enabled = raw.Enabled
+	out.AutonomousApply = raw.AutonomousApply
+	if raw.MinSilenceSamples != nil {
+		out.MinSilenceSamples = *raw.MinSilenceSamples
+	}
+	if raw.MinMusicSamples != nil {
+		out.MinMusicSamples = *raw.MinMusicSamples
+	}
+	if raw.PersistIntervalSecs != nil && *raw.PersistIntervalSecs > 0 {
+		out.PersistInterval = time.Duration(*raw.PersistIntervalSecs) * time.Second
+	}
+	if raw.HistogramBins != nil && *raw.HistogramBins >= 16 && *raw.HistogramBins <= 256 {
+		out.Bins = *raw.HistogramBins
+	}
+	if raw.HistogramMaxRMS != nil && *raw.HistogramMaxRMS > 0.02 && *raw.HistogramMaxRMS <= 0.6 {
+		out.MaxRMS = float32(*raw.HistogramMaxRMS)
+	}
+	if out.MinSilenceSamples < 50 {
+		out.MinSilenceSamples = 50
+	}
+	if out.MinMusicSamples < 50 {
+		out.MinMusicSamples = 50
+	}
+	return out
 }
 
 func defaultTelemetryNudgesConfig() telemetryNudgesConfig {
@@ -132,34 +200,39 @@ func mergeTelemetryNudgesConfig(raw *telemetryNudgesJSON) telemetryNudgesConfig 
 	return out
 }
 
-func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32, preferredMediaFormat string) (boundaryCalibrationModel, telemetryNudgesConfig) {
+func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32, preferredMediaFormat string) (boundaryCalibrationModel, telemetryNudgesConfig, rmsLearningRuntimeConfig) {
 	telemetryCfg := defaultTelemetryNudgesConfig()
+	rmsCfg := defaultRMSLearningRuntimeConfig()
 	model := boundaryCalibrationModel{
 		enterSilenceThreshold: fallbackSilenceThreshold,
 		exitSilenceThreshold:  fallbackSilenceThreshold,
 	}
 	if path == "" {
-		return model, telemetryCfg
+		return model, telemetryCfg, rmsCfg
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return model, mergeTelemetryNudgesConfig(nil)
+		return model, mergeTelemetryNudgesConfig(nil), mergeRMSLearningConfig(nil)
 	}
 
 	var snap calibrationConfigSnapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
-		return model, mergeTelemetryNudgesConfig(nil)
+		return model, mergeTelemetryNudgesConfig(nil), mergeRMSLearningConfig(nil)
 	}
 	telemetryCfg = mergeTelemetryNudgesConfig(snap.Advanced.TelemetryNudges)
+	rmsCfg = mergeRMSLearningConfig(snap.Advanced.RMSPercentileLearning)
+	if snap.Advanced.AutonomousCalibration != nil && snap.Advanced.AutonomousCalibration.Enabled {
+		telemetryCfg.Enabled = true
+	}
 
 	if len(snap.Advanced.CalibrationProfiles) == 0 {
-		return model, telemetryCfg
+		return model, telemetryCfg, rmsCfg
 	}
 
 	profileID, profile, ok := chooseCalibrationProfile(snap, preferredMediaFormat)
 	if !ok {
-		return model, telemetryCfg
+		return model, telemetryCfg, rmsCfg
 	}
 	model.profileID = profileID
 
@@ -204,7 +277,7 @@ func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32,
 	model.enterSilenceThreshold, model.exitSilenceThreshold = clampSilenceThresholdsToFloor(
 		model.enterSilenceThreshold, model.exitSilenceThreshold, fallbackSilenceThreshold,
 	)
-	return model, telemetryCfg
+	return model, telemetryCfg, rmsCfg
 }
 
 // deriveVUThresholdsFromCalibratedOffOn maps calibrated off/on RMS samples to VU

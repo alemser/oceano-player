@@ -295,7 +295,7 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 			durationGuardBypassWindow = 20 * time.Second
 		}
 		detectorCfg := defaultVUBoundaryDetectorConfig(silenceThreshold, silenceFrames, activeFrames)
-		calModel, telemetryCfg := loadBoundaryCalibrationModel(m.cfg.CalibrationConfigPath, silenceThreshold, m.currentPhysicalFormatForCalibration())
+		calModel, telemetryCfg, rmsLearn := loadBoundaryCalibrationModel(m.cfg.CalibrationConfigPath, silenceThreshold, m.currentPhysicalFormatForCalibration())
 		calFormat := m.currentPhysicalFormatForCalibration()
 		silNudge, pessNudge, telemetrySummary := computeTelemetryCalibrationNudges(m.lib, telemetryCfg, calFormat)
 		m.mu.Lock()
@@ -338,14 +338,30 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 		if detectorCfg.energyDipMaxFrames > 0 && detectorCfg.energyDipMaxFrames < detectorCfg.energyDipMinFrames+4 {
 			detectorCfg.energyDipMaxFrames = detectorCfg.energyDipMinFrames + 4
 		}
+		applyPersistedRMSLearningToDetector(m.lib, rmsLearn, silenceThreshold, calFormat, &detectorCfg)
+		// Re-apply R3 silence nudge on top of profile- or RMS-learned enter/exit.
+		if silNudge != 0 {
+			detectorCfg.silenceEnterThreshold += silNudge
+			detectorCfg.silenceExitThreshold += silNudge
+			detectorCfg.silenceEnterThreshold, detectorCfg.silenceExitThreshold = clampSilenceThresholdsToFloor(
+				detectorCfg.silenceEnterThreshold, detectorCfg.silenceExitThreshold, silenceThreshold,
+			)
+		}
 		if calModel.profileID != "" {
 			log.Printf("VU monitor: calibration profile=%s silenceEnter=%.4f silenceExit=%.4f gapRMS=%.4f gapDur=%s", calModel.profileID, detectorCfg.silenceEnterThreshold, detectorCfg.silenceExitThreshold, detectorCfg.transitionGapRMS, calModel.transitionGapDuration.Round(100*time.Millisecond))
+		}
+		var learner *rmsPercentileLearner
+		if rmsLearn.Enabled && m.lib != nil {
+			learner = newRMSPercentileLearner(m.lib, rmsLearn, silNudge)
 		}
 		refreshInterval := time.Duration(0)
 		if telemetryCfg.Enabled {
 			refreshInterval = telemetryRefreshInterval
+		} else if rmsLearn.Enabled && m.lib != nil {
+			// Reload calibration JSON + persisted RMS histograms periodically during long uptimes.
+			refreshInterval = telemetryRefreshInterval
 		}
-		m.readVUFrames(ctx, conn, detectorCfg, durationGuardBypassWindow, m.effectiveDurationPessimismForPhysicalPolicy(), refreshInterval)
+		m.readVUFrames(ctx, conn, detectorCfg, durationGuardBypassWindow, m.effectiveDurationPessimismForPhysicalPolicy(), refreshInterval, learner, silenceThreshold)
 		conn.Close()
 
 		if ctx.Err() != nil {
@@ -372,7 +388,7 @@ func (m *mgr) currentPhysicalFormatForCalibration() string {
 	return ""
 }
 
-func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBoundaryDetectorConfig, durationGuardBypassWindow time.Duration, durationPessimism float64, refreshInterval time.Duration) {
+func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBoundaryDetectorConfig, durationGuardBypassWindow time.Duration, durationPessimism float64, refreshInterval time.Duration, learner *rmsPercentileLearner, floorSilence float32) {
 	// Reset silence state on reconnect — without a live stream we have no
 	// reliable VU state; clear it so the display doesn't stay frozen as idle.
 	m.mu.Lock()
@@ -490,6 +506,9 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		right := math.Float32frombits(binary.LittleEndian.Uint32(buf[4:8]))
 		avg := (left + right) / 2
 		out := detector.Feed(avg, now)
+		if learner != nil {
+			learner.observe(m, avg, out, floorSilence, detector)
+		}
 
 		if out.armDurationBypass {
 			durationGuardBypassUntil = now.Add(durationGuardBypassWindow)

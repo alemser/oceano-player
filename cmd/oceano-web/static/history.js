@@ -256,14 +256,42 @@ async function loadBoundaryStats(statsReqSeq) {
   }
 }
 
+function renderBoundaryReadinessCard(cr) {
+  const level = String(cr.readiness_level || '');
+  const levelClass = level ? ` boundary-readiness-${level}` : '';
+  const nudgesOn = cr.effective_calibration_nudges_on ? 'On' : 'Off';
+  return (
+    `<div class="rec-prov-card boundary-readiness-card${levelClass}">` +
+    `<div class="rec-prov-name">Calibration readiness (R3 lookback)</div>` +
+    `<div class="rec-prov-row"><span class="lbl">Readiness</span><span class="val boundary-readiness-level">${esc(level || '—')}</span></div>` +
+    `<p class="boundary-readiness-desc">${esc(cr.readiness_message || '')}</p>` +
+    `<div class="rec-prov-row"><span class="lbl">Paired follow-ups (window)</span><span class="val">${Number(cr.paired_followups_r3_window || 0)}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Minimum pairs required</span><span class="val">${Number(cr.min_followup_pairs_required || 0)}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Lookback (days)</span><span class="val">${Number(cr.r3_lookback_days || 0)}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">R3 nudges enabled</span><span class="val">${cr.r3_telemetry_nudges_enabled ? 'Yes' : 'No'}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Autonomous mode</span><span class="val">${cr.autonomous_calibration_enabled ? 'Yes' : 'No'}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Effective runtime nudges</span><span class="val">${nudgesOn}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Nudges apply now</span><span class="val">${cr.ready_for_r3_nudges ? 'Yes' : 'No'}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">RMS histogram learning</span><span class="val">${cr.rms_learning_enabled ? 'Yes' : 'No'}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">RMS autonomous apply</span><span class="val">${cr.rms_autonomous_apply ? 'Yes' : 'No'}</span></div>` +
+    `<p class="boundary-rms-note">${esc(cr.rms_capture_note || '')}</p>` +
+    `</div>`
+  );
+}
+
 function renderBoundaryStats(container, payload) {
+  const cr = payload.calibration_readiness;
+  const readinessHtml = cr ? renderBoundaryReadinessCard(cr) : '';
+
   const total = Number(payload.total || 0);
   const by = payload.by_outcome || {};
   const actionable = Number(payload.actionable_total || 0);
   const fr = payload.fire_rate;
 
   if (total === 0) {
-    container.innerHTML = '<div class="rec-stats-placeholder">No boundary events in this period yet.</div>';
+    container.innerHTML = readinessHtml
+      ? `<div class="boundary-stats-stack">${readinessHtml}</div><div class="rec-stats-placeholder">No boundary events in this period yet.</div>`
+      : '<div class="rec-stats-placeholder">No boundary events in this period yet.</div>';
     return;
   }
 
@@ -314,7 +342,7 @@ function renderBoundaryStats(container, payload) {
       `</div>`
     : '';
 
-  container.innerHTML =
+  const summaryCard =
     `<div class="rec-prov-card boundary-stats-card">` +
     `<div class="rec-prov-name">Summary</div>` +
     `<div class="rec-prov-row"><span class="lbl">Total events</span><span class="val">${total}</span></div>` +
@@ -323,6 +351,8 @@ function renderBoundaryStats(container, payload) {
     `<div class="boundary-outcome-block">${rows}</div>` +
     followupBlock +
     `</div>`;
+
+  container.innerHTML = `<div class="boundary-stats-stack">${summaryCard}${readinessHtml}</div>`;
 }
 
 // ─── Recognition provider stats ───────────────────────────────────────────────

@@ -45,7 +45,7 @@ func TestLoadBoundaryCalibrationModel_UsesLastKnownInputProfile(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	model, _ := loadBoundaryCalibrationModel(cfgPath, 0.0095, "")
+	model, _, _ := loadBoundaryCalibrationModel(cfgPath, 0.0095, "")
 	if model.profileID != "20" {
 		t.Fatalf("profileID = %q, want 20", model.profileID)
 	}
@@ -54,6 +54,31 @@ func TestLoadBoundaryCalibrationModel_UsesLastKnownInputProfile(t *testing.T) {
 	}
 	if model.transitionGapRMS != 0 {
 		t.Fatalf("expected no transition model for profile 20, got %.4f", model.transitionGapRMS)
+	}
+}
+
+func TestLoadBoundaryCalibrationModel_AutonomousCalibrationEnablesTelemetryNudges(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	json := `{
+	  "advanced": {
+	    "calibration_profiles": {
+	      "20": {
+	        "off": {"avg_rms": 0.0100},
+	        "on": {"avg_rms": 0.0200}
+	      }
+	    },
+	    "r3_telemetry_nudges": { "enabled": false },
+	    "autonomous_calibration": { "enabled": true }
+	  },
+	  "amplifier_runtime": { "last_known_input_id": "20" }
+	}`
+	if err := os.WriteFile(cfgPath, []byte(json), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	_, tel, _ := loadBoundaryCalibrationModel(cfgPath, 0.0095, "")
+	if !tel.Enabled {
+		t.Fatal("expected telemetry nudges enabled when autonomous_calibration.enabled is true")
 	}
 }
 
@@ -85,7 +110,7 @@ func TestLoadBoundaryCalibrationModel_FallsBackToVinylProfile(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	model, _ := loadBoundaryCalibrationModel(cfgPath, 0.0095, "")
+	model, _, _ := loadBoundaryCalibrationModel(cfgPath, 0.0095, "")
 	if model.profileID != "30" {
 		t.Fatalf("profileID = %q, want 30", model.profileID)
 	}
@@ -131,7 +156,7 @@ func TestLoadBoundaryCalibrationModel_PrefersMediaFormatOverLastKnownInput(t *te
 		t.Fatalf("write config: %v", err)
 	}
 
-	model, _ := loadBoundaryCalibrationModel(cfgPath, 0.0095, "Vinyl")
+	model, _, _ := loadBoundaryCalibrationModel(cfgPath, 0.0095, "Vinyl")
 	if model.profileID != "10" {
 		t.Fatalf("profileID = %q, want 10 for vinyl", model.profileID)
 	}
@@ -177,7 +202,7 @@ func TestLoadBoundaryCalibrationModel_CDFormatFallsBackToInputSelection(t *testi
 		t.Fatalf("write config: %v", err)
 	}
 
-	model, _ := loadBoundaryCalibrationModel(cfgPath, 0.0095, "CD")
+	model, _, _ := loadBoundaryCalibrationModel(cfgPath, 0.0095, "CD")
 	if model.profileID != "20" {
 		t.Fatalf("profileID = %q, want 20 for CD", model.profileID)
 	}
@@ -205,7 +230,7 @@ func TestLoadBoundaryCalibrationModel_ClampsDerivedThresholdsToGlobalFloor(t *te
 	}
 
 	const floor float32 = 0.0220
-	model, _ := loadBoundaryCalibrationModel(cfgPath, floor, "")
+	model, _, _ := loadBoundaryCalibrationModel(cfgPath, floor, "")
 	if model.enterSilenceThreshold < floor {
 		t.Fatalf("enter=%f should be >= floor %f", model.enterSilenceThreshold, floor)
 	}
@@ -238,7 +263,7 @@ func TestLoadBoundaryCalibrationModel_SkipsDerivedThresholdsWhenOffOnGapTooSmall
 	}
 
 	const fallback float32 = 0.0095
-	model, _ := loadBoundaryCalibrationModel(cfgPath, fallback, "")
+	model, _, _ := loadBoundaryCalibrationModel(cfgPath, fallback, "")
 	if model.profileID != "20" {
 		t.Fatalf("profileID = %q, want 20", model.profileID)
 	}
@@ -334,7 +359,7 @@ func TestLoadBoundaryCalibrationModel_GapEqualEpsilonUsesDerivedThresholds(t *te
 	if !derived {
 		t.Fatal("fixture must derive")
 	}
-	model, _ := loadBoundaryCalibrationModel(cfgPath, 0.0095, "")
+	model, _, _ := loadBoundaryCalibrationModel(cfgPath, 0.0095, "")
 	if !approxEq32(model.enterSilenceThreshold, wantEnter) || !approxEq32(model.exitSilenceThreshold, wantExit) {
 		t.Fatalf("enter=%f exit=%f want enter=%f exit=%f",
 			model.enterSilenceThreshold, model.exitSilenceThreshold, wantEnter, wantExit)

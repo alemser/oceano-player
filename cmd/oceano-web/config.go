@@ -425,6 +425,29 @@ type AdvancedConfig struct {
 	// TelemetryNudges optionally adjusts effective VU silence thresholds and
 	// duration pessimism from boundary_events follow-up telemetry (same_track_restored vs matched).
 	TelemetryNudges *TelemetryNudgesConfig `json:"r3_telemetry_nudges,omitempty"`
+	// AutonomousCalibration when enabled forces telemetry nudges (R3) on at runtime
+	// even if r3_telemetry_nudges.enabled is false — bounded adjustments still require
+	// enough paired follow-ups (see Listening Metrics calibration readiness).
+	AutonomousCalibration *AutonomousCalibrationConfig `json:"autonomous_calibration,omitempty"`
+	// RMSPercentileLearning collects stable-silence vs stable-music RMS histograms
+	// into the library DB and can autonomously set VU silence enter/exit thresholds.
+	RMSPercentileLearning *RMSPercentileLearningConfig `json:"rms_percentile_learning,omitempty"`
+}
+
+// RMSPercentileLearningConfig enables autonomous RMS histogram learning (library DB).
+type RMSPercentileLearningConfig struct {
+	Enabled             bool `json:"enabled"`
+	AutonomousApply     bool `json:"autonomous_apply"`
+	MinSilenceSamples   int  `json:"min_silence_samples,omitempty"`
+	MinMusicSamples     int  `json:"min_music_samples,omitempty"`
+	PersistIntervalSecs int  `json:"persist_interval_secs,omitempty"`
+	HistogramBins       int  `json:"histogram_bins,omitempty"`
+	HistogramMaxRMS     float64 `json:"histogram_max_rms,omitempty"`
+}
+
+// AutonomousCalibrationConfig enables hands-off application of R3 telemetry nudges.
+type AutonomousCalibrationConfig struct {
+	Enabled bool `json:"enabled"`
 }
 
 // TelemetryNudgesConfig enables bounded calibration nudges driven by Listening Metrics telemetry (R3).
