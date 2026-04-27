@@ -588,7 +588,7 @@ func TestUpdate_BackfillsBoundaryEventsFormatResolved(t *testing.T) {
 		t.Fatalf("insert boundary_events: %v", err)
 	}
 
-	if err := lib.update(1, "Track", "Artist", "", "", "", "Vinyl", "", "", 0); err != nil {
+	if err := lib.update(1, "Track", "Artist", "", "", "", "Vinyl", "", "", 0, false); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	var resolved sql.NullString
@@ -603,7 +603,7 @@ func TestUpdate_BackfillsBoundaryEventsFormatResolved(t *testing.T) {
 		t.Fatalf("format_resolved_at should be set")
 	}
 
-	if err := lib.update(1, "Track", "Artist", "", "", "", "Unknown", "", "", 0); err != nil {
+	if err := lib.update(1, "Track", "Artist", "", "", "", "Unknown", "", "", 0, false); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	if err := lib.db.QueryRow(`SELECT format_resolved, format_resolved_at FROM boundary_events WHERE id=1`).Scan(&resolved, &resolvedAt); err != nil {
@@ -613,7 +613,7 @@ func TestUpdate_BackfillsBoundaryEventsFormatResolved(t *testing.T) {
 		t.Fatalf("want NULL resolution after Unknown, got resolved=%v at=%v", resolved, resolvedAt)
 	}
 
-	if err := lib.update(1, "Track", "Artist", "", "", "", "CD", "", "", 0); err != nil {
+	if err := lib.update(1, "Track", "Artist", "", "", "", "CD", "", "", 0, false); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	if err := lib.db.QueryRow(`SELECT format_resolved FROM boundary_events WHERE id=1`).Scan(&resolved); err != nil {

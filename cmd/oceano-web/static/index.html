@@ -579,6 +579,15 @@
         <input type="text" id="modal-duration" placeholder="e.g. 3:45" pattern="[0-9]+:[0-5][0-9]">
       </div>
     </div>
+    <div class="modal-row modal-row-full">
+      <div class="modal-field">
+        <label class="modal-check" for="modal-boundary-sensitive">
+          <input type="checkbox" id="modal-boundary-sensitive">
+          <span>Boundary-sensitive track</span>
+        </label>
+        <p class="modal-hint">Turn on when quiet passages on this recording are often mistaken for the next track. Stricter duration checks apply when identifying boundaries.</p>
+      </div>
+    </div>
     <div class="resolve-wrap" id="resolve-wrap" style="display:none">
       <div class="resolve-title">Link to existing track</div>
       <input type="text" id="resolve-search" class="resolve-input" placeholder="Search by title, artist or album" oninput="searchResolveTargets()">

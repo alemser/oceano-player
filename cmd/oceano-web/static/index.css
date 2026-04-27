@@ -785,6 +785,7 @@
     .modal-title-block p  { font-size: 0.8rem; color: var(--text-dim); margin-top: 3px; }
     .modal-field { margin-bottom: 14px; }
     .modal-field label { display: block; font-size: 0.75rem; color: var(--text-dim); margin-bottom: 5px; }
+    .modal-field label.modal-check { display: flex; align-items: flex-start; gap: 10px; font-size: 0.8rem; color: var(--text); margin-bottom: 4px; }
     .modal-field input, .modal-field select {
       width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
       color: var(--text); font-size: 0.88rem; padding: 8px 10px; outline: none;
@@ -793,6 +794,13 @@
     .modal-field input:focus, .modal-field select:focus { border-color: var(--accent); }
     .modal-field select option { background: #1a1a1a; }
     .modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .modal-row-full { grid-template-columns: 1fr; }
+    .modal-check {
+      display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+      font-size: 0.8rem; color: var(--text); margin-bottom: 0;
+    }
+    .modal-check input { width: auto; margin-top: 3px; accent-color: var(--accent); flex-shrink: 0; }
+    .modal-hint { font-size: 0.7rem; color: var(--text-dim); margin: 6px 0 0 26px; line-height: 1.4; }
     .modal-actions {
       display: flex;
       flex-direction: column;

@@ -33,6 +33,9 @@ type LibraryEntry struct {
 	FirstPlayed   string `json:"first_played"`
 	LastPlayed    string `json:"last_played"`
 	UserConfirmed bool   `json:"user_confirmed"`
+	// BoundarySensitive marks tracks where quiet passages are often mistaken for
+	// track boundaries (R8); the state manager nudges duration-based VU guards.
+	BoundarySensitive bool `json:"boundary_sensitive"`
 }
 
 // LibraryDB wraps the collection SQLite database for the web UI.
@@ -110,6 +113,7 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		`ALTER TABLE boundary_events ADD COLUMN followup_new_recording INTEGER`,
 		`ALTER TABLE boundary_events ADD COLUMN early_boundary INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE boundary_events ADD COLUMN followup_recorded_at TEXT`,
+		`ALTER TABLE collection ADD COLUMN boundary_sensitive INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range ensureCols {
 		if _, err := l.db.Exec(stmt); err != nil {
@@ -300,7 +304,8 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist, COALESCE(album,''), COALESCE(label,''),
 		       COALESCE(released,''), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
-		       COALESCE(duration_ms,0), play_count, first_played, last_played, COALESCE(user_confirmed,0)
+		       COALESCE(duration_ms,0), play_count, first_played, last_played, COALESCE(user_confirmed,0),
+		       COALESCE(boundary_sensitive,0)
 		FROM collection ORDER BY last_played DESC`)
 	if err != nil {
 		return nil, err
@@ -310,12 +315,13 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 	var entries []LibraryEntry
 	for rows.Next() {
 		var e LibraryEntry
-		var confirmed int
+		var confirmed, boundarySens int
 		if err := rows.Scan(&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist, &e.Album, &e.Label, &e.Released, &e.Format,
-			&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed); err != nil {
+			&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed, &boundarySens); err != nil {
 			return nil, err
 		}
 		e.UserConfirmed = confirmed == 1
+		e.BoundarySensitive = boundarySens == 1
 		entries = append(entries, e)
 	}
 	return entries, rows.Err()
@@ -362,15 +368,20 @@ func (l *LibraryDB) search(q string, limit int) ([]LibraryEntry, error) {
 // update patches editable fields for a single entry and cascades the changes
 // to any play_history rows linked to the same collection entry so the history
 // reflects corrected metadata (format badge, title, artwork, etc.) immediately.
-func (l *LibraryDB) update(id int64, title, artist, album, label, released, format, trackNumber, artworkPath string, durationMs int) error {
+func (l *LibraryDB) update(id int64, title, artist, album, label, released, format, trackNumber, artworkPath string, durationMs int, boundarySensitive bool) error {
+	boundarySens := 0
+	if boundarySensitive {
+		boundarySens = 1
+	}
 	_, err := l.db.Exec(`
 		UPDATE collection
 		SET title=?, artist=?, album=?, label=?, released=?, format=?, track_number=?, artwork_path=?,
 		    duration_ms=CASE WHEN ? > 0 THEN ? ELSE duration_ms END,
-		    user_confirmed=1
+		    user_confirmed=1,
+		    boundary_sensitive=?
 		WHERE id=?`,
 		title, artist, album, label, released, format, trackNumber, artworkPath,
-		durationMs, durationMs, id,
+		durationMs, durationMs, boundarySens, id,
 	)
 	if err != nil {
 		return err
@@ -831,15 +842,16 @@ func handleUploadArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB,
 
 func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, stateFilePath string) {
 	var body struct {
-		Title       string `json:"title"`
-		Artist      string `json:"artist"`
-		Album       string `json:"album"`
-		Label       string `json:"label"`
-		Released    string `json:"released"`
-		Format      string `json:"format"`
-		TrackNumber string `json:"track_number"`
-		ArtworkPath string `json:"artwork_path"`
-		DurationMs  int    `json:"duration_ms"`
+		Title             string `json:"title"`
+		Artist            string `json:"artist"`
+		Album             string `json:"album"`
+		Label             string `json:"label"`
+		Released          string `json:"released"`
+		Format            string `json:"format"`
+		TrackNumber       string `json:"track_number"`
+		ArtworkPath       string `json:"artwork_path"`
+		DurationMs        int    `json:"duration_ms"`
+		BoundarySensitive bool   `json:"boundary_sensitive"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -862,7 +874,7 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 		body.Format = "Unknown"
 	}
 
-	if err := lib.update(id, body.Title, body.Artist, body.Album, body.Label, body.Released, body.Format, body.TrackNumber, body.ArtworkPath, body.DurationMs); err != nil {
+	if err := lib.update(id, body.Title, body.Artist, body.Album, body.Label, body.Released, body.Format, body.TrackNumber, body.ArtworkPath, body.DurationMs, body.BoundarySensitive); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

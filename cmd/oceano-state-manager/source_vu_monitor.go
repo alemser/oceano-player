@@ -26,6 +26,24 @@ const (
 	earlyBypassGuardWindow = 45 * time.Second
 )
 
+// effectiveDurationPessimism applies a conservative boost when the current library
+// row is marked boundary-sensitive (quiet passages mistaken for track changes).
+func effectiveDurationPessimism(base float64, boundarySensitive bool) float64 {
+	const boost = 0.12
+	const capVal = 0.98
+	if base <= 0 || base > 1 {
+		base = 0.75
+	}
+	if !boundarySensitive {
+		return base
+	}
+	v := base + boost
+	if v > capVal {
+		return capVal
+	}
+	return v
+}
+
 func shouldSuppressBoundary(durationMs int, seekMS int64, seekUpdatedAt, bypassUntil, now time.Time, durationPessimism float64) bool {
 	if durationMs <= 0 || seekUpdatedAt.IsZero() {
 		return false
@@ -95,6 +113,7 @@ func (m *mgr) clearStalePhysicalRecognitionOnSilence(reason string, silenceElaps
 	m.recognitionResult = nil
 	m.physicalArtworkPath = ""
 	m.physicalLibraryEntryID = 0
+	m.physicalBoundarySensitive = false
 	m.shazamContinuityReady = false
 	m.shazamContinuityAbandoned = false
 	m.physicalSeekMS = 0
@@ -164,6 +183,7 @@ func (m *mgr) pollSourceFile() {
 	if newSession {
 		m.recognitionResult = nil
 		m.physicalArtworkPath = ""
+		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
 		m.shazamContinuityReady = false
 		m.lastContinuityMismatchAt = time.Time{}
@@ -174,6 +194,7 @@ func (m *mgr) pollSourceFile() {
 	} else if resumedAfterIdle {
 		m.recognitionResult = nil
 		m.physicalArtworkPath = ""
+		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
 		m.shazamContinuityReady = false
 		m.lastContinuityMismatchAt = time.Time{}
@@ -195,6 +216,7 @@ func (m *mgr) pollSourceFile() {
 		// until the next match, which matches user expectation better than a wrong title.
 		m.recognitionResult = nil
 		m.physicalArtworkPath = ""
+		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
 		m.shazamContinuityReady = false
 		m.lastContinuityMismatchAt = time.Time{}
@@ -346,6 +368,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		var seekMS int64
 		var seekUpdatedAt time.Time
 		continuityReady := m.shazamContinuityReady
+		boundarySensitive := m.physicalBoundarySensitive
 		if m.recognitionResult != nil {
 			durationMs = m.recognitionResult.DurationMs
 		}
@@ -353,20 +376,21 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		seekUpdatedAt = m.physicalSeekUpdatedAt
 		m.mu.Unlock()
 
+		effPess := effectiveDurationPessimism(durationPessimism, boundarySensitive)
 		now := time.Now()
-		if shouldSuppressBoundary(durationMs, seekMS, seekUpdatedAt, durationGuardBypassUntil, now, durationPessimism) {
+		if shouldSuppressBoundary(durationMs, seekMS, seekUpdatedAt, durationGuardBypassUntil, now, effPess) {
 			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
-			suppressUntil := time.Duration(float64(trackDuration) * durationPessimism)
+			suppressUntil := time.Duration(float64(trackDuration) * effPess)
 			log.Printf("VU monitor: boundary suppressed (%s) — %s elapsed, checks active from %s (track %s)",
 				reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))
 			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeSuppressedDurationGuard, reason, isHardBoundary)
 			return
 		}
-		if shouldIgnoreBoundaryAtMatureProgress(durationMs, seekMS, seekUpdatedAt, now, durationPessimism) {
+		if shouldIgnoreBoundaryAtMatureProgress(durationMs, seekMS, seekUpdatedAt, now, effPess) {
 			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
-			suppressUntil := time.Duration(float64(trackDuration) * normalizedDurationPessimism(durationPessimism))
+			suppressUntil := time.Duration(float64(trackDuration) * normalizedDurationPessimism(effPess))
 			if continuityReady {
 				log.Printf("VU monitor: boundary ignored (%s) — continuity monitor preferred at mature progress (%s >= %s, track %s)",
 					reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))

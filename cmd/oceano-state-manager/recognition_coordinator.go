@@ -168,6 +168,7 @@ func (c *recognitionCoordinator) handleNoMatch(isBoundaryTrigger bool, isHardBou
 		c.mgr.recognitionResult = nil
 		c.mgr.physicalArtworkPath = ""
 		c.mgr.physicalLibraryEntryID = 0
+		c.mgr.physicalBoundarySensitive = false
 		c.mgr.shazamContinuityReady = false
 		c.mgr.shazamContinuityAbandoned = false
 		c.mgr.mu.Unlock()
@@ -339,6 +340,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 			}
 		}
 
+		boundarySensitive := false
 		entryID, recErr := c.lib.RecordPlay(result, artworkPath)
 		if recErr != nil {
 			log.Printf("recognizer: library record error: %v", recErr)
@@ -348,6 +350,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 			// returns a different ACRID for a track the user already edited).
 			// This prevents a brief flash of provider data before syncFromLibrary runs.
 			if finalEntry, _ := c.lib.GetByID(entryID); finalEntry != nil {
+				boundarySensitive = finalEntry.BoundarySensitive
 				if finalEntry.Title != "" {
 					result.Title = finalEntry.Title
 				}
@@ -380,6 +383,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.recognitionResult = result
 		c.mgr.lastRecognizedAt = now
 		c.mgr.physicalLibraryEntryID = entryID
+		c.mgr.physicalBoundarySensitive = boundarySensitive
 		c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
 		c.mgr.shazamContinuityAbandoned = false
 		if isPhysicalFormat(result.Format) {
@@ -409,6 +413,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 	c.mgr.mu.Lock()
 	c.mgr.recognitionResult = result
 	c.mgr.lastRecognizedAt = now
+	c.mgr.physicalBoundarySensitive = false
 	c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
 	c.mgr.shazamContinuityAbandoned = false
 	if isPhysicalFormat(result.Format) {
@@ -466,6 +471,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		var preBoundarySeekUpdatedAt time.Time
 		var preBoundaryLibraryEntryID int64
 		var preBoundaryArtworkPath string
+		var preBoundaryBoundarySensitive bool
 		select {
 		case <-ctx.Done():
 			return
@@ -585,8 +591,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			preBoundarySeekUpdatedAt = c.mgr.physicalSeekUpdatedAt
 			preBoundaryLibraryEntryID = c.mgr.physicalLibraryEntryID
 			preBoundaryArtworkPath = c.mgr.physicalArtworkPath
+			preBoundaryBoundarySensitive = c.mgr.physicalBoundarySensitive
 			c.mgr.recognitionResult = nil
 			c.mgr.physicalLibraryEntryID = 0
+			c.mgr.physicalBoundarySensitive = false
 			c.mgr.physicalArtworkPath = ""
 			c.mgr.physicalSeekMS = 0
 			c.mgr.physicalSeekUpdatedAt = time.Time{}
@@ -599,6 +607,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			preBoundarySeekUpdatedAt = c.mgr.physicalSeekUpdatedAt
 			preBoundaryLibraryEntryID = c.mgr.physicalLibraryEntryID
 			preBoundaryArtworkPath = c.mgr.physicalArtworkPath
+			preBoundaryBoundarySensitive = c.mgr.physicalBoundarySensitive
 			c.mgr.mu.Unlock()
 		}
 
@@ -723,6 +732,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 						restored := cloneRecognitionResult(preBoundaryResult)
 						c.mgr.recognitionResult = restored
 						c.mgr.physicalLibraryEntryID = preBoundaryLibraryEntryID
+						c.mgr.physicalBoundarySensitive = preBoundaryBoundarySensitive
 						c.mgr.physicalArtworkPath = preBoundaryArtworkPath
 						c.mgr.physicalSeekMS = recoverSeekMSFromSnapshot(preBoundarySeekMS, preBoundarySeekUpdatedAt, now)
 						c.mgr.physicalSeekUpdatedAt = now

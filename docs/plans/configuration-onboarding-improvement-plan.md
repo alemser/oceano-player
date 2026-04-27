@@ -43,7 +43,7 @@ This document describes how first-time configuration feels today, why it is hard
 | Surface | Role |
 |--------|------|
 | `sudo oceano-setup` | AirPlay name, Bluetooth, ALSA devices, PipeWire resilience, optional display |
-| Main config drawer (`index.html`) | Streaming, capture, amplifier toggle + profile link, advanced link |
+| Main config drawer (`index.html`) | Streaming, capture, amplifier toggle + profile link, **Library** (collection editor; per-track **Boundary-sensitive** hint for VU/duration policy), advanced link |
 | `recognition.html` | ACRCloud / chain / calibration wizards / mic gain |
 | `amplifier.html` | Broadlink host, pairing, IR learning, inputs, USB reset, connected devices |
 | `pair.html` | Broadlink pairing wizard |
@@ -108,7 +108,7 @@ So the product already has “cards” visually, but not a **hub mental model**:
 | **Amplifier & IR** | “Not set up” / “Broadlink OK, 4/8 IR learned” | → amplifier wizard or `amplifier.html` |
 | **Streaming basics** | AirPlay name, BT on/off summary | → inline quick fields *or* lightweight sub-page |
 | **Display & idle** | Now playing / weather summary | → existing sections or `nowplaying`-related UI |
-| **Advanced** | “Sockets, paths, library” | → `advanced.html` |
+| **Advanced** | “Sockets, paths, library DB” — library metadata editing including **Boundary-sensitive** lives on the main drawer **Library** section | → `advanced.html` |
 
 **Large icons (or simple illustrations)** on each card are worthwhile **if**:
 

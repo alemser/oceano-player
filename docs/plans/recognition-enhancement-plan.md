@@ -10,7 +10,7 @@ This document extends the earlier discussion into a concrete, incremental roadma
 
 ### Priority (concrete next work)
 
-Pick up **R3** (optional bounded percentile **nudges** to calibration inputs, behind feature flag) — inputs are now grounded by **R7** linkage + **R2/R2c** hygiene — or **R8** (library *Boundary-sensitive* hint). Continue telemetry-driven tuning using **Listening Metrics**. Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators.
+Pick up **R3** (optional bounded percentile **nudges** to calibration inputs, behind feature flag) — inputs are now grounded by **R7** linkage + **R2/R2c** hygiene. **R8** (library *Boundary-sensitive* hint) is **Done** on **`feat/recognition-enhancement-plan`**. Continue telemetry-driven tuning using **Listening Metrics**. Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators.
 
 ---
 
@@ -364,7 +364,7 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 | R5 | — | Post-match fingerprint persistence + local lookup; **cloud re-verify** policy (TTL, 1-in-N plays, or low local score → cloud) bundled with cache | Medium | Pending |
 | R6 | — | Offline-trained classifier for boundary confidence (optional) | Medium–high | Pending |
 | R6b | **R6** | If R6 ships: model health / confidence distribution on metrics page (optional chart or percentile text) | Medium | Pending |
-| R8 | — | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium | Pending |
+| R8 | — | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium | **Done** (`feat/recognition-enhancement-plan`) |
 | R9 | **Pre-R9 investigation** documented in this file (Shazam `matches[]` cardinality — see **Low-confidence UX** + pre-backlog gate above). **Not** blocked on R4/R5 | **Low-confidence UX:** parse ACRCloud `metadata.music[1..]` (and Shazam multi-match **if** investigation showed it is feasible) → optional `recognition_alternatives` in state + threshold config; **now playing carousel** + API to **apply user-selected candidate** (library/history integration) | Medium | Pending |
 | R10 | **R7** soaked on real collections + Policy B frozen | **Shadow calibration evaluation:** periodic job compares active calibration vs **reference** defaults on recent telemetry; gated **promotion** to auto-tuned thresholds (or suggest-only); **`auto_calibration_enabled`** off by default; audit log + metrics UI | High | **Research** — do not implement before follow-up metrics are stable in production (detail below may go stale) |
 
@@ -383,4 +383,4 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 
 ## Immediate next step
 
-See **[Priority (concrete next work)](#priority-concrete-next-work)** — next suggested milestone: **R3** or **R8** (**R2** trilogy + **R7** are archived as **Done** above).
+See **[Priority (concrete next work)](#priority-concrete-next-work)** — next suggested milestone: **R3** (**R2**, **R7**, and **R8** are archived as **Done** above).
