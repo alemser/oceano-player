@@ -30,14 +30,14 @@ async function loadAdvancedPage() {
   _aset('adv-state-file',  cfg.advanced?.state_file ?? '');
   _aset('adv-artwork-dir', cfg.advanced?.artwork_dir ?? '');
   _aset('adv-metadata-pipe', cfg.advanced?.metadata_pipe ?? '');
-  const r3 = cfg.advanced?.r3_telemetry_nudges;
-  const r3Box = document.getElementById('adv-r3-enabled');
-  if (r3Box) r3Box.checked = !!r3?.enabled;
-  _aset('adv-r3-lookback', r3?.lookback_days ?? '');
-  _aset('adv-r3-min-pairs', r3?.min_followup_pairs ?? '');
-  _aset('adv-r3-baseline-fp', r3?.baseline_false_positive_ratio ?? '');
-  _aset('adv-r3-max-silence', r3?.max_silence_threshold_delta ?? '');
-  _aset('adv-r3-max-pess', r3?.max_duration_pessimism_delta ?? '');
+  const telemetryNudges = cfg.advanced?.r3_telemetry_nudges;
+  const telemetryBox = document.getElementById('adv-telemetry-nudges-enabled');
+  if (telemetryBox) telemetryBox.checked = !!telemetryNudges?.enabled;
+  _aset('adv-telemetry-lookback', r3?.lookback_days ?? '');
+  _aset('adv-telemetry-min-pairs', r3?.min_followup_pairs ?? '');
+  _aset('adv-telemetry-baseline-fp', r3?.baseline_false_positive_ratio ?? '');
+  _aset('adv-telemetry-max-silence', r3?.max_silence_threshold_delta ?? '');
+  _aset('adv-telemetry-max-pess', r3?.max_duration_pessimism_delta ?? '');
 }
 
 async function saveAdvancedPage() {
@@ -55,28 +55,28 @@ async function saveAdvancedPage() {
     return;
   }
 
-  const prevR3 = fullCfg.advanced?.r3_telemetry_nudges ?? {};
+  const previousTelemetryNudges = fullCfg.advanced?.r3_telemetry_nudges ?? {};
   function _advFloat(id) {
     const s = _aval(id);
     if (s === '') return undefined;
     const x = parseFloat(s);
     return Number.isFinite(x) ? x : undefined;
   }
-  const r3Enabled = document.getElementById('adv-r3-enabled')?.checked ?? false;
-  const r3Out = {
-    ...prevR3,
-    enabled: r3Enabled,
+  const telemetryEnabled = document.getElementById('adv-telemetry-nudges-enabled')?.checked ?? false;
+  const telemetryOut = {
+    ...previousTelemetryNudges,
+    enabled: telemetryEnabled,
   };
-  const lb = _aint('adv-r3-lookback', 0);
-  if (lb > 0) r3Out.lookback_days = lb;
-  const mp = _aint('adv-r3-min-pairs', 0);
-  if (mp > 0) r3Out.min_followup_pairs = mp;
-  const bfp = _advFloat('adv-r3-baseline-fp');
-  if (bfp !== undefined) r3Out.baseline_false_positive_ratio = bfp;
-  const ms = _advFloat('adv-r3-max-silence');
-  if (ms !== undefined) r3Out.max_silence_threshold_delta = ms;
-  const mpess = _advFloat('adv-r3-max-pess');
-  if (mpess !== undefined) r3Out.max_duration_pessimism_delta = mpess;
+  const lb = _aint('adv-telemetry-lookback', 0);
+  if (lb > 0) telemetryOut.lookback_days = lb;
+  const mp = _aint('adv-telemetry-min-pairs', 0);
+  if (mp > 0) telemetryOut.min_followup_pairs = mp;
+  const bfp = _advFloat('adv-telemetry-baseline-fp');
+  if (bfp !== undefined) telemetryOut.baseline_false_positive_ratio = bfp;
+  const ms = _advFloat('adv-telemetry-max-silence');
+  if (ms !== undefined) telemetryOut.max_silence_threshold_delta = ms;
+  const mpess = _advFloat('adv-telemetry-max-pess');
+  if (mpess !== undefined) telemetryOut.max_duration_pessimism_delta = mpess;
 
   fullCfg.advanced = {
     ...(fullCfg.advanced ?? {}),
@@ -87,7 +87,7 @@ async function saveAdvancedPage() {
     state_file:     _aval('adv-state-file')   || fullCfg.advanced?.state_file   || '',
     artwork_dir:    _aval('adv-artwork-dir')  || fullCfg.advanced?.artwork_dir  || '',
     metadata_pipe:  _aval('adv-metadata-pipe')|| fullCfg.advanced?.metadata_pipe|| '',
-    r3_telemetry_nudges: r3Out,
+    r3_telemetry_nudges: telemetryOut,
   };
 
   try {

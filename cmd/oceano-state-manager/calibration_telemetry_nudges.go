@@ -9,7 +9,7 @@ import (
 	internallibrary "github.com/alemser/oceano-player/internal/library"
 )
 
-func r3FormatFilterForCalibration(preferredPhysicalFormat string) string {
+func telemetryFormatFilterForCalibration(preferredPhysicalFormat string) string {
 	k := strings.ToLower(strings.TrimSpace(preferredPhysicalFormat))
 	switch k {
 	case "vinyl", "cd", "physical":
@@ -43,27 +43,27 @@ func clampDurationPessimismScalar(p float64) float64 {
 // optional R3 telemetry delta (bounded).
 func (m *mgr) effectiveDurationPessimismForPhysicalPolicy() float64 {
 	m.mu.Lock()
-	d := m.r3DurationPessimismDelta
+	d := m.telemetryDurationPessimismDelta
 	m.mu.Unlock()
 	return clampDurationPessimismScalar(m.cfg.DurationPessimism + d)
 }
 
-// computeR3CalibrationNudges derives bounded additive adjustments from
+// computeTelemetryCalibrationNudges derives bounded additive adjustments from
 // boundary_events follow-up telemetry (same_track_restored vs matched).
-func computeR3CalibrationNudges(lib *internallibrary.Library, cfg r3TelemetryFileConfig, preferredPhysicalFormat string) (silenceDelta float32, pessimismDelta float64, summary string) {
+func computeTelemetryCalibrationNudges(lib *internallibrary.Library, cfg telemetryNudgesConfig, preferredPhysicalFormat string) (silenceDelta float32, pessimismDelta float64, summary string) {
 	if lib == nil || !cfg.Enabled {
 		return 0, 0, ""
 	}
 
-	def := defaultR3TelemetryFileConfig()
+	def := defaultTelemetryNudgesConfig()
 	lookback := cfg.LookbackDays
 	if lookback <= 0 {
 		lookback = def.LookbackDays
 	}
 	since := time.Now().Add(-time.Duration(lookback) * 24 * time.Hour)
 
-	fmtKey := r3FormatFilterForCalibration(preferredPhysicalFormat)
-	tel, err := lib.QueryR3BoundaryTelemetry(since, fmtKey)
+	fmtKey := telemetryFormatFilterForCalibration(preferredPhysicalFormat)
+	tel, err := lib.QueryBoundaryTelemetryStats(since, fmtKey)
 	if err != nil {
 		return 0, 0, ""
 	}

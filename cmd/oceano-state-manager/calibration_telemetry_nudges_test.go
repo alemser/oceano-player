@@ -19,20 +19,20 @@ func TestClampDurationPessimismScalar(t *testing.T) {
 	}
 }
 
-func TestComputeR3CalibrationNudges_Disabled(t *testing.T) {
+func TestComputeTelemetryCalibrationNudges_Disabled(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lib.db")
 	lib, err := internallibrary.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer lib.Close()
-	cfg := defaultR3TelemetryFileConfig()
-	s, p, sum := computeR3CalibrationNudges(lib, cfg, "Vinyl")
+	cfg := defaultTelemetryNudgesConfig()
+	s, p, sum := computeTelemetryCalibrationNudges(lib, cfg, "Vinyl")
 	if s != 0 || p != 0 || sum != "" {
 		t.Fatalf("want zeros when disabled, got silence=%v pess=%v sum=%q", s, p, sum)
 	}
 	cfg.Enabled = true
-	s, p, sum = computeR3CalibrationNudges(lib, cfg, "Vinyl")
+	s, p, sum = computeTelemetryCalibrationNudges(lib, cfg, "Vinyl")
 	if s != 0 || p != 0 {
 		t.Fatalf("empty db should not nudge")
 	}

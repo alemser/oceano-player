@@ -38,8 +38,8 @@ type calibrationProfile struct {
 	VinylTransition *calibrationVinylTransition `json:"vinyl_transition"`
 }
 
-// r3TelemetryNudgesJSON mirrors advanced.r3_telemetry_nudges in config.json (R3).
-type r3TelemetryNudgesJSON struct {
+// telemetryNudgesJSON mirrors advanced.r3_telemetry_nudges in config.json (R3).
+type telemetryNudgesJSON struct {
 	Enabled                        bool    `json:"enabled"`
 	LookbackDays                   int     `json:"lookback_days"`
 	MinFollowupPairs               int     `json:"min_followup_pairs"`
@@ -53,7 +53,7 @@ type r3TelemetryNudgesJSON struct {
 type calibrationConfigSnapshot struct {
 	Advanced struct {
 		CalibrationProfiles map[string]calibrationProfile `json:"calibration_profiles"`
-		R3TelemetryNudges   *r3TelemetryNudgesJSON        `json:"r3_telemetry_nudges,omitempty"`
+		TelemetryNudges   *telemetryNudgesJSON        `json:"r3_telemetry_nudges,omitempty"`
 	} `json:"advanced"`
 	Amplifier struct {
 		Inputs []struct {
@@ -78,8 +78,8 @@ type boundaryCalibrationModel struct {
 	transitionSamplesHz   float32
 }
 
-// r3TelemetryFileConfig is the resolved R3 settings after merging JSON with defaults.
-type r3TelemetryFileConfig struct {
+// telemetryNudgesConfig is the resolved R3 settings after merging JSON with defaults.
+type telemetryNudgesConfig struct {
 	Enabled                        bool
 	LookbackDays                   int
 	MinFollowupPairs               int
@@ -90,8 +90,8 @@ type r3TelemetryFileConfig struct {
 	EarlyTrackExtraSilenceDelta    float64
 }
 
-func defaultR3TelemetryFileConfig() r3TelemetryFileConfig {
-	return r3TelemetryFileConfig{
+func defaultTelemetryNudgesConfig() telemetryNudgesConfig {
+	return telemetryNudgesConfig{
 		LookbackDays:                   14,
 		MinFollowupPairs:               25,
 		BaselineFalsePositiveRatio:     0.10,
@@ -102,8 +102,8 @@ func defaultR3TelemetryFileConfig() r3TelemetryFileConfig {
 	}
 }
 
-func mergeR3TelemetryFileConfig(raw *r3TelemetryNudgesJSON) r3TelemetryFileConfig {
-	out := defaultR3TelemetryFileConfig()
+func mergeTelemetryNudgesConfig(raw *telemetryNudgesJSON) telemetryNudgesConfig {
+	out := defaultTelemetryNudgesConfig()
 	if raw == nil {
 		return out
 	}
@@ -132,34 +132,34 @@ func mergeR3TelemetryFileConfig(raw *r3TelemetryNudgesJSON) r3TelemetryFileConfi
 	return out
 }
 
-func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32, preferredMediaFormat string) (boundaryCalibrationModel, r3TelemetryFileConfig) {
-	r3cfg := defaultR3TelemetryFileConfig()
+func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32, preferredMediaFormat string) (boundaryCalibrationModel, telemetryNudgesConfig) {
+	telemetryCfg := defaultTelemetryNudgesConfig()
 	model := boundaryCalibrationModel{
 		enterSilenceThreshold: fallbackSilenceThreshold,
 		exitSilenceThreshold:  fallbackSilenceThreshold,
 	}
 	if path == "" {
-		return model, r3cfg
+		return model, telemetryCfg
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return model, mergeR3TelemetryFileConfig(nil)
+		return model, mergeTelemetryNudgesConfig(nil)
 	}
 
 	var snap calibrationConfigSnapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
-		return model, mergeR3TelemetryFileConfig(nil)
+		return model, mergeTelemetryNudgesConfig(nil)
 	}
-	r3cfg = mergeR3TelemetryFileConfig(snap.Advanced.R3TelemetryNudges)
+	telemetryCfg = mergeTelemetryNudgesConfig(snap.Advanced.TelemetryNudges)
 
 	if len(snap.Advanced.CalibrationProfiles) == 0 {
-		return model, r3cfg
+		return model, telemetryCfg
 	}
 
 	profileID, profile, ok := chooseCalibrationProfile(snap, preferredMediaFormat)
 	if !ok {
-		return model, r3cfg
+		return model, telemetryCfg
 	}
 	model.profileID = profileID
 
@@ -201,7 +201,7 @@ func loadBoundaryCalibrationModel(path string, fallbackSilenceThreshold float32,
 	model.enterSilenceThreshold, model.exitSilenceThreshold = clampSilenceThresholdsToFloor(
 		model.enterSilenceThreshold, model.exitSilenceThreshold, fallbackSilenceThreshold,
 	)
-	return model, r3cfg
+	return model, telemetryCfg
 }
 
 // deriveVUThresholdsFromCalibratedOffOn maps calibrated off/on RMS samples to VU

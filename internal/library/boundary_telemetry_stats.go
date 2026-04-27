@@ -8,21 +8,21 @@ import (
 	"time"
 )
 
-// R3BoundaryTelemetry aggregates boundary_events rows used for optional R3
+// BoundaryTelemetryStats aggregates boundary_events rows used for optional R3
 // calibration nudges (false-positive rate + matched-event progress distribution).
-type R3BoundaryTelemetry struct {
+type BoundaryTelemetryStats struct {
 	SameTrackRestored int
 	Matched           int
 	// MatchedSeekFractions holds seek_ms/duration_ms for fired+matched rows (capped at 1).
 	MatchedSeekFractions []float64
 }
 
-// QueryR3BoundaryTelemetry reads telemetry since the given time. formatFilter is
+// QueryBoundaryTelemetryStats reads telemetry since the given time. formatFilter is
 // empty for all formats, or a lowercase label matched against
 // COALESCE(format_resolved, format_at_event) (e.g. "vinyl", "cd", "physical").
-func (l *Library) QueryR3BoundaryTelemetry(since time.Time, formatFilter string) (*R3BoundaryTelemetry, error) {
+func (l *Library) QueryBoundaryTelemetryStats(since time.Time, formatFilter string) (*BoundaryTelemetryStats, error) {
 	if l == nil || l.db == nil {
-		return &R3BoundaryTelemetry{}, nil
+		return &BoundaryTelemetryStats{}, nil
 	}
 	cut := since.UTC().Format(time.RFC3339Nano)
 	fmtArg := strings.ToLower(strings.TrimSpace(formatFilter))
@@ -95,7 +95,7 @@ func (l *Library) QueryR3BoundaryTelemetry(since time.Time, formatFilter string)
 	}
 
 	sort.Float64s(fracs)
-	return &R3BoundaryTelemetry{
+	return &BoundaryTelemetryStats{
 		SameTrackRestored:    sameN,
 		Matched:              matchN,
 		MatchedSeekFractions: fracs,

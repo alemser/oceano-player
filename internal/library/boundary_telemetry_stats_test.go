@@ -15,7 +15,7 @@ func TestPercentileSorted(t *testing.T) {
 	}
 }
 
-func TestQueryR3BoundaryTelemetry(t *testing.T) {
+func TestQueryBoundaryTelemetryStats(t *testing.T) {
 	path := t.TempDir() + "/lib.db"
 	lib, err := Open(path)
 	if err != nil {
@@ -47,7 +47,7 @@ func TestQueryR3BoundaryTelemetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tel, err := lib.QueryR3BoundaryTelemetry(time.Now().UTC().Add(-72*time.Hour), "vinyl")
+	tel, err := lib.QueryBoundaryTelemetryStats(time.Now().UTC().Add(-72*time.Hour), "vinyl")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -83,31 +83,31 @@
     <div class="section-title">Calibration telemetry nudges (R3)</div>
     <p class="hint" style="margin:0 0 12px">When enabled, the state manager reads <code>boundary_events</code> follow-ups (same track vs new match) and applies <strong>small bounded</strong> adjustments to VU silence thresholds and duration pessimism. Off by default.</p>
     <div class="field">
-      <label class="modal-check" for="adv-r3-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <input type="checkbox" id="adv-r3-enabled" style="width:auto">
+      <label class="modal-check" for="adv-telemetry-nudges-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="adv-telemetry-nudges-enabled" style="width:auto">
         <span>Enable R3 telemetry nudges</span>
       </label>
     </div>
     <div class="field">
       <label><span>Lookback (days)</span></label>
-      <input type="number" id="adv-r3-lookback" min="1" max="365" step="1" placeholder="14">
+      <input type="number" id="adv-telemetry-lookback" min="1" max="365" step="1" placeholder="14">
     </div>
     <div class="field">
       <label><span>Minimum follow-up pairs</span></label>
-      <input type="number" id="adv-r3-min-pairs" min="5" max="500" step="1" placeholder="25">
+      <input type="number" id="adv-telemetry-min-pairs" min="5" max="500" step="1" placeholder="25">
       <div class="hint">Requires at least this many (<code>same_track_restored</code> + <code>matched</code>) rows before adjusting.</div>
     </div>
     <div class="field">
       <label><span>Baseline false-positive ratio</span></label>
-      <input type="text" id="adv-r3-baseline-fp" inputmode="decimal" placeholder="0.10">
+      <input type="text" id="adv-telemetry-baseline-fp" inputmode="decimal" placeholder="0.10">
     </div>
     <div class="field">
       <label><span>Max silence threshold delta (RMS)</span></label>
-      <input type="text" id="adv-r3-max-silence" inputmode="decimal" placeholder="0.004">
+      <input type="text" id="adv-telemetry-max-silence" inputmode="decimal" placeholder="0.004">
     </div>
     <div class="field">
       <label><span>Max duration pessimism delta</span></label>
-      <input type="text" id="adv-r3-max-pess" inputmode="decimal" placeholder="0.06">
+      <input type="text" id="adv-telemetry-max-pess" inputmode="decimal" placeholder="0.06">
     </div>
   </div>
 

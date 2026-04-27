@@ -292,18 +292,18 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 			durationGuardBypassWindow = 20 * time.Second
 		}
 		detectorCfg := defaultVUBoundaryDetectorConfig(silenceThreshold, silenceFrames, activeFrames)
-		calModel, r3FileCfg := loadBoundaryCalibrationModel(m.cfg.CalibrationConfigPath, silenceThreshold, m.currentPhysicalFormatForCalibration())
+		calModel, telemetryCfg := loadBoundaryCalibrationModel(m.cfg.CalibrationConfigPath, silenceThreshold, m.currentPhysicalFormatForCalibration())
 		calFormat := m.currentPhysicalFormatForCalibration()
-		silNudge, pessNudge, r3Summary := computeR3CalibrationNudges(m.lib, r3FileCfg, calFormat)
+		silNudge, pessNudge, telemetrySummary := computeTelemetryCalibrationNudges(m.lib, telemetryCfg, calFormat)
 		m.mu.Lock()
-		if !r3FileCfg.Enabled || m.lib == nil {
-			m.r3DurationPessimismDelta = 0
+		if !telemetryCfg.Enabled || m.lib == nil {
+			m.telemetryDurationPessimismDelta = 0
 		} else {
-			m.r3DurationPessimismDelta = pessNudge
+			m.telemetryDurationPessimismDelta = pessNudge
 		}
 		m.mu.Unlock()
-		if r3FileCfg.Enabled && r3Summary != "" {
-			log.Printf("VU monitor: R3 telemetry nudges — %s", r3Summary)
+		if telemetryCfg.Enabled && telemetrySummary != "" {
+			log.Printf("VU monitor: R3 telemetry nudges — %s", telemetrySummary)
 		}
 		if silNudge != 0 {
 			calModel.enterSilenceThreshold += silNudge

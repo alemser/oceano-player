@@ -422,13 +422,13 @@ type AdvancedConfig struct {
 	// recognition calibration wizard. Keys are amplifier input IDs (for example
 	// "10"=Phono, "20"=CD).
 	CalibrationProfiles map[string]CalibrationProfile `json:"calibration_profiles,omitempty"`
-	// R3TelemetryNudges optionally adjusts effective VU silence thresholds and
+	// TelemetryNudges optionally adjusts effective VU silence thresholds and
 	// duration pessimism from boundary_events follow-up telemetry (same_track_restored vs matched).
-	R3TelemetryNudges *R3TelemetryNudgesConfig `json:"r3_telemetry_nudges,omitempty"`
+	TelemetryNudges *TelemetryNudgesConfig `json:"r3_telemetry_nudges,omitempty"`
 }
 
-// R3TelemetryNudgesConfig enables bounded calibration nudges driven by Listening Metrics telemetry (R3).
-type R3TelemetryNudgesConfig struct {
+// TelemetryNudgesConfig enables bounded calibration nudges driven by Listening Metrics telemetry (R3).
+type TelemetryNudgesConfig struct {
 	Enabled bool `json:"enabled"`
 	// LookbackDays restricts boundary_events aggregation (default 14).
 	LookbackDays int `json:"lookback_days,omitempty"`

@@ -67,8 +67,8 @@ type mgr struct {
 	// avoid re-querying the library on every tick when the track hasn't changed.
 	streamingMatchKey string
 
-	// r3DurationPessimismDelta is optional telemetry-derived adjustment (R3).
-	r3DurationPessimismDelta float64
+	// telemetryDurationPessimismDelta is optional telemetry-derived adjustment (R3).
+	telemetryDurationPessimismDelta float64
 
 	// recognizeTrigger is sent to when a new recognition attempt should start:
 	// on Physical source activation and on track-boundary events from runVUMonitor.
