@@ -434,6 +434,14 @@ Single JSON object (HTTP 200). **`schema_version`** lets clients evolve without 
 
 - **`oceano-setup`:** closing screen points to web checklist; emphasise **physical media** finish line.
 
+### Phase 8 — Config surface convergence (new)
+
+- **Single discoverable entry:** keep the sandwich-menu flow as the primary config entry, but add an explicit **“Continue setup / Open Setup Hub”** bridge at the top of the legacy drawer so users always find `/config` and wizard progression from the first click.
+- **Mini checklist everywhere:** render a compact setup summary in the legacy drawer using `GET /api/setup-status` (same completion semantics as `/config`) so progress is visible even when users land on `index.html`.
+- **Reduce duplication incrementally:** refactor shared setup primitives (status derivation, checklist row logic, role/format labels, stylus gating copy) into reusable JS helpers consumed by `index.html`, `/config`, `amplifier.html`, and `/amplifier-wizard`.
+- **Page role clarity:** `/config` stays the orchestration hub, while detail pages remain expert editors. Each detail page should include a consistent “Back to setup hub” affordance.
+- **Delivery strategy:** ship in small PRs (`entry bridge` → `shared checklist primitives` → `page cross-links`) to avoid regressions in existing advanced flows.
+
 ---
 
 ## Success metrics (qualitative)

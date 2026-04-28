@@ -4,6 +4,8 @@
 let _advancedConfig = {};
 let _recognitionConfig = {};
 let _audioInputConfig = {};
+const SETUP_BRIDGE_POLL_MS = 10000;
+let _setupBridgeTimer = null;
 
 async function loadConfig() {
   const r = await fetch('/api/config');
@@ -102,8 +104,70 @@ async function loadConfig() {
 
   // Preserve advanced values as-is from server.
   _advancedConfig = cfg.advanced ?? {};
+  loadSetupBridge();
   updateRecognitionUI();
   loadRecognitionStats();
+}
+
+function setupBridgeChecklistItems(status) {
+  return [
+    {
+      label: 'Capture configured',
+      done: !!status?.capture_configured,
+    },
+    {
+      label: 'Recognition credentials set',
+      done: !!status?.recognition_credentials_set,
+    },
+    {
+      label: 'Amplifier topology mapped',
+      done: !!status?.amplifier_topology_complete,
+    },
+    {
+      label: 'Physical calibration complete',
+      done: !!status?.calibration_physical_complete || !status?.calibration_physical_recommended,
+    },
+    {
+      label: 'Stylus tracking (vinyl path)',
+      done: !!status?.stylus_profile_configured || !status?.stylus_tracking_recommended,
+    },
+  ];
+}
+
+function renderSetupBridge(status) {
+  const summaryEl = document.getElementById('setup-bridge-summary');
+  const listEl = document.getElementById('setup-bridge-list');
+  if (!summaryEl || !listEl) return;
+
+  if (!status) {
+    summaryEl.textContent = 'Setup status unavailable right now.';
+    listEl.innerHTML = '<li class="pending"><span>Retrying setup status...</span></li>';
+    return;
+  }
+
+  const items = setupBridgeChecklistItems(status);
+  const doneCount = items.filter((item) => item.done).length;
+  summaryEl.textContent = `${doneCount}/${items.length} onboarding steps complete`;
+  listEl.innerHTML = items.map((item) => `
+    <li class="${item.done ? 'done' : 'pending'}">
+      <span>${esc(item.label)}</span>
+      <span class="setup-bridge-pill ${item.done ? 'done' : ''}">${item.done ? 'Done' : 'Pending'}</span>
+    </li>
+  `).join('');
+}
+
+async function loadSetupBridge() {
+  try {
+    const res = await fetch('/api/setup-status', { cache: 'no-store' });
+    if (!res.ok) throw new Error('setup status unavailable');
+    const status = await res.json();
+    renderSetupBridge(status);
+  } catch {
+    renderSetupBridge(null);
+  }
+
+  if (_setupBridgeTimer) clearTimeout(_setupBridgeTimer);
+  _setupBridgeTimer = setTimeout(loadSetupBridge, SETUP_BRIDGE_POLL_MS);
 }
 
 async function loadRecognitionStats() {

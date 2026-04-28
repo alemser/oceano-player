@@ -189,6 +189,18 @@
     <button type="button" class="config-drawer-close" onclick="closeConfig()" aria-label="Close configuration">✕</button>
   </div>
   <div class="config-drawer-body">
+<section class="setup-bridge" id="setup-bridge">
+  <div class="setup-bridge-head">
+    <div>
+      <h3>Continue setup</h3>
+      <p id="setup-bridge-summary">Loading setup status...</p>
+    </div>
+    <a href="/config" class="setup-bridge-link">Open Setup Hub</a>
+  </div>
+  <ul class="setup-bridge-list" id="setup-bridge-list">
+    <li>Loading checklist...</li>
+  </ul>
+</section>
 <form id="cfg-form" onsubmit="event.preventDefault(); return false;">
   <div class="sections">
 
