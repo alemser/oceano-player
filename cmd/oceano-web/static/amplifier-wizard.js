@@ -58,7 +58,7 @@ const WIZ_STEPS = [
     id: "stylus",
     title: "Stylus tracking (vinyl path)",
     desc: "Configure profile and rated life when vinyl topology exists.",
-    href: "/amplifier.html#stylus-section",
+    href: "/stylus",
     state(status) {
       if (!status) return { label: "Loading", tone: "" };
       if (!status.vinyl_topology_present) return { label: "Not applicable", tone: "" };

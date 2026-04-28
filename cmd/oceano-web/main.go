@@ -101,6 +101,9 @@ func main() {
 	mux.HandleFunc("/amplifier-wizard", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/amplifier-wizard.html", http.StatusTemporaryRedirect)
 	})
+	mux.HandleFunc("/stylus", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/stylus.html", http.StatusTemporaryRedirect)
+	})
 
 	// API: core state and config endpoints.
 	mux.HandleFunc("/api/config", handleConfig(*configPath))

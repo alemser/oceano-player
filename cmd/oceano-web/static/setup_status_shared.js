@@ -42,7 +42,7 @@
       {
         id: "stylus",
         label: "Stylus tracking configured (vinyl path)",
-        href: "/amplifier-wizard.html?step=stylus",
+        href: "/stylus",
         isDone: (s) => !!s && (!!s.stylus_profile_configured || !s.stylus_tracking_recommended),
         skippable: true,
       },

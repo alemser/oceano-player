@@ -51,7 +51,7 @@ const HUB_CARDS = [
     id: "stylus",
     title: "Stylus tracking",
     detail: "Hours · Cartridge life",
-    href: "/amplifier.html",
+    href: "/stylus",
     icon() { return (window.HUB_ICONS || {}).Stylus || ""; },
     chip(s) {
       if (!s) return { cls: "neutral", text: "Loading…" };

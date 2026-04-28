@@ -184,7 +184,7 @@ function renderSetupBridge(status) {
     },
     {
       title: 'Stylus tracking',
-      href: '/amplifier.html#stylus-section',
+      href: '/stylus',
       icon: stylusIcon,
       status: !status.vinyl_topology_present
         ? { text: 'No vinyl topology configured', tone: 'neutral' }

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stylus Tracking — Oceano</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 52 52'><rect x='0' y='16' width='8' height='20' rx='4' fill='%23888'/><rect x='11' y='9' width='8' height='34' rx='4' fill='%23888'/><rect x='22' y='3' width='8' height='46' rx='4' fill='%23888'/><rect x='33' y='12' width='8' height='28' rx='4' fill='%23888'/><rect x='44' y='17' width='8' height='18' rx='4' fill='%23888'/></svg>">
+  <link rel="stylesheet" href="index.css">
+  <link rel="stylesheet" href="page-nav.css">
+  <style>
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+    .stylus-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .stylus-icon {
+      width: 18px;
+      height: 18px;
+      color: var(--accent);
+      flex: 0 0 auto;
+    }
+    .stylus-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .stylus-metrics {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(255,255,255,0.02);
+    }
+    .stylus-metric-line {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.9rem;
+      margin-bottom: 4px;
+    }
+    .stylus-progress {
+      height: 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      margin-top: 8px;
+      background: #1f2228;
+    }
+    .stylus-progress > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #3cb371 0%, #f6c945 65%, #e65c5c 100%);
+      transition: width 220ms ease;
+    }
+    .stylus-state {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+    }
+    .stylus-disabled-msg {
+      margin-top: 8px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .stylus-help-links {
+      margin-top: 12px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .stylus-help-link {
+      color: var(--text-dim);
+      text-decoration: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 0.78rem;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .stylus-help-link:hover {
+      border-color: var(--accent);
+      color: var(--text);
+    }
+    #toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #101010;
+      color: var(--text);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 1000;
+    }
+    #toast.toast-ok { border-color: #2d6e2d; color: var(--ok-text); }
+    #toast.toast-error { border-color: #6e2020; color: #f0a3a3; }
+    @media (max-width: 760px) {
+      .stylus-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <a href="/config" class="page-back">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 18l-6-6 6-6"/>
+    </svg>
+    Back
+  </a>
+  <span class="page-title">Stylus Tracking</span>
+  <a href="/config" class="page-hub-link">Setup Hub</a>
+</div>
+
+<div class="page-body">
+  <div class="section" style="margin-bottom:24px">
+    <div class="stylus-head">
+      <svg class="stylus-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M3 4h10a2 2 0 0 1 2 2v2l4 4-2.5 2.5-4-4H10a2 2 0 0 1-2-2V6a2 2 0 0 0-2-2H3z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+        <path d="M16.5 14.5l2 2-5.8 4.4a1 1 0 0 1-1.4-.1l-.2-.2a1 1 0 0 1-.1-1.4z" fill="currentColor" opacity=".75"/>
+      </svg>
+      <span>Stylus Usage Tracking</span>
+    </div>
+    <p class="hint" style="margin-bottom:12px">Track stylus wear from vinyl listening hours and manage replacement history in one place.</p>
+
+    <div class="field" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="stylus-enabled" style="width:auto;accent-color:var(--accent)">
+      <label for="stylus-enabled" style="margin:0"><span>Enable stylus tracking</span></label>
+    </div>
+
+    <div class="stylus-grid" id="stylus-config-grid">
+      <div class="field">
+        <label><span>Source</span></label>
+        <select id="stylus-mode">
+          <option value="catalog">Popular models catalog</option>
+          <option value="custom">Custom stylus</option>
+        </select>
+      </div>
+
+      <div class="field" id="stylus-catalog-field">
+        <label><span>Model</span></label>
+        <select id="stylus-catalog-select"></select>
+      </div>
+
+      <div class="field" id="stylus-custom-brand-field" style="display:none">
+        <label><span>Brand</span></label>
+        <input type="text" id="stylus-custom-brand" placeholder="Example: Ortofon">
+      </div>
+
+      <div class="field" id="stylus-custom-model-field" style="display:none">
+        <label><span>Model</span></label>
+        <input type="text" id="stylus-custom-model" placeholder="Example: 2M Blue">
+      </div>
+
+      <div class="field" id="stylus-custom-profile-field" style="display:none">
+        <label><span>Stylus profile</span></label>
+        <input type="text" id="stylus-custom-profile" placeholder="Example: Nude Elliptical">
+      </div>
+
+      <div class="field" id="stylus-custom-lifetime-field" style="display:none">
+        <label><span>Lifetime hours</span></label>
+        <input type="number" id="stylus-custom-lifetime" min="1" step="1" placeholder="800">
+      </div>
+    </div>
+
+    <div class="field" style="display:flex;align-items:center;gap:8px;margin-top:10px">
+      <input type="checkbox" id="stylus-is-new" style="width:auto;accent-color:var(--accent)">
+      <label for="stylus-is-new" style="margin:0"><span>Stylus is new</span></label>
+    </div>
+
+    <div class="field" id="stylus-initial-hours-field">
+      <label><span>Initial used hours</span></label>
+      <input type="number" id="stylus-initial-hours" min="0" step="0.1" placeholder="0">
+      <div class="hint">If empty and not marked as new, the system assumes a new stylus.</div>
+    </div>
+
+    <div class="stylus-metrics">
+      <div class="stylus-metric-line"><span>Status</span><span class="stylus-state" id="stylus-state-badge">HEALTHY</span></div>
+      <div class="stylus-metric-line"><span>Vinyl hours since install</span><span id="stylus-m-vinyl-hours">0 h</span></div>
+      <div class="stylus-metric-line"><span>Total stylus hours</span><span id="stylus-m-total-hours">0 h</span></div>
+      <div class="stylus-metric-line"><span>Remaining hours</span><span id="stylus-m-remaining-hours">0 h</span></div>
+      <div class="stylus-metric-line"><span>Wear</span><span id="stylus-m-wear">0%</span></div>
+      <div class="stylus-progress"><span id="stylus-progress-fill"></span></div>
+    </div>
+
+    <div class="field" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+      <button type="button" class="detect-btn" id="stylus-save-btn">Save Stylus Settings</button>
+      <button type="button" class="detect-btn" id="stylus-replace-btn">Replace Stylus Now</button>
+    </div>
+
+    <div class="stylus-disabled-msg" id="stylus-disabled-msg" style="display:none">
+      Configure at least one vinyl physical-media device to enable stylus tracking setup.
+    </div>
+
+    <div class="stylus-help-links">
+      <a class="stylus-help-link" href="/amplifier.html">Open amplifier topology</a>
+      <a class="stylus-help-link" href="/history.html">Open listening metrics</a>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="stylus_page.js"></script>
+</body>
+</html>
