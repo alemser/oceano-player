@@ -80,7 +80,6 @@
     <div class="topology-actions">
       <a class="topology-link" href="/ir-setup" id="topology-ir-link">Configure IR controls (Broadlink)</a>
       <a class="topology-link" href="/amplifier-wizard?step=pairing" id="topology-next-step-link">Continue to next wizard step</a>
-      <a class="topology-link" href="/amplifier.html" id="topology-advanced-link">Legacy advanced page</a>
     </div>
   </div>
 
@@ -94,6 +93,14 @@
     </div>
     <div class="topology-actions">
       <button type="button" class="detect-btn" id="topology-profile-activate-btn">Activate selected profile</button>
+      <button type="button" class="detect-btn" id="amp-clone-profile-btn" onclick="cloneSelectedBuiltInProfile()">Clone Built-in</button>
+      <button type="button" class="detect-btn" onclick="saveCurrentAsCustomProfile()">Save as Custom</button>
+      <button type="button" class="detect-btn" onclick="deleteSelectedCustomProfile()">Delete Custom</button>
+      <button type="button" class="detect-btn" onclick="exportSelectedAmplifierProfile()">Export Profile</button>
+      <label class="detect-btn" style="display:inline-flex;align-items:center;cursor:pointer">
+        Import Profile
+        <input type="file" id="amp-profile-import-file" accept="application/json,.json" style="display:none" onchange="importAmplifierProfileFile(this)">
+      </label>
     </div>
   </div>
 

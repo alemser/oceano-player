@@ -68,6 +68,7 @@ function updateTopologyProfileSummary() {
 async function loadTopologyProfiles(cfg) {
   if (typeof loadAmplifierProfiles !== "function") return;
   await loadAmplifierProfiles(cfg);
+  if (typeof _refreshCloneBuiltInButton === "function") _refreshCloneBuiltInButton();
   updateTopologyProfileSummary();
 }
 
