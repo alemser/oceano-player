@@ -52,21 +52,28 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); min-
   margin: 0;
   font-size: 0.8rem;
   color: var(--text-dim);
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: auto minmax(170px, 1fr);
   align-items: center;
   gap: 6px;
   padding: 5px 8px;
   border: 1px solid #2b2b2b;
-  border-radius: 999px;
+  border-radius: 10px;
   background: #0d0d0d;
+  min-width: 280px;
 }
 .amp-input-controls .hint {
   margin: 0;
 }
+.amp-input-controls .hint:empty { display: none; }
 .amp-input-controls select {
   min-width: 220px !important;
   background: #0b0b0b;
   border: 1px solid #2d2d2d;
+}
+.amp-input-controls label.hint select {
+  min-width: 0 !important;
+  width: 100%;
 }
 .amp-input-controls .detect-btn {
   min-height: 34px;
@@ -125,12 +132,11 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); min-
   }
   .amp-input-controls label.hint,
   .amp-input-controls .hint {
-    grid-column: span 1;
-  }
-  .amp-input-controls select {
     grid-column: 1 / -1;
-    width: 100%;
-    min-width: 0 !important;
+  }
+  .amp-input-controls label.hint {
+    min-width: 0;
+    grid-template-columns: auto 1fr;
   }
   .amp-input-controls .detect-btn {
     width: 100%;
