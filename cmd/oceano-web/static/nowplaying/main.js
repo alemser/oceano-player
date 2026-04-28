@@ -210,6 +210,7 @@ function updateStreamingProgress() {
 // ─── Main UI update ──────────────────────────────────────────────────────────
 
 let _lastState = null;
+let _isIdle = true;
 
 function applyState(state) {
   const source  = state.source  || 'None';
@@ -224,7 +225,10 @@ function applyState(state) {
     state.physical_detector_active === true || state.physical_detector_active === undefined;
 
   const isIdle = !playing || source === 'None';
+  _isIdle = isIdle;
   $idle.classList.toggle('visible', isIdle);
+  const $ampInd = document.getElementById('amp-indicator');
+  if ($ampInd && isIdle) $ampInd.style.display = 'none';
 
   // Source icon + label
   $sourceIcon.innerHTML  = SOURCE_ICONS[source] || SOURCE_ICONS.None;
@@ -285,7 +289,7 @@ function applyState(state) {
   // Supplemental chips (format-specific metadata)
   $chips.textContent = '';
 
-  if (track) {
+  if (hasTrack) {
     const normalizedSource = String(source || '').trim();
     const normalizedFormat = stateFormat.toLowerCase();
     const sourceLooksVinyl = normalizedSource.toLowerCase() === 'vinyl';
@@ -483,7 +487,7 @@ async function loadAmpPowerState() {
     const model = String(s.model || '').trim();
     const ampName = [maker, model].filter(Boolean).join(' ') || 'Amplifier';
 
-    el.style.display = 'flex';
+    el.style.display = _isIdle ? 'none' : 'flex';
     labelEl.textContent = ampName;
 
     const ps = String(s.power_state || '').toLowerCase();
