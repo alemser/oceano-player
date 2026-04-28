@@ -136,6 +136,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  row-gap: 6px;
   flex-wrap: wrap;
 }
 .hub-cl-item.done { color: var(--ok-text); }
@@ -152,6 +153,7 @@ body {
   border-radius: 99px;
   border: 1px solid var(--border);
   color: var(--muted);
+  margin-left: 2px;
 }
 .hub-cl-chip.done { border-color: var(--ok-border); color: var(--ok-text); }
 .hub-cl-chip.skip { border-color: var(--warn-border); color: var(--warn-text); }

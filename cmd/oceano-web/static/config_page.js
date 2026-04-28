@@ -160,16 +160,15 @@ function renderChecklist(status) {
     if (done || skipped) doneCount++;
     const chipCls = done ? "done" : skipped ? "skip" : "";
     const chipTxt = done ? "Done" : skipped ? "Skip" : "Pending";
-    const skipBtn = item.skippable
+    const canToggleSkip = !!item.skippable && !done;
+    const skipBtn = canToggleSkip
       ? `<button class="btn-skip" data-skip-id="${esc(item.id)}">${skipped ? "Undo" : "Skip"}</button>`
       : "";
+    const actions = skipBtn ? `<span class="hub-cl-actions">${skipBtn}</span>` : "";
     return `<li class="hub-cl-item ${done ? "done" : ""}">
       ${esc(item.label)}
       <span class="hub-cl-chip ${chipCls}">${chipTxt}</span>
-      <span class="hub-cl-actions">
-        <a class="btn-skip" href="${esc(item.href || "/config.html")}">Open</a>
-        ${skipBtn}
-      </span>
+      ${actions}
     </li>`;
   }).join("");
 
