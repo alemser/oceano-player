@@ -22,40 +22,21 @@ function fieldValue(id) {
 
 function applyTopologyContext() {
   const params = new URLSearchParams(window.location.search || "");
-  const fromWizard = params.get("from") === "wizard";
   const fromMain = params.get("from") === "main";
   const titleEl = document.getElementById("topology-context-title");
   const copyEl = document.getElementById("topology-context-copy");
   const backEl = document.getElementById("topology-back-link");
   const irEl = document.getElementById("topology-ir-link");
-  const nextEl = document.getElementById("topology-next-step-link");
   const profileSectionEl = document.getElementById("topology-profile-section");
-
-  if (fromWizard) {
-    if (titleEl) titleEl.textContent = "Topology for onboarding";
-    if (copyEl) copyEl.textContent = "Set maker/model, input map, and connected devices before moving to IR and calibration steps.";
-    if (backEl) {
-      backEl.href = "/amplifier-wizard?step=topology";
-      backEl.innerHTML = backEl.innerHTML.replace("Back to wizard", "Back to wizard");
-    }
-    if (irEl) irEl.href = "/ir-setup?from=wizard";
-    if (nextEl) {
-      nextEl.style.display = "";
-      nextEl.href = "/amplifier-wizard?step=pairing";
-    }
-    if (profileSectionEl) profileSectionEl.style.display = "none";
-    return;
-  }
 
   if (fromMain) {
     if (titleEl) titleEl.textContent = "Amplifier & IR";
     if (copyEl) copyEl.textContent = "Configure amplifier identity, input map, and connected device classification.";
     if (backEl) {
       backEl.href = "/?drawer=1";
-      backEl.innerHTML = backEl.innerHTML.replace("Back to wizard", "Back");
+      backEl.innerHTML = backEl.innerHTML.replace("Back", "Back");
     }
     if (irEl) irEl.href = "/ir-setup?from=main";
-    if (nextEl) nextEl.style.display = "none";
     if (profileSectionEl) profileSectionEl.style.display = "";
     return;
   }
@@ -64,10 +45,9 @@ function applyTopologyContext() {
   if (copyEl) copyEl.textContent = "Configure amplifier identity, input map, and connected device classification.";
   if (backEl) {
     backEl.href = "/config";
-    backEl.innerHTML = backEl.innerHTML.replace("Back to wizard", "Back");
+    backEl.innerHTML = backEl.innerHTML.replace("Back", "Back");
   }
   if (irEl) irEl.href = "/ir-setup";
-  if (nextEl) nextEl.style.display = "none";
   if (profileSectionEl) profileSectionEl.style.display = "";
 }
 

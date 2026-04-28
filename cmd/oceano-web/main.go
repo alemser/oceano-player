@@ -96,19 +96,16 @@ func main() {
 	sub, _ := fs.Sub(staticFiles, "static")
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/config.html", http.StatusTemporaryRedirect)
-	})
-	mux.HandleFunc("/amplifier-wizard", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/amplifier-wizard.html", http.StatusTemporaryRedirect)
+		redirectWithQuery(w, r, "/config.html")
 	})
 	mux.HandleFunc("/stylus", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/stylus.html", http.StatusTemporaryRedirect)
+		redirectWithQuery(w, r, "/stylus.html")
 	})
 	mux.HandleFunc("/topology", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/topology.html", http.StatusTemporaryRedirect)
+		redirectWithQuery(w, r, "/topology.html")
 	})
 	mux.HandleFunc("/ir-setup", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ir-setup.html", http.StatusTemporaryRedirect)
+		redirectWithQuery(w, r, "/ir-setup.html")
 	})
 
 	// API: core state and config endpoints.
@@ -177,6 +174,13 @@ func main() {
 	if err := http.ListenAndServe(*addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+func redirectWithQuery(w http.ResponseWriter, r *http.Request, target string) {
+	if q := strings.TrimSpace(r.URL.RawQuery); q != "" {
+		target += "?" + q
+	}
+	http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 }
 
 // BluetoothDevice is a paired Bluetooth device.
