@@ -109,31 +109,6 @@ async function loadConfig() {
   loadRecognitionStats();
 }
 
-function setupBridgeChecklistItems(status) {
-  return [
-    {
-      label: 'Capture configured',
-      done: !!status?.capture_configured,
-    },
-    {
-      label: 'Recognition credentials set',
-      done: !!status?.recognition_credentials_set,
-    },
-    {
-      label: 'Amplifier topology mapped',
-      done: !!status?.amplifier_topology_complete,
-    },
-    {
-      label: 'Physical calibration complete',
-      done: !!status?.calibration_physical_complete || !status?.calibration_physical_recommended,
-    },
-    {
-      label: 'Stylus tracking (vinyl path)',
-      done: !!status?.stylus_profile_configured || !status?.stylus_tracking_recommended,
-    },
-  ];
-}
-
 function renderSetupBridge(status) {
   const summaryEl = document.getElementById('setup-bridge-summary');
   const listEl = document.getElementById('setup-bridge-list');
@@ -145,7 +120,15 @@ function renderSetupBridge(status) {
     return;
   }
 
-  const items = setupBridgeChecklistItems(status);
+  const shared = window.OceanoSetupShared;
+  const items = typeof shared?.bridgeItems === 'function'
+    ? shared.bridgeItems(status)
+    : [];
+  if (!items.length) {
+    summaryEl.textContent = 'Setup bridge unavailable.';
+    listEl.innerHTML = '<li class="pending"><span>Shared setup helpers missing.</span></li>';
+    return;
+  }
   const doneCount = items.filter((item) => item.done).length;
   summaryEl.textContent = `${doneCount}/${items.length} onboarding steps complete`;
   listEl.innerHTML = items.map((item) => `

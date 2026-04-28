@@ -1,8 +1,7 @@
 "use strict";
 
 const HUB_POLL_MS = 5000;
-const CHECKLIST_DISMISSED_KEY = "oceano.config.checklist.dismissed";
-const CHECKLIST_SKIPS_KEY = "oceano.config.checklist.skips";
+const sharedSetup = window.OceanoSetupShared || {};
 
 const HUB_ICONS = {
   amplifier:
@@ -121,80 +120,13 @@ const checklistProgressEl = document.getElementById("checklist-progress");
 const dismissChecklistBtn = document.getElementById("checklist-dismiss-btn");
 const restoreChecklistBtn = document.getElementById("checklist-restore-btn");
 
-const CHECKLIST_ITEMS = [
-  {
-    id: "foundation",
-    label: "Run oceano-setup on the Pi (foundation)",
-    href: "/index.html",
-    isDone: (s) => !!s && !!s.oceano_setup_acknowledged,
-    skippable: true,
-  },
-  {
-    id: "capture",
-    label: "Capture device configured",
-    href: "/index.html",
-    isDone: (s) => !!s && !!s.capture_configured,
-  },
-  {
-    id: "recognition",
-    label: "ACRCloud credentials configured",
-    href: "/recognition.html",
-    isDone: (s) => !!s && !!s.recognition_credentials_set,
-  },
-  {
-    id: "amp",
-    label: "Amplifier topology configured (IR optional)",
-    href: "/amplifier-wizard.html?step=topology",
-    isDone: (s) => !!s && !!s.amplifier_topology_complete,
-    skippable: true,
-  },
-  {
-    id: "calibration",
-    label: "Physical input calibration complete",
-    href: "/amplifier-wizard.html?step=calibration",
-    isDone: (s) => !!s && (!!s.calibration_physical_complete || !s.calibration_physical_recommended),
-    skippable: true,
-  },
-  {
-    id: "stylus",
-    label: "Stylus tracking configured (vinyl path)",
-    href: "/amplifier-wizard.html?step=stylus",
-    isDone: (s) => !!s && (!!s.stylus_profile_configured || !s.stylus_tracking_recommended),
-    skippable: true,
-  },
-];
+const CHECKLIST_ITEMS = typeof sharedSetup.checklistItems === "function"
+  ? sharedSetup.checklistItems()
+  : [];
 
 function escapeHTML(v) {
-  return String(v)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function getChecklistSkips() {
-  try {
-    const raw = localStorage.getItem(CHECKLIST_SKIPS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function setChecklistSkips(skips) {
-  localStorage.setItem(CHECKLIST_SKIPS_KEY, JSON.stringify(skips));
-}
-
-function isChecklistDismissed() {
-  return localStorage.getItem(CHECKLIST_DISMISSED_KEY) === "1";
-}
-
-function setChecklistDismissed(v) {
-  if (v) localStorage.setItem(CHECKLIST_DISMISSED_KEY, "1");
-  else localStorage.removeItem(CHECKLIST_DISMISSED_KEY);
+  if (typeof sharedSetup.escapeHTML === "function") return sharedSetup.escapeHTML(v);
+  return String(v);
 }
 
 function renderCards(status) {
@@ -217,8 +149,20 @@ function renderCards(status) {
 }
 
 function renderChecklist(status) {
-  const dismissed = isChecklistDismissed();
-  const skips = getChecklistSkips();
+  if (!CHECKLIST_ITEMS.length) {
+    checklistListEl.innerHTML = "<li class=\"checklist-item\">Shared checklist definition unavailable.</li>";
+    checklistProgressEl.textContent = "Checklist unavailable";
+    dismissChecklistBtn.hidden = true;
+    restoreChecklistBtn.hidden = true;
+    return;
+  }
+
+  const dismissed = typeof sharedSetup.isChecklistDismissed === "function"
+    ? sharedSetup.isChecklistDismissed()
+    : false;
+  const skips = typeof sharedSetup.getChecklistSkips === "function"
+    ? sharedSetup.getChecklistSkips()
+    : {};
   if (dismissed) {
     checklistListEl.innerHTML = "";
     checklistProgressEl.textContent = "Checklist hidden";
@@ -259,10 +203,14 @@ function renderChecklist(status) {
   checklistListEl.querySelectorAll("[data-skip-id]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-skip-id");
-      const next = getChecklistSkips();
+      const next = typeof sharedSetup.getChecklistSkips === "function"
+        ? sharedSetup.getChecklistSkips()
+        : {};
       next[id] = !next[id];
       if (!next[id]) delete next[id];
-      setChecklistSkips(next);
+      if (typeof sharedSetup.setChecklistSkips === "function") {
+        sharedSetup.setChecklistSkips(next);
+      }
       renderChecklist(status);
     });
   });
@@ -287,11 +235,15 @@ async function loadSetupStatus() {
 
 refreshBtn.addEventListener("click", loadSetupStatus);
 dismissChecklistBtn.addEventListener("click", () => {
-  setChecklistDismissed(true);
+  if (typeof sharedSetup.setChecklistDismissed === "function") {
+    sharedSetup.setChecklistDismissed(true);
+  }
   renderChecklist(null);
 });
 restoreChecklistBtn.addEventListener("click", () => {
-  setChecklistDismissed(false);
+  if (typeof sharedSetup.setChecklistDismissed === "function") {
+    sharedSetup.setChecklistDismissed(false);
+  }
   loadSetupStatus();
 });
 renderCards(null);
