@@ -104,6 +104,9 @@ func main() {
 	mux.HandleFunc("/stylus", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/stylus.html", http.StatusTemporaryRedirect)
 	})
+	mux.HandleFunc("/topology", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/topology.html", http.StatusTemporaryRedirect)
+	})
 
 	// API: core state and config endpoints.
 	mux.HandleFunc("/api/config", handleConfig(*configPath))

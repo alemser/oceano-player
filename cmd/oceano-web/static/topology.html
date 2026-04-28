@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Topology Setup — Oceano</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 52 52'><rect x='0' y='16' width='8' height='20' rx='4' fill='%23888'/><rect x='11' y='9' width='8' height='34' rx='4' fill='%23888'/><rect x='22' y='3' width='8' height='46' rx='4' fill='%23888'/><rect x='33' y='12' width='8' height='28' rx='4' fill='%23888'/><rect x='44' y='17' width='8' height='18' rx='4' fill='%23888'/></svg>">
+  <link rel="stylesheet" href="index.css">
+  <link rel="stylesheet" href="page-nav.css">
+  <style>
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+    .topology-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .topology-link {
+      text-decoration: none;
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 0.8rem;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .topology-link:hover { border-color: var(--accent); color: var(--text); }
+    .amp-input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .amp-input-row input[type=text] {
+      flex: 1 1 160px;
+      min-width: 0;
+    }
+    .amp-input-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    #toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #101010;
+      color: var(--text);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 1000;
+    }
+    #toast.toast-ok { border-color: #2d6e2d; color: var(--ok-text); }
+    #toast.toast-error { border-color: #6e2020; color: #f0a3a3; }
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <a href="/amplifier-wizard?step=topology" class="page-back">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 18l-6-6 6-6"/>
+    </svg>
+    Back to wizard
+  </a>
+  <span class="page-title">Identity and Topology</span>
+  <a href="/config" class="page-hub-link">Setup Hub</a>
+</div>
+
+<div class="page-body">
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Topology for daily use and onboarding</div>
+    <p class="hint" style="margin-bottom:12px">This page is the canonical setup surface for amplifier identity, input map, and connected device classification.</p>
+    <div class="topology-actions">
+      <a class="topology-link" href="/amplifier.html">Open advanced amplifier page</a>
+      <a class="topology-link" href="/amplifier-wizard?step=pairing">Continue to next wizard step</a>
+    </div>
+  </div>
+
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Amplifier identity</div>
+    <div class="field">
+      <label><span>Maker</span></label>
+      <input type="text" id="amp-maker" placeholder="Magnat">
+    </div>
+    <div class="field">
+      <label><span>Model</span></label>
+      <input type="text" id="amp-model" placeholder="MR 780">
+    </div>
+    <div class="field">
+      <label><span>Input selection</span></label>
+      <select id="amp-input-mode" onchange="onAmpInputModeChanged()">
+        <option value="cycle">Cycle (prev/next input IR code)</option>
+        <option value="direct">Direct (one IR code per input)</option>
+      </select>
+      <div class="hint">Cycle mode is usually simpler for first setup. Direct mode requires per-input IR learning.</div>
+    </div>
+  </div>
+
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Inputs map</div>
+    <p class="hint" style="margin-bottom:10px">Top-to-bottom is real cycling order. Index 0 is default input.</p>
+    <div id="amp-inputs-table"></div>
+    <div class="field" style="margin-top:8px">
+      <button type="button" class="detect-btn" onclick="addAmplifierInputRow()">Add Input</button>
+    </div>
+  </div>
+
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Connected devices classification</div>
+    <p class="hint" style="margin-bottom:10px">Role and physical format drive calibration and stylus recommendations.</p>
+    <div id="amp-devices-list"></div>
+    <div class="field" style="margin-top:8px">
+      <button type="button" class="detect-btn" onclick="addConnectedDevice()">Add Device</button>
+    </div>
+  </div>
+
+  <div class="page-actions">
+    <button type="button" class="btn-save" id="btn-topology-save">Save &amp; Restart Services</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="index.amplifier.js"></script>
+<script src="topology_page.js"></script>
+</body>
+</html>

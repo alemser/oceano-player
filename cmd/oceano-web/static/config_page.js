@@ -34,7 +34,7 @@ const HUB_CARDS = [
     id: "amp",
     title: "Amplifier & IR",
     detail: "Inputs · Broadlink · IR codes",
-    href: "/amplifier.html",
+    href: "/topology",
     icon() { return (window.HUB_ICONS || {}).Amplifier || ""; },
     chip(s) {
       if (!s) return { cls: "neutral", text: "Loading…" };

@@ -7,7 +7,7 @@ const WIZ_STEPS = [
     id: "topology",
     title: "Identity and topology",
     desc: "Set amplifier maker/model, input map and connected devices.",
-    href: "/amplifier.html",
+    href: "/topology",
     state(status) {
       if (!status) return { label: "Loading", tone: "" };
       return status.amplifier_topology_complete

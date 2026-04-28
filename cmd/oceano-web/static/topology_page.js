@@ -1,0 +1,105 @@
+"use strict";
+
+function toast(msg, isError) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = isError ? "toast-error" : "toast-ok";
+  el.style.opacity = "1";
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity = "0"; }, 3500);
+}
+
+function setField(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.value = value ?? "";
+}
+
+function fieldValue(id) {
+  return (document.getElementById(id)?.value || "").trim();
+}
+
+async function loadTopologyPage() {
+  let cfg;
+  try {
+    const r = await fetch("/api/config", { cache: "no-store" });
+    if (!r.ok) {
+      toast("Failed to load configuration.", true);
+      return;
+    }
+    cfg = await r.json();
+  } catch {
+    toast("Failed to load configuration.", true);
+    return;
+  }
+
+  const amp = cfg.amplifier ?? {};
+  _ampConfig = amp;
+  _ampLastKnownInputID = String(cfg.amplifier_runtime?.last_known_input_id ?? "");
+
+  setField("amp-maker", amp.maker ?? "");
+  setField("amp-model", amp.model ?? "");
+  setField("amp-input-mode", amp.input_mode ?? "cycle");
+
+  setAmplifierInputsModel(amp.inputs ?? []);
+  setConnectedDevicesModel(amp.connected_devices ?? []);
+}
+
+async function saveTopologyPage() {
+  const btn = document.getElementById("btn-topology-save");
+  if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+
+  let fullCfg;
+  try {
+    const r = await fetch("/api/config", { cache: "no-store" });
+    if (!r.ok) throw new Error("load failed");
+    fullCfg = await r.json();
+  } catch {
+    toast("Failed to load current config before saving.", true);
+    if (btn) { btn.disabled = false; btn.textContent = "Save & Restart Services"; }
+    return;
+  }
+
+  const inputs = (typeof collectAmplifierInputsFromUI === "function")
+    ? collectAmplifierInputsFromUI()
+    : (_ampConfig.inputs ?? []);
+  const connectedDevices = (typeof collectConnectedDevicesFromUI === "function")
+    ? collectConnectedDevicesFromUI()
+    : (_ampConfig.connected_devices ?? []);
+
+  fullCfg.amplifier = {
+    ...(_ampConfig),
+    enabled: _ampConfig.enabled ?? fullCfg.amplifier?.enabled ?? false,
+    profile_id: _ampConfig.profile_id || fullCfg.amplifier?.profile_id || "",
+    input_mode: fieldValue("amp-input-mode") || _ampConfig.input_mode || "cycle",
+    maker: fieldValue("amp-maker") || _ampConfig.maker || "",
+    model: fieldValue("amp-model") || _ampConfig.model || "",
+    inputs,
+    connected_devices: connectedDevices,
+    usb_reset: _ampConfig.usb_reset ?? {},
+    broadlink: _ampConfig.broadlink ?? {},
+    ir_codes: _ampConfig.ir_codes ?? {},
+  };
+
+  try {
+    const r = await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fullCfg),
+    });
+    const res = await r.json().catch(() => ({}));
+    const isError = !r.ok || res.ok === false;
+    toast(res.results?.join(" · ") || (isError ? "Save failed" : "Saved & services restarted"), isError);
+    if (!isError) _ampConfig = fullCfg.amplifier;
+  } catch (err) {
+    toast("Save failed: " + err.message, true);
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = "Save & Restart Services"; }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("btn-topology-save")?.addEventListener("click", saveTopologyPage);
+  loadTopologyPage();
+});

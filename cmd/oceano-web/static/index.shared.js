@@ -172,7 +172,7 @@ function renderSetupBridge(status) {
     },
     {
       title: 'Amplifier & IR',
-      href: '/amplifier.html',
+      href: '/topology',
       icon: ampIcon,
       status: !status.amplifier_topology_complete
         ? { text: 'Topology not configured', tone: 'warn' }
