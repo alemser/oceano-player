@@ -84,10 +84,18 @@ const roleFormatEl = document.getElementById("wiz-role-format");
 const roleFormatListEl = document.getElementById("wiz-role-format-list");
 const roleFormatErrEl = document.getElementById("wiz-role-format-error");
 const roleFormatSaveBtn = document.getElementById("wiz-role-format-save");
+const stylusEl = document.getElementById("wiz-stylus");
+const stylusSummaryEl = document.getElementById("wiz-stylus-summary");
+const stylusCatalogEl = document.getElementById("wiz-stylus-catalog");
+const stylusResetHoursEl = document.getElementById("wiz-stylus-reset-hours");
+const stylusErrEl = document.getElementById("wiz-stylus-error");
+const stylusSaveBtn = document.getElementById("wiz-stylus-save");
 
 let _currentStepIdx = 0;
 let _lastStatus = null;
 let _wizardConfig = null;
+let _stylusState = null;
+let _stylusCatalog = [];
 
 function escapeHTML(v) {
   return String(v)
@@ -232,6 +240,43 @@ async function loadWizardConfig() {
   _wizardConfig = await r.json();
 }
 
+async function loadStylusState() {
+  const [catalogResp, stateResp] = await Promise.all([
+    fetch("/api/stylus/catalog", { cache: "no-store" }),
+    fetch("/api/stylus", { cache: "no-store" }),
+  ]);
+  if (!catalogResp.ok) throw new Error(`stylus catalog HTTP ${catalogResp.status}`);
+  if (!stateResp.ok) throw new Error(`stylus state HTTP ${stateResp.status}`);
+  const catalog = await catalogResp.json();
+  const state = await stateResp.json();
+  _stylusCatalog = Array.isArray(catalog.items) ? catalog.items : [];
+  _stylusState = state || null;
+}
+
+function renderStylusEditor(status) {
+  const step = WIZ_STEPS[_currentStepIdx];
+  const isStylusStep = step && step.id === "stylus";
+  const available = !!status?.vinyl_topology_present;
+  stylusEl.hidden = !(isStylusStep && available);
+  if (!isStylusStep || !available) return;
+  if (!_stylusState) {
+    stylusSummaryEl.textContent = "Loading stylus state...";
+    return;
+  }
+  const s = _stylusState.stylus;
+  const m = _stylusState.metrics || {};
+  const summaryParts = [];
+  if (s) summaryParts.push(`${s.brand} ${s.model} (${s.stylus_profile})`);
+  summaryParts.push(`Wear ${Number(m.wear_percent || 0).toFixed(1)}%`);
+  summaryParts.push(`Remaining ${Number(m.remaining_hours || 0).toFixed(1)}h`);
+  stylusSummaryEl.textContent = summaryParts.join(" · ");
+  stylusCatalogEl.innerHTML = _stylusCatalog.map((it) => {
+    const selected = s && Number(s.catalog_id || 0) === Number(it.id) ? "selected" : "";
+    return `<option value="${it.id}" ${selected}>${escapeHTML(it.brand)} ${escapeHTML(it.model)} (${escapeHTML(it.stylus_profile)}, ${it.recommended_hours}h)</option>`;
+  }).join("");
+  stylusSaveBtn.disabled = _stylusCatalog.length === 0;
+}
+
 function render(status) {
   let doneCount = 0;
   stepsEl.innerHTML = WIZ_STEPS.map((step, idx) => {
@@ -269,6 +314,7 @@ function render(status) {
   });
   renderCurrentStep(status);
   renderRoleFormatEditor();
+  renderStylusEditor(status);
 }
 
 async function loadStatus() {
@@ -276,6 +322,7 @@ async function loadStatus() {
     const [statusResp] = await Promise.all([
       fetch("/api/setup-status", { cache: "no-store" }),
       loadWizardConfig(),
+      loadStylusState(),
     ]);
     if (!statusResp.ok) throw new Error(`HTTP ${statusResp.status}`);
     const status = await statusResp.json();
@@ -309,6 +356,39 @@ roleFormatSaveBtn.addEventListener("click", async () => {
     roleFormatErrEl.textContent = `Failed to save role/format: ${err.message}`;
   } finally {
     roleFormatSaveBtn.disabled = false;
+  }
+});
+stylusSaveBtn.addEventListener("click", async () => {
+  if (!_stylusState) return;
+  stylusSaveBtn.disabled = true;
+  stylusErrEl.hidden = true;
+  try {
+    const selectedCatalogID = Number(stylusCatalogEl.value || 0);
+    if (!selectedCatalogID) throw new Error("Choose a stylus model.");
+    const payload = {
+      enabled: true,
+      catalog_id: selectedCatalogID,
+    };
+    if (stylusResetHoursEl.checked) {
+      payload.is_new = true;
+    } else if (_stylusState?.stylus) {
+      payload.is_new = false;
+      payload.initial_used_hours = Number(_stylusState.stylus.initial_used_hours || 0);
+    }
+    const r = await fetch("/api/stylus", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+    await loadStatus();
+    stylusResetHoursEl.checked = false;
+  } catch (err) {
+    stylusErrEl.hidden = false;
+    stylusErrEl.textContent = `Failed to save stylus setup: ${err.message}`;
+  } finally {
+    stylusSaveBtn.disabled = false;
   }
 });
 prevBtn.addEventListener("click", () => {

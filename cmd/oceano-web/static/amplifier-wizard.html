@@ -54,6 +54,26 @@
       </div>
     </section>
 
+    <section class="wiz-stylus" id="wiz-stylus" hidden>
+      <div class="wiz-current-head">
+        <h2>Stylus setup (vinyl path)</h2>
+      </div>
+      <p class="wiz-current-desc">Configure stylus model and rated life directly here when vinyl topology is present.</p>
+      <div id="wiz-stylus-summary" class="wiz-step-desc">Loading stylus state...</div>
+      <div class="wiz-stylus-grid">
+        <select id="wiz-stylus-catalog" class="wiz-role-select"></select>
+        <label class="wiz-stylus-check">
+          <input id="wiz-stylus-reset-hours" type="checkbox">
+          <span>Reset accumulated hours (new stylus)</span>
+        </label>
+      </div>
+      <p id="wiz-stylus-error" class="wiz-current-gate" hidden></p>
+      <div class="wiz-current-actions">
+        <button id="wiz-stylus-save" class="btn btn-primary" type="button">Save stylus setup</button>
+        <a class="btn btn-ghost" href="/amplifier.html#stylus-section">Open full stylus page</a>
+      </div>
+    </section>
+
     <section class="wiz-steps" id="wiz-steps">
       <!-- Filled by amplifier-wizard.js -->
     </section>
