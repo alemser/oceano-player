@@ -38,6 +38,7 @@ const _stylusPageState = {
   enabled: false,
   metrics: null,
   listenersBound: false,
+  canEdit: false,
 };
 
 function _stylusNum(v, digits = 2) {
@@ -59,7 +60,7 @@ function _stylusSetStateBadge(state) {
   el.style.borderColor = color;
 }
 
-function _stylusApplyAmplifierDependency(isAmplifierEnabled) {
+function _stylusApplyAvailability(canEdit, reason) {
   const ids = [
     'stylus-enabled',
     'stylus-mode',
@@ -74,10 +75,13 @@ function _stylusApplyAmplifierDependency(isAmplifierEnabled) {
   ids.forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.disabled = !isAmplifierEnabled;
+    el.disabled = !canEdit;
   });
   const msg = document.getElementById('stylus-disabled-msg');
-  if (msg) msg.style.display = isAmplifierEnabled ? 'none' : '';
+  if (msg) {
+    msg.style.display = canEdit ? 'none' : '';
+    msg.textContent = reason || 'Stylus tracking is available when vinyl topology is configured.';
+  }
 }
 
 function _stylusSyncModeFields() {
@@ -235,8 +239,8 @@ async function loadStylusSection() {
 }
 
 async function saveStylusSettings() {
-  if (!(_ampConfig?.enabled)) {
-    toast('Enable amplifier before stylus tracking.', true);
+  if (!_stylusPageState.canEdit) {
+    toast('Stylus tracking is available when vinyl topology is configured.', true);
     return;
   }
 
@@ -267,8 +271,8 @@ async function saveStylusSettings() {
 }
 
 async function replaceStylusNow() {
-  if (!(_ampConfig?.enabled)) {
-    toast('Enable amplifier before replacing stylus profile.', true);
+  if (!_stylusPageState.canEdit) {
+    toast('Stylus tracking is available when vinyl topology is configured.', true);
     return;
   }
 
@@ -321,10 +325,13 @@ async function replaceStylusNow() {
 
 async function loadAmplifierPage() {
   let cfg;
+  let setupStatus = null;
   try {
     const r = await fetch('/api/config');
     if (!r.ok) { toast('Failed to load configuration.', true); return; }
     cfg = await r.json();
+    const sr = await fetch('/api/setup-status', { cache: 'no-store' });
+    if (sr.ok) setupStatus = await sr.json();
   } catch {
     toast('Failed to load configuration.', true);
     return;
@@ -355,8 +362,16 @@ async function loadAmplifierPage() {
   // Profiles
   await loadAmplifierProfiles(cfg);
 
-  // Stylus section depends on amplifier availability.
-  _stylusApplyAmplifierDependency(!!amp.enabled);
+  // Stylus editing should follow vinyl topology, not IR enablement.
+  const vinylTopologyPresent = !!(setupStatus?.vinyl_topology_present);
+  const canEditStylus = vinylTopologyPresent || !!amp.enabled;
+  _stylusPageState.canEdit = canEditStylus;
+  _stylusApplyAvailability(
+    canEditStylus,
+    vinylTopologyPresent
+      ? ''
+      : 'Configure at least one vinyl physical-media device to enable stylus tracking setup.'
+  );
   await loadStylusSection();
 }
 

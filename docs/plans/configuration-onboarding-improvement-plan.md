@@ -35,7 +35,7 @@ This document describes how first-time configuration feels today, why it is hard
 
 **Still pending from roadmap phases:**
 
-- **Phase 3c+:** connected-devices role/format persistence flow and full stylus-step wiring are still pending beyond shell + basic gating.
+- **Phase 3c+:** full stylus-step wiring in the dedicated wizard flow (step-level UX beyond links/gating) is still pending.
 - **Phase 6/7:** full now-playing parity polish and CLI↔web bridge completion remain in progress roadmap items.
 
 **Newly completed in this branch (2026-04):**
@@ -43,8 +43,7 @@ This document describes how first-time configuration feels today, why it is hard
 - **Phase 2a/2b:** `/config` hub page shipped with live cards + first-run checklist, done-state mapping from `/api/setup-status`, plus row-level skip/dismiss persistence in `localStorage`.
 - **Phase 3a:** production route scaffolded at `/amplifier-wizard` (`amplifier-wizard.html`) with step shell, readiness badges sourced from `/api/setup-status`, and deep links into existing operational pages (`amplifier.html`, `pair.html`, `recognition.html`).
 - **Phase 3b:** wizard now persists current step in `localStorage`, accepts deep links via `?step=<id>`, and applies Broadlink gating to the IR step (`amplifier_ir_enabled && !broadlink_paired` blocks progression and points user to pairing). Checklist rows that map to wizard stages now deep-link to the corresponding step.
-- **Phase 4 (partial):** connected-devices editor now persists `role` (`physical_media|streaming|other`) and `physical_format` (`vinyl|cd|tape|mixed|unspecified`) in production UI (`amplifier.html` / `index.amplifier.js`), and `/api/setup-status` normalizes these values case-insensitively before deriving vinyl/stylus readiness. The wizard route (`/amplifier-wizard`) now also includes a topology-step inline role/format editor with save via `/api/config`.
-- **Phase 4 (extended):** calibration wizard input selection is now scoped to inputs mapped from `connected_devices` classified as physical media (with legacy vinyl-label fallback), so calibration flow aligns with role-based topology instead of only `is_turntable`.
+- **Phase 4 ✅ Done (2026-04):** connected-devices role/format persistence shipped in `amplifier.html` and `amplifier-wizard`, setup-status derivation now normalizes role/format, calibration wizard scope now follows physical-media role mapping (with legacy fallback), and stylus setup availability now follows `vinyl_topology_present` rather than `amplifier.enabled`.
 
 ---
 
@@ -358,13 +357,15 @@ This distinction avoids two failure modes: rows that nag forever vs rows that si
   - **(B)** show a browser `beforeunload` confirmation (“Leave setup? Progress will be lost”) — simpler but intrusive.
   Persist to the server only at the final **”Save & restart”** step; no partial server writes.
 
-### Phase 4 — Calibration scoped by device role (+ physical format)
+### Phase 4 — Calibration scoped by device role (+ physical format) ✅ Done (2026-04)
 
 - Keep **`is_turntable`** as a supported path (already shipped) and expose it in onboarding copy as the practical way to map turntable topology to arbitrary amplifier inputs.
 - Extend config + UI for **`role`** on `connected_devices` (`physical_media` | `streaming` | `other`); **migration:** missing `role` → **`physical_media`** (existing `connected_devices` rows in pre-Phase-4 configs are almost always physical sources — streamers were not historically modelled as named connected devices). **New devices added via wizard must select role explicitly** — no silent assignment. If a miscategorised streaming device surfaces (e.g. Chromecast on AUX1), a one-time nudge ("Is this a physical source or a streamer?") can correct it without invalidating existing calibration profiles (see [Device roles](#device-roles-connected-equipment--input-usage)).
 - Add **`physical_format`** on `physical_media` rows (`vinyl` | `cd` | `tape` | `mixed` | `unspecified`); **migration:** missing → **`unspecified`** with optional one-time UI nudge (stronger when input is **Phono**).
 - Filter calibration wizard input list; update `recognition_page.js` / `calibration-wizard.js` copy to explain **why** some inputs are hidden.
 - Ensure **state manager** still receives calibration keyed by input ID (no breaking change unless we add aliases).
+
+**Implemented:** role/format is persisted from `amplifier.html` and editable in the topology step of `amplifier-wizard`; setup-status normalizes role/format case-insensitively before deriving calibration/stylus booleans; calibration wizard now selects physical-media mapped inputs (legacy fallback preserved); stylus setup in `amplifier.html` is available when `vinyl_topology_present` is true even if IR is disabled.
 
 ### Phase 5 — Contextual hints & API ✅ Done (2026-04)
 
