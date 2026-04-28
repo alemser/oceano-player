@@ -560,6 +560,32 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			continue
 		}
 
+		// Resolve per-input policy before any capture/provider call so "off"
+		// truly disables recognition cost and telemetry noise for that input.
+		policy := resolveRecognitionPolicyFromConfigPath(c.mgr.cfg.CalibrationConfigPath)
+		if !shouldRunRecognitionForInputPolicy(policy.Policy) {
+			if c.mgr.cfg.Verbose {
+				log.Printf("recognizer [%s]: skipping by input policy=%q input=%q (%s)",
+					c.rec.Name(), policy.Policy, policy.LastKnownInputID, policy.DerivedBy)
+			}
+			// Preserve existing hard-boundary behavior: clear stale physical
+			// metadata so UI does not linger on an old track while recognition is off.
+			if isBoundaryTrigger && isHardBoundaryTrigger {
+				c.mgr.mu.Lock()
+				c.mgr.recognitionResult = nil
+				c.mgr.physicalArtworkPath = ""
+				c.mgr.physicalLibraryEntryID = 0
+				c.mgr.physicalBoundarySensitive = false
+				c.mgr.shazamContinuityReady = false
+				c.mgr.shazamContinuityAbandoned = false
+				c.mgr.mu.Unlock()
+			}
+			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
+				Outcome: internallibrary.FollowupOutcomeSkippedCoordinator,
+			})
+			continue
+		}
+
 		skip := captureSkipDuration(isHardBoundaryTrigger)
 		if isBoundaryTrigger {
 			c.mgr.mu.Lock()
@@ -777,28 +803,6 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			shazamMatchedACR, stop = c.maybeConfirmCandidate(ctx, result, isBoundaryTrigger)
 			if stop {
 				return
-			}
-
-			policy := resolveRecognitionPolicyFromConfigPath(c.mgr.cfg.CalibrationConfigPath)
-			if !shouldRunRecognitionForInputPolicy(policy.Policy) {
-				if c.mgr.cfg.Verbose {
-					log.Printf("recognizer [%s]: skipping by input policy=%q input=%q (%s)",
-						c.rec.Name(), policy.Policy, policy.LastKnownInputID, policy.DerivedBy)
-				}
-				if isBoundaryTrigger && isHardBoundaryTrigger {
-					c.mgr.mu.Lock()
-					c.mgr.recognitionResult = nil
-					c.mgr.physicalArtworkPath = ""
-					c.mgr.physicalLibraryEntryID = 0
-					c.mgr.physicalBoundarySensitive = false
-					c.mgr.shazamContinuityReady = false
-					c.mgr.shazamContinuityAbandoned = false
-					c.mgr.mu.Unlock()
-				}
-				c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
-					Outcome: internallibrary.FollowupOutcomeSkippedCoordinator,
-				})
-				continue
 			}
 
 			c.applyRecognizedResult(

@@ -517,8 +517,10 @@ function renderAmplifierInputsTable() {
     recWrap.style.whiteSpace = 'nowrap';
     recWrap.className = 'hint';
     recWrap.textContent = 'Recognition';
+    recWrap.title = 'Library: save recognized tracks. Display only: show metadata without library writes. Off: disable recognition for this input (recommended for FM/talk/news).';
     const recSel = document.createElement('select');
     recSel.style.minWidth = '170px';
+    recSel.title = recWrap.title;
     recSel.innerHTML = `
       <option value="auto">Auto (conservative)</option>
       <option value="library">Recognize + add to library</option>
