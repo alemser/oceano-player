@@ -543,44 +543,6 @@ func defaultConfig() Config {
 			IdleDelaySecs:           3,
 			SessionGapThresholdSecs: 45,
 			LibraryDB:               "/var/lib/oceano/library.db",
-			CalibrationProfiles: map[string]CalibrationProfile{
-				"20": {
-					Off: &CalibrationSample{
-						AvgRMS:  0.007480857607263785,
-						MinRMS:  0.007177495863288641,
-						MaxRMS:  0.007710550911724567,
-						Samples: 130,
-					},
-					On: &CalibrationSample{
-						AvgRMS:  0.013316057278559758,
-						MinRMS:  0.012336097657680511,
-						MaxRMS:  0.014985771849751472,
-						Samples: 130,
-					},
-					VinylTransition: &VinylTransitionCalibration{
-						TailAvgRMS:      0.054589079916477205,
-						GapAvgRMS:       0.0398659204297206,
-						AttackAvgRMS:    0.08642621910156206,
-						GapDurationSecs: 2.690721649484536,
-						SamplesPerSec:   21.555555555555557,
-						Samples:         388,
-					},
-				},
-				"30": {
-					Off: &CalibrationSample{
-						AvgRMS:  0.013572221227849905,
-						MinRMS:  0.012560552917420864,
-						MaxRMS:  0.015231011435389519,
-						Samples: 130,
-					},
-					On: &CalibrationSample{
-						AvgRMS:  0.014302720487690889,
-						MinRMS:  0.013033092953264713,
-						MaxRMS:  0.01617470011115074,
-						Samples: 130,
-					},
-				},
-			},
 		},
 		Display: SPIDisplayConfig{
 			UIPreset:               "high_contrast_rotate",
@@ -593,16 +555,7 @@ func defaultConfig() Config {
 			Name:    "", // empty → derived from AirPlay name at install time
 		},
 		Amplifier: AmplifierConfig{
-			ProfileID: "magnat_mr780",
-			InputMode: "cycle",
-			Inputs: []AmplifierInputConfig{
-				{ID: AmplifierInputID("10"), LogicalName: "Phono", Visible: false},
-				{ID: AmplifierInputID("20"), LogicalName: "CD", Visible: true},
-				{ID: AmplifierInputID("30"), LogicalName: "Aux", Visible: true},
-				{ID: AmplifierInputID("40"), LogicalName: "USB Audio", Visible: true},
-			},
-			Maker:              "Magnat",
-			Model:              "MR 780",
+			InputMode:          "cycle",
 			WarmUpSecs:         30,
 			StandbyTimeoutMins: 20,
 			InputCycling: InputCyclingConfig{
@@ -619,11 +572,8 @@ func defaultConfig() Config {
 			},
 		},
 		Weather: WeatherConfig{
-			Enabled:       true,
-			LocationLabel: "Dublin",
-			Latitude:      53.3498,
-			Longitude:     -6.2603,
-			RefreshMins:   10,
+			Enabled:     false,
+			RefreshMins: 10,
 		},
 		NowPlaying: NowPlayingConfig{
 			AmbientColorEnabled: true,

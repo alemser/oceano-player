@@ -242,6 +242,11 @@ func TestAmplifierSetLastKnownInput_OK(t *testing.T) {
 	amp, _ := newTestAmp(t)
 	s := newTestServer(t, amp)
 
+	// Seed a registered input so the handler can validate the ID.
+	cfg, _ := loadConfig(s.configPath)
+	cfg.Amplifier.Inputs = []AmplifierInputConfig{{ID: AmplifierInputID("20"), LogicalName: "CD", Visible: true}}
+	_ = saveConfig(s.configPath, cfg)
+
 	w := do(t, s.handleAmplifierSetLastKnownInput, http.MethodPost, "/api/amplifier/last-known-input", `{"input_id":"20"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
@@ -366,7 +371,13 @@ func TestAmplifierResetUSBInput_UsesKnownInputToChooseShorterDirection(t *testin
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	// Aux -> USB Audio is one jump forward, three backwards in default inputs.
+	// Aux (ID "30") → USB Audio (ID "40") is 1 jump forward, 3 backwards in this 4-input layout.
+	cfg.Amplifier.Inputs = []AmplifierInputConfig{
+		{ID: AmplifierInputID("10"), LogicalName: "Phono", Visible: false},
+		{ID: AmplifierInputID("20"), LogicalName: "CD", Visible: true},
+		{ID: AmplifierInputID("30"), LogicalName: "Aux", Visible: true},
+		{ID: AmplifierInputID("40"), LogicalName: "USB Audio", Visible: true},
+	}
 	cfg.AmplifierRuntime.LastKnownInputID = AmplifierInputID("30")
 	if err := saveConfig(s.configPath, cfg); err != nil {
 		t.Fatalf("saveConfig: %v", err)
@@ -409,6 +420,16 @@ func TestAmplifierResetUSBInput_ExhaustsAfterConfiguredInputCycle(t *testing.T) 
 	s.waitFn = func(context.Context, time.Duration) error { return nil }
 	s.usbProbeFn = func(context.Context) bool { return false }
 
+	// Four explicit inputs → maxAttempts = min(USBReset.MaxAttempts=13, 4) = 4.
+	cfg, _ := loadConfig(s.configPath)
+	cfg.Amplifier.Inputs = []AmplifierInputConfig{
+		{ID: AmplifierInputID("10"), LogicalName: "Phono", Visible: false},
+		{ID: AmplifierInputID("20"), LogicalName: "CD", Visible: true},
+		{ID: AmplifierInputID("30"), LogicalName: "Aux", Visible: true},
+		{ID: AmplifierInputID("40"), LogicalName: "USB Audio", Visible: true},
+	}
+	_ = saveConfig(s.configPath, cfg)
+
 	w := do(t, s.handleAmplifierResetUSBInput, http.MethodPost, "/api/amplifier/reset-usb-input", "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
@@ -444,7 +465,9 @@ func TestAmplifierResetUSBInput_UsesProfileInputsWhenRawInputsEmpty(t *testing.T
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	// Keep built-in profile active but clear explicit input list.
+	// Explicitly set the built-in profile and then clear explicit inputs;
+	// the USB reset falls back to the profile's input list (15 inputs for Magnat MR 780).
+	cfg.Amplifier.ProfileID = builtInAmplifierProfileMagnatMR780
 	cfg.Amplifier.Inputs = nil
 	if err := saveConfig(s.configPath, cfg); err != nil {
 		t.Fatalf("saveConfig: %v", err)
