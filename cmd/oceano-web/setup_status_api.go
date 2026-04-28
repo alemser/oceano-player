@@ -60,13 +60,39 @@ var (
 	svcHealthCache  map[string]bool
 	svcHealthExpiry time.Time
 	svcHealthTTL    = 20 * time.Second
+	systemctlOnce   sync.Once
+	systemctlFound  bool
 )
+
+var (
+	stylusCacheMu     sync.Mutex
+	stylusCacheDBPath string
+	stylusCacheValue  bool
+	stylusCacheExpiry time.Time
+	stylusCacheTTL    = 30 * time.Second
+)
+
+func hasSystemctl() bool {
+	systemctlOnce.Do(func() {
+		_, err := exec.LookPath("systemctl")
+		systemctlFound = err == nil
+	})
+	return systemctlFound
+}
 
 // queryServicesHealthy calls systemctl is-active for each monitored service,
 // caching the result for svcHealthTTL to avoid forking on every hub poll.
 func queryServicesHealthy() map[string]bool {
 	svcHealthMu.Lock()
 	defer svcHealthMu.Unlock()
+
+	if !hasSystemctl() {
+		if svcHealthCache == nil {
+			svcHealthCache = map[string]bool{}
+		}
+		svcHealthExpiry = time.Now().Add(svcHealthTTL)
+		return svcHealthCache
+	}
 
 	if time.Now().Before(svcHealthExpiry) && svcHealthCache != nil {
 		return svcHealthCache
@@ -134,10 +160,21 @@ func physicalMediaInputIDs(cfg Config) []string {
 // stylusProfileConfigured returns true when the library DB contains an active
 // (non-replaced) stylus row — i.e. the user has completed stylus onboarding.
 func stylusProfileConfigured(libraryDB string) bool {
-	if strings.TrimSpace(libraryDB) == "" {
+	dbPath := strings.TrimSpace(libraryDB)
+	if dbPath == "" {
 		return false
 	}
-	db, err := sql.Open("sqlite", libraryDB+"?mode=ro")
+
+	now := time.Now()
+	stylusCacheMu.Lock()
+	if dbPath == stylusCacheDBPath && now.Before(stylusCacheExpiry) {
+		cached := stylusCacheValue
+		stylusCacheMu.Unlock()
+		return cached
+	}
+	stylusCacheMu.Unlock()
+
+	db, err := sql.Open("sqlite", dbPath+"?mode=ro")
 	if err != nil {
 		return false
 	}
@@ -145,7 +182,14 @@ func stylusProfileConfigured(libraryDB string) bool {
 
 	var count int
 	err = db.QueryRow(`SELECT COUNT(*) FROM stylus_profiles WHERE replaced_at IS NULL`).Scan(&count)
-	return err == nil && count > 0
+	ok := err == nil && count > 0
+
+	stylusCacheMu.Lock()
+	stylusCacheDBPath = dbPath
+	stylusCacheValue = ok
+	stylusCacheExpiry = time.Now().Add(stylusCacheTTL)
+	stylusCacheMu.Unlock()
+	return ok
 }
 
 // computeSetupStatus derives setup readiness from config and the library DB.
@@ -228,7 +272,11 @@ func handleSetupStatus(configPath, libraryDB string) http.HandlerFunc {
 			jsonError(w, "failed to load config", http.StatusInternalServerError)
 			return
 		}
+		effectiveLibraryDB := strings.TrimSpace(cfg.Advanced.LibraryDB)
+		if effectiveLibraryDB == "" {
+			effectiveLibraryDB = strings.TrimSpace(libraryDB)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(computeSetupStatus(cfg, libraryDB))
+		_ = json.NewEncoder(w).Encode(computeSetupStatus(cfg, effectiveLibraryDB))
 	}
 }

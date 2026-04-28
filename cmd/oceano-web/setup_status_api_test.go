@@ -1,10 +1,13 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 // newSetupStatusConfig returns a minimal Config that represents a fully-configured
@@ -313,6 +316,51 @@ func TestHandleSetupStatus_WrongMethod(t *testing.T) {
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("want 405, got %d", w.Code)
+	}
+}
+
+func TestHandleSetupStatus_UsesConfigLibraryDB(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := dir + "/config.json"
+	dbPath := dir + "/library.db"
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	_, err = db.Exec(`CREATE TABLE stylus_profiles (
+		id INTEGER PRIMARY KEY,
+		replaced_at TEXT
+	)`)
+	if err != nil {
+		t.Fatalf("create stylus_profiles: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO stylus_profiles (replaced_at) VALUES (NULL)`); err != nil {
+		t.Fatalf("insert stylus profile: %v", err)
+	}
+
+	cfg := defaultConfig()
+	cfg.Advanced.LibraryDB = dbPath
+	if err := saveConfig(cfgPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	handler := handleSetupStatus(cfgPath, "")
+	r := httptest.NewRequest(http.MethodGet, "/api/setup-status", nil)
+	w := httptest.NewRecorder()
+	handler(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	var s setupStatus
+	if err := json.NewDecoder(w.Body).Decode(&s); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !s.StylusProfileConfigured {
+		t.Error("stylus_profile_configured should use cfg.Advanced.LibraryDB")
 	}
 }
 
