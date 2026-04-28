@@ -46,7 +46,7 @@ function applyTopologyContext() {
     return;
   }
 
-  if (titleEl) titleEl.textContent = "Topology configuration";
+  if (titleEl) titleEl.textContent = "Amplifier & IR";
   if (copyEl) copyEl.textContent = "Configure amplifier identity, input map, and connected device classification.";
   if (backEl) {
     backEl.href = "/config";

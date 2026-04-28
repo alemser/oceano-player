@@ -210,6 +210,7 @@ function removeConnectedDevice(idx) {
 function renderConnectedDevicesTable() {
   const container = document.getElementById('amp-devices-list');
   if (!container) return;
+  const irEditorEnabled = document.body?.dataset?.irEditor !== 'disabled';
 
   container.innerHTML = '';
 
@@ -379,7 +380,7 @@ function renderConnectedDevicesTable() {
     row.appendChild(inputsWrap);
 
     // ── IR codes (only when has_remote) ────────────────────────────────────
-    if (dev.has_remote) {
+    if (dev.has_remote && irEditorEnabled) {
       const irSection = document.createElement('div');
       irSection.className = 'amp-device-ir-section';
       const irLabel = document.createElement('div');
@@ -395,7 +396,7 @@ function renderConnectedDevicesTable() {
 
     container.appendChild(row);
 
-    if (dev.has_remote) {
+    if (dev.has_remote && irEditorEnabled) {
       renderIRTable(`device-ir-table-${dev.id}`, DEVICE_REMOTE_COMMANDS, `device-${dev.id}`, dev.ir_codes ?? {});
     }
   });

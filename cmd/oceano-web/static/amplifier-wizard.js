@@ -5,7 +5,7 @@ const WIZARD_ACTIVE_STEP_KEY = "oceano.onboarding.amplifier_wizard.active_step";
 const WIZ_STEPS = [
   {
     id: "topology",
-    title: "Identity and topology",
+    title: "Amplifier &amp; IR",
     desc: "Set amplifier maker/model, input map and connected devices.",
     href: "/topology?from=wizard",
     state(status) {

@@ -72,7 +72,7 @@
 <body>
 
 <div class="page-header">
-  <a href="/amplifier-wizard?step=pairing" class="page-back">
+  <a href="/amplifier-wizard?step=pairing" class="page-back" id="ir-setup-back-link">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M15 18l-6-6 6-6"/>
     </svg>
@@ -84,11 +84,11 @@
 
 <div class="page-body">
   <div class="section" style="margin-bottom:24px" id="ir-context-card">
-    <div class="section-title">Remote control setup</div>
-    <p class="hint" style="margin-bottom:10px">Configure Broadlink pairing and learn IR commands after topology is complete.</p>
+    <div class="section-title" id="ir-context-title">IR controls configuration</div>
+    <p class="hint" id="ir-context-copy" style="margin-bottom:10px">Configure Broadlink pairing and learn IR commands.</p>
     <div class="ir-help-links">
-      <a class="ir-help-link" href="/topology">Open topology page</a>
-      <a class="ir-help-link" href="/amplifier-wizard?step=calibration">Continue wizard after IR</a>
+      <a class="ir-help-link" href="/topology" id="ir-open-topology-link">Open topology page</a>
+      <a class="ir-help-link" href="/amplifier-wizard?step=calibration" id="ir-next-step-link">Continue wizard after IR</a>
     </div>
     <div class="ir-disabled" id="ir-disabled-msg" style="display:none"></div>
   </div>

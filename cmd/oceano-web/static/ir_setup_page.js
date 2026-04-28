@@ -24,6 +24,40 @@ function fieldValue(id) {
   return (document.getElementById(id)?.value || "").trim();
 }
 
+function applyIRSetupContext() {
+  const params = new URLSearchParams(window.location.search || "");
+  const fromWizard = params.get("from") === "wizard";
+  const titleEl = document.getElementById("ir-context-title");
+  const copyEl = document.getElementById("ir-context-copy");
+  const backEl = document.getElementById("ir-setup-back-link");
+  const openTopologyEl = document.getElementById("ir-open-topology-link");
+  const nextEl = document.getElementById("ir-next-step-link");
+
+  if (fromWizard) {
+    if (titleEl) titleEl.textContent = "Remote control setup";
+    if (copyEl) copyEl.textContent = "Configure Broadlink pairing and learn IR commands after topology is complete.";
+    if (backEl) {
+      backEl.href = "/amplifier-wizard?step=pairing";
+      backEl.innerHTML = backEl.innerHTML.replace("Back", "Back to wizard");
+    }
+    if (openTopologyEl) openTopologyEl.href = "/topology?from=wizard";
+    if (nextEl) {
+      nextEl.style.display = "";
+      nextEl.href = "/amplifier-wizard?step=calibration";
+    }
+    return;
+  }
+
+  if (titleEl) titleEl.textContent = "IR controls configuration";
+  if (copyEl) copyEl.textContent = "Configure Broadlink pairing and learn IR commands.";
+  if (backEl) {
+    backEl.href = "/config";
+    backEl.innerHTML = backEl.innerHTML.replace("Back to wizard", "Back");
+  }
+  if (openTopologyEl) openTopologyEl.href = "/topology";
+  if (nextEl) nextEl.style.display = "none";
+}
+
 function refreshDirectIRWarning() {
   const warning = document.getElementById("amp-direct-warning");
   if (!warning) return;
@@ -170,6 +204,7 @@ async function saveIRSetupPage() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  applyIRSetupContext();
   document.getElementById("btn-ir-save")?.addEventListener("click", saveIRSetupPage);
   loadIRSetupPage();
 });

@@ -1,5 +1,5 @@
 /* Shared sticky page header for detail pages.
-   Used by amplifier.html, recognition.html, advanced.html.
+   Used by topology.html, ir-setup.html, recognition.html, advanced.html.
    Requires index.css to be loaded first (uses --bg, --border, --accent, etc). */
 
 .page-header {
