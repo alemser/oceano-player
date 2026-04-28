@@ -2,102 +2,94 @@
 
 const HUB_POLL_MS = 30000;
 
-// ── Card definitions ────────────────────────────────────────────────────────
-// icon()   → HTML string from SOURCE_ICONS / HUB_ICONS (loaded by icons.js)
-// chip(s)  → { cls: 'ok'|'warn'|'error'|'neutral', text: string }
-// detail   → static sub-title shown below the chip
-
-const HUB_CARDS = [
+const HUB_WIZARDS = [
   {
-    id: "physical",
-    title: "Physical media",
-    detail: "Capture · ACRCloud · Calibration · Stylus",
-    href: "/recognition.html",
-    icon() { return (window.SOURCE_ICONS || {}).Vinyl || (window.HUB_ICONS || {}).Advanced || ""; },
-    chip(s) {
+    id: "amp",
+    title: "Amplifier",
+    detail: "Maker/model · Inputs map · Connected devices · Broadlink · IR codes",
+    href: "/topology",
+    steps: [
+      "Define amplifier identity",
+      "Map inputs and connected devices",
+      "Optionally configure Broadlink and IR",
+    ],
+    status(s) {
       if (!s) return { cls: "neutral", text: "Loading…" };
-      const svc = s.services_healthy || {};
-      if (svc.oceano_state_manager === false)
-        return { cls: "error", text: "State manager offline" };
-      if (!s.capture_configured)
-        return { cls: "warn", text: "Capture not configured" };
-      if (!s.recognition_credentials_set)
-        return { cls: "warn", text: "ACRCloud credentials missing" };
-      if (s.calibration_physical_recommended)
-        return { cls: "warn", text: "Calibration incomplete" };
-      if (s.stylus_tracking_recommended)
-        return { cls: "warn", text: "Stylus not configured" };
-      return { cls: "ok", text: "Ready" };
+      if (!s.amplifier_topology_complete) return { cls: "warn", text: "Not started" };
+      if (s.amplifier_ir_enabled && !s.broadlink_paired) return { cls: "warn", text: "IR pending" };
+      if (s.amplifier_ir_enabled) return { cls: "ok", text: "Done · IR paired" };
+      return { cls: "ok", text: "Done" };
     },
   },
   {
-    id: "amp",
-    title: "Amplifier & IR",
-    detail: "Inputs · Broadlink · IR codes",
-    href: "/topology",
-    icon() { return (window.HUB_ICONS || {}).Amplifier || ""; },
-    chip(s) {
+    id: "physical",
+    title: "Physical media",
+    detail: "Capture · ACRCloud · Input calibration",
+    href: "/recognition.html",
+    steps: [
+      "Set capture device and threshold",
+      "Add ACRCloud credentials",
+      "Validate physical input calibration",
+    ],
+    status(s) {
       if (!s) return { cls: "neutral", text: "Loading…" };
-      if (!s.amplifier_topology_complete)
-        return { cls: "warn", text: "Not configured" };
-      if (s.amplifier_ir_enabled && !s.broadlink_paired)
-        return { cls: "warn", text: "Broadlink not paired" };
-      if (s.amplifier_ir_enabled)
-        return { cls: "ok", text: "Ready · IR paired" };
-      return { cls: "ok", text: "Ready" };
+      const svc = s.services_healthy || {};
+      if (svc.oceano_state_manager === false) return { cls: "error", text: "Manager offline" };
+      if (!s.capture_configured) return { cls: "warn", text: "Capture pending" };
+      if (!s.recognition_credentials_set) return { cls: "warn", text: "Credentials pending" };
+      if (s.calibration_physical_recommended) return { cls: "warn", text: "Calibration pending" };
+      return { cls: "ok", text: "Done" };
     },
   },
   {
     id: "stylus",
     title: "Stylus tracking",
-    detail: "Hours · Cartridge life",
+    detail: "Cartridge profile · Initial hours · Replacement flow",
     href: "/stylus",
-    icon() { return (window.HUB_ICONS || {}).Stylus || ""; },
-    chip(s) {
+    steps: [
+      "Confirm vinyl topology",
+      "Configure stylus profile",
+      "Set initial hours and save",
+    ],
+    status(s) {
       if (!s) return { cls: "neutral", text: "Loading…" };
-      if (!s.vinyl_topology_present)
-        return { cls: "neutral", text: "No vinyl topology" };
-      if (s.stylus_profile_configured)
-        return { cls: "ok", text: "Configured" };
-      return { cls: "warn", text: "Not configured" };
+      if (!s.vinyl_topology_present) return { cls: "neutral", text: "Blocked (no vinyl)" };
+      if (s.stylus_profile_configured) return { cls: "ok", text: "Done" };
+      return { cls: "warn", text: "Not started" };
     },
   },
   {
     id: "streaming",
     title: "Streaming",
-    detail: "AirPlay · Bluetooth",
+    detail: "AirPlay · Bluetooth health",
     href: "/index.html",
-    icon() { return (window.SOURCE_ICONS || {}).AirPlay || ""; },
-    chip(s) {
+    steps: [
+      "Confirm service health",
+      "Validate AirPlay and Bluetooth visibility",
+    ],
+    status(s) {
       if (!s) return { cls: "neutral", text: "Loading…" };
       const svc = s.services_healthy || {};
-      const allUp = Object.keys(svc).length === 0 ||
-        Object.values(svc).every((v) => v !== false);
-      if (!allUp) return { cls: "warn", text: "Service offline" };
-      return { cls: "ok", text: "Ready" };
+      const allUp = Object.keys(svc).length === 0 || Object.values(svc).every((v) => v !== false);
+      if (!allUp) return { cls: "warn", text: "Service check needed" };
+      return { cls: "ok", text: "Done" };
     },
   },
   {
     id: "display",
     title: "Now playing & display",
-    detail: "Kiosk · Weather · Idle screen",
+    detail: "Now playing page · Kiosk and local panel behavior",
     href: "/display.html",
-    icon() { return (window.HUB_ICONS || {}).Display || ""; },
-    chip(s) {
+    steps: [
+      "Open now playing display settings",
+      "Validate kiosk behavior if using HDMI/DSI",
+    ],
+    status(s) {
       if (!s) return { cls: "neutral", text: "Loading…" };
       const svc = s.services_healthy || {};
-      if (svc.oceano_state_manager === false)
-        return { cls: "warn", text: "No state feed" };
+      if (svc.oceano_state_manager === false) return { cls: "warn", text: "State feed missing" };
       return { cls: "neutral", text: "Optional" };
     },
-  },
-  {
-    id: "advanced",
-    title: "Advanced",
-    detail: "Sockets · Paths · Library DB",
-    href: "/advanced.html",
-    icon() { return (window.HUB_ICONS || {}).Advanced || ""; },
-    chip() { return { cls: "neutral", text: "Optional" }; },
   },
 ];
 
@@ -111,21 +103,45 @@ function esc(v) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function renderCard(card, status) {
-  const chip = card.chip(status);
-  const iconHtml = card.icon();
-  const borderCls =
-    chip.cls === "warn" ? "border-warn" :
-    chip.cls === "error" ? "border-error" : "";
-  return `<a class="hub-card ${borderCls}" href="${esc(card.href)}">
-    <div class="hub-card-top">
-      <span class="hub-card-icon" aria-hidden="true">${iconHtml}</span>
-      <span class="hub-card-arrow" aria-hidden="true">→</span>
+function actionLabelFromChip(chip) {
+  if (chip.cls === "ok") return "Review";
+  if (chip.cls === "warn") return "Continue setup";
+  if (chip.cls === "error") return "Fix now";
+  return "Open";
+}
+
+function renderWizard(wizard, status) {
+  const chip = wizard.status(status);
+  const expanded = expandedWizardID === wizard.id;
+  return `<article class="hub-wizard ${expanded ? "is-open" : ""}">
+    <button class="hub-wizard-head" type="button" data-toggle-id="${esc(wizard.id)}" aria-expanded="${expanded ? "true" : "false"}">
+      <span class="hub-wizard-title">${esc(wizard.title)}</span>
+      <span class="status-chip ${esc(chip.cls)}"><span class="dot"></span>${esc(chip.text)}</span>
+      <span class="hub-wizard-chevron" aria-hidden="true">›</span>
+    </button>
+    <div class="hub-wizard-panel" ${expanded ? "" : "hidden"}>
+      <p class="hub-wizard-detail">${esc(wizard.detail)}</p>
+      <ul class="hub-wizard-steps">
+        ${wizard.steps.map((step) => `<li>${esc(step)}</li>`).join("")}
+      </ul>
+      <div class="hub-wizard-actions">
+        <a class="btn-wizard" href="${esc(wizard.href)}">${esc(actionLabelFromChip(chip))}</a>
+      </div>
     </div>
-    <h2 class="hub-card-title">${esc(card.title)}</h2>
-    <span class="status-chip ${esc(chip.cls)}"><span class="dot"></span>${esc(chip.text)}</span>
-    <p class="hub-card-detail">${esc(card.detail)}</p>
-  </a>`;
+  </article>`;
+}
+
+let expandedWizardID = "";
+
+function renderWizards(status) {
+  wizardListEl.innerHTML = HUB_WIZARDS.map((w) => renderWizard(w, status)).join("");
+  wizardListEl.querySelectorAll("[data-toggle-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-toggle-id");
+      expandedWizardID = expandedWizardID === id ? "" : id;
+      renderWizards(lastStatus);
+    });
+  });
 }
 
 // ── Checklist ────────────────────────────────────────────────────────────────
@@ -188,19 +204,19 @@ async function loadStatus() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     lastStatus = await res.json();
     errorBanner.hidden = true;
-    gridEl.innerHTML = HUB_CARDS.map((c) => renderCard(c, lastStatus)).join("");
+    renderWizards(lastStatus);
     renderChecklist(lastStatus);
   } catch (err) {
     errorBanner.hidden = false;
     errorBanner.textContent = `Could not load setup status: ${err.message}`;
-    gridEl.innerHTML = HUB_CARDS.map((c) => renderCard(c, null)).join("");
+    renderWizards(null);
     renderChecklist(null);
   }
 }
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
-const gridEl          = document.getElementById("hub-grid");
+const wizardListEl    = document.getElementById("hub-wizard-list");
 const errorBanner     = document.getElementById("hub-error");
 const checklistSection= document.getElementById("onboarding-checklist");
 const checklistList   = document.getElementById("checklist-list");
@@ -224,7 +240,7 @@ refreshBtn.addEventListener("click", loadStatus);
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 
-gridEl.innerHTML = HUB_CARDS.map((c) => renderCard(c, null)).join("");
+renderWizards(null);
 renderChecklist(null);
 loadStatus();
 setInterval(loadStatus, HUB_POLL_MS);

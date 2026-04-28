@@ -217,92 +217,73 @@ body {
   border-color: var(--accent);
 }
 
-/* ── Hub grid ──────────────────────────────────────────────── */
-.hub-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
+/* ── Hub wizard list (accordion) ───────────────────────────── */
+.hub-wizard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-
-/* ── Hub cards ─────────────────────────────────────────────── */
-a.hub-card {
-  text-decoration: none;
-  color: var(--text);
-}
-
-.hub-card {
+.hub-wizard {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 16px 16px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
-  outline: none;
-  position: relative;
-  user-select: none;
+  overflow: hidden;
 }
-.hub-card:hover {
-  background: var(--surface-hov);
+.hub-wizard.is-open {
   border-color: var(--border-hov);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.32);
 }
-.hub-card:focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.25);
-}
-
-.hub-card.border-warn { border-color: rgba(240, 192, 96, 0.28); }
-.hub-card.border-warn:hover { border-color: rgba(240, 192, 96, 0.50); }
-.hub-card.border-error { border-color: rgba(255, 120, 120, 0.32); }
-.hub-card.border-error:hover { border-color: rgba(255, 120, 120, 0.55); }
-
-.hub-card-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.hub-card-icon {
-  display: block;
-  width: 34px;
-  height: 34px;
-  color: var(--text-dim);
-  flex-shrink: 0;
-}
-.hub-card-icon svg {
+.hub-wizard-head {
   width: 100%;
-  height: 100%;
-  display: block;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  cursor: pointer;
 }
-
-.hub-card-arrow {
-  color: var(--muted);
-  font-size: 1.05rem;
-  line-height: 1;
-  margin-top: 3px;
-  transition: color 0.12s, transform 0.12s;
+.hub-wizard-head:hover {
+  background: var(--surface-hov);
 }
-.hub-card:hover .hub-card-arrow {
-  color: var(--accent);
-  transform: translateX(2px);
-}
-
-.hub-card-title {
-  margin: 0;
-  font-size: 0.9rem;
+.hub-wizard-title {
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--text);
 }
-
-.hub-card-detail {
-  margin: 0;
-  font-size: 0.73rem;
+.hub-wizard-chevron {
+  margin-left: auto;
+  font-size: 1.1rem;
   color: var(--muted);
-  line-height: 1.5;
-  flex: 1;
+  transform: rotate(90deg);
+  transition: transform 0.15s;
+}
+.hub-wizard.is-open .hub-wizard-chevron {
+  transform: rotate(-90deg);
+}
+.hub-wizard-panel {
+  padding: 0 16px 14px;
+  border-top: 1px solid var(--border);
+}
+.hub-wizard-detail {
+  margin: 10px 0 8px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+.hub-wizard-steps {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.hub-wizard-steps li {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.hub-wizard-actions {
+  margin-top: 12px;
 }
 
 /* ── Status chips ──────────────────────────────────────────── */
