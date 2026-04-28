@@ -217,7 +217,7 @@
   </div>
   <header>
     <h1>Configuration — UX mock</h1>
-    <p>Hub cards, first-run checklist, amplifier wizard flow (Broadlink gate + IR). For design review only.</p>
+    <p>Hub cards + hybrid navigation (wizard first-run, direct pages after setup), amplifier flow (Broadlink gate + IR). For design review only.</p>
   </header>
   <nav class="tabs" aria-label="Prototype sections">
     <button type="button" class="active" data-panel="hub">Hub</button>
@@ -230,6 +230,9 @@
   <main>
     <section id="panel-hub" class="panel active" aria-labelledby="hub-title">
       <h1 id="hub-title" style="font-size:1rem;margin:0 0 14px">Hub</h1>
+      <div class="callout">
+        <strong>Hybrid model:</strong> first run prioritizes checklist + wizard. After setup is complete, users keep direct access to Recognition / Amplifier / Advanced pages, with a visible <strong>Re-run setup wizard</strong> action for major rewiring.
+      </div>
       <div class="mock-row">
         <label for="hub-mock">Mock install state</label>
         <select id="hub-mock" class="mock-state" aria-label="Simulate hub card statuses">
@@ -239,6 +242,10 @@
         </select>
       </div>
       <div class="hub-grid" style="margin-top:18px" id="hub-cards"></div>
+      <div class="mock-row" style="margin-top:14px">
+        <button type="button" class="btn-ghost" onclick="document.querySelector('[data-panel=wizard]').click()">Re-run setup wizard</button>
+        <span class="hint">Available even when everything is configured (new amplifier, rewiring, topology cleanup).</span>
+      </div>
     </section>
 
     <section id="panel-checklist" class="panel" aria-labelledby="cl-title">
@@ -339,13 +346,13 @@
     <section id="panel-calibration" class="panel" aria-labelledby="cal-title">
       <h1 id="cal-title" style="font-size:1rem;margin:0 0 14px">Calibration wizard (mock)</h1>
       <div class="callout">
-        Only inputs tied to <strong>connected_devices[].role = physical_media</strong> appear here. USB/streaming-only paths are hidden unless the user opts in.
+        Current implementation supports <strong>connected_devices[].is_turntable</strong> for explicit vinyl mapping (with phono/vinyl name fallback). Future role-based filtering can extend this, but turntable mapping already solves AUX1-style setups.
       </div>
       <ul style="color:#ccc;margin:0;padding-left:1.2rem">
-        <li>Phono — noise floor + optional vinyl gap</li>
-        <li>CD — noise floor</li>
+        <li>Turntable-mapped input — noise floor + optional vinyl gap</li>
+        <li>Other inputs hidden by default in the vinyl-focused flow</li>
       </ul>
-      <p class="hint">Spec: <code>docs/plans/configuration-onboarding-improvement-plan.md</code> → Device roles + Phase 4.</p>
+      <p class="hint">Spec: <code>docs/plans/configuration-onboarding-improvement-plan.md</code> → Current implementation snapshot + Device roles + Phase 4.</p>
     </section>
 
     <section id="panel-nowplaying" class="panel" aria-labelledby="np-title">

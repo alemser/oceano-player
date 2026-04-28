@@ -8,6 +8,13 @@ This document describes how first-time configuration feels today, why it is hard
 - **Concrete implementation order:** [Proposed work (phased)](#proposed-work-phased) — Phases **1–7** (sequential numbering; no `5b`).
 - **Skim / backlog bullets:** [Editorial](#editorial-what-we-would-add-remove-or-defer) at the end intentionally mirrors roadmap intent for readers who jump to the bottom; **normative detail** remains in the body sections above.
 
+### Current implementation snapshot (2026-04)
+
+- **Calibration scope now supports explicit turntable mapping:** `connected_devices[].is_turntable` (with name fallback for `phono`/`vinyl`) is already used by the recognition calibration wizard.
+- **Calibration UX is vinyl-first:** wizard copy and selection emphasize phono/turntable paths; no generic “all inputs equally” framing.
+- **Metrics telemetry is progressively disclosed:** boundary telemetry moved under a collapsed **Advanced** accordion; readiness card shows a friendly summary with technical details collapsed.
+- **User-facing copy no longer exposes “R3” labels** on current UI surfaces (uses auto-tuning/adaptive wording).
+
 ---
 
 ## Product positioning & primary audience
@@ -132,6 +139,16 @@ These three steps are **UI sequencing** for the hub only; do not confuse them wi
 
 This aligns with the **physical-first onboarding** narrative and with **progressive disclosure**: the hub answers “where do I go?”; detail pages answer “how do I tune it?”
 
+### After first-time setup: wizard vs direct pages
+
+Use a **hybrid model**:
+
+- **Wizard remains available** for first run and big changes (new amplifier, rewiring, major topology edits).
+- **Direct pages remain first-class** (`recognition.html`, `amplifier.html`, `advanced.html`) for quick expert edits without replaying the full flow.
+- Hub behaviour by status:
+  - **Incomplete setup:** prioritize checklist/wizard CTA.
+  - **Complete setup:** prioritize direct actions + visible **“Re-run setup wizard”** entry point.
+
 ---
 
 ## Now Playing: amplifier line — kiosk / mobile parity + touch input switch
@@ -162,6 +179,8 @@ Yes — this belongs here as **cross-cutting display + configuration outcome**: 
 
 ## Device roles (connected equipment → input usage)
 
+**State today:** implementation already supports **`connected_devices[].is_turntable`** and uses it to scope calibration targets. This gives users an explicit mapping even when the amplifier input label is not “Phono” (for example AUX1 used as turntable path). Name-based detection (`phono` / `vinyl`) remains fallback.
+
 When the user defines a **connected device** (name + amplifier input IDs), they should optionally classify **what that device is for**:
 
 | Role | Meaning | Calibration wizard | Notes |
@@ -177,7 +196,8 @@ When the user defines a **connected device** (name + amplifier input IDs), they 
 
 **Migration (decided):** if `role` is **absent**, treat as **`physical_media`**. If `physical_format` is **absent**, treat as **`unspecified`** — UI may **nudge** once: “Is this device vinyl, CD, or tape?” with emphasis when the mapped **logical input label** is **Phono** (strong prior for vinyl). Do not auto-write `vinyl` without user confirmation.
 
-**Calibration wizard behaviour:** calibratable inputs = union of input IDs on `physical_media` devices, plus manual “always calibrate”. **Vinyl gap** sub-step only when **`physical_format === vinyl`** (or product-approved equivalent).
+**Calibration wizard behaviour (target):** calibratable inputs = union of input IDs on `physical_media` devices, plus manual “always calibrate”. **Vinyl gap** sub-step only when **`physical_format === vinyl`** (or product-approved equivalent).  
+**Calibration wizard behaviour (current):** union of input IDs on devices marked **`is_turntable`**, with fallback to phono/vinyl input name matching.
 
 **Off/On wizard limitations (CD and some line paths):** The wizard assumes two measurably different RMS levels (“off” vs “on” / programme). On many **CD** setups the REC OUT path shows **similar idle hum** whether transport is idle or outputs are muted — there is **no usable differential**, so wizard-derived thresholds may be noise or collapse to meaningless gaps. Copy should **not promise** universal Off/On calibration; steer users toward (a) a conservative **`advanced.vu_silence_threshold`** above idle hum on REC, (b) re-running wizard only when contrast is audible, and (c) the statistical / shadow path in **`recognition-enhancement-plan.md`** (Phase **1B**, **R10**) rather than insisting on per-input profiles for CD-only rigs.
 
@@ -291,6 +311,7 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 
 ### Phase 4 — Calibration scoped by device role (+ physical format)
 
+- Keep **`is_turntable`** as a supported path (already shipped) and expose it in onboarding copy as the practical way to map turntable topology to arbitrary amplifier inputs.
 - Extend config + UI for **`role`** on `connected_devices` (`physical_media` | `streaming` | `other`); **migration:** missing `role` → **`physical_media`** (see [Device roles](#device-roles-connected-equipment--input-usage)).
 - Add **`physical_format`** on `physical_media` rows (`vinyl` | `cd` | `tape` | `mixed` | `unspecified`); **migration:** missing → **`unspecified`** with optional one-time UI nudge (stronger when input is **Phono**).
 - Filter calibration wizard input list; update `recognition_page.js` / `calibration-wizard.js` copy to explain **why** some inputs are hidden.
