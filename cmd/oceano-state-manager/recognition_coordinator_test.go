@@ -568,7 +568,7 @@ func TestApplyRecognizedResult_SetsPhysicalSeek(t *testing.T) {
 	captureStartedAt := time.Now().Add(-3 * time.Second) // simulate 3 s capture already elapsed
 	result := &RecognitionResult{ACRID: "acr-seek-1", Title: "Seek Track", Artist: "Artist", Score: 85}
 
-	coordinator.applyRecognizedResult(result, false, false, false, captureStartedAt)
+	coordinator.applyRecognizedResult(result, false, false, false, captureStartedAt, false)
 
 	m.mu.Lock()
 	seekMS := m.physicalSeekMS

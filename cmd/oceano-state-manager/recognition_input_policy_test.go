@@ -101,3 +101,27 @@ func TestResolveRecognitionPolicyFromSnapshot_AutoNonPhysicalDefaultsOff(t *test
 		t.Fatalf("policy=%q want off", got.Policy)
 	}
 }
+
+func TestShouldRunRecognitionForInputPolicy(t *testing.T) {
+	if shouldRunRecognitionForInputPolicy(inputRecognitionPolicyOff) {
+		t.Fatal("off should disable recognition attempts")
+	}
+	if !shouldRunRecognitionForInputPolicy(inputRecognitionPolicyDisplayOnly) {
+		t.Fatal("display_only should allow recognition attempts")
+	}
+	if !shouldRunRecognitionForInputPolicy(inputRecognitionPolicyLibrary) {
+		t.Fatal("library should allow recognition attempts")
+	}
+}
+
+func TestShouldPersistRecognitionForInputPolicy(t *testing.T) {
+	if !shouldPersistRecognitionForInputPolicy(inputRecognitionPolicyLibrary) {
+		t.Fatal("library should persist to library DB")
+	}
+	if shouldPersistRecognitionForInputPolicy(inputRecognitionPolicyDisplayOnly) {
+		t.Fatal("display_only should not persist to library DB")
+	}
+	if shouldPersistRecognitionForInputPolicy(inputRecognitionPolicyOff) {
+		t.Fatal("off should not persist to library DB")
+	}
+}

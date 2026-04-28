@@ -38,6 +38,14 @@ type resolvedRecognitionPolicy struct {
 	DerivedBy         string
 }
 
+func shouldRunRecognitionForInputPolicy(p inputRecognitionPolicy) bool {
+	return p != inputRecognitionPolicyOff
+}
+
+func shouldPersistRecognitionForInputPolicy(p inputRecognitionPolicy) bool {
+	return p == inputRecognitionPolicyLibrary
+}
+
 func normalizeInputRecognitionPolicy(v string) inputRecognitionPolicy {
 	p := strings.ToLower(strings.TrimSpace(v))
 	switch p {

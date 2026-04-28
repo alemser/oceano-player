@@ -301,7 +301,7 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 	return false, false
 }
 
-func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult, isBoundaryTrigger bool, isShazamFallback bool, shazamMatchedACR bool, captureStartedAt time.Time) {
+func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult, isBoundaryTrigger bool, isShazamFallback bool, shazamMatchedACR bool, captureStartedAt time.Time, persistToLibrary bool) {
 	if c.lib != nil {
 		artworkPath := ""
 		if entry, lookupErr := c.lib.LookupByIDs(result.ACRID, result.ShazamID); lookupErr != nil {
@@ -341,34 +341,41 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		}
 
 		boundarySensitive := false
-		entryID, recErr := c.lib.RecordPlay(result, artworkPath)
-		if recErr != nil {
-			log.Printf("recognizer: library record error: %v", recErr)
-		} else if entryID > 0 {
-			// Read back the final entry after RecordPlay to pick up any library
-			// metadata applied by equivalent-metadata merge (e.g. when ACRCloud
-			// returns a different ACRID for a track the user already edited).
-			// This prevents a brief flash of provider data before syncFromLibrary runs.
-			if finalEntry, _ := c.lib.GetByID(entryID); finalEntry != nil {
-				boundarySensitive = finalEntry.BoundarySensitive
-				if finalEntry.Title != "" {
-					result.Title = finalEntry.Title
-				}
-				if finalEntry.Artist != "" {
-					result.Artist = finalEntry.Artist
-				}
-				result.Album = finalEntry.Album
-				result.Format = finalEntry.Format
-				if finalEntry.ShazamID != "" {
-					result.ShazamID = finalEntry.ShazamID
-				}
-				if finalEntry.DurationMs > 0 {
-					result.DurationMs = finalEntry.DurationMs
-				}
-				if finalEntry.ArtworkPath != "" {
-					artworkPath = finalEntry.ArtworkPath
+		entryID := int64(0)
+		if persistToLibrary {
+			var recErr error
+			entryID, recErr = c.lib.RecordPlay(result, artworkPath)
+			if recErr != nil {
+				log.Printf("recognizer: library record error: %v", recErr)
+			} else if entryID > 0 {
+				// Read back the final entry after RecordPlay to pick up any library
+				// metadata applied by equivalent-metadata merge (e.g. when ACRCloud
+				// returns a different ACRID for a track the user already edited).
+				// This prevents a brief flash of provider data before syncFromLibrary runs.
+				if finalEntry, _ := c.lib.GetByID(entryID); finalEntry != nil {
+					boundarySensitive = finalEntry.BoundarySensitive
+					if finalEntry.Title != "" {
+						result.Title = finalEntry.Title
+					}
+					if finalEntry.Artist != "" {
+						result.Artist = finalEntry.Artist
+					}
+					result.Album = finalEntry.Album
+					result.Format = finalEntry.Format
+					if finalEntry.ShazamID != "" {
+						result.ShazamID = finalEntry.ShazamID
+					}
+					if finalEntry.DurationMs > 0 {
+						result.DurationMs = finalEntry.DurationMs
+					}
+					if finalEntry.ArtworkPath != "" {
+						artworkPath = finalEntry.ArtworkPath
+					}
 				}
 			}
+		} else if c.mgr.cfg.Verbose {
+			log.Printf("recognizer [%s]: display-only mode active for input=%q — skipping library persistence",
+				c.rec.Name(), resolveRecognitionPolicyFromConfigPath(c.mgr.cfg.CalibrationConfigPath).LastKnownInputID)
 		}
 
 		now := time.Now()
@@ -772,7 +779,36 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				return
 			}
 
-			c.applyRecognizedResult(result, isBoundaryTrigger, isShazamFallback, shazamMatchedACR, captureStartedAt)
+			policy := resolveRecognitionPolicyFromConfigPath(c.mgr.cfg.CalibrationConfigPath)
+			if !shouldRunRecognitionForInputPolicy(policy.Policy) {
+				if c.mgr.cfg.Verbose {
+					log.Printf("recognizer [%s]: skipping by input policy=%q input=%q (%s)",
+						c.rec.Name(), policy.Policy, policy.LastKnownInputID, policy.DerivedBy)
+				}
+				if isBoundaryTrigger && isHardBoundaryTrigger {
+					c.mgr.mu.Lock()
+					c.mgr.recognitionResult = nil
+					c.mgr.physicalArtworkPath = ""
+					c.mgr.physicalLibraryEntryID = 0
+					c.mgr.physicalBoundarySensitive = false
+					c.mgr.shazamContinuityReady = false
+					c.mgr.shazamContinuityAbandoned = false
+					c.mgr.mu.Unlock()
+				}
+				c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
+					Outcome: internallibrary.FollowupOutcomeSkippedCoordinator,
+				})
+				continue
+			}
+
+			c.applyRecognizedResult(
+				result,
+				isBoundaryTrigger,
+				isShazamFallback,
+				shazamMatchedACR,
+				captureStartedAt,
+				shouldPersistRecognitionForInputPolicy(policy.Policy),
+			)
 
 			var collID, phID int64
 			c.mgr.mu.Lock()
