@@ -2,36 +2,26 @@
 
 // ── Calibration summary (main page) ───────────────────────────────────────────
 
-function _normalizeInputRecognitionPolicy(v) {
-  const p = String(v || '').trim().toLowerCase();
-  if (p === 'library' || p === 'display_only' || p === 'off') return p;
-  return 'auto';
-}
+let _effectiveInputRecognitionPolicyMap = new Map();
 
-function _normalizeConnectedRole(v) {
-  const role = String(v || '').trim().toLowerCase();
-  if (role === 'streaming' || role === 'other') return role;
-  return 'physical_media';
-}
-
-function _isPhysicalLikeInputLabel(label) {
-  const s = String(label || '').toLowerCase();
-  return s.includes('phono') || s.includes('vinyl') || s.includes('vinil') || s.includes('cd');
-}
-
-function _effectiveRecognitionPolicyForInput(cfg, input) {
-  const explicit = _normalizeInputRecognitionPolicy(input?.recognition_policy);
-  if (explicit !== 'auto') return explicit;
-
-  if (_isPhysicalLikeInputLabel(input?.logical_name)) return 'library';
-  const inputID = String(input?.id || '');
-  const devices = Array.isArray(cfg?.amplifier?.connected_devices) ? cfg.amplifier.connected_devices : [];
-  const mappedPhysical = devices.some((d) =>
-    _normalizeConnectedRole(d?.role) === 'physical_media' &&
-    Array.isArray(d?.input_ids) &&
-    d.input_ids.map(String).includes(inputID)
-  );
-  return mappedPhysical ? 'library' : 'off';
+async function loadEffectiveInputRecognitionPolicies() {
+  _effectiveInputRecognitionPolicyMap = new Map();
+  try {
+    const r = await fetch('/api/amplifier/input-recognition-policies');
+    if (!r.ok) return;
+    const body = await r.json();
+    const items = Array.isArray(body?.items) ? body.items : [];
+    for (const it of items) {
+      const id = String(it?.input_id || '').trim();
+      if (!id) continue;
+      const pol = String(it?.effective_policy || '').trim().toLowerCase();
+      if (pol === 'library' || pol === 'display_only' || pol === 'off') {
+        _effectiveInputRecognitionPolicyMap.set(id, pol);
+      }
+    }
+  } catch {
+    // Best effort only: calibration page still renders without policy badges.
+  }
 }
 
 function renderCalibrationSummary() {
@@ -72,8 +62,7 @@ function renderCalibrationSummary() {
   container.innerHTML = items.map(item => {
     const { label, slot, measured, key } = item;
     const isPhono = phonoInputs.some(i => String(i.id) === String(key));
-    const inputCfg = allInputs.find(i => String(i?.id || '') === String(key));
-    const policy = _effectiveRecognitionPolicyForInput(cfg, inputCfg || { id: key, logical_name: label });
+    const policy = _effectiveInputRecognitionPolicyMap.get(String(key)) || 'off';
 
     const badges = [];
     if (measured) badges.push(`<span class="cal-sc-badge measured">Measured</span>`);
@@ -306,6 +295,7 @@ async function loadRecognitionPage() {
 
   _calibrationState.cfg      = cfg;
   _calibrationState.byInput  = _normalizeCalibrationProfiles(cfg.advanced?.calibration_profiles);
+  await loadEffectiveInputRecognitionPolicies();
 
   renderCalibrationSummary();
   updateRecognitionUI();

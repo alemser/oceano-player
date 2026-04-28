@@ -87,6 +87,7 @@ func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifi
 	mux.HandleFunc("/api/amplifier/profiles/activate", s.handleAmplifierProfileActivate)
 	mux.HandleFunc("/api/amplifier/profiles/export", s.handleAmplifierProfileExport)
 	mux.HandleFunc("/api/amplifier/profiles/import", s.handleAmplifierProfileImport)
+	mux.HandleFunc("/api/amplifier/input-recognition-policies", s.handleAmplifierInputRecognitionPolicies)
 	mux.HandleFunc("/api/broadlink/learn-start", s.handleLearnStart)
 	mux.HandleFunc("/api/broadlink/learn-status", s.handleLearnStatus)
 }
@@ -103,6 +104,19 @@ type amplifierStateResponse struct {
 type amplifierPowerStateResponse struct {
 	PowerState  string    `json:"power_state"`
 	LastUpdated time.Time `json:"last_updated"`
+}
+
+type amplifierInputRecognitionPolicyItem struct {
+	InputID          string `json:"input_id"`
+	LogicalName      string `json:"logical_name"`
+	ConfiguredPolicy string `json:"configured_policy"`
+	EffectivePolicy  string `json:"effective_policy"`
+	DerivedBy        string `json:"derived_by"`
+}
+
+type amplifierInputRecognitionPolicyResponse struct {
+	LastKnownInputID string                                 `json:"last_known_input_id"`
+	Items            []amplifierInputRecognitionPolicyItem  `json:"items"`
 }
 
 // --- amplifier handlers ---
@@ -141,6 +155,80 @@ func (s *amplifierServer) handleAmplifierPowerState(w http.ResponseWriter, r *ht
 	jsonOK(w, amplifierPowerStateResponse{
 		PowerState:  string(ps),
 		LastUpdated: at,
+	})
+}
+
+func normalizeConfiguredInputRecognitionPolicy(v string) string {
+	p := strings.ToLower(strings.TrimSpace(v))
+	switch p {
+	case "library", "display_only", "off":
+		return p
+	default:
+		return "auto"
+	}
+}
+
+func normalizeConnectedDeviceRole(v string) string {
+	role := strings.ToLower(strings.TrimSpace(v))
+	switch role {
+	case "streaming", "other":
+		return role
+	default:
+		return "physical_media"
+	}
+}
+
+func looksLikePhysicalInputLabel(label string) bool {
+	s := strings.ToLower(strings.TrimSpace(label))
+	return strings.Contains(s, "phono") || strings.Contains(s, "vinyl") || strings.Contains(s, "vinil") || strings.Contains(s, "cd")
+}
+
+func resolveEffectiveInputRecognitionPolicy(cfg Config, in AmplifierInputConfig) (effective string, derivedBy string) {
+	configured := normalizeConfiguredInputRecognitionPolicy(in.RecognitionPolicy)
+	if configured != "auto" {
+		return configured, "explicit_input_policy"
+	}
+	if looksLikePhysicalInputLabel(in.LogicalName) {
+		return "library", "auto_physical_label"
+	}
+	inputID := strings.TrimSpace(string(in.ID))
+	for _, dev := range cfg.Amplifier.ConnectedDevices {
+		if normalizeConnectedDeviceRole(dev.Role) != "physical_media" {
+			continue
+		}
+		for _, did := range dev.InputIDs {
+			if strings.TrimSpace(string(did)) == inputID {
+				return "library", "auto_physical_device_role"
+			}
+		}
+	}
+	return "off", "default_off"
+}
+
+func (s *amplifierServer) handleAmplifierInputRecognitionPolicies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		jsonError(w, "failed to load config", http.StatusInternalServerError)
+		return
+	}
+	items := make([]amplifierInputRecognitionPolicyItem, 0, len(cfg.Amplifier.Inputs))
+	for _, in := range cfg.Amplifier.Inputs {
+		effective, derivedBy := resolveEffectiveInputRecognitionPolicy(cfg, in)
+		items = append(items, amplifierInputRecognitionPolicyItem{
+			InputID:          strings.TrimSpace(string(in.ID)),
+			LogicalName:      strings.TrimSpace(in.LogicalName),
+			ConfiguredPolicy: normalizeConfiguredInputRecognitionPolicy(in.RecognitionPolicy),
+			EffectivePolicy:  effective,
+			DerivedBy:        derivedBy,
+		})
+	}
+	jsonOK(w, amplifierInputRecognitionPolicyResponse{
+		LastKnownInputID: strings.TrimSpace(string(cfg.AmplifierRuntime.LastKnownInputID)),
+		Items:            items,
 	})
 }
 

@@ -457,7 +457,7 @@ connect();
 loadAmbientConfig();
 
 // ─── Amplifier line (read-only chip) ───────────────────────────────────────────
-// Matches index.amplifier.js renderAmpInputSelect: when a connected device names
+// Matches amplifier/model.js renderAmpInputSelect: when a connected device names
 // a single input, that device name replaces the logical input (e.g. Phono) label.
 
 /**

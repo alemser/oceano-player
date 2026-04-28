@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"sync"
+	"time"
 )
 
 type inputRecognitionPolicy string
@@ -37,6 +39,16 @@ type resolvedRecognitionPolicy struct {
 	LastKnownInputID  string
 	DerivedBy         string
 }
+
+var recognitionPolicyConfigCache struct {
+	mu       sync.Mutex
+	path     string
+	modTime  time.Time
+	loadedAt time.Time
+	value    resolvedRecognitionPolicy
+}
+
+const recognitionPolicyConfigCacheTTL = 5 * time.Second
 
 func shouldRunRecognitionForInputPolicy(p inputRecognitionPolicy) bool {
 	return p != inputRecognitionPolicyOff
@@ -137,4 +149,39 @@ func resolveRecognitionPolicyFromConfigPath(path string) resolvedRecognitionPoli
 		return resolvedRecognitionPolicy{Policy: inputRecognitionPolicyOff, DerivedBy: "default_off"}
 	}
 	return resolveRecognitionPolicyFromSnapshot(snap)
+}
+
+func resolveRecognitionPolicyFromConfigPathCached(path string) resolvedRecognitionPolicy {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return resolvedRecognitionPolicy{Policy: inputRecognitionPolicyOff, DerivedBy: "default_off"}
+	}
+
+	st, statErr := os.Stat(trimmed)
+	modTime := time.Time{}
+	if statErr == nil {
+		modTime = st.ModTime()
+	}
+
+	now := time.Now()
+	recognitionPolicyConfigCache.mu.Lock()
+	if recognitionPolicyConfigCache.path == trimmed &&
+		!recognitionPolicyConfigCache.loadedAt.IsZero() &&
+		now.Sub(recognitionPolicyConfigCache.loadedAt) < recognitionPolicyConfigCacheTTL &&
+		(!recognitionPolicyConfigCache.modTime.IsZero() && recognitionPolicyConfigCache.modTime.Equal(modTime)) {
+		v := recognitionPolicyConfigCache.value
+		recognitionPolicyConfigCache.mu.Unlock()
+		return v
+	}
+	recognitionPolicyConfigCache.mu.Unlock()
+
+	resolved := resolveRecognitionPolicyFromConfigPath(trimmed)
+
+	recognitionPolicyConfigCache.mu.Lock()
+	recognitionPolicyConfigCache.path = trimmed
+	recognitionPolicyConfigCache.modTime = modTime
+	recognitionPolicyConfigCache.loadedAt = now
+	recognitionPolicyConfigCache.value = resolved
+	recognitionPolicyConfigCache.mu.Unlock()
+	return resolved
 }

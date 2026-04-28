@@ -562,7 +562,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 
 		// Resolve per-input policy before any capture/provider call so "off"
 		// truly disables recognition cost and telemetry noise for that input.
-		policy := resolveRecognitionPolicyFromConfigPath(c.mgr.cfg.CalibrationConfigPath)
+		policy := resolveRecognitionPolicyFromConfigPathCached(c.mgr.cfg.CalibrationConfigPath)
 		if !shouldRunRecognitionForInputPolicy(policy.Policy) {
 			if c.mgr.cfg.Verbose {
 				log.Printf("recognizer [%s]: skipping by input policy=%q input=%q (%s)",
