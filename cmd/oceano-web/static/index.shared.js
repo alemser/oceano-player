@@ -133,7 +133,12 @@ function renderSetupBridge(status) {
     return;
   }
   const doneCount = items.filter((item) => item.done).length;
-  summaryEl.textContent = `${doneCount}/${items.length} onboarding steps complete`;
+  const allDone = doneCount === items.length;
+  const titleEl = document.getElementById('setup-bridge-title');
+  if (titleEl) titleEl.textContent = allDone ? 'Quick access' : 'Continue setup';
+  summaryEl.textContent = allDone ? '' : `${doneCount}/${items.length} steps complete`;
+  const checklistWrap = document.getElementById('setup-bridge-checklist');
+  if (checklistWrap) checklistWrap.hidden = allDone;
   listEl.innerHTML = items.map((item) => `
     <li class="${item.done ? 'done' : 'pending'}">
       <span>${esc(item.label)}</span>
@@ -179,7 +184,7 @@ function renderSetupBridge(status) {
     },
     {
       title: 'Stylus tracking',
-      href: '/amplifier.html',
+      href: '/amplifier.html#stylus-section',
       icon: stylusIcon,
       status: !status.vinyl_topology_present
         ? { text: 'No vinyl topology configured', tone: 'neutral' }
@@ -189,7 +194,7 @@ function renderSetupBridge(status) {
     },
     {
       title: 'Streaming',
-      href: '/index.html',
+      href: '/streaming.html',
       icon: airplayIcon,
       status: servicesHealthy
         ? { text: 'Core services healthy', tone: 'ok' }

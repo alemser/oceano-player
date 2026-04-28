@@ -1,6 +1,6 @@
 "use strict";
 
-const SOURCE_ICONS = {
+window.SOURCE_ICONS = {
   AirPlay: `<svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M16 22 L8 30 L24 30 Z"/><path d="M16 6C21.5 6 26 10.5 26 16L24 16C24 11.6 20.4 8 16 8C11.6 8 8 11.6 8 16L6 16C6 10.5 10.5 6 16 6Z"/><path d="M16 11C19.3 11 22 13.7 22 17L20 17C20 14.8 18.2 13 16 13C13.8 13 12 14.8 12 17L10 17C10 13.7 12.7 11 16 11Z"/><path d="M16 16C17.7 16 19 17.3 19 19L17 19C17 18.4 16.6 18 16 18C15.4 18 15 18.4 15 19L13 19C13 17.3 14.3 16 16 16Z"/></svg>`,
   Bluetooth: `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="10,22 22,10 16,4 16,28 22,22 10,10"/></svg>`,
   UPnP: `<svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><circle cx="16" cy="8" r="3"/><circle cx="6" cy="24" r="3"/><circle cx="26" cy="24" r="3"/><line x1="16" y1="11" x2="6" y2="21" stroke="currentColor" stroke-width="1.5"/><line x1="16" y1="11" x2="26" y2="21" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="24" x2="24" y2="24" stroke="currentColor" stroke-width="1.5"/></svg>`,
@@ -10,7 +10,7 @@ const SOURCE_ICONS = {
   None: `<svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><rect x="2" y="14" width="6" height="10" rx="3" opacity="0.25"/><rect x="10" y="9" width="6" height="15" rx="3" opacity="0.25"/><rect x="18" y="5" width="6" height="19" rx="3" opacity="0.25"/><rect x="26" y="12" width="6" height="12" rx="3" opacity="0.25"/></svg>`,
 };
 
-const INPUT_ICONS = {
+window.INPUT_ICONS = {
   dvd: `<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><ellipse cx="16" cy="16" rx="13" ry="10" stroke="currentColor" stroke-width="1.5"/><ellipse cx="16" cy="16" rx="7" ry="4.5" stroke="currentColor" stroke-width="1.2" opacity="0.5"/><circle cx="16" cy="16" r="2.2" fill="currentColor" opacity="0.7"/></svg>`,
   tape: `<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="5" y="10" width="22" height="12" rx="4" stroke="currentColor" stroke-width="1.5"/><circle cx="11" cy="16" r="2.2" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="21" cy="16" r="2.2" stroke="currentColor" stroke-width="1.2" fill="none"/><rect x="13.5" y="14.5" width="5" height="3" rx="1.2" stroke="currentColor" stroke-width="1.1"/></svg>`,
   line: `<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="7" y="13" width="18" height="6" rx="2.5" stroke="currentColor" stroke-width="1.5"/><rect x="13" y="10" width="6" height="12" rx="2" stroke="currentColor" stroke-width="1.2" opacity="0.5"/></svg>`,
@@ -35,7 +35,7 @@ const INPUT_ICONS = {
 
 // HUB_ICONS — 32×32 viewBox, used in the Setup Hub cards (/config).
 // Same stroke vocabulary as SOURCE_ICONS: fill="none", stroke="currentColor".
-const HUB_ICONS = {
+window.HUB_ICONS = {
   Amplifier: `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="15" height="12" rx="2.5" stroke-width="1.5"/><circle cx="11.5" cy="16" r="4" stroke-width="1.1" opacity="0.5"/><circle cx="11.5" cy="16" r="1.8" fill="currentColor" stroke="none" opacity="0.45"/><path d="M22 13 Q25.5 16 22 19" stroke-width="1.6" opacity="0.85"/><path d="M25 10 Q30 16 25 22" stroke-width="1.4" opacity="0.45"/></svg>`,
   Display: `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="26" height="17" rx="2.5" stroke-width="1.5"/><path d="M12 22 L10 27 M20 22 L22 27 M10 27 L22 27" stroke-width="1.4" opacity="0.6"/><path d="M8 13.5 Q9.5 10.5 11 13.5 Q12.5 16.5 14 13.5 Q15.5 10.5 17 13.5 Q18.5 16.5 20 13.5 Q21.5 10.5 23 13.5" stroke-width="1.3" opacity="0.55"/></svg>`,
   Advanced: `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="16" cy="16" r="4.5" stroke-width="1.5"/><path d="M16 7.5V11 M16 21V24.5 M7.5 16H11 M21 16H24.5" stroke-width="1.7"/><path d="M10.1 10.1L12.3 12.3 M19.7 19.7L21.9 21.9 M21.9 10.1L19.7 12.3 M12.3 19.7L10.1 21.9" stroke-width="1.5"/></svg>`,

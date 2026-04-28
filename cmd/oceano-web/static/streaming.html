@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Streaming &amp; Display — Oceano</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 52 52'><rect x='0' y='16' width='8' height='20' rx='4' fill='%23888'/><rect x='11' y='9' width='8' height='34' rx='4' fill='%23888'/><rect x='22' y='3' width='8' height='46' rx='4' fill='%23888'/><rect x='33' y='12' width='8' height='28' rx='4' fill='%23888'/><rect x='44' y='17' width='8' height='18' rx='4' fill='%23888'/></svg>">
+  <link rel="stylesheet" href="index.css">
+  <link rel="stylesheet" href="page-nav.css">
+  <style>
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <a href="/?drawer=1" class="page-back">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 18l-6-6 6-6"/>
+    </svg>
+    Back
+  </a>
+  <span class="page-title">Streaming &amp; Display</span>
+  <a href="/config" class="page-hub-link">Setup Hub</a>
+</div>
+
+<div class="page-body">
+
+<form id="cfg-form" onsubmit="event.preventDefault(); return false;">
+
+  <!-- ── AirPlay ────────────────────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">AirPlay</div>
+    <p class="hint" style="margin-bottom:14px">Receives audio via AirPlay 2 (shairport-sync). The USB DAC below is the output device used during playback.</p>
+
+    <div class="field">
+      <label><span>AirPlay name</span></label>
+      <input type="text" id="out-airplay-name" name="out-airplay-name" placeholder="Oceano">
+      <div class="hint">Name shown in AirPlay device lists.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Output device</span></label>
+      <div class="device-picker-wrap">
+        <div class="device-row">
+          <input type="text" id="out-device" name="out-device" placeholder="auto-detect or e.g. plughw:1,0">
+          <button type="button" class="detect-btn" onclick="detectDevices('out')">Detect</button>
+        </div>
+        <div class="device-picker" id="picker-out"></div>
+      </div>
+      <div class="hint">Leave empty to auto-detect by name. Or enter an explicit device (e.g. <code>plughw:1,0</code>).</div>
+    </div>
+
+    <div class="field">
+      <label><span>Auto-detect name</span></label>
+      <input type="text" id="out-device-match" name="out-device-match" placeholder="MR 780">
+      <div class="hint">Matched against ALSA card names. Leave empty when using an explicit device string.</div>
+    </div>
+  </div>
+
+  <!-- ── Bluetooth ─────────────────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Bluetooth</div>
+    <p class="hint" style="margin-bottom:14px">Receives audio via A2DP. Track metadata is shown via AVRCP.</p>
+
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="bt-enabled" style="width:auto;accent-color:var(--accent)">
+        <span>Enable Bluetooth audio sink</span>
+      </label>
+      <div class="hint">Powers on the adapter and keeps it discoverable. Pair your phone once — the Pi remembers trusted devices across reboots.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Device name</span></label>
+      <input type="text" id="bt-name" name="bt-name" placeholder="Oceano">
+      <div class="hint">Name shown in Bluetooth device lists. Leave empty to use the AirPlay name.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Paired devices</span></label>
+      <div id="bt-devices-list" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
+      <div class="hint">Remove a device here to force re-pairing.</div>
+    </div>
+  </div>
+
+  <!-- ── Now Playing (HDMI/DSI) ─────────────────────────────────────────────── -->
+  <div class="section" id="nowplaying-section" style="margin-bottom:24px;display:none">
+    <div class="section-title">Now Playing Display</div>
+    <p class="hint" id="nowplaying-display-hint" style="margin-bottom:14px">Options for the HDMI/DSI now playing page.</p>
+
+    <div class="field">
+      <button type="button" class="detect-btn" id="restart-display-btn" onclick="restartHDMIDisplayService()">Restart display service</button>
+      <div class="hint">Restarts the kiosk service when the display needs a manual refresh.</div>
+    </div>
+
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="np-ambient-color" name="np-ambient-color" style="width:auto;accent-color:var(--accent)">
+        <span>Ambient colour from artwork</span>
+      </label>
+      <div class="hint">Shows a blurred version of the track artwork as background, similar to Apple Music.</div>
+    </div>
+
+    <div class="field">
+      <label><span>Idle screen style</span></label>
+      <select id="np-idle-screen-theme" name="np-idle-screen-theme" style="max-width:320px">
+        <option value="classic">Classic (monochrome, default)</option>
+        <option value="colourful">Colourful (weather-tinted sky)</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label><span>Idle delay (seconds)</span></label>
+      <input type="number" id="np-idle-delay" name="np-idle-delay" step="1" min="1" max="30" placeholder="3">
+      <div class="hint">Seconds to keep the last track visible after audio stops. 3s recommended.</div>
+    </div>
+
+    <div class="config-subsection">
+      <div class="config-subtitle">Weather on idle screen</div>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="weather-enabled" name="weather-enabled" style="width:auto;accent-color:var(--accent)">
+          <span>Enable weather</span>
+        </label>
+      </div>
+
+      <div class="field" style="position:relative">
+        <label><span>City search</span></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="weather-city-search" placeholder="Type a city name…"
+                 autocomplete="off" oninput="onWeatherCityInput()"
+                 onkeydown="onWeatherCityKeydown(event)" style="flex:1">
+          <button type="button" class="detect-btn" style="flex-shrink:0;white-space:nowrap"
+                  onclick="detectCurrentLocationWeather()">Use my location</button>
+        </div>
+        <div id="weather-city-results" style="display:none;position:absolute;z-index:200;
+             left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);
+             border-radius:6px;margin-top:2px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
+        </div>
+      </div>
+
+      <div class="field">
+        <label><span>Location label</span></label>
+        <input type="text" id="weather-label" name="weather-label" placeholder="Dublin">
+        <div class="hint">Auto-filled when you pick a city above.</div>
+      </div>
+
+      <div style="display:flex;gap:12px">
+        <div class="field" style="flex:1">
+          <label><span>Latitude</span></label>
+          <input type="number" id="weather-lat" name="weather-lat" step="any" min="-90" max="90" placeholder="53.3498">
+        </div>
+        <div class="field" style="flex:1">
+          <label><span>Longitude</span></label>
+          <input type="number" id="weather-lon" name="weather-lon" step="any" min="-180" max="180" placeholder="-6.2603">
+        </div>
+      </div>
+
+      <div class="field">
+        <label><span>Refresh interval (minutes)</span></label>
+        <input type="number" id="weather-refresh" name="weather-refresh" step="1" min="2" max="120" placeholder="10">
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Backup & Restore ───────────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Backup &amp; Restore</div>
+    <p class="hint" style="margin-bottom:14px">Daily automatic backup of library and configuration. Last 7 backups are kept.</p>
+
+    <div class="field" style="margin-bottom:16px">
+      <button type="button" class="detect-btn" id="btn-backup-now" onclick="runBackupNow()">Back Up Now</button>
+    </div>
+
+    <div id="backup-list"></div>
+
+    <div class="backup-upload-wrap">
+      <div class="config-subtitle" style="margin-top:18px;margin-bottom:10px">Restore from file</div>
+      <p class="hint" style="margin-bottom:12px">Upload a previously downloaded <code>.tar.gz</code> backup to restore on this device.</p>
+      <div class="backup-upload-row">
+        <label class="backup-upload-label" id="backup-upload-label" onclick="document.getElementById('backup-upload-input').click()">
+          Choose file…
+        </label>
+        <input type="file" id="backup-upload-input" accept=".tar.gz,application/gzip,application/x-gzip"
+               style="display:none" onchange="onBackupFileSelected(this)">
+        <select id="backup-upload-scope" class="lib-format-filter">
+          <option value="both">Library + Config</option>
+          <option value="library">Library only</option>
+          <option value="config">Config only</option>
+        </select>
+        <button type="button" class="detect-btn" id="btn-upload-restore"
+                onclick="uploadAndRestore()" disabled>Restore</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Save ──────────────────────────────────────────────────────────────── -->
+  <div class="page-actions">
+    <button type="submit" class="btn-save" id="btn-save">Save &amp; Restart Services</button>
+  </div>
+
+</form>
+</div><!-- .page-body -->
+
+<div id="toast"></div>
+
+<script src="icons.js"></script>
+<script src="index.shared.js"></script>
+<script src="index.library.js"></script>
+<script src="streaming_page.js"></script>
+
+</body>
+</html>
