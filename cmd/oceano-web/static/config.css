@@ -162,15 +162,6 @@ body {
   gap: 6px;
 }
 
-/* ── Checklist restore row ─────────────────────────────────── */
-.hub-checklist-restore {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
 /* ── Buttons ───────────────────────────────────────────────── */
 .btn-subtle {
   display: inline-flex;
@@ -333,16 +324,3 @@ body {
 }
 .status-chip.neutral .dot { background: var(--muted); }
 
-/* ── Footer ────────────────────────────────────────────────── */
-.hub-footer {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  padding-top: 4px;
-}
-.hub-footer p {
-  margin: 0;
-  font-size: 0.75rem;
-  color: var(--muted);
-}

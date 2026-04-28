@@ -1,7 +1,6 @@
 "use strict";
 
 (function setupStatusSharedScope() {
-  const CHECKLIST_DISMISSED_KEY = "oceano.config.checklist.dismissed";
   const CHECKLIST_SKIPS_KEY = "oceano.config.checklist.skips";
 
   function checklistItems() {
@@ -28,14 +27,14 @@
       {
         id: "amp",
         label: "Amplifier topology configured (IR optional)",
-        href: "/amplifier-wizard.html?step=topology",
+        href: "/topology?from=hub",
         isDone: (s) => !!s && !!s.amplifier_topology_complete,
         skippable: true,
       },
       {
         id: "calibration",
         label: "Physical input calibration complete",
-        href: "/amplifier-wizard.html?step=calibration",
+        href: "/recognition.html?from=hub",
         isDone: (s) => !!s && (!!s.calibration_physical_complete || !s.calibration_physical_recommended),
         skippable: true,
       },
@@ -86,22 +85,11 @@
     localStorage.setItem(CHECKLIST_SKIPS_KEY, JSON.stringify(skips));
   }
 
-  function isChecklistDismissed() {
-    return localStorage.getItem(CHECKLIST_DISMISSED_KEY) === "1";
-  }
-
-  function setChecklistDismissed(value) {
-    if (value) localStorage.setItem(CHECKLIST_DISMISSED_KEY, "1");
-    else localStorage.removeItem(CHECKLIST_DISMISSED_KEY);
-  }
-
   window.OceanoSetupShared = {
     bridgeItems,
     checklistItems,
     escapeHTML,
     getChecklistSkips,
-    isChecklistDismissed,
-    setChecklistDismissed,
     setChecklistSkips,
   };
 })();

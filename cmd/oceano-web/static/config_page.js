@@ -150,13 +150,6 @@ const shared = window.OceanoSetupShared || {};
 const ITEMS = typeof shared.checklistItems === "function" ? shared.checklistItems() : [];
 
 function renderChecklist(status) {
-  const dismissed =
-    typeof shared.isChecklistDismissed === "function" && shared.isChecklistDismissed();
-
-  checklistSection.hidden = dismissed;
-  restoreRow.hidden = !dismissed;
-  if (dismissed) return;
-
   const skips =
     typeof shared.getChecklistSkips === "function" ? shared.getChecklistSkips() : {};
 
@@ -221,20 +214,7 @@ const errorBanner     = document.getElementById("hub-error");
 const checklistSection= document.getElementById("onboarding-checklist");
 const checklistList   = document.getElementById("checklist-list");
 const progressEl      = document.getElementById("checklist-progress");
-const dismissBtn      = document.getElementById("checklist-dismiss-btn");
-const restoreRow      = document.getElementById("checklist-restore-row");
-const restoreBtn      = document.getElementById("checklist-restore-btn");
 const refreshBtn      = document.getElementById("refresh-btn");
-
-dismissBtn.addEventListener("click", () => {
-  if (typeof shared.setChecklistDismissed === "function") shared.setChecklistDismissed(true);
-  renderChecklist(lastStatus);
-});
-
-restoreBtn.addEventListener("click", () => {
-  if (typeof shared.setChecklistDismissed === "function") shared.setChecklistDismissed(false);
-  renderChecklist(lastStatus);
-});
 
 refreshBtn.addEventListener("click", loadStatus);
 
