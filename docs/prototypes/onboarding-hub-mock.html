@@ -461,12 +461,16 @@
       <div class="callout">
         Current implementation supports <strong>connected_devices[].is_turntable</strong> for explicit vinyl mapping (with phono/vinyl name fallback). Phase 4 extends this with <code>role</code> + <code>physical_format</code>, but the turntable path already solves AUX1-style setups.
       </div>
+      <div class="callout" style="margin-top:10px">
+        <strong>Current UI location:</strong> auto-tuning from playback results and RMS percentile learning are configured in <code>recognition.html</code>, with advanced knobs collapsed. <code>advanced.html</code> stays focused on sockets/paths/library maintenance.
+      </div>
       <ul style="color:#bbb;margin:0;padding-left:1.2rem;font-size:0.85rem;line-height:1.8">
         <li>Calibratable inputs = union of input IDs on <code>physical_media</code> devices</li>
         <li>Vinyl gap sub-step only when <code>physical_format === vinyl</code></li>
         <li>Streaming / Other inputs hidden from calibration list by default (manual override available)</li>
         <li>Migration: missing <code>role</code> → <code>physical_media</code> (safe for existing configs); new devices via wizard must select role explicitly</li>
         <li>CD calibration note: Off/On RMS differential is often too small on CD transports — copy should steer toward conservative <code>vu_silence_threshold</code> and the RMS histogram path instead of insisting on a wizard profile</li>
+        <li>RMS snapshot in UI is user-facing: shows <strong>CD</strong> and <strong>Vinyl</strong>; internal <code>Physical</code> learning remains background-only</li>
       </ul>
     </section>
 
@@ -612,7 +616,7 @@
           icon: ICON_ADVANCED,
           title: 'Advanced',
           chip: { cls: 'neutral', label: 'Optional' },
-          detail: 'Sockets, paths, library DB, track hints',
+          detail: 'Sockets, paths, library DB, track hints (no tuning controls)',
           dest: '/advanced.html',
         },
       ],
@@ -651,7 +655,7 @@
           icon: ICON_ADVANCED,
           title: 'Advanced',
           chip: { cls: 'ok', label: 'No warnings' },
-          detail: 'All paths configured',
+          detail: 'All paths configured (tuning on Recognition page)',
           dest: '/advanced.html',
         },
       ],
@@ -688,7 +692,7 @@
           icon: ICON_ADVANCED,
           title: 'Advanced',
           chip: { cls: 'ok', label: 'No warnings' },
-          detail: 'All paths configured',
+          detail: 'All paths configured (tuning on Recognition page)',
           dest: '/advanced.html',
         },
       ],

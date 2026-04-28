@@ -14,6 +14,8 @@ This document describes how first-time configuration feels today, why it is hard
 - **Calibration UX is vinyl-first:** wizard copy and selection emphasize phono/turntable paths; no generic “all inputs equally” framing.
 - **Metrics telemetry is progressively disclosed:** boundary telemetry moved under a collapsed **Advanced** accordion; readiness card shows a friendly summary with technical details collapsed.
 - **User-facing copy no longer exposes “R3” labels** on current UI surfaces (uses auto-tuning/adaptive wording).
+- **Recognition page now owns auto-tuning controls:** `Auto-tuning from playback results` and `RMS percentile learning` live in `recognition.html`, with advanced parameters collapsed by default.
+- **RMS snapshot is user-focused in UI:** snapshot cards show `CD` + `Vinyl`; `Physical` stays collected in background for internal learning.
 
 ---
 
@@ -51,10 +53,10 @@ This document describes how first-time configuration feels today, why it is hard
 |--------|------|
 | `sudo oceano-setup` | AirPlay name, Bluetooth, ALSA devices, PipeWire resilience, optional display |
 | Main config drawer (`index.html`) | Streaming, capture, amplifier toggle + profile link, **Library** (collection editor; per-track **Boundary-sensitive** hint for VU/duration policy), advanced link |
-| `recognition.html` | ACRCloud / chain / calibration wizards / mic gain |
+| `recognition.html` | ACRCloud / chain / calibration wizards / mic gain / auto-tuning + RMS snapshot |
 | `amplifier.html` | Broadlink host, pairing, IR learning, inputs, USB reset, connected devices |
 | `pair.html` | Broadlink pairing wizard |
-| `advanced.html` | Sockets, paths, library DB |
+| `advanced.html` | Sockets, paths, library DB (recognition auto-tuning moved out) |
 
 A first user opening **Configuration** sees many sections and external links without a **single ordered checklist** or “you are 2/5 steps done” model. For a **vinyl-first** user, the mental model (“REC OUT → capture → identify my records”) is disconnected from “Amplifier Control” and “Broadlink” until they read hints.
 
@@ -116,6 +118,7 @@ So the product already has “cards” visually, but not a **hub mental model**:
 | **Streaming basics** | AirPlay name, BT on/off summary | → inline quick fields *or* lightweight sub-page |
 | **Display & idle** | Now playing / weather summary | → existing sections or `nowplaying`-related UI |
 | **Advanced** | “Sockets, paths, library DB” — library metadata editing including **Boundary-sensitive** lives on the main drawer **Library** section | → `advanced.html` |
+| **Recognition tuning** | Auto-tuning toggle, RMS learning toggle/apply, CD/Vinyl snapshot; advanced tuning params collapsed | → `recognition.html` |
 
 **Large icons (or simple illustrations)** on each card are worthwhile **if**:
 
