@@ -101,6 +101,7 @@ func main() {
 	mux.HandleFunc("/api/status", handleStatus(*configPath))
 	mux.HandleFunc("/api/stream", handleStream(*configPath))
 	mux.HandleFunc("/api/artwork", handleArtwork(*configPath))
+	mux.HandleFunc("/api/setup-status", handleSetupStatus(*configPath, *libraryDB))
 
 	// API: physical media collection (library) and backup/restore.
 	cfg, _ := loadConfig(*configPath)

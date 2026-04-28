@@ -131,10 +131,19 @@ type ConnectedDeviceConfig struct {
 	InputIDs []AmplifierInputID `json:"input_ids,omitempty"`
 	// HasRemote indicates whether this device has a remote control (IR codes).
 	HasRemote bool `json:"has_remote,omitempty"`
-	// IsTurntable marks this connected device as the vinyl source.
+	// IsTurntable marks this connected device as the vinyl source (legacy field).
+	// Prefer Role="physical_media" + PhysicalFormat="vinyl" for new entries.
 	// Calibration wizard uses this to target the proper input(s) even when
 	// the input label is not explicitly "Phono".
 	IsTurntable bool `json:"is_turntable,omitempty"`
+	// Role classifies the device: "physical_media", "streaming", or "other".
+	// Absent value is treated as "physical_media" (safe migration default —
+	// existing connected devices are almost always physical sources).
+	Role string `json:"role,omitempty"`
+	// PhysicalFormat is the media type when Role == "physical_media":
+	// "vinyl", "cd", "tape", "mixed", or "unspecified" (default when absent).
+	// Drives vinyl gap copy, Now Playing format chips, and stylus hour accumulation.
+	PhysicalFormat string `json:"physical_format,omitempty"`
 	// IRCodes maps command names to base64-encoded Broadlink IR codes.
 	// Keys follow the same convention as CD player: power_on, power_off,
 	// play, pause, stop, next, previous, eject.
@@ -436,6 +445,10 @@ type AdvancedConfig struct {
 	// RMSPercentileLearning collects stable-silence vs stable-music RMS histograms
 	// into the library DB and can autonomously set VU silence enter/exit thresholds.
 	RMSPercentileLearning *RMSPercentileLearningConfig `json:"rms_percentile_learning,omitempty"`
+	// OceanoSetupAcknowledged is written by the oceano-setup CLI on successful
+	// completion. The web UI uses it to suppress the "run oceano-setup first" row
+	// in the onboarding checklist.
+	OceanoSetupAcknowledged bool `json:"oceano_setup_acknowledged,omitempty"`
 }
 
 // RMSPercentileLearningConfig enables autonomous RMS histogram learning (library DB).
