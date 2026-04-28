@@ -9,6 +9,12 @@ let _ampLastKnownInputID = '';
 // -1 means unknown (e.g. just after page load before any navigation).
 let _ampCurrentInputIdx = -1;
 
+function _normalizeRecognitionPolicy(v) {
+  const p = String(v || '').trim().toLowerCase();
+  if (p === 'library' || p === 'display_only' || p === 'off') return p;
+  return 'auto';
+}
+
 function _newInputID() {
   return String(Date.now()) + String(Math.floor(Math.random() * 1000));
 }
@@ -19,10 +25,11 @@ function setAmplifierInputsModel(inputs) {
     id: String(it?.id ?? '').trim(),
     logical_name: String(it?.logical_name ?? '').trim(),
     visible: !!it?.visible,
+    recognition_policy: _normalizeRecognitionPolicy(it?.recognition_policy),
   })).filter((it) => it.id !== '');
 
   if (_ampInputsModel.length === 0) {
-    _ampInputsModel = [{ id: _newInputID(), logical_name: 'USB Audio', visible: true }];
+    _ampInputsModel = [{ id: _newInputID(), logical_name: 'USB Audio', visible: true, recognition_policy: 'auto' }];
   }
   const knownIdx = _ampInputsModel.findIndex((it) => it.id === String(_ampLastKnownInputID || ''));
   _ampCurrentInputIdx = knownIdx >= 0 ? knownIdx : -1;
@@ -59,6 +66,7 @@ function collectAmplifierInputsFromUI() {
     id: it.id,
     logical_name: (it.logical_name || '').trim() || it.id,
     visible: !!it.visible,
+    recognition_policy: _normalizeRecognitionPolicy(it.recognition_policy),
   }));
 }
 
@@ -502,6 +510,27 @@ function renderAmplifierInputsTable() {
     defaultTag.style.whiteSpace = 'nowrap';
     defaultTag.textContent = idx === 0 ? 'Default' : '';
 
+    const recWrap = document.createElement('label');
+    recWrap.style.display = 'inline-flex';
+    recWrap.style.alignItems = 'center';
+    recWrap.style.gap = '6px';
+    recWrap.style.whiteSpace = 'nowrap';
+    recWrap.className = 'hint';
+    recWrap.textContent = 'Recognition';
+    const recSel = document.createElement('select');
+    recSel.style.minWidth = '170px';
+    recSel.innerHTML = `
+      <option value="auto">Auto (conservative)</option>
+      <option value="library">Recognize + add to library</option>
+      <option value="display_only">Recognize only for display</option>
+      <option value="off">Do not recognize</option>
+    `;
+    recSel.value = _normalizeRecognitionPolicy(input.recognition_policy);
+    recSel.onchange = () => {
+      _ampInputsModel[idx].recognition_policy = _normalizeRecognitionPolicy(recSel.value);
+    };
+    recWrap.appendChild(recSel);
+
     const up = document.createElement('button');
     up.type = 'button';
     up.className = 'detect-btn';
@@ -532,6 +561,7 @@ function renderAmplifierInputsTable() {
     controls.className = 'amp-input-controls';
     controls.appendChild(visibleWrap);
     controls.appendChild(defaultTag);
+    controls.appendChild(recWrap);
     controls.appendChild(up);
     controls.appendChild(del);
 
@@ -544,7 +574,7 @@ function renderAmplifierInputsTable() {
 }
 
 function addAmplifierInputRow() {
-  _ampInputsModel.push({ id: _newInputID(), logical_name: '', visible: true });
+  _ampInputsModel.push({ id: _newInputID(), logical_name: '', visible: true, recognition_policy: 'auto' });
   refreshAmplifierInputViews();
 }
 

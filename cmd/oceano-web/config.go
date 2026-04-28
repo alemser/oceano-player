@@ -117,6 +117,9 @@ type AmplifierInputConfig struct {
 	LogicalName string `json:"logical_name"`
 	// Visible controls whether this input is shown in the primary UI selectors.
 	Visible bool `json:"visible"`
+	// RecognitionPolicy controls how physical-source recognition behaves on this input:
+	// "auto" (default conservative deduction), "library", "display_only", or "off".
+	RecognitionPolicy string `json:"recognition_policy,omitempty"`
 }
 
 // ConnectedDeviceConfig describes a physical device connected to one or more
