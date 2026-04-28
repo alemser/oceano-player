@@ -2,6 +2,38 @@
 
 // ── Calibration summary (main page) ───────────────────────────────────────────
 
+function _normalizeInputRecognitionPolicy(v) {
+  const p = String(v || '').trim().toLowerCase();
+  if (p === 'library' || p === 'display_only' || p === 'off') return p;
+  return 'auto';
+}
+
+function _normalizeConnectedRole(v) {
+  const role = String(v || '').trim().toLowerCase();
+  if (role === 'streaming' || role === 'other') return role;
+  return 'physical_media';
+}
+
+function _isPhysicalLikeInputLabel(label) {
+  const s = String(label || '').toLowerCase();
+  return s.includes('phono') || s.includes('vinyl') || s.includes('vinil') || s.includes('cd');
+}
+
+function _effectiveRecognitionPolicyForInput(cfg, input) {
+  const explicit = _normalizeInputRecognitionPolicy(input?.recognition_policy);
+  if (explicit !== 'auto') return explicit;
+
+  if (_isPhysicalLikeInputLabel(input?.logical_name)) return 'library';
+  const inputID = String(input?.id || '');
+  const devices = Array.isArray(cfg?.amplifier?.connected_devices) ? cfg.amplifier.connected_devices : [];
+  const mappedPhysical = devices.some((d) =>
+    _normalizeConnectedRole(d?.role) === 'physical_media' &&
+    Array.isArray(d?.input_ids) &&
+    d.input_ids.map(String).includes(inputID)
+  );
+  return mappedPhysical ? 'library' : 'off';
+}
+
 function renderCalibrationSummary() {
   const container = document.getElementById('cal-summary-grid');
   if (!container) return;
@@ -40,11 +72,16 @@ function renderCalibrationSummary() {
   container.innerHTML = items.map(item => {
     const { label, slot, measured, key } = item;
     const isPhono = phonoInputs.some(i => String(i.id) === String(key));
+    const inputCfg = allInputs.find(i => String(i?.id || '') === String(key));
+    const policy = _effectiveRecognitionPolicyForInput(cfg, inputCfg || { id: key, logical_name: label });
 
     const badges = [];
     if (measured) badges.push(`<span class="cal-sc-badge measured">Measured</span>`);
     else          badges.push(`<span class="cal-sc-badge defaults">Defaults</span>`);
     if (isPhono)  badges.push(`<span class="cal-sc-badge phono">Phono</span>`);
+    if (policy === 'library') badges.push(`<span class="cal-sc-badge measured">Recognition: Library</span>`);
+    else if (policy === 'display_only') badges.push(`<span class="cal-sc-badge defaults">Recognition: Display only</span>`);
+    else badges.push(`<span class="cal-sc-badge defaults">Recognition: Off</span>`);
 
     let valsHtml = '';
     if (measured && slot) {
