@@ -78,21 +78,21 @@
     </div>
   </div>
 
-  <!-- ── Autonomous + R3: telemetry-based calibration ───────────────── -->
+  <!-- ── Auto-tuning from playback results ───────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
-    <div class="section-title">Telemetry-driven calibration (R3)</div>
+    <div class="section-title">Auto-tuning from playback results</div>
     <p class="hint" style="margin:0 0 12px">The state manager uses <code>boundary_events</code> follow-ups (matched vs same-track-restored) and applies <strong>small bounded</strong> adjustments to VU silence thresholds and duration pessimism. RMS time series are <strong>not</strong> logged per boundary row; RMS snapshots live in <code>calibration_profiles</code> from the wizard, while live RMS comes from the VU socket.</p>
     <div class="field">
       <label class="modal-check" for="adv-autonomous-calibration-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <input type="checkbox" id="adv-autonomous-calibration-enabled" style="width:auto">
         <span>Autonomous calibration mode</span>
       </label>
-      <div class="hint" style="margin-top:6px">When on, telemetry nudges run whenever paired follow-ups meet the minimum — you do not need the R3 checkbox below. Does not auto-edit calibration JSON; only bounded runtime nudges.</div>
+      <div class="hint" style="margin-top:6px">When on, adaptive tuning runs whenever paired follow-ups meet the minimum — you do not need the manual checkbox below. Does not auto-edit calibration JSON; only bounded runtime nudges.</div>
     </div>
     <div class="field">
       <label class="modal-check" for="adv-telemetry-nudges-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <input type="checkbox" id="adv-telemetry-nudges-enabled" style="width:auto">
-        <span>Enable R3 telemetry nudges (manual)</span>
+        <span>Enable adaptive tuning nudges (manual)</span>
       </label>
     </div>
     <div class="field">

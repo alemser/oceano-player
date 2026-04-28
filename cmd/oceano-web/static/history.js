@@ -273,8 +273,8 @@ function renderBoundaryReadinessCard(cr) {
     `<div class="boundary-readiness-details-body">` +
     `<div class="rec-prov-row"><span class="lbl">Paired follow-ups (window)</span><span class="val">${Number(cr.paired_followups_r3_window || 0)}</span></div>` +
     `<div class="rec-prov-row"><span class="lbl">Minimum pairs required</span><span class="val">${Number(cr.min_followup_pairs_required || 0)}</span></div>` +
-    `<div class="rec-prov-row"><span class="lbl">Lookback (days)</span><span class="val">${Number(cr.r3_lookback_days || 0)}</span></div>` +
-    `<div class="rec-prov-row"><span class="lbl">R3 nudges enabled</span><span class="val">${cr.r3_telemetry_nudges_enabled ? 'Yes' : 'No'}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Analysis window (days)</span><span class="val">${Number(cr.r3_lookback_days || 0)}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Adaptive tuning enabled</span><span class="val">${cr.r3_telemetry_nudges_enabled ? 'Yes' : 'No'}</span></div>` +
     `<div class="rec-prov-row"><span class="lbl">Autonomous mode</span><span class="val">${cr.autonomous_calibration_enabled ? 'Yes' : 'No'}</span></div>` +
     `<div class="rec-prov-row"><span class="lbl">Effective runtime nudges</span><span class="val">${nudgesOn}</span></div>` +
     `<div class="rec-prov-row"><span class="lbl">Nudges apply now</span><span class="val">${cr.ready_for_r3_nudges ? 'Yes' : 'No'}</span></div>` +
@@ -285,7 +285,7 @@ function renderBoundaryReadinessCard(cr) {
     `</details>`;
   return (
     `<div class="rec-prov-card boundary-readiness-card${levelClass}">` +
-    `<div class="rec-prov-name">Calibration readiness (R3 lookback)</div>` +
+    `<div class="rec-prov-name">Auto-tuning readiness</div>` +
     `<div class="rec-prov-row"><span class="lbl">Readiness</span><span class="val boundary-readiness-level">${esc(level || '—')}</span></div>` +
     `<p class="boundary-readiness-desc">${esc(friendlyMessage)}</p>` +
     `<p class="boundary-readiness-note">${esc(cr.readiness_message || '')}</p>` +
