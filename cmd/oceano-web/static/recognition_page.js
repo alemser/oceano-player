@@ -48,21 +48,13 @@ function renderCalibrationSummary() {
 
     let valsHtml = '';
     if (measured && slot) {
-      const rec = calibrationRecommendation(slot.off, slot.on, slot.vinyl_transition || null);
+      const rec = calibrationRecommendation(slot.off, slot.on, null);
       if (rec && rec.ok) {
         valsHtml += `<div class="cal-sc-val"><span class="lbl">Source</span><span class="val">${rec.detectorThreshold.toFixed(4)}</span></div>`;
         valsHtml += `<div class="cal-sc-val"><span class="lbl">VU</span><span class="val">${rec.vuThreshold.toFixed(4)}</span></div>`;
         if (rec.gap != null) valsHtml += `<div class="cal-sc-val"><span class="lbl">OFF/ON gap</span><span class="val">${rec.gap.toFixed(4)}</span></div>`;
       } else {
         valsHtml += `<span class="hint" style="align-self:center">Incomplete — run wizard again to capture OFF and ON.</span>`;
-      }
-      if (slot.vinyl_transition) {
-        if (Number.isFinite(slot.vinyl_transition.gap_avg_rms) && slot.vinyl_transition.gap_avg_rms > 0) {
-          valsHtml += `<div class="cal-sc-val"><span class="lbl">Groove noise</span><span class="val">${slot.vinyl_transition.gap_avg_rms.toFixed(5)}</span></div>`;
-        }
-        if (Number.isFinite(slot.vinyl_transition.gap_duration_secs)) {
-          valsHtml += `<div class="cal-sc-val"><span class="lbl">Vinyl gap</span><span class="val">${slot.vinyl_transition.gap_duration_secs.toFixed(2)}s</span></div>`;
-        }
       }
     } else {
       const vu  = _rfloat('rec-vu-silence-threshold', 0.0095);

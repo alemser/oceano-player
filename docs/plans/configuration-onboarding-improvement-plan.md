@@ -11,11 +11,34 @@ This document describes how first-time configuration feels today, why it is hard
 ### Current implementation snapshot (2026-04)
 
 - **Calibration scope now supports explicit turntable mapping:** `connected_devices[].is_turntable` (with name fallback for `phono`/`vinyl`) is already used by the recognition calibration wizard.
+- **Vinyl transition (groove noise / vinyl gap) wizard step removed:** the `vinyl_transition` calibration step — which captured inter-track groove noise RMS and gap duration to feed `transitionGapRMS` in the boundary detector — has been removed from the wizard and the calibration summary UI. **Rationale:** with RMS histogram learning active, the derived per-format silence threshold (e.g., `0.0162` for vinyl) already sits above measured groove noise (`0.0080 RMS`), meaning the primary `silence→audio` boundary path handles inter-track detection without needing `transitionGapRMS`. The `energy-change` secondary path is marginal in comparison. The `vinyl_transition` field may be stored in existing `calibration_profiles` JSON but is no longer displayed or used for new captures. Can be reinstated if future edge cases require it.
 - **Calibration UX is vinyl-first:** wizard copy and selection emphasize phono/turntable paths; no generic “all inputs equally” framing.
 - **Metrics telemetry is progressively disclosed:** boundary telemetry moved under a collapsed **Advanced** accordion; readiness card shows a friendly summary with technical details collapsed.
 - **User-facing copy no longer exposes “R3” labels** on current UI surfaces (uses auto-tuning/adaptive wording).
 - **Recognition page now owns auto-tuning controls:** `Auto-tuning from playback results` and `RMS percentile learning` live in `recognition.html`, with advanced parameters collapsed by default.
 - **RMS snapshot is user-focused in UI:** snapshot cards show `CD` + `Vinyl`; `Physical` stays collected in background for internal learning.
+
+### Review notes before merge (recognition pass)
+
+- **Transient source dropout guard is active:** `physical -> none` pulses are ignored for up to **8 s** to absorb source-detector reconnects and prevent idle/artwork flicker. This is intentional, but introduces a trade-off: real stops shorter than that window may take longer to show idle.
+- **Boundary-sensitive hardening is in place:** with known track duration, boundary-sensitive tracks suppress boundary triggers until track end (except `duration-exceeded` path), reducing mid-track false transitions.
+- **Residual risk:** no dedicated front-end integration suite currently validates full `recognition.html` relocation flows (load/edit/save across moved controls). Coverage relies on existing Go/package tests plus manual UI verification.
+
+### Delivery status vs this plan (2026-04)
+
+**Done (implemented now):**
+
+- Recognition UX now centralizes tuning controls (`auto-tuning` + `RMS learning`) with advanced parameters collapsed.
+- RMS snapshot presentation now targets user-facing formats (`CD`, `Vinyl`) while internal `Physical` learning remains enabled.
+- Boundary-sensitive behavior and short source-reconnect flicker mitigation landed in state-manager runtime.
+- Onboarding plan + prototype documentation are synchronized with the shipped recognition UX.
+
+**Still pending from roadmap phases:**
+
+- **Phase 1:** full neutral defaults cleanup (`defaultConfig()` amplifier/weather/calibration fixtures) is not fully completed in this pass.
+- **Phase 2/5:** checklist + `/api/setup-status` orchestration remains roadmap work.
+- **Phase 3:** dedicated production amplifier wizard route/orchestration is still pending.
+- **Phase 6/7:** full now-playing parity polish and CLI↔web bridge completion remain in progress roadmap items.
 
 ---
 
@@ -201,8 +224,8 @@ When the user defines a **connected device** (name + amplifier input IDs), they 
 
 **Migration (decided):** if `role` is **absent**, treat as **`physical_media`**. If `physical_format` is **absent**, treat as **`unspecified`** — UI may **nudge** once: “Is this device vinyl, CD, or tape?” with emphasis when the mapped **logical input label** is **Phono** (strong prior for vinyl). Do not auto-write `vinyl` without user confirmation.
 
-**Calibration wizard behaviour (target):** calibratable inputs = union of input IDs on `physical_media` devices, plus manual “always calibrate”. **Vinyl gap** sub-step only when **`physical_format === vinyl`** (or product-approved equivalent).  
-**Calibration wizard behaviour (current):** union of input IDs on devices marked **`is_turntable`**, with fallback to phono/vinyl input name matching.
+**Calibration wizard behaviour (target):** calibratable inputs = union of input IDs on `physical_media` devices, plus manual “always calibrate”. ~~Vinyl gap sub-step only when `physical_format === vinyl`~~ — **removed** (see implementation snapshot; RMS learning supersedes it).
+**Calibration wizard behaviour (current):** OFF/ON capture for union of input IDs on devices marked **`is_turntable`**, with fallback to phono/vinyl input name matching. Vinyl transition step removed from wizard.
 
 **Off/On wizard limitations (CD and some line paths):** The wizard assumes two measurably different RMS levels (“off” vs “on” / programme). On many **CD** setups the REC OUT path shows **similar idle hum** whether transport is idle or outputs are muted — there is **no usable differential**, so wizard-derived thresholds may be noise or collapse to meaningless gaps. Copy should **not promise** universal Off/On calibration; steer users toward (a) a conservative **`advanced.vu_silence_threshold`** above idle hum on REC, (b) re-running wizard only when contrast is audible, and (c) the statistical / shadow path in **`recognition-enhancement-plan.md`** (Phase **1B**, **R10**) rather than insisting on per-input profiles for CD-only rigs.
 
