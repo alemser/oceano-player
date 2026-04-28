@@ -373,6 +373,61 @@
       border-color: #2d6e2d;
       background: rgba(30, 90, 30, 0.2);
     }
+    .setup-bridge-quick {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .setup-bridge-card {
+      background: #0f0f0f;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      min-height: 116px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .setup-bridge-card-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+    .setup-bridge-card-status {
+      font-size: 0.78rem;
+      line-height: 1.3;
+      color: var(--ok-text);
+      min-height: 2.2em;
+    }
+    .setup-bridge-card-status.warn {
+      color: var(--warn-text);
+    }
+    .setup-bridge-card-open {
+      margin-top: auto;
+      align-self: flex-start;
+      text-decoration: none;
+      border: 1px solid var(--accent);
+      border-radius: 14px;
+      padding: 6px 12px;
+      color: #cfe4ff;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      background: rgba(74,158,255,0.1);
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .setup-bridge-card-open:hover {
+      background: rgba(74,158,255,0.18);
+      border-color: #65b0ff;
+    }
+    @media (max-width: 540px) {
+      .setup-bridge-quick {
+        grid-template-columns: 1fr;
+      }
+    }
 
     .stats-grid {
       display: grid;

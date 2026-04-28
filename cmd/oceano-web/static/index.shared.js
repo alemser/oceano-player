@@ -112,11 +112,13 @@ async function loadConfig() {
 function renderSetupBridge(status) {
   const summaryEl = document.getElementById('setup-bridge-summary');
   const listEl = document.getElementById('setup-bridge-list');
-  if (!summaryEl || !listEl) return;
+  const quickEl = document.getElementById('setup-bridge-quick');
+  if (!summaryEl || !listEl || !quickEl) return;
 
   if (!status) {
     summaryEl.textContent = 'Setup status unavailable right now.';
     listEl.innerHTML = '<li class="pending"><span>Retrying setup status...</span></li>';
+    quickEl.innerHTML = '<div class="setup-bridge-card">Retrying quick access status...</div>';
     return;
   }
 
@@ -127,6 +129,7 @@ function renderSetupBridge(status) {
   if (!items.length) {
     summaryEl.textContent = 'Setup bridge unavailable.';
     listEl.innerHTML = '<li class="pending"><span>Shared setup helpers missing.</span></li>';
+    quickEl.innerHTML = '<div class="setup-bridge-card">Shared setup helpers missing.</div>';
     return;
   }
   const doneCount = items.filter((item) => item.done).length;
@@ -136,6 +139,47 @@ function renderSetupBridge(status) {
       <span>${esc(item.label)}</span>
       <span class="setup-bridge-pill ${item.done ? 'done' : ''}">${item.done ? 'Done' : 'Pending'}</span>
     </li>
+  `).join('');
+
+  const quickCards = [
+    {
+      title: 'Physical media',
+      href: '/recognition.html',
+      status: !status.capture_configured
+        ? { text: 'Capture not configured', tone: 'warn' }
+        : !status.recognition_credentials_set
+          ? { text: 'ACRCloud credentials missing', tone: 'warn' }
+          : { text: 'Capture and recognition ready', tone: 'ok' },
+    },
+    {
+      title: 'Amplifier & IR',
+      href: '/amplifier-wizard.html',
+      status: !status.amplifier_topology_complete
+        ? { text: 'Topology not configured', tone: 'warn' }
+        : status.amplifier_ir_enabled && !status.broadlink_paired
+          ? { text: 'IR enabled, Broadlink not paired', tone: 'warn' }
+          : status.amplifier_ir_enabled
+            ? { text: 'Topology ready, IR paired', tone: 'ok' }
+            : { text: 'Topology ready, IR optional', tone: 'ok' },
+    },
+  ];
+
+  if (status.vinyl_topology_present) {
+    quickCards.push({
+      title: 'Stylus tracking',
+      href: '/amplifier-wizard.html?step=stylus',
+      status: status.stylus_profile_configured
+        ? { text: 'Stylus profile configured', tone: 'ok' }
+        : { text: 'Configure stylus profile', tone: 'warn' },
+    });
+  }
+
+  quickEl.innerHTML = quickCards.map((card) => `
+    <article class="setup-bridge-card">
+      <div class="setup-bridge-card-title">${esc(card.title)}</div>
+      <div class="setup-bridge-card-status ${card.status.tone === 'warn' ? 'warn' : ''}">${esc(card.status.text)}</div>
+      <a class="setup-bridge-card-open" href="${esc(card.href)}">Open</a>
+    </article>
   `).join('');
 }
 
