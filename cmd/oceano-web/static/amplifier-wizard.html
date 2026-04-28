@@ -27,6 +27,20 @@
 
     <section class="wiz-error" id="wiz-error" hidden></section>
 
+    <section class="wiz-current" id="wiz-current">
+      <div class="wiz-current-head">
+        <h2 id="wiz-current-title">Current step</h2>
+        <span class="wiz-step-state" id="wiz-current-state">Loading</span>
+      </div>
+      <p id="wiz-current-desc" class="wiz-current-desc"></p>
+      <p id="wiz-current-gate" class="wiz-current-gate" hidden></p>
+      <div class="wiz-current-actions">
+        <a id="wiz-open-step" class="btn btn-primary" href="#">Open current step</a>
+        <button id="wiz-prev" class="btn btn-ghost" type="button">Previous</button>
+        <button id="wiz-next" class="btn btn-ghost" type="button">Next</button>
+      </div>
+    </section>
+
     <section class="wiz-steps" id="wiz-steps">
       <!-- Filled by amplifier-wizard.js -->
     </section>

@@ -117,6 +117,45 @@ body {
   margin-bottom: 14px;
 }
 
+.wiz-current {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.wiz-current-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.wiz-current-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.wiz-current-desc {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+}
+
+.wiz-current-gate {
+  margin: 8px 0 0;
+  color: var(--warn);
+  font-size: 0.86rem;
+}
+
+.wiz-current-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .wiz-steps {
   display: grid;
   gap: 12px;
@@ -148,6 +187,11 @@ body {
 .wiz-step.done .wiz-step-index {
   border-color: #2f5a3f;
   color: var(--ok);
+}
+
+.wiz-step.active {
+  border-color: #375c87;
+  background: #171d26;
 }
 
 .wiz-step-title {

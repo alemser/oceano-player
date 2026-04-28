@@ -125,34 +125,40 @@ const CHECKLIST_ITEMS = [
   {
     id: "foundation",
     label: "Run oceano-setup on the Pi (foundation)",
+    href: "/index.html",
     isDone: (s) => !!s && !!s.oceano_setup_acknowledged,
     skippable: true,
   },
   {
     id: "capture",
     label: "Capture device configured",
+    href: "/index.html",
     isDone: (s) => !!s && !!s.capture_configured,
   },
   {
     id: "recognition",
     label: "ACRCloud credentials configured",
+    href: "/recognition.html",
     isDone: (s) => !!s && !!s.recognition_credentials_set,
   },
   {
     id: "amp",
     label: "Amplifier topology configured (IR optional)",
+    href: "/amplifier-wizard.html?step=topology",
     isDone: (s) => !!s && !!s.amplifier_topology_complete,
     skippable: true,
   },
   {
     id: "calibration",
     label: "Physical input calibration complete",
+    href: "/amplifier-wizard.html?step=calibration",
     isDone: (s) => !!s && (!!s.calibration_physical_complete || !s.calibration_physical_recommended),
     skippable: true,
   },
   {
     id: "stylus",
     label: "Stylus tracking configured (vinyl path)",
+    href: "/amplifier-wizard.html?step=stylus",
     isDone: (s) => !!s && (!!s.stylus_profile_configured || !s.stylus_tracking_recommended),
     skippable: true,
   },
@@ -243,6 +249,7 @@ function renderChecklist(status) {
           <span>${escapeHTML(item.label)}</span>
           <span class="checklist-chip ${chipClass}">${chipText}</span>
         </span>
+        <a class="hub-card-link" href="${escapeHTML(item.href || "/config.html")}">Open</a>
         ${skipBtn}
       </li>
     `;

@@ -35,13 +35,14 @@ This document describes how first-time configuration feels today, why it is hard
 
 **Still pending from roadmap phases:**
 
-- **Phase 3b+:** dedicated production amplifier wizard **gating/orchestration** (Broadlink hard gate, explicit IR-learn lock, connected-devices role/format persistence flow, stylus step wiring) is still pending beyond shell.
+- **Phase 3c+:** connected-devices role/format persistence flow and full stylus-step wiring are still pending beyond shell + basic gating.
 - **Phase 6/7:** full now-playing parity polish and CLI↔web bridge completion remain in progress roadmap items.
 
 **Newly completed in this branch (2026-04):**
 
 - **Phase 2a/2b:** `/config` hub page shipped with live cards + first-run checklist, done-state mapping from `/api/setup-status`, plus row-level skip/dismiss persistence in `localStorage`.
 - **Phase 3a:** production route scaffolded at `/amplifier-wizard` (`amplifier-wizard.html`) with step shell, readiness badges sourced from `/api/setup-status`, and deep links into existing operational pages (`amplifier.html`, `pair.html`, `recognition.html`).
+- **Phase 3b:** wizard now persists current step in `localStorage`, accepts deep links via `?step=<id>`, and applies Broadlink gating to the IR step (`amplifier_ir_enabled && !broadlink_paired` blocks progression and points user to pairing). Checklist rows that map to wizard stages now deep-link to the corresponding step.
 
 ---
 
@@ -345,10 +346,11 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 
 This distinction avoids two failure modes: rows that nag forever vs rows that silently disappear after an accidental swipe. Do not invent server state for dismissed rows — `localStorage` is sufficient and avoids sync complexity across browsers.
 
-### Phase 3 — Amplifier wizard implementation 🚧 Phase 3a done (shell + route)
+### Phase 3 — Amplifier wizard implementation ✅ Phase 3a + 3b done
 
 - As specified in the previous section; **gate** IR-learning steps on successful Broadlink pairing (reuse `pair.html` and/or same APIs — **separate pairing wizard is OK**).
 - **Implemented (3a):** route `/amplifier-wizard` + static page scaffold with ordered steps, readiness/status badges from `/api/setup-status`, and explicit step entry links.
+- **Implemented (3b):** current-step persistence in `localStorage` (`oceano.onboarding.amplifier_wizard.active_step`), deep-link entry via `?step=<id>`, hard block on IR step navigation when Broadlink is not paired while IR is enabled, and checklist integration linking rows to the relevant wizard steps.
 - **Wizard abandonment:** if the user closes the browser mid-wizard the partial state must not be silently lost on an 8-step flow. Two acceptable strategies:
   - **(A — preferred)** persist each completed step to `localStorage` as a draft, restoring on re-open with a “Continue where you left off?” banner. Most useful for steps 3–5 where IR learning is the most time-consuming.
   - **(B)** show a browser `beforeunload` confirmation (“Leave setup? Progress will be lost”) — simpler but intrusive.
