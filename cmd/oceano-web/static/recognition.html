@@ -287,19 +287,12 @@
   <!-- ── Calibration ──────────────────────────────────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
     <div class="section-title">Calibration</div>
-    <p class="hint" style="margin-bottom:14px">Vinyl-focused calibration for a Phono input: capture OFF/ON noise floor and optional track-transition gap metrics.</p>
+    <p class="hint" style="margin-bottom:14px">Capture gain setup for the physical input.</p>
 
     <!-- Hidden fields updated by the wizard and read by saveRecognitionPage -->
     <input type="hidden" id="inp-silence">
 
-    <!-- Per-input summary rendered by renderCalibrationSummary() -->
-    <div id="cal-summary-grid" style="margin-bottom:16px"></div>
-
     <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button type="button" class="btn-secondary" onclick="openCalibrationWizard()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>
-        Run Calibration Wizard
-      </button>
       <button type="button" class="btn-secondary" onclick="openMicGainWizard()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
         Set Capture Gain
