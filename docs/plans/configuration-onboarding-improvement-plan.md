@@ -126,8 +126,10 @@ So the product already has “cards” visually, but not a **hub mental model**:
 **What to avoid**
 
 - **Duplicating** every field from `recognition.html` / `amplifier.html` on the hub — double maintenance and overwhelming first screen.
-- **More than ~5–7 hub tiles** without grouping — use a **“Physical media”** group and a **“Everything else”** collapsed region to preserve the audience-first story.
-- **Relying on the narrow drawer** for a rich 2×2 card grid on desktop — the drawer is ~520px wide; a **dedicated `/config` hub page** (full width) or widening the drawer on large breakpoints may be needed for comfortable large tiles.
+- **More than ~5–7 hub tiles** without grouping — use a **”Physical media”** group and a **”Everything else”** collapsed region to preserve the audience-first story.
+- **Relying on the narrow drawer** for a rich card grid — the config drawer is ~520px wide, which is too narrow for a comfortable 2-column layout.
+
+**Decision — hub lives at `/config` (full-page route):** implement the hub as a dedicated full-width page, not inside the config drawer. The existing drawer remains for quick single-field edits (capture device, ACRCloud credentials) reachable from the top status bar. `/config` is the navigation and first-run orientation surface. This removes the need for column-count hacks in the narrow drawer and gives room for a 2–3 column card grid on desktop while collapsing to a single column on mobile / Pi kiosk browser.
 
 ### Hub rollout steps (non-prescriptive — **not** the same numbers as [Proposed work (phased)](#proposed-work-phased))
 
@@ -289,6 +291,7 @@ This closes the loop for **repeat configuration** as a first-class story, not on
 - **Weather:** default off; empty or null location until enabled.
 - **Calibration profiles:** empty map on fresh install; move numeric fixtures to **tests** or `docs/examples/*.json` if still needed for CI.
 - **UI:** “Set up amplifier” CTA opens wizard; no pre-selected profile in `<select>`.
+- **Migration safety:** `defaultConfig()` changes apply **only when no `config.json` exists** at startup. On upgrade, `oceano-web` reads the existing file and leaves all amplifier, IR, and calibration data intact. Document this guarantee in install scripts and upgrade notes so users are not surprised by apparent config loss after `apt upgrade`.
 
 ### Phase 2 — Physical-first welcome checklist
 
@@ -303,16 +306,26 @@ Ordered for the target audience:
 
 Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Bluetooth (optional)”.
 
-**Checklist “done” rules (implementation):** each row is **complete** when the corresponding booleans from **`GET /api/setup-status`** are true — use the **field names in the draft contract** below (`capture_configured`, `recognition_credentials_set`, `amplifier_topology_complete`, `calibration_physical_complete`, `stylus_profile_configured`, etc.). **Dismissed checklist** can remain a **client** flag (`localStorage`) so we do not invent new server state unless product wants sync across browsers.
+**Checklist “done” rules (implementation):** each row is **complete** when the corresponding booleans from **`GET /api/setup-status`** are true — use the **field names in the draft contract** below (`capture_configured`, `recognition_credentials_set`, `amplifier_topology_complete`, `calibration_physical_complete`, `stylus_profile_configured`, etc.).
+
+**Skip vs. dismiss (important distinction):** rows must track two different user intents:
+- **Skip for now** — implicit; no state written; row reappears next session. Used when the user closed the page mid-setup.
+- **Dismiss permanently** — explicit opt-out stored in `localStorage` keyed by row ID (e.g. `oceano_dismissed_stylus`). Used when a CD-only listener taps “Not relevant for me” on the stylus row. Dismissed rows hide without reappearing.
+
+This distinction avoids two failure modes: rows that nag forever vs rows that silently disappear after an accidental swipe. Do not invent server state for dismissed rows — `localStorage` is sufficient and avoids sync complexity across browsers.
 
 ### Phase 3 — Amplifier wizard implementation
 
-- As specified in the previous section; **gate** IR-learning steps on successful Broadlink pairing (reuse `pair.html` and/or same APIs — **separate pairing wizard is OK**). Persist atomically at end (or per major milestone with explicit “saved draft” if needed).
+- As specified in the previous section; **gate** IR-learning steps on successful Broadlink pairing (reuse `pair.html` and/or same APIs — **separate pairing wizard is OK**).
+- **Wizard abandonment:** if the user closes the browser mid-wizard the partial state must not be silently lost on an 8-step flow. Two acceptable strategies:
+  - **(A — preferred)** persist each completed step to `localStorage` as a draft, restoring on re-open with a “Continue where you left off?” banner. Most useful for steps 3–5 where IR learning is the most time-consuming.
+  - **(B)** show a browser `beforeunload` confirmation (“Leave setup? Progress will be lost”) — simpler but intrusive.
+  Persist to the server only at the final **”Save & restart”** step; no partial server writes.
 
 ### Phase 4 — Calibration scoped by device role (+ physical format)
 
 - Keep **`is_turntable`** as a supported path (already shipped) and expose it in onboarding copy as the practical way to map turntable topology to arbitrary amplifier inputs.
-- Extend config + UI for **`role`** on `connected_devices` (`physical_media` | `streaming` | `other`); **migration:** missing `role` → **`physical_media`** (see [Device roles](#device-roles-connected-equipment--input-usage)).
+- Extend config + UI for **`role`** on `connected_devices` (`physical_media` | `streaming` | `other`); **migration:** missing `role` → **`physical_media`** (existing `connected_devices` rows in pre-Phase-4 configs are almost always physical sources — streamers were not historically modelled as named connected devices). **New devices added via wizard must select role explicitly** — no silent assignment. If a miscategorised streaming device surfaces (e.g. Chromecast on AUX1), a one-time nudge ("Is this a physical source or a streamer?") can correct it without invalidating existing calibration profiles (see [Device roles](#device-roles-connected-equipment--input-usage)).
 - Add **`physical_format`** on `physical_media` rows (`vinyl` | `cd` | `tape` | `mixed` | `unspecified`); **migration:** missing → **`unspecified`** with optional one-time UI nudge (stronger when input is **Phono**).
 - Filter calibration wizard input list; update `recognition_page.js` / `calibration-wizard.js` copy to explain **why** some inputs are hidden.
 - Ensure **state manager** still receives calibration keyed by input ID (no breaking change unless we add aliases).
@@ -320,6 +333,7 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 ### Phase 5 — Contextual hints & API
 
 - Implement **`GET /api/setup-status`** (or extend an existing aggregate) returning the booleans needed for the hub, checklist, and header chips (“Missing ACRCloud”, “Amplifier not configured”, “Calibrate Phono for best vinyl boundaries”, etc.).
+- **Caching:** `services_healthy` requires a `systemctl is-active` subprocess call per service. Cache this result in-process for **10–30 s** to avoid forking on every hub poll or SSE tick. Config-derived booleans (`capture_configured`, `recognition_credentials_set`, etc.) are cheap reads from the in-memory config and do not need caching.
 - Config drawer **reorders** sections based on incomplete flags.
 
 #### `GET /api/setup-status` — draft JSON contract
