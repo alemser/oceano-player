@@ -32,3 +32,12 @@ const INPUT_ICONS = {
   optical: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 3 L12 21"/><path d="M5 8 Q12 12 19 8"/><path d="M5 16 Q12 12 19 16"/></svg>`,
   coax: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" stroke-dasharray="3 3"/><path d="M12 5 V3M12 19 V21M5 12 H3M19 12 H21"/></svg>`,
 };
+
+// HUB_ICONS — 32×32 viewBox, used in the Setup Hub cards (/config).
+// Same stroke vocabulary as SOURCE_ICONS: fill="none", stroke="currentColor".
+const HUB_ICONS = {
+  Amplifier: `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="15" height="12" rx="2.5" stroke-width="1.5"/><circle cx="11.5" cy="16" r="4" stroke-width="1.1" opacity="0.5"/><circle cx="11.5" cy="16" r="1.8" fill="currentColor" stroke="none" opacity="0.45"/><path d="M22 13 Q25.5 16 22 19" stroke-width="1.6" opacity="0.85"/><path d="M25 10 Q30 16 25 22" stroke-width="1.4" opacity="0.45"/></svg>`,
+  Display: `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="26" height="17" rx="2.5" stroke-width="1.5"/><path d="M12 22 L10 27 M20 22 L22 27 M10 27 L22 27" stroke-width="1.4" opacity="0.6"/><path d="M8 13.5 Q9.5 10.5 11 13.5 Q12.5 16.5 14 13.5 Q15.5 10.5 17 13.5 Q18.5 16.5 20 13.5 Q21.5 10.5 23 13.5" stroke-width="1.3" opacity="0.55"/></svg>`,
+  Advanced: `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="16" cy="16" r="4.5" stroke-width="1.5"/><path d="M16 7.5V11 M16 21V24.5 M7.5 16H11 M21 16H24.5" stroke-width="1.7"/><path d="M10.1 10.1L12.3 12.3 M19.7 19.7L21.9 21.9 M21.9 10.1L19.7 12.3 M12.3 19.7L10.1 21.9" stroke-width="1.5"/></svg>`,
+  Stylus: `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M24 4 L28 8" stroke-width="1.6" opacity="0.9"/><path d="M28 8 L19.5 16.5" stroke-width="1.6" opacity="0.9"/><circle cx="19" cy="17" r="1.2" fill="currentColor" stroke="none" opacity="0.95"/><circle cx="13" cy="21" r="7" stroke-width="1.5"/><circle cx="13" cy="21" r="4" stroke-width="0.8" opacity="0.4"/><circle cx="13" cy="21" r="2" fill="currentColor" stroke="none" opacity="0.55"/></svg>`,
+};

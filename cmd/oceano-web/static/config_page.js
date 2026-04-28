@@ -1,252 +1,230 @@
 "use strict";
 
-const HUB_POLL_MS = 5000;
-const sharedSetup = window.OceanoSetupShared || {};
+const HUB_POLL_MS = 30000;
 
-const HUB_ICONS = {
-  amplifier:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<rect x="3" y="7.5" width="18" height="11" rx="2.3"/>' +
-    '<circle cx="8" cy="13" r="1.8"/>' +
-    '<path d="M13 11h5M13 14h5"/>' +
-    "</svg>",
-  calibration:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M4 17V7M12 20V4M20 15V9"/>' +
-    '<circle cx="4" cy="10" r="2"/>' +
-    '<circle cx="12" cy="14" r="2"/>' +
-    '<circle cx="20" cy="12" r="2"/>' +
-    "</svg>",
-  stylus:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<circle cx="9" cy="13" r="5.2"/>' +
-    '<circle cx="9" cy="13" r="1.5" fill="currentColor" stroke="none"/>' +
-    '<path d="M14.7 5.8l4 4-5.1 5.1"/>' +
-    '<path d="M18.7 9.8l.9 1.9"/>' +
-    "</svg>",
-  advanced:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M10.3 3.8a1 1 0 0 1 1.4-.2l.6.5a1 1 0 0 0 .9.2l.7-.2a1 1 0 0 1 1.2.8l.1.8a1 1 0 0 0 .6.8l.7.3a1 1 0 0 1 .5 1.3l-.3.7a1 1 0 0 0 .1.9l.5.6a1 1 0 0 1-.1 1.4l-.6.5a1 1 0 0 0-.3.9l.1.8a1 1 0 0 1-.9 1.1l-.8.1a1 1 0 0 0-.8.6l-.3.7a1 1 0 0 1-1.3.4l-.7-.3a1 1 0 0 0-.9.1l-.6.4a1 1 0 0 1-1.4-.2l-.4-.6a1 1 0 0 0-.8-.4h-.8a1 1 0 0 1-1-.9l-.1-.8a1 1 0 0 0-.6-.8l-.7-.3a1 1 0 0 1-.4-1.3l.3-.7a1 1 0 0 0-.1-.9l-.5-.6a1 1 0 0 1 .2-1.4l.6-.4a1 1 0 0 0 .4-.9l-.1-.8a1 1 0 0 1 .9-1.1l.8-.1a1 1 0 0 0 .8-.6l.3-.7z"/>' +
-    '<circle cx="12" cy="12" r="2.3"/>' +
-    "</svg>",
-};
+// ── Card definitions ────────────────────────────────────────────────────────
+// icon()   → HTML string from SOURCE_ICONS / HUB_ICONS (loaded by icons.js)
+// chip(s)  → { cls: 'ok'|'warn'|'error'|'neutral', text: string }
+// detail   → static sub-title shown below the chip
 
 const HUB_CARDS = [
   {
     id: "physical",
     title: "Physical media",
+    detail: "Capture · ACRCloud · Calibration · Stylus",
     href: "/recognition.html",
-    iconHTML: (window.SOURCE_ICONS && (window.SOURCE_ICONS.Vinyl || window.SOURCE_ICONS.Physical)) || "",
-    compute(status) {
-      if (!status) return { text: "Loading...", tone: "" };
-      if (!status.capture_configured) return { text: "Capture not configured", tone: "warn" };
-      if (!status.recognition_credentials_set) return { text: "ACRCloud credentials missing", tone: "warn" };
-      return { text: "Capture and recognition ready", tone: "ok" };
+    icon() { return (window.SOURCE_ICONS || {}).Vinyl || (window.HUB_ICONS || {}).Advanced || ""; },
+    chip(s) {
+      if (!s) return { cls: "neutral", text: "Loading…" };
+      const svc = s.services_healthy || {};
+      if (svc.oceano_state_manager === false)
+        return { cls: "error", text: "State manager offline" };
+      if (!s.capture_configured)
+        return { cls: "warn", text: "Capture not configured" };
+      if (!s.recognition_credentials_set)
+        return { cls: "warn", text: "ACRCloud credentials missing" };
+      if (s.calibration_physical_recommended)
+        return { cls: "warn", text: "Calibration incomplete" };
+      if (s.stylus_tracking_recommended)
+        return { cls: "warn", text: "Stylus not configured" };
+      return { cls: "ok", text: "Ready" };
     },
   },
   {
     id: "amp",
     title: "Amplifier & IR",
-    href: "/amplifier-wizard.html",
-    iconHTML: HUB_ICONS.amplifier,
-    compute(status) {
-      if (!status) return { text: "Loading...", tone: "" };
-      if (!status.amplifier_topology_complete) return { text: "Topology not configured", tone: "warn" };
-      if (status.amplifier_ir_enabled && !status.broadlink_paired) return { text: "IR enabled but Broadlink not paired", tone: "warn" };
-      if (status.amplifier_ir_enabled) return { text: "Topology ready, IR paired", tone: "ok" };
-      return { text: "Topology ready (IR optional)", tone: "ok" };
-    },
-  },
-  {
-    id: "calibration",
-    title: "Recognition & calibration",
-    href: "/recognition.html",
-    iconHTML: HUB_ICONS.calibration,
-    compute(status) {
-      if (!status) return { text: "Loading...", tone: "" };
-      if (status.calibration_physical_recommended && !status.calibration_physical_complete) {
-        return { text: "Calibration recommended for physical inputs", tone: "warn" };
-      }
-      if (status.calibration_physical_complete) return { text: "Calibration complete", tone: "ok" };
-      return { text: "No physical calibration pending", tone: "ok" };
+    detail: "Inputs · Broadlink · IR codes",
+    href: "/amplifier.html",
+    icon() { return (window.HUB_ICONS || {}).Amplifier || ""; },
+    chip(s) {
+      if (!s) return { cls: "neutral", text: "Loading…" };
+      if (!s.amplifier_topology_complete)
+        return { cls: "warn", text: "Not configured" };
+      if (s.amplifier_ir_enabled && !s.broadlink_paired)
+        return { cls: "warn", text: "Broadlink not paired" };
+      if (s.amplifier_ir_enabled)
+        return { cls: "ok", text: "Ready · IR paired" };
+      return { cls: "ok", text: "Ready" };
     },
   },
   {
     id: "stylus",
     title: "Stylus tracking",
-    href: "/amplifier.html#stylus-section",
-    iconHTML: HUB_ICONS.stylus,
-    compute(status) {
-      if (!status) return { text: "Loading...", tone: "" };
-      if (!status.vinyl_topology_present) return { text: "No vinyl topology configured", tone: "" };
-      if (status.stylus_profile_configured) return { text: "Stylus profile configured", tone: "ok" };
-      if (status.stylus_tracking_recommended) return { text: "Configure stylus profile and rated life", tone: "warn" };
-      return { text: "Stylus setup optional", tone: "" };
+    detail: "Hours · Cartridge life",
+    href: "/amplifier.html",
+    icon() { return (window.HUB_ICONS || {}).Stylus || ""; },
+    chip(s) {
+      if (!s) return { cls: "neutral", text: "Loading…" };
+      if (!s.vinyl_topology_present)
+        return { cls: "neutral", text: "No vinyl topology" };
+      if (s.stylus_profile_configured)
+        return { cls: "ok", text: "Configured" };
+      return { cls: "warn", text: "Not configured" };
     },
   },
   {
     id: "streaming",
-    title: "Streaming basics",
+    title: "Streaming",
+    detail: "AirPlay · Bluetooth",
     href: "/index.html",
-    iconHTML: (window.SOURCE_ICONS && window.SOURCE_ICONS.AirPlay) || "🔊",
-    compute(status) {
-      if (!status) return { text: "Loading...", tone: "" };
-      const healthy = status.services_healthy || {};
-      const detector = healthy.oceano_source_detector !== false;
-      const manager = healthy.oceano_state_manager !== false;
-      const web = healthy.oceano_web !== false;
-      if (detector && manager && web) return { text: "Core services healthy", tone: "ok" };
-      return { text: "One or more services unhealthy", tone: "warn" };
+    icon() { return (window.SOURCE_ICONS || {}).AirPlay || ""; },
+    chip(s) {
+      if (!s) return { cls: "neutral", text: "Loading…" };
+      const svc = s.services_healthy || {};
+      const allUp = Object.keys(svc).length === 0 ||
+        Object.values(svc).every((v) => v !== false);
+      if (!allUp) return { cls: "warn", text: "Service offline" };
+      return { cls: "ok", text: "Ready" };
+    },
+  },
+  {
+    id: "display",
+    title: "Now playing & display",
+    detail: "Kiosk · Weather · Idle screen",
+    href: "/nowplaying.html",
+    icon() { return (window.HUB_ICONS || {}).Display || ""; },
+    chip(s) {
+      if (!s) return { cls: "neutral", text: "Loading…" };
+      const svc = s.services_healthy || {};
+      if (svc.oceano_state_manager === false)
+        return { cls: "warn", text: "No state feed" };
+      return { cls: "neutral", text: "Optional" };
     },
   },
   {
     id: "advanced",
     title: "Advanced",
+    detail: "Sockets · Paths · Library DB",
     href: "/advanced.html",
-    iconHTML: HUB_ICONS.advanced,
-    compute(status) {
-      if (!status) return { text: "Loading...", tone: "" };
-      return { text: `Schema v${status.schema_version || 1} · Live setup status API`, tone: "" };
-    },
+    icon() { return (window.HUB_ICONS || {}).Advanced || ""; },
+    chip() { return { cls: "neutral", text: "Optional" }; },
   },
 ];
 
-const gridEl = document.getElementById("hub-grid");
-const errorEl = document.getElementById("hub-error");
-const refreshBtn = document.getElementById("refresh-btn");
-const checklistEl = document.getElementById("onboarding-checklist");
-const checklistListEl = document.getElementById("checklist-list");
-const checklistProgressEl = document.getElementById("checklist-progress");
-const dismissChecklistBtn = document.getElementById("checklist-dismiss-btn");
-const restoreChecklistBtn = document.getElementById("checklist-restore-btn");
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
-const CHECKLIST_ITEMS = typeof sharedSetup.checklistItems === "function"
-  ? sharedSetup.checklistItems()
-  : [];
-
-function escapeHTML(v) {
-  if (typeof sharedSetup.escapeHTML === "function") return sharedSetup.escapeHTML(v);
-  return String(v);
+function esc(v) {
+  const shared = window.OceanoSetupShared;
+  if (shared && typeof shared.escapeHTML === "function") return shared.escapeHTML(v);
+  return String(v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function renderCards(status) {
-  gridEl.innerHTML = HUB_CARDS.map((card) => {
-    const s = card.compute(status);
-    const icon = card.iconHTML.trim().startsWith("<svg")
-      ? `<span class="hub-card-icon" aria-hidden="true">${card.iconHTML}</span>`
-      : `<span class="hub-card-icon" aria-hidden="true">${escapeHTML(card.iconHTML)}</span>`;
-    return `
-      <article class="hub-card">
-        ${icon}
-        <div class="hub-card-title">${escapeHTML(card.title)}</div>
-        <div class="hub-card-status ${escapeHTML(s.tone)}">${escapeHTML(s.text)}</div>
-        <div class="hub-card-actions">
-          <a class="hub-card-link" href="${escapeHTML(card.href)}">Open</a>
-        </div>
-      </article>
-    `;
-  }).join("");
+function renderCard(card, status) {
+  const chip = card.chip(status);
+  const iconHtml = card.icon();
+  const borderCls =
+    chip.cls === "warn" ? "border-warn" :
+    chip.cls === "error" ? "border-error" : "";
+  return `<a class="hub-card ${borderCls}" href="${esc(card.href)}">
+    <div class="hub-card-top">
+      <span class="hub-card-icon" aria-hidden="true">${iconHtml}</span>
+      <span class="hub-card-arrow" aria-hidden="true">→</span>
+    </div>
+    <h2 class="hub-card-title">${esc(card.title)}</h2>
+    <span class="status-chip ${esc(chip.cls)}"><span class="dot"></span>${esc(chip.text)}</span>
+    <p class="hub-card-detail">${esc(card.detail)}</p>
+  </a>`;
 }
+
+// ── Checklist ────────────────────────────────────────────────────────────────
+
+const shared = window.OceanoSetupShared || {};
+const ITEMS = typeof shared.checklistItems === "function" ? shared.checklistItems() : [];
 
 function renderChecklist(status) {
-  if (!CHECKLIST_ITEMS.length) {
-    checklistListEl.innerHTML = "<li class=\"checklist-item\">Shared checklist definition unavailable.</li>";
-    checklistProgressEl.textContent = "Checklist unavailable";
-    dismissChecklistBtn.hidden = true;
-    restoreChecklistBtn.hidden = true;
-    return;
-  }
+  const dismissed =
+    typeof shared.isChecklistDismissed === "function" && shared.isChecklistDismissed();
 
-  const dismissed = typeof sharedSetup.isChecklistDismissed === "function"
-    ? sharedSetup.isChecklistDismissed()
-    : false;
-  const skips = typeof sharedSetup.getChecklistSkips === "function"
-    ? sharedSetup.getChecklistSkips()
-    : {};
-  if (dismissed) {
-    checklistListEl.innerHTML = "";
-    checklistProgressEl.textContent = "Checklist hidden";
-    dismissChecklistBtn.hidden = true;
-    restoreChecklistBtn.hidden = false;
-    checklistEl.classList.add("is-dismissed");
-    return;
-  }
+  checklistSection.hidden = dismissed;
+  restoreRow.hidden = !dismissed;
+  if (dismissed) return;
 
-  dismissChecklistBtn.hidden = false;
-  restoreChecklistBtn.hidden = true;
-  checklistEl.classList.remove("is-dismissed");
+  const skips =
+    typeof shared.getChecklistSkips === "function" ? shared.getChecklistSkips() : {};
 
   let doneCount = 0;
-  checklistListEl.innerHTML = CHECKLIST_ITEMS.map((item) => {
+  checklistList.innerHTML = ITEMS.map((item) => {
     const done = item.isDone(status);
-    const skipped = !!skips[item.id];
-    if (done || skipped) doneCount += 1;
-    const stateClass = done ? "done" : "";
-    const chipClass = done ? "done" : skipped ? "skip" : "";
-    const chipText = done ? "Done" : skipped ? "Skip" : "Pending";
+    const skipped = !done && !!skips[item.id];
+    if (done || skipped) doneCount++;
+    const chipCls = done ? "done" : skipped ? "skip" : "";
+    const chipTxt = done ? "Done" : skipped ? "Skip" : "Pending";
     const skipBtn = item.skippable
-      ? `<button class="checklist-skip-btn" type="button" data-skip-id="${escapeHTML(item.id)}">${skipped ? "Undo skip" : "Skip"}</button>`
+      ? `<button class="btn-skip" data-skip-id="${esc(item.id)}">${skipped ? "Undo" : "Skip"}</button>`
       : "";
-    return `
-      <li class="checklist-item ${stateClass}">
-        <span class="checklist-item-label">
-          <span>${escapeHTML(item.label)}</span>
-          <span class="checklist-chip ${chipClass}">${chipText}</span>
-        </span>
-        <a class="hub-card-link" href="${escapeHTML(item.href || "/config.html")}">Open</a>
+    return `<li class="hub-cl-item ${done ? "done" : ""}">
+      ${esc(item.label)}
+      <span class="hub-cl-chip ${chipCls}">${chipTxt}</span>
+      <span class="hub-cl-actions">
+        <a class="btn-skip" href="${esc(item.href || "/config.html")}">Open</a>
         ${skipBtn}
-      </li>
-    `;
+      </span>
+    </li>`;
   }).join("");
 
-  checklistProgressEl.textContent = `${doneCount}/${CHECKLIST_ITEMS.length} steps marked done`;
-  checklistListEl.querySelectorAll("[data-skip-id]").forEach((btn) => {
+  progressEl.textContent = `${doneCount} / ${ITEMS.length} done`;
+
+  checklistList.querySelectorAll("[data-skip-id]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-skip-id");
-      const next = typeof sharedSetup.getChecklistSkips === "function"
-        ? sharedSetup.getChecklistSkips()
-        : {};
-      next[id] = !next[id];
-      if (!next[id]) delete next[id];
-      if (typeof sharedSetup.setChecklistSkips === "function") {
-        sharedSetup.setChecklistSkips(next);
-      }
-      renderChecklist(status);
+      const s = typeof shared.getChecklistSkips === "function"
+        ? shared.getChecklistSkips() : {};
+      if (s[id]) delete s[id]; else s[id] = true;
+      if (typeof shared.setChecklistSkips === "function") shared.setChecklistSkips(s);
+      renderChecklist(lastStatus);
     });
   });
 }
 
-async function loadSetupStatus() {
+// ── Fetch & render ───────────────────────────────────────────────────────────
+
+let lastStatus = null;
+
+async function loadStatus() {
   try {
     const res = await fetch("/api/setup-status", { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const status = await res.json();
-    errorEl.hidden = true;
-    errorEl.textContent = "";
-    renderCards(status);
-    renderChecklist(status);
+    lastStatus = await res.json();
+    errorBanner.hidden = true;
+    gridEl.innerHTML = HUB_CARDS.map((c) => renderCard(c, lastStatus)).join("");
+    renderChecklist(lastStatus);
   } catch (err) {
-    renderCards(null);
+    errorBanner.hidden = false;
+    errorBanner.textContent = `Could not load setup status: ${err.message}`;
+    gridEl.innerHTML = HUB_CARDS.map((c) => renderCard(c, null)).join("");
     renderChecklist(null);
-    errorEl.hidden = false;
-    errorEl.textContent = `Failed to load setup status: ${err.message}`;
   }
 }
 
-refreshBtn.addEventListener("click", loadSetupStatus);
-dismissChecklistBtn.addEventListener("click", () => {
-  if (typeof sharedSetup.setChecklistDismissed === "function") {
-    sharedSetup.setChecklistDismissed(true);
-  }
-  renderChecklist(null);
+// ── DOM refs ─────────────────────────────────────────────────────────────────
+
+const gridEl          = document.getElementById("hub-grid");
+const errorBanner     = document.getElementById("hub-error");
+const checklistSection= document.getElementById("onboarding-checklist");
+const checklistList   = document.getElementById("checklist-list");
+const progressEl      = document.getElementById("checklist-progress");
+const dismissBtn      = document.getElementById("checklist-dismiss-btn");
+const restoreRow      = document.getElementById("checklist-restore-row");
+const restoreBtn      = document.getElementById("checklist-restore-btn");
+const refreshBtn      = document.getElementById("refresh-btn");
+
+dismissBtn.addEventListener("click", () => {
+  if (typeof shared.setChecklistDismissed === "function") shared.setChecklistDismissed(true);
+  renderChecklist(lastStatus);
 });
-restoreChecklistBtn.addEventListener("click", () => {
-  if (typeof sharedSetup.setChecklistDismissed === "function") {
-    sharedSetup.setChecklistDismissed(false);
-  }
-  loadSetupStatus();
+
+restoreBtn.addEventListener("click", () => {
+  if (typeof shared.setChecklistDismissed === "function") shared.setChecklistDismissed(false);
+  renderChecklist(lastStatus);
 });
-renderCards(null);
+
+refreshBtn.addEventListener("click", loadStatus);
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+
+gridEl.innerHTML = HUB_CARDS.map((c) => renderCard(c, null)).join("");
 renderChecklist(null);
-loadSetupStatus();
-setInterval(loadSetupStatus, HUB_POLL_MS);
+loadStatus();
+setInterval(loadStatus, HUB_POLL_MS);
