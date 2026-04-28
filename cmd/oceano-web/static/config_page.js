@@ -4,6 +4,34 @@ const HUB_POLL_MS = 5000;
 const CHECKLIST_DISMISSED_KEY = "oceano.config.checklist.dismissed";
 const CHECKLIST_SKIPS_KEY = "oceano.config.checklist.skips";
 
+const HUB_ICONS = {
+  amplifier:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<rect x="3" y="7.5" width="18" height="11" rx="2.3"/>' +
+    '<circle cx="8" cy="13" r="1.8"/>' +
+    '<path d="M13 11h5M13 14h5"/>' +
+    "</svg>",
+  calibration:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M4 17V7M12 20V4M20 15V9"/>' +
+    '<circle cx="4" cy="10" r="2"/>' +
+    '<circle cx="12" cy="14" r="2"/>' +
+    '<circle cx="20" cy="12" r="2"/>' +
+    "</svg>",
+  stylus:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="9" cy="13" r="5.2"/>' +
+    '<circle cx="9" cy="13" r="1.5" fill="currentColor" stroke="none"/>' +
+    '<path d="M14.7 5.8l4 4-5.1 5.1"/>' +
+    '<path d="M18.7 9.8l.9 1.9"/>' +
+    "</svg>",
+  advanced:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M10.3 3.8a1 1 0 0 1 1.4-.2l.6.5a1 1 0 0 0 .9.2l.7-.2a1 1 0 0 1 1.2.8l.1.8a1 1 0 0 0 .6.8l.7.3a1 1 0 0 1 .5 1.3l-.3.7a1 1 0 0 0 .1.9l.5.6a1 1 0 0 1-.1 1.4l-.6.5a1 1 0 0 0-.3.9l.1.8a1 1 0 0 1-.9 1.1l-.8.1a1 1 0 0 0-.8.6l-.3.7a1 1 0 0 1-1.3.4l-.7-.3a1 1 0 0 0-.9.1l-.6.4a1 1 0 0 1-1.4-.2l-.4-.6a1 1 0 0 0-.8-.4h-.8a1 1 0 0 1-1-.9l-.1-.8a1 1 0 0 0-.6-.8l-.7-.3a1 1 0 0 1-.4-1.3l.3-.7a1 1 0 0 0-.1-.9l-.5-.6a1 1 0 0 1 .2-1.4l.6-.4a1 1 0 0 0 .4-.9l-.1-.8a1 1 0 0 1 .9-1.1l.8-.1a1 1 0 0 0 .8-.6l.3-.7z"/>' +
+    '<circle cx="12" cy="12" r="2.3"/>' +
+    "</svg>",
+};
+
 const HUB_CARDS = [
   {
     id: "physical",
@@ -21,7 +49,7 @@ const HUB_CARDS = [
     id: "amp",
     title: "Amplifier & IR",
     href: "/amplifier.html",
-    iconHTML: "🎛️",
+    iconHTML: HUB_ICONS.amplifier,
     compute(status) {
       if (!status) return { text: "Loading...", tone: "" };
       if (!status.amplifier_topology_complete) return { text: "Topology not configured", tone: "warn" };
@@ -34,7 +62,7 @@ const HUB_CARDS = [
     id: "calibration",
     title: "Recognition & calibration",
     href: "/recognition.html",
-    iconHTML: "📊",
+    iconHTML: HUB_ICONS.calibration,
     compute(status) {
       if (!status) return { text: "Loading...", tone: "" };
       if (status.calibration_physical_recommended && !status.calibration_physical_complete) {
@@ -48,7 +76,7 @@ const HUB_CARDS = [
     id: "stylus",
     title: "Stylus tracking",
     href: "/amplifier.html#stylus-section",
-    iconHTML: "💿",
+    iconHTML: HUB_ICONS.stylus,
     compute(status) {
       if (!status) return { text: "Loading...", tone: "" };
       if (!status.vinyl_topology_present) return { text: "No vinyl topology configured", tone: "" };
@@ -76,7 +104,7 @@ const HUB_CARDS = [
     id: "advanced",
     title: "Advanced",
     href: "/advanced.html",
-    iconHTML: "⚙️",
+    iconHTML: HUB_ICONS.advanced,
     compute(status) {
       if (!status) return { text: "Loading...", tone: "" };
       return { text: `Schema v${status.schema_version || 1} · Live setup status API`, tone: "" };
