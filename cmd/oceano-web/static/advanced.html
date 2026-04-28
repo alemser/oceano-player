@@ -24,6 +24,24 @@
       transition: background 0.15s;
     }
     .adv-page-back:hover { background: var(--hover); }
+    .adv-page-hub-link {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.78rem;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .adv-page-hub-link:hover {
+      border-color: var(--accent);
+      background: rgba(74,158,255,0.10);
+    }
     .adv-page-title { font-size: 1rem; font-weight: 600; color: var(--text); flex: 1; }
     .adv-page-body { max-width: 660px; margin: 0 auto; padding: 20px 20px 60px; }
     .adv-page-actions { margin-top: 28px; display: flex; gap: 10px; justify-content: flex-end; }
@@ -39,6 +57,7 @@
     Back
   </a>
   <span class="adv-page-title">Advanced Settings</span>
+  <a href="/config" class="adv-page-hub-link">Setup Hub</a>
 </div>
 
 <div class="adv-page-body">
