@@ -42,6 +42,13 @@ const (
 	// rollingWindow is the number of recent window-RMS values used to compute
 	// the rolling StdDev (variation) that drives the hybrid AND condition.
 	rollingWindow = 10
+
+	// minSafeRMSThreshold is the lowest adaptive RMS threshold we accept from
+	// persisted calibration. Lower values are typically produced when the
+	// silence learner was trained in an unrealistically quiet window and can
+	// cause persistent false Physical detection later (e.g. phono hum around
+	// 0.004-0.006 being treated as active media).
+	minSafeRMSThreshold = 0.006
 )
 
 // defaultNoiseFloor returns starting values used before the learner has
@@ -98,6 +105,10 @@ func loadNoiseFloor(path string) (NoiseFloor, bool) {
 	}
 	if nf.Thresholds().StdDev > maxSafeStdDevThreshold {
 		log.Printf("noise floor: stored stddev threshold %.4f > %.4f (file contaminated by transport noise or previous defaults) — resetting", nf.Thresholds().StdDev, maxSafeStdDevThreshold)
+		return defaultNoiseFloor(), false
+	}
+	if nf.Thresholds().RMS < minSafeRMSThreshold {
+		log.Printf("noise floor: stored rms threshold %.4f < %.4f (likely overfit to unrealistically quiet baseline) — resetting", nf.Thresholds().RMS, minSafeRMSThreshold)
 		return defaultNoiseFloor(), false
 	}
 	return nf, true
