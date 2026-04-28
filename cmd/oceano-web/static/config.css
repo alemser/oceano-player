@@ -1,0 +1,249 @@
+:root {
+  --bg: #0b0b0b;
+  --surface: #151515;
+  --surface-hover: #1b1b1b;
+  --border: #2a2a2a;
+  --text: #e8e8e8;
+  --text-dim: #9a9a9a;
+  --ok: #7edb9f;
+  --warn: #f0c060;
+  --danger: #ff8f8f;
+  --accent: #4a9eff;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.hub-page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 20px 36px;
+}
+
+.hub-header {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.hub-header h1 {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 650;
+}
+
+.hub-header p {
+  margin: 6px 0 0;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+}
+
+.hub-header-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn {
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--text);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--surface-hover);
+}
+
+.btn-primary {
+  border-color: #2b4f7a;
+  color: #b8d8ff;
+}
+
+.btn-ghost {
+  color: var(--text-dim);
+}
+
+.hub-error {
+  border: 1px solid #5c2323;
+  color: var(--danger);
+  background: rgba(92, 35, 35, 0.15);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+}
+
+.checklist {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.checklist-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.checklist-header h2 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.checklist-header p {
+  margin: 5px 0 0;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+
+.checklist-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.checklist-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 9px;
+}
+
+.checklist-item {
+  color: var(--text-dim);
+  font-size: 0.93rem;
+}
+
+.checklist-item.done {
+  color: var(--ok);
+}
+
+.checklist-item-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checklist-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.69rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+}
+
+.checklist-chip.done {
+  border-color: #2f5a3f;
+  color: var(--ok);
+}
+
+.checklist-chip.skip {
+  border-color: #5f4c1d;
+  color: var(--warn);
+}
+
+.checklist-skip-btn {
+  margin-left: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.checklist-skip-btn:hover {
+  color: var(--text);
+  border-color: #3a3a3a;
+}
+
+.hub-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.hub-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 190px;
+  gap: 11px;
+}
+
+.hub-card:hover {
+  border-color: #3a3a3a;
+  background: var(--surface-hover);
+}
+
+.hub-card-icon {
+  width: 30px;
+  height: 30px;
+  color: var(--text);
+}
+
+.hub-card-title {
+  font-size: 1rem;
+  font-weight: 620;
+}
+
+.hub-card-status {
+  min-height: 2.4em;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+}
+
+.hub-card-status.ok {
+  color: var(--ok);
+}
+
+.hub-card-status.warn {
+  color: var(--warn);
+}
+
+.hub-card-actions {
+  margin-top: auto;
+}
+
+.hub-card-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  border: 1px solid var(--accent);
+  color: #cde4ff;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 0.88rem;
+}
+
+.hub-card-link:hover {
+  background: rgba(74, 158, 255, 0.1);
+}

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Oceano - Configuration Hub</title>
+  <link rel="stylesheet" href="/config.css">
+</head>
+<body>
+  <main class="hub-page">
+    <header class="hub-header">
+      <div>
+        <h1>Configuration Hub</h1>
+        <p>Physical-first setup with live status from /api/setup-status</p>
+      </div>
+      <div class="hub-header-actions">
+        <button id="refresh-btn" class="btn btn-ghost" type="button">Refresh</button>
+        <a class="btn btn-primary" href="/index.html">Open Full Settings</a>
+      </div>
+    </header>
+
+    <section id="hub-error" class="hub-error" hidden></section>
+
+    <section class="checklist" id="onboarding-checklist">
+      <header class="checklist-header">
+        <div>
+          <h2>First-run checklist</h2>
+          <p id="checklist-progress">Loading setup status...</p>
+        </div>
+        <div class="checklist-actions">
+          <button id="checklist-dismiss-btn" class="btn btn-ghost" type="button">Dismiss</button>
+          <button id="checklist-restore-btn" class="btn btn-ghost" type="button" hidden>Show checklist</button>
+        </div>
+      </header>
+      <ol class="checklist-list" id="checklist-list"></ol>
+    </section>
+
+    <section class="hub-grid" id="hub-grid">
+      <!-- Filled by config_page.js -->
+    </section>
+  </main>
+
+  <script src="/icons.js"></script>
+  <script src="/config_page.js"></script>
+</body>
+</html>
