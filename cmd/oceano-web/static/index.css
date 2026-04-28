@@ -1315,39 +1315,67 @@
 
     /* Connected devices editor */
     .amp-device-row {
-      background: var(--bg); border: 1px solid var(--border);
-      border-radius: 6px; padding: 8px 10px;
-      margin-bottom: 6px;
+      background: #101010;
+      border: 1px solid #282828;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
     }
     .amp-device-topbar {
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
     }
     .amp-device-name {
-      flex: 1; min-width: 140px; background: transparent; border: none;
-      border-bottom: 1px solid var(--border); outline: none;
-      color: var(--text); font-size: 0.83rem; padding: 2px 4px;
+      flex: 1;
+      min-width: 220px;
+      background: #0a0a0a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      outline: none;
+      color: var(--text);
+      font-size: 0.94rem;
+      font-weight: 600;
+      padding: 10px 12px;
     }
-    .amp-device-name:focus { border-bottom-color: var(--accent); }
+    .amp-device-name:focus { border-color: var(--accent); }
     .amp-device-remote-toggle {
       display: inline-flex; align-items: center; gap: 5px;
       font-size: 0.78rem; color: var(--text-dim); cursor: pointer;
       white-space: nowrap; flex-shrink: 0;
     }
     .amp-device-inputs {
-      display: flex; flex-wrap: wrap; align-items: center;
-      gap: 6px 12px; padding-bottom: 8px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 8px;
+      padding-top: 4px;
+      padding-bottom: 10px;
       border-bottom: 1px solid var(--border);
       margin-bottom: 4px;
     }
     .amp-device-inputs-label {
+      grid-column: 1 / -1;
       font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em;
       text-transform: uppercase; color: var(--text-faint);
+      margin-bottom: 2px;
     }
     .amp-device-input-cb {
-      display: inline-flex; align-items: center; gap: 5px;
-      font-size: 0.8rem; color: var(--text-dim); cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 5px 9px;
+      border: 1px solid #2a2a2a;
+      border-radius: 999px;
+      background: #0c0c0c;
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
     }
+    .amp-device-input-cb:hover { border-color: #3a3a3a; color: var(--text); }
     .amp-device-input-cb input[type=checkbox] {
       width: auto; accent-color: var(--accent); cursor: pointer;
     }
