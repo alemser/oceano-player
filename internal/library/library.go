@@ -112,6 +112,30 @@ var migrations = []string{
 		collection_id INTEGER REFERENCES collection(id)
 	)`,
 	`CREATE INDEX IF NOT EXISTS boundary_events_occurred_at_idx ON boundary_events(occurred_at)`,
+	// R7: link boundary_events to post-recognition outcomes + early-boundary cohort flag.
+	`ALTER TABLE boundary_events ADD COLUMN followup_outcome TEXT`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_acrid TEXT`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_shazam_id TEXT`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_collection_id INTEGER`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_play_history_id INTEGER`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_new_recording INTEGER`,
+	`ALTER TABLE boundary_events ADD COLUMN early_boundary INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE boundary_events ADD COLUMN followup_recorded_at TEXT`,
+	// R8: per-track hint for stricter VU / duration-guard behaviour.
+	`ALTER TABLE collection ADD COLUMN boundary_sensitive INTEGER NOT NULL DEFAULT 0`,
+	// RMS percentile learning: histograms of stable silence vs stable music (per format).
+	`CREATE TABLE rms_learning (
+		format_key TEXT NOT NULL PRIMARY KEY,
+		updated_at TEXT NOT NULL,
+		bins INTEGER NOT NULL,
+		max_rms REAL NOT NULL,
+		silence_counts TEXT NOT NULL,
+		music_counts TEXT NOT NULL,
+		silence_total INTEGER NOT NULL DEFAULT 0,
+		music_total INTEGER NOT NULL DEFAULT 0,
+		derived_enter REAL,
+		derived_exit REAL
+	)`,
 }
 
 var currentSchemaVersion = len(migrations)
@@ -137,8 +161,9 @@ type CollectionEntry struct {
 	PlayCount     int
 	FirstPlayed   string
 	LastPlayed    string
-	UserConfirmed bool
-	DurationMs    int
+	UserConfirmed     bool
+	DurationMs        int
+	BoundarySensitive bool
 }
 
 var (
@@ -237,7 +262,7 @@ func (l *Library) lookupByEquivalentMetadata(title, artist string) (*CollectionE
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0)
+		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0)
 		FROM collection
 		WHERE title != '' AND artist != ''`)
 	if err != nil {
@@ -247,17 +272,18 @@ func (l *Library) lookupByEquivalentMetadata(title, artist string) (*CollectionE
 
 	for rows.Next() {
 		var e CollectionEntry
-		var confirmed int
+		var confirmed, boundarySens int
 		if err := rows.Scan(
 			&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist,
 			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 			&e.TrackNumber, &e.ArtworkPath,
 			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-			&e.DurationMs,
+			&e.DurationMs, &boundarySens,
 		); err != nil {
 			return nil, fmt.Errorf("library: equivalent metadata lookup scan: %w", err)
 		}
 		e.UserConfirmed = confirmed == 1
+		e.BoundarySensitive = boundarySens == 1
 		if canonicalTracksEquivalent(title, artist, e.Title, e.Artist) {
 			return &e, nil
 		}
@@ -344,19 +370,20 @@ func (l *Library) lookupByColumn(col, value string) (*CollectionEntry, error) {
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0)
+		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0)
 		FROM collection WHERE `+col+` = ?`, value)
 
 	var e CollectionEntry
-	var confirmed int
+	var confirmed, boundarySens int
 	err := row.Scan(
 		&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist,
 		&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 		&e.TrackNumber, &e.ArtworkPath,
 		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-		&e.DurationMs,
+		&e.DurationMs, &boundarySens,
 	)
 	e.UserConfirmed = confirmed == 1
+	e.BoundarySensitive = boundarySens == 1
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -421,18 +448,19 @@ func (l *Library) GetByID(id int64) (*CollectionEntry, error) {
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0)
+		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0)
 		FROM collection WHERE id = ?`, id)
 	var e CollectionEntry
-	var confirmed int
+	var confirmed, boundarySens int
 	err := row.Scan(
 		&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist,
 		&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 		&e.TrackNumber, &e.ArtworkPath,
 		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-		&e.DurationMs,
+		&e.DurationMs, &boundarySens,
 	)
 	e.UserConfirmed = confirmed == 1
+	e.BoundarySensitive = boundarySens == 1
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -514,7 +542,7 @@ func (l *Library) FindPhysicalMatch(title, artist string) (*CollectionEntry, err
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0)
+		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0)
 		FROM collection
 		WHERE title != '' AND artist != ''
 		  AND user_confirmed = 1
@@ -526,17 +554,18 @@ func (l *Library) FindPhysicalMatch(title, artist string) (*CollectionEntry, err
 
 	for rows.Next() {
 		var e CollectionEntry
-		var confirmed int
+		var confirmed, boundarySens int
 		if err := rows.Scan(
 			&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist,
 			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 			&e.TrackNumber, &e.ArtworkPath,
 			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-			&e.DurationMs,
+			&e.DurationMs, &boundarySens,
 		); err != nil {
 			return nil, fmt.Errorf("library: physical match scan: %w", err)
 		}
 		e.UserConfirmed = confirmed == 1
+		e.BoundarySensitive = boundarySens == 1
 		if canonicalTracksEquivalent(title, artist, e.Title, e.Artist) {
 			return &e, nil
 		}

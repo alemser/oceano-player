@@ -8,12 +8,16 @@
     :root {
       --bg: #121212;
       --surface: #1e1e1e;
-      --border: #333;
+      --surface-hover: #252525;
+      --border: #2e2e2e;
+      --border-hover: #444;
       --text: #eee;
-      --muted: #888;
+      --text-dim: #aaa;
+      --muted: #666;
       --accent: #6ab0ff;
       --ok: #5dcf8c;
       --warn: #e0a030;
+      --error: #e05555;
     }
     * { box-sizing: border-box; }
     body {
@@ -25,23 +29,26 @@
       font-size: 15px;
     }
     .banner {
-      background: #2a2210;
-      border-bottom: 1px solid #5a4520;
-      color: #f0d090;
-      padding: 10px 16px;
-      font-size: 0.85rem;
+      background: #1c1a10;
+      border-bottom: 1px solid #3a3010;
+      color: #c8b870;
+      padding: 9px 18px;
+      font-size: 0.82rem;
     }
     header {
       padding: 16px 20px;
       border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
     }
-    header h1 { margin: 0 0 4px; font-size: 1.15rem; font-weight: 600; }
-    header p { margin: 0; color: var(--muted); font-size: 0.82rem; }
+    header h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+    header p { margin: 0; color: var(--muted); font-size: 0.8rem; }
     nav.tabs {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      padding: 12px 16px;
+      padding: 10px 18px;
       border-bottom: 1px solid var(--border);
       background: var(--surface);
     }
@@ -49,101 +56,143 @@
       background: transparent;
       border: 1px solid var(--border);
       color: var(--muted);
-      padding: 8px 14px;
+      padding: 7px 13px;
       border-radius: 6px;
       cursor: pointer;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
+      transition: color 0.12s, border-color 0.12s;
     }
     nav.tabs button:hover { color: var(--text); border-color: #555; }
     nav.tabs button.active {
       color: var(--text);
       border-color: var(--accent);
-      background: rgba(106, 176, 255, 0.08);
+      background: rgba(106, 176, 255, 0.07);
     }
-    main { padding: 20px; max-width: 900px; margin: 0 auto; }
+    main { padding: 20px; max-width: 960px; margin: 0 auto; }
     .panel { display: none; }
     .panel.active { display: block; }
+
+    /* ── Hub cards ───────────────────────────────────────────────── */
     .hub-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 14px;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
     }
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 16px;
+      border-radius: 12px;
+      padding: 18px 18px 16px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      min-height: 160px;
+      gap: 8px;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+      position: relative;
+      text-align: left;
+      outline: none;
+      user-select: none;
+    }
+    .card:hover {
+      background: var(--surface-hover);
+      border-color: var(--border-hover);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    }
+    .card:focus-visible {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(106, 176, 255, 0.25);
+    }
+    .card.border-warn { border-color: rgba(224, 160, 48, 0.35); }
+    .card.border-error { border-color: rgba(224, 85, 85, 0.4); }
+
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
     }
     .card .icon {
-      font-size: 2rem;
-      line-height: 1;
-      opacity: 0.9;
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      color: var(--text);
-    }
-    .card .icon svg {
-      width: 2rem;
-      height: 2rem;
-      display: block;
+      width: 36px;
+      height: 36px;
+      color: var(--text-dim);
       flex-shrink: 0;
     }
-    .card h2 { margin: 0; font-size: 0.95rem; font-weight: 600; }
-    .card .status { font-size: 0.78rem; color: var(--muted); flex: 1; }
-    .card .status.ok { color: var(--ok); }
-    .card .status.warn { color: var(--warn); }
-    .card .btn-open {
-      align-self: flex-start;
-      background: var(--accent);
-      color: #111;
-      border: none;
-      padding: 8px 14px;
-      border-radius: 6px;
-      font-weight: 600;
-      font-size: 0.8rem;
-      cursor: pointer;
+    .card .icon svg { width: 100%; height: 100%; display: block; }
+    .card-arrow {
+      color: var(--muted);
+      font-size: 1.1rem;
+      line-height: 1;
+      transition: color 0.12s, transform 0.12s;
+      margin-top: 2px;
     }
-    .wiz-actions .btn-ghost {
-      background: transparent;
-      color: var(--accent);
-      border: 1px solid var(--accent);
-      padding: 8px 14px;
-      border-radius: 6px;
+    .card:hover .card-arrow { color: var(--accent); transform: translateX(2px); }
+    .card h2 {
+      margin: 0;
+      font-size: 0.92rem;
       font-weight: 600;
-      font-size: 0.8rem;
-      cursor: pointer;
-    }
-    .mock-row { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .mock-row label { font-size: 0.78rem; color: var(--muted); }
-    select.mock-state {
-      background: var(--surface);
       color: var(--text);
-      border: 1px solid var(--border);
-      padding: 6px 10px;
-      border-radius: 6px;
     }
+    .card-detail {
+      font-size: 0.75rem;
+      color: var(--muted);
+      flex: 1;
+      line-height: 1.5;
+    }
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.72rem;
+      font-weight: 500;
+      padding: 3px 8px;
+      border-radius: 99px;
+      border: 1px solid transparent;
+      width: fit-content;
+    }
+    .status-chip .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .status-chip.ok   { color: var(--ok);   border-color: rgba(93,207,140,0.3);  background: rgba(93,207,140,0.07);  }
+    .status-chip.ok   .dot { background: var(--ok); }
+    .status-chip.warn { color: var(--warn); border-color: rgba(224,160,48,0.3); background: rgba(224,160,48,0.07); }
+    .status-chip.warn .dot { background: var(--warn); }
+    .status-chip.error{ color: var(--error);border-color: rgba(224,85,85,0.3);  background: rgba(224,85,85,0.07);  }
+    .status-chip.error .dot { background: var(--error); }
+    .status-chip.neutral { color: var(--muted); border-color: rgba(102,102,102,0.3); background: transparent; }
+    .status-chip.neutral .dot { background: var(--muted); }
+
+    /* ── Checklist ───────────────────────────────────────────────── */
     .checklist {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 18px 20px;
     }
-    .checklist ol { margin: 0; padding-left: 1.2rem; }
-    .checklist li { margin: 10px 0; color: #ccc; }
+    .checklist ol { margin: 0; padding-left: 1.3rem; }
+    .checklist li { margin: 10px 0; color: #bbb; font-size: 0.88rem; }
     .checklist li.done { color: var(--ok); }
+    .checklist li.done::marker { color: var(--ok); }
+    .cl-optional-header {
+      list-style: none;
+      margin-left: -1.3rem;
+      margin-top: 14px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    /* ── Wizard ──────────────────────────────────────────────────── */
     .wizard-steps {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: wrap;
       margin-bottom: 20px;
     }
     .wizard-steps span {
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       padding: 4px 10px;
       border-radius: 99px;
       background: var(--surface);
@@ -153,397 +202,634 @@
     .wizard-steps span.on {
       border-color: var(--accent);
       color: var(--accent);
+      background: rgba(106,176,255,0.07);
     }
     .wiz-panel { display: none; }
     .wiz-panel.on { display: block; }
     .wiz-actions { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn-ghost {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid rgba(106,176,255,0.5);
+      padding: 8px 14px;
+      border-radius: 7px;
+      font-weight: 500;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .btn-ghost:hover { background: rgba(106,176,255,0.08); border-color: var(--accent); }
     .field { margin: 14px 0; }
-    .field label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 6px; }
+    .field label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; }
     input[type="text"], select {
       width: 100%;
       max-width: 360px;
       padding: 8px 10px;
-      border-radius: 6px;
+      border-radius: 7px;
       border: 1px solid var(--border);
-      background: #0d0d0d;
+      background: #0e0e0e;
       color: var(--text);
+      font-size: 0.85rem;
     }
-    .hint { font-size: 0.75rem; color: var(--muted); margin-top: 6px; max-width: 520px; }
-    .np-mock-dropdown {
-      margin-top: 12px;
-      padding: 14px 16px;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: rgba(18, 25, 44, 0.92);
-      max-width: 440px;
-    }
-    .np-mock-dropdown h3 {
-      margin: 0 0 10px;
-      font-size: 0.82rem;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--text-dim);
-    }
-    .np-mock-inputs { display: flex; gap: 10px; flex-wrap: wrap; }
-    .np-mock-input-btn {
-      padding: 10px 16px;
-      border-radius: 12px;
-      border: 1px solid rgba(74, 158, 255, 0.45);
-      background: rgba(26, 50, 90, 0.4);
-      color: var(--accent);
-      font-size: 0.76rem;
-      font-weight: 500;
-    }
-    .np-mock-input-btn.active {
-      border-color: rgba(74, 158, 255, 0.95);
-      box-shadow: 0 0 0 1px rgba(74, 158, 255, 0.3);
-    }
+    .hint { font-size: 0.75rem; color: var(--muted); margin-top: 6px; max-width: 540px; line-height: 1.55; }
     .callout {
-      background: rgba(106, 176, 255, 0.08);
-      border: 1px solid rgba(106, 176, 255, 0.35);
+      background: rgba(106,176,255,0.07);
+      border: 1px solid rgba(106,176,255,0.28);
       border-radius: 8px;
-      padding: 12px 14px;
-      font-size: 0.82rem;
-      color: #c8d8e8;
+      padding: 11px 14px;
+      font-size: 0.8rem;
+      color: #b8cce0;
       margin-bottom: 14px;
       max-width: 560px;
     }
+
+    /* ── Now playing mock ────────────────────────────────────────── */
+    .np-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+    }
+    .np-pill-amp  { font-size: 0.74rem; font-weight: 500; color: var(--text-dim); }
+    .np-pill-sep  { opacity: 0.35; }
+    .np-pill-input { font-size: 0.74rem; color: #9aacd5; }
+    .np-mock-dropdown {
+      margin-top: 12px;
+      padding: 14px 16px;
+      border: 1px solid rgba(106,176,255,0.3);
+      border-radius: 12px;
+      background: rgba(14,22,42,0.95);
+      max-width: 340px;
+    }
+    .np-mock-dropdown h3 {
+      margin: 0 0 10px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .np-mock-inputs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .np-input-btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(106,176,255,0.3);
+      background: rgba(26,50,90,0.3);
+      color: var(--accent);
+      font-size: 0.74rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .np-input-btn.active {
+      border-color: var(--accent);
+      background: rgba(26,50,90,0.55);
+      box-shadow: 0 0 0 1px rgba(106,176,255,0.25);
+    }
+
+    /* ── Misc ────────────────────────────────────────────────────── */
+    .mock-row {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .mock-row label { font-size: 0.75rem; color: var(--muted); }
+    select.mock-state {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+    }
+    .returning-list { margin: 12px 0; padding-left: 1.2rem; color: #bbb; font-size: 0.85rem; }
+    .returning-list li { margin: 8px 0; }
   </style>
 </head>
 <body>
   <div class="banner">
-    <strong>Disposable prototype</strong> — static HTML only. No backend, no <code>oceano-web</code>. Safe to delete the <code>docs/prototypes/</code> folder when the real UI ships.
+    <strong>Disposable prototype</strong> — static HTML only. No backend. Safe to delete <code>docs/prototypes/</code> when the real UI ships.
   </div>
   <header>
-    <h1>Configuration — UX mock</h1>
-    <p>Hub cards, first-run checklist, amplifier wizard flow (Broadlink gate + IR). For design review only.</p>
+    <h1>Configuration UX — mock</h1>
+    <p>Hub cards · First-run checklist · Amplifier wizard · Now playing line</p>
   </header>
   <nav class="tabs" aria-label="Prototype sections">
     <button type="button" class="active" data-panel="hub">Hub</button>
     <button type="button" data-panel="checklist">First-run checklist</button>
     <button type="button" data-panel="wizard">Amplifier wizard</button>
-    <button type="button" data-panel="calibration">Calibration</button>
+    <button type="button" data-panel="calibration">Calibration scope</button>
     <button type="button" data-panel="nowplaying">Now playing line</button>
     <button type="button" data-panel="returning">Change amplifier</button>
   </nav>
   <main>
+
+    <!-- ── Hub ──────────────────────────────────────────────────── -->
     <section id="panel-hub" class="panel active" aria-labelledby="hub-title">
-      <h1 id="hub-title" style="font-size:1rem;margin:0 0 14px">Hub</h1>
-      <div class="mock-row">
-        <label for="hub-mock">Mock install state</label>
-        <select id="hub-mock" class="mock-state" aria-label="Simulate hub card statuses">
+      <h2 id="hub-title" style="font-size:0.95rem;margin:0 0 10px;font-weight:600">Configuration hub — <code>/config</code> (full-page route)</h2>
+      <div class="callout">
+        <strong>Hybrid model:</strong> first run shows checklist + wizard CTA. After setup is complete, all five areas are directly reachable. A persistent <strong>"Re-run setup wizard"</strong> link is always visible for major rewiring.
+      </div>
+      <div class="mock-row" style="margin-top:0;margin-bottom:16px">
+        <label for="hub-mock">Simulate install state</label>
+        <select id="hub-mock" class="mock-state">
           <option value="fresh">Fresh install</option>
           <option value="partial">Partial setup</option>
           <option value="healthy">Healthy</option>
+          <option value="down">Service offline</option>
         </select>
       </div>
-      <div class="hub-grid" style="margin-top:18px" id="hub-cards"></div>
-    </section>
-
-    <section id="panel-checklist" class="panel" aria-labelledby="cl-title">
-      <h1 id="cl-title" style="font-size:1rem;margin:0 0 14px">First-run checklist</h1>
-      <div class="checklist">
-        <p class="hint" style="margin-top:0">Checklist completion syncs with the <strong>Hub → Mock install state</strong> selector (simulates <code>GET /api/setup-status</code>).</p>
-        <ol>
-          <li id="chk-1">Run <code>sudo oceano-setup</code> on the Pi (DAC, capture, AirPlay/BT basics)</li>
-          <li id="chk-2">Choose capture device (REC OUT → USB interface)</li>
-          <li id="chk-3">Add ACRCloud credentials (recognition)</li>
-          <li class="muted" style="list-style:none;margin-left:-1rem;margin-top:12px;color:var(--muted);font-size:0.8rem">Optional</li>
-          <li id="chk-4">Optional: amplifier <strong>IR</strong> (Broadlink → IR learn) — or skip IR and still map <strong>inputs &amp; devices</strong> for calibration / UI</li>
-          <li id="chk-5">Run calibration for <strong>physical media</strong> inputs only</li>
-          <li id="chk-6">Optional (vinyl path): <strong>Stylus tracking</strong> — set profile &amp; rated life on <code>amplifier.html</code>; hours accrue in Listening Metrics when playback is <strong>Vinyl + Physical</strong></li>
-        </ol>
-        <p class="hint">Streaming (AirPlay name, BT) stays collapsible or a single short row below physical steps. Row 6 appears when <code>vinyl_topology_present</code> / <code>stylus_tracking_recommended</code> (see plan → <code>GET /api/setup-status</code>).</p>
+      <div class="hub-grid" id="hub-cards"></div>
+      <div class="mock-row" style="margin-top:18px">
+        <button type="button" class="btn-ghost" onclick="document.querySelector('[data-panel=wizard]').click()">Re-run setup wizard</button>
+        <span class="hint">Available even when everything is configured (new amplifier, rewiring, topology changes).</span>
       </div>
     </section>
 
+    <!-- ── Checklist ─────────────────────────────────────────────── -->
+    <section id="panel-checklist" class="panel" aria-labelledby="cl-title">
+      <h2 id="cl-title" style="font-size:0.95rem;margin:0 0 12px;font-weight:600">First-run checklist</h2>
+      <div class="checklist">
+        <p class="hint" style="margin:0 0 14px">Row states sync with the <strong>Hub → Simulate install state</strong> selector (simulates <code>GET /api/setup-status</code>). "Skip" is implicit (no state written); "Dismiss" stores a <code>localStorage</code> flag per row for explicit opt-outs (e.g. stylus for CD-only users).</p>
+        <ol>
+          <li id="chk-1">Run <code>sudo oceano-setup</code> on the Pi — DAC, capture card, AirPlay / BT basics</li>
+          <li id="chk-2">Choose <strong>capture device</strong> — REC OUT → USB interface</li>
+          <li id="chk-3">Add <strong>ACRCloud credentials</strong> — recognition provider</li>
+          <li class="cl-optional-header">Optional</li>
+          <li id="chk-4">Set up <strong>amplifier</strong> — identity + inputs + Broadlink IR (or inputs-only, no IR)</li>
+          <li id="chk-5">Run <strong>calibration</strong> for physical media inputs only (OFF/ON noise floor)</li>
+          <li id="chk-6">Track <strong>stylus hours</strong> — shown when <code>vinyl_topology_present</code> is true; dismiss permanently if CD-only</li>
+        </ol>
+        <p class="hint" style="margin-top:14px">Streaming (AirPlay name, BT) is a compact optional row after step 3.</p>
+      </div>
+    </section>
+
+    <!-- ── Wizard ────────────────────────────────────────────────── -->
     <section id="panel-wizard" class="panel" aria-labelledby="wz-title">
-      <h1 id="wz-title" style="font-size:1rem;margin:0 0 14px">Amplifier wizard (linear)</h1>
+      <h2 id="wz-title" style="font-size:0.95rem;margin:0 0 12px;font-weight:600">Amplifier wizard</h2>
       <div class="wizard-steps" id="wiz-steps"></div>
+
       <div id="wiz-1" class="wiz-panel on">
-        <p>Do you want IR control of your amplifier?</p>
-        <p class="hint">If you choose <strong>No</strong>, you can still name inputs and attach turntable / CD / streamer so calibration scope, recognition context, and labels stay correct — without Broadlink or IR codes.</p>
+        <p style="margin:0 0 8px">Do you want <strong>IR control</strong> of your amplifier?</p>
+        <p class="hint">If you choose <strong>No</strong>, you can still name inputs and attach turntable / CD / streamer so calibration scope, recognition context, and Now Playing labels stay correct — without Broadlink or IR codes.</p>
         <div class="wiz-actions">
-          <button type="button" class="btn-ghost" onclick="wizSetIR(true)">Yes, continue</button>
+          <button type="button" class="btn-ghost" onclick="wizSetIR(true)">Yes — IR control</button>
           <button type="button" class="btn-ghost" onclick="wizSetIR(false)">No — inputs &amp; devices only</button>
         </div>
       </div>
+
       <div id="wiz-2" class="wiz-panel">
-        <p id="wiz-2-noir-note" class="callout" style="display:none">
-          <strong>No IR path:</strong> define maker/model or profile so input IDs and labels match your amp. Broadlink and IR learning are skipped; next step is only <strong>connected devices &amp; roles</strong>.
-        </p>
-        <div class="field">
-          <label>Maker / model</label>
-          <input type="text" placeholder="e.g. Magnat MR 780" readonly style="opacity:0.85">
+        <div id="wiz-2-noir-note" class="callout" style="display:none">
+          <strong>No IR path:</strong> define maker / model or pick a built-in profile so input IDs and labels match your amp. Broadlink and IR learning are skipped. Next: connected devices and roles.
         </div>
         <div class="field">
-          <label>Or pick built-in profile</label>
-          <select disabled style="opacity:0.85">
+          <label>Maker / model (free text)</label>
+          <input type="text" placeholder="e.g. Marantz PM7000N" readonly style="opacity:0.75">
+        </div>
+        <div class="field">
+          <label>Or pick a built-in profile</label>
+          <select disabled style="opacity:0.75">
             <option>— Choose —</option>
-            <option>Magnat MR 780 (built-in)</option>
+            <option>Magnat MR 780</option>
           </select>
+          <p class="hint">Profiles pre-fill inputs, warm-up, standby, and USB-reset timings. Inputs are editable in the next step.</p>
         </div>
         <div class="wiz-actions">
           <button type="button" class="btn-ghost" onclick="wizGo(1)">Back</button>
           <button type="button" class="btn-ghost" onclick="wizFromIdentityNext()">Next</button>
         </div>
       </div>
+
       <div id="wiz-3" class="wiz-panel">
-        <p><strong>Broadlink pairing</strong> (required before IR commands)</p>
-        <p class="hint">Prototype: separate <code>pair.html</code> wizard is OK. This step shows “Complete pairing → Continue” and blocks IR until token/host exist.</p>
+        <p style="margin:0 0 8px"><strong>Broadlink pairing</strong> — required before IR commands</p>
+        <p class="hint">The RM4 Mini must be reachable and paired (host + token / device ID persisted) before any IR learning can begin. The <strong>Next</strong> button below is disabled until pairing succeeds. You can use the existing <code>pair.html</code> wizard — a separate pairing flow is fine; this step gates the order.</p>
+        <div class="callout" style="margin-top:12px"><strong>Draft persistence:</strong> if you close the browser here and return, steps 1–2 are restored from <code>localStorage</code> so you do not re-enter identity and IR intent. IR-learned codes are only written on final Save.</div>
         <div class="wiz-actions">
-          <button type="button" class="btn-ghost" onclick="alert('Would open pairing wizard')">Open pairing wizard</button>
+          <button type="button" class="btn-ghost" onclick="alert('Prototype: would open pair.html pairing wizard')">Open pairing wizard</button>
           <button type="button" class="btn-ghost" onclick="wizGo(2)">Back</button>
-          <button type="button" class="btn-ghost" onclick="wizGo(4)">Paired — next</button>
+          <button type="button" class="btn-ghost" onclick="wizGo(4)">Paired — next ›</button>
         </div>
       </div>
+
       <div id="wiz-4" class="wiz-panel">
-        <p>Learn IR commands (power, volume, input, …)</p>
-        <p class="hint">Each row: Learn / ✓. Blocked until step 3 satisfied.</p>
+        <p style="margin:0 0 8px">Learn <strong>IR commands</strong></p>
+        <p class="hint">Each row: Learn / ✓. Blocked until Broadlink pairing (step 3) is satisfied. Skippable rows labelled; power commands are not skippable.</p>
         <div class="wiz-actions">
           <button type="button" class="btn-ghost" onclick="wizGo(3)">Back</button>
           <button type="button" class="btn-ghost" onclick="wizGo(5)">Next</button>
         </div>
       </div>
+
       <div id="wiz-5" class="wiz-panel">
-        <p>Connected devices — name, input(s), <strong>role</strong>: physical media / streaming / other; for <strong>physical media</strong>, <strong>physical_format</strong>: vinyl / CD / tape / mixed / unspecified.</p>
-        <p class="hint">Phono + “turntable?” → set <code>physical_format: vinyl</code> → unlocks optional <strong>stylus</strong> step (needle hours — shipped feature). Same screen drives calibration wizard inputs and labels.</p>
+        <p style="margin:0 0 8px"><strong>Connected devices &amp; roles</strong></p>
+        <p class="hint">For each device: name, amplifier input(s), and <strong>role</strong> — Physical media / Streaming / Other. For physical media rows, set <strong>physical_format</strong>: Vinyl · CD · Tape · Mixed · Unspecified. When input is Phono and format is still unspecified, a single follow-up ("Turntable / vinyl?") sets vinyl without clutter. This drives calibration scope, stylus prompts, and Now Playing labels.</p>
         <div class="wiz-actions">
           <button type="button" class="btn-ghost" onclick="wizGo(4)">Back</button>
           <button type="button" class="btn-ghost" onclick="wizGo(7)">Next</button>
         </div>
       </div>
+
       <div id="wiz-6" class="wiz-panel">
         <div class="callout">
-          <strong>IR disabled.</strong> Broadlink pairing and IR code learning were skipped. Configure <strong>connected devices</strong> (name, amplifier input(s), <strong>role</strong>, and <strong>physical_format</strong> for vinyl/CD) so calibration scope, stylus prompts, and labels stay correct — no Broadlink required.
+          <strong>IR disabled.</strong> Broadlink pairing and IR learning were skipped. Map your connected devices (name, amplifier input(s), role, physical_format) so calibration scope, stylus prompts, and labels remain correct — no Broadlink required.
         </div>
-        <p>Mock: table of devices → inputs → role (implementation would match <code>connected_devices</code> in config).</p>
+        <p class="hint">Implementation: same <code>connected_devices</code> config shape as the IR path; identical API.</p>
         <div class="wiz-actions">
           <button type="button" class="btn-ghost" onclick="wizGo(2)">Back</button>
           <button type="button" class="btn-ghost" onclick="wizGo(7)">Next</button>
         </div>
       </div>
+
       <div id="wiz-7" class="wiz-panel">
-        <p><strong>Optional — Stylus (vinyl path)</strong></p>
-        <p class="hint">Shown when <code>physical_format === vinyl</code> (plan step 7). User picks profile + rated life on <code>amplifier.html</code> or via Listening Metrics; hours accrue on <strong>Vinyl + Physical</strong> playback.</p>
-        <p class="hint">Product rule: CTA stays available when <code>vinyl_topology_present</code> even if <code>amplifier.enabled === false</code>.</p>
+        <p style="margin:0 0 8px"><strong>Optional — Stylus tracking</strong></p>
+        <p class="hint">Shown when <code>physical_format === vinyl</code> (confirmed turntable on Phono or explicit). User picks cartridge profile + rated hours in the existing <code>amplifier.html</code> stylus block or Listening Metrics. Hours accrue on <strong>Vinyl + Physical</strong> playback sessions. This CTA is available even when <code>amplifier.enabled === false</code> — vinyl listeners reach it without enabling IR.</p>
         <div class="wiz-actions">
           <button type="button" class="btn-ghost" onclick="wizStylusBack()">Back</button>
-          <button type="button" class="btn-ghost" onclick="alert('Prototype: open amplifier.html#stylus (or history metrics)')">Open stylus setup</button>
-          <button type="button" class="btn-ghost" onclick="alert('Prototype: Save & restart services')">Finish</button>
+          <button type="button" class="btn-ghost" onclick="alert('Prototype: open amplifier.html#stylus or history metrics')">Open stylus setup</button>
+          <button type="button" class="btn-ghost" onclick="alert('Prototype: Save & restart services')">Finish &amp; save</button>
         </div>
       </div>
     </section>
 
+    <!-- ── Calibration scope ──────────────────────────────────────── -->
     <section id="panel-calibration" class="panel" aria-labelledby="cal-title">
-      <h1 id="cal-title" style="font-size:1rem;margin:0 0 14px">Calibration wizard (mock)</h1>
+      <h2 id="cal-title" style="font-size:0.95rem;margin:0 0 12px;font-weight:600">Calibration scope (Phase 4)</h2>
       <div class="callout">
-        Only inputs tied to <strong>connected_devices[].role = physical_media</strong> appear here. USB/streaming-only paths are hidden unless the user opts in.
+        Current implementation supports <strong>connected_devices[].is_turntable</strong> for explicit vinyl mapping (with phono/vinyl name fallback). Phase 4 extends this with <code>role</code> + <code>physical_format</code>, but the turntable path already solves AUX1-style setups.
       </div>
-      <ul style="color:#ccc;margin:0;padding-left:1.2rem">
-        <li>Phono — noise floor + optional vinyl gap</li>
-        <li>CD — noise floor</li>
+      <div class="callout" style="margin-top:10px">
+        <strong>Current UI location:</strong> auto-tuning from playback results and RMS percentile learning are configured in <code>recognition.html</code>, with advanced knobs collapsed. <code>advanced.html</code> stays focused on sockets/paths/library maintenance.
+      </div>
+      <ul style="color:#bbb;margin:0;padding-left:1.2rem;font-size:0.85rem;line-height:1.8">
+        <li>Calibratable inputs = union of input IDs on <code>physical_media</code> devices</li>
+        <li>Vinyl gap sub-step only when <code>physical_format === vinyl</code></li>
+        <li>Streaming / Other inputs hidden from calibration list by default (manual override available)</li>
+        <li>Migration: missing <code>role</code> → <code>physical_media</code> (safe for existing configs); new devices via wizard must select role explicitly</li>
+        <li>CD calibration note: Off/On RMS differential is often too small on CD transports — copy should steer toward conservative <code>vu_silence_threshold</code> and the RMS histogram path instead of insisting on a wizard profile</li>
+        <li>RMS snapshot in UI is user-facing: shows <strong>CD</strong> and <strong>Vinyl</strong>; internal <code>Physical</code> learning remains background-only</li>
       </ul>
-      <p class="hint">Spec: <code>docs/plans/configuration-onboarding-improvement-plan.md</code> → Device roles + Phase 4.</p>
     </section>
 
+    <!-- ── Now playing line ───────────────────────────────────────── -->
     <section id="panel-nowplaying" class="panel" aria-labelledby="np-title">
-      <h1 id="np-title" style="font-size:1rem;margin:0 0 14px">Now playing — amplifier line (mock)</h1>
-      <p class="hint">Kiosk + mobile <strong>parity</strong>: same read-only line everywhere.</p>
-      <div style="margin-top:16px;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-radius:26px;display:inline-flex;align-items:center;gap:10px;max-width:100%">
-        <span style="font-size:0.76rem;font-weight:500;letter-spacing:0.04em;color:var(--text-dim)">Magnat MR 780</span>
-        <span style="opacity:0.45">·</span>
-        <span style="font-size:0.76rem;color:#9aacd5">Rega Planar</span>
+      <h2 id="np-title" style="font-size:0.95rem;margin:0 0 12px;font-weight:600">Now playing — amplifier line (Phase 6)</h2>
+      <p class="hint" style="margin:0 0 14px"><strong>Kiosk + mobile parity:</strong> the same read-only line renders on both HDMI kiosk (non-touch) and phone (coarse pointer). Touch-only affordance (input picker) activates only on coarse pointer / tap.</p>
+      <div class="np-pill" role="presentation">
+        <span class="np-pill-amp">Magnat MR 780</span>
+        <span class="np-pill-sep">·</span>
+        <span class="np-pill-input">Rega Planar</span>
       </div>
-      <p class="hint" style="margin-top:10px">When Phono is tied to one connected device, the chip matches the remote <strong>input dropdown</strong>: device name only (no redundant “Phono”). Multi-input devices still use <code>Device — logical input</code>.</p>
+      <p class="hint" style="margin-top:10px">When Phono is mapped to a single connected device, the chip shows <strong>device name only</strong> (no redundant "Phono"). Multi-input devices use <em>Device · logical input</em>. Same labelling rules as the remote input dropdown.</p>
       <div class="mock-row" style="margin-top:14px">
-        <button type="button" class="btn-ghost" onclick="npToggleTouchDemo()">Simulate tap (touch) — input picker</button>
+        <button type="button" class="btn-ghost" onclick="npToggleTouch()">Simulate tap — touch input picker</button>
       </div>
-      <div id="np-touch-dropdown" class="np-mock-dropdown" style="display:none">
-        <h3>Inputs</h3>
-        <p class="hint" style="margin-top:0">Coarse pointer / phone: tap outside or pick an input. Kiosk read-only line stays; this sheet is touch-only in product.</p>
-        <div class="np-mock-inputs" aria-hidden="true">
-          <span class="np-mock-input-btn active">Rega Planar</span>
-          <span class="np-mock-input-btn">CD</span>
-          <span class="np-mock-input-btn">USB Audio</span>
+      <div id="np-touch-dropdown" class="np-mock-dropdown" style="display:none;margin-top:12px">
+        <h3>Switch input</h3>
+        <p class="hint" style="margin:0 0 10px">Touch only (coarse pointer / phone). Kiosk always shows read-only line; this sheet never appears under mouse at 2–3 m.</p>
+        <div class="np-mock-inputs">
+          <button class="np-input-btn active">Rega Planar</button>
+          <button class="np-input-btn">CD</button>
+          <button class="np-input-btn">USB Audio</button>
         </div>
       </div>
-      <p class="hint" style="margin-top:14px"><strong>Touch only:</strong> tap the pill → compact picker (mocked above). Non-touch kiosk: line stays read-only.</p>
-      <p class="hint" style="margin-top:10px"><strong>Roadmap polish:</strong> optional read-only <strong>stylus</strong> chip (e.g. 12h / 500h) when vinyl + profile configured — see onboarding plan → Stylus section.</p>
+      <p class="hint" style="margin-top:16px"><strong>Offline state:</strong> when Broadlink is unreachable, the input picker is hidden — the pill remains read-only, no error chrome. Graceful degradation.</p>
+      <p class="hint" style="margin-top:8px"><strong>Roadmap:</strong> optional read-only stylus chip (e.g. 12 h / 500 h rated) when vinyl topology + profile are configured — see plan → Stylus section.</p>
     </section>
 
+    <!-- ── Returning user ─────────────────────────────────────────── -->
     <section id="panel-returning" class="panel" aria-labelledby="ret-title">
-      <h1 id="ret-title" style="font-size:1rem;margin:0 0 14px">Returning user — new amplifier</h1>
-      <div class="checklist">
-        <p style="margin-top:0">Primary CTA: <strong>Change amplifier / re-run setup</strong> (opens same wizard).</p>
-        <ul style="margin:12px 0;padding-left:1.1rem;color:#ccc">
-          <li>Broadlink: often still valid → show “Already paired — continue”.</li>
-          <li>IR codes: usually re-learn for a new amp.</li>
-          <li>Calibration keys use input IDs → warn if profile changed IDs (“re-run calibration for Phono”).</li>
-        </ul>
-        <button type="button" class="btn-ghost" style="margin-top:8px" onclick="document.querySelector('[data-panel=wizard]').click()">Go to wizard mock</button>
+      <h2 id="ret-title" style="font-size:0.95rem;margin:0 0 12px;font-weight:600">Returning user — new amplifier / rewiring</h2>
+      <div class="callout">
+        Primary CTA: <strong>Change amplifier / re-run setup</strong> (opens the same wizard). Entry point is always visible on the hub regardless of setup status.
+      </div>
+      <ul class="returning-list">
+        <li><strong>Broadlink:</strong> often still valid when swapping amps → "Already paired — continue" in step 3.</li>
+        <li><strong>IR codes:</strong> almost always re-learn when the amp model changes.</li>
+        <li><strong>Calibration profiles:</strong> keyed by amplifier input ID. If the new amp or profile changes IDs, surface a warning: "Phono was input 20, now 10 — re-run calibration for Phono." Old profiles for removed IDs can be cleared or kept.</li>
+        <li><strong>Connected devices + roles:</strong> re-attach turntable / CD player to new input IDs in the wizard — keeps calibration filter and stylus accumulation accurate.</li>
+      </ul>
+      <div class="wiz-actions" style="margin-top:14px">
+        <button type="button" class="btn-ghost" onclick="document.querySelector('[data-panel=wizard]').click()">Go to wizard mock →</button>
       </div>
     </section>
-  </main>
-  <script>
-    /**
-     * Physical media hub icon — same markup as SOURCE_ICONS.Vinyl in
-     * cmd/oceano-web/static/icons.js (stroke/fill use currentColor).
-     */
-    const ICON_PHYSICAL_MEDIA =
-      '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">' +
-      '<g class="vinyl-disc">' +
-      '<circle cx="16" cy="16" r="13" stroke="currentColor" stroke-width="1.5"/>' +
-      '<circle cx="16" cy="16" r="9.5" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>' +
-      '<circle cx="16" cy="16" r="6" stroke="currentColor" stroke-width="0.8" opacity="0.35"/>' +
-      '<circle cx="16" cy="16" r="2.5" fill="currentColor" opacity="0.6"/>' +
-      '<path d="M16 3 A13 13 0 0 1 24.2 5.8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity="0.55"/>' +
-      '</g>' +
-      '<path d="M23 6 L28 11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>' +
-      '<path d="M28 11 L22.3 16.7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>' +
-      '<circle cx="22.1" cy="16.9" r="1.1" fill="currentColor" opacity="0.95"/>' +
-      '</svg>';
 
-    const hubPresets = {
+  </main>
+
+  <script>
+    /* ── SVG icon library (32×32, stroke-based, currentColor) ──────
+       All icons follow the same vocabulary as icons.js in the product.
+       Physical media: Vinyl source icon (disc + tonearm).
+       Streaming: AirPlay triangle + signal arcs.
+       Amplifier: speaker enclosure + IR wave lines.
+       Display: monitor frame + waveform.
+       Advanced: gear cog.
+    ──────────────────────────────────────────────────────────────── */
+    function svg(body) {
+      return '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+    }
+
+    const ICON_PHYSICAL = svg(
+      /* vinyl disc */
+      '<circle cx="16" cy="16" r="13" stroke-width="1.5"/>' +
+      '<circle cx="16" cy="16" r="9.5" stroke-width="0.8" opacity="0.45"/>' +
+      '<circle cx="16" cy="16" r="6"   stroke-width="0.8" opacity="0.3"/>' +
+      '<circle cx="16" cy="16" r="2.5" fill="currentColor" stroke="none" opacity="0.55"/>' +
+      /* tonearm */
+      '<path d="M23 6 L28 11" stroke-width="1.6" opacity="0.9"/>' +
+      '<path d="M28 11 L22.3 16.7" stroke-width="1.6" opacity="0.9"/>' +
+      '<circle cx="22.1" cy="16.9" r="1.1" fill="currentColor" stroke="none" opacity="0.95"/>'
+    );
+
+    const ICON_STREAMING = svg(
+      /* AirPlay triangle */
+      '<path d="M16 24 L10 30 L22 30 Z" fill="currentColor" stroke="none" opacity="0.8"/>' +
+      /* signal arcs */
+      '<path d="M11 20 Q13.5 16 16 20 Q18.5 16 21 20" stroke-width="1.7" opacity="0.75"/>' +
+      '<path d="M7 14  Q11.5 7  16 14 Q20.5 7  25 14"  stroke-width="1.4" opacity="0.4"/>'
+    );
+
+    const ICON_AMPLIFIER = svg(
+      /* speaker enclosure */
+      '<rect x="4" y="10" width="15" height="12" rx="2.5" stroke-width="1.5"/>' +
+      /* cone rings */
+      '<circle cx="11.5" cy="16" r="4" stroke-width="1.1" opacity="0.5"/>' +
+      '<circle cx="11.5" cy="16" r="1.8" fill="currentColor" stroke="none" opacity="0.45"/>' +
+      /* IR waves */
+      '<path d="M22 13 Q25.5 16 22 19" stroke-width="1.6" opacity="0.85"/>' +
+      '<path d="M25 10 Q30 16 25 22" stroke-width="1.4" opacity="0.45"/>'
+    );
+
+    const ICON_DISPLAY = svg(
+      /* monitor */
+      '<rect x="3" y="6" width="26" height="17" rx="2.5" stroke-width="1.5"/>' +
+      /* stand */
+      '<path d="M12 23 L10 28 M20 23 L22 28 M10 28 L22 28" stroke-width="1.4" opacity="0.6"/>' +
+      /* waveform */
+      '<path d="M8 14.5 Q9.5 11 11 14.5 Q12.5 18 14 14.5 Q15.5 11 17 14.5 Q18.5 18 20 14.5 Q21.5 11 23 14.5" stroke-width="1.3" opacity="0.55"/>'
+    );
+
+    const ICON_ADVANCED = svg(
+      /* gear */
+      '<circle cx="16" cy="16" r="4.5" stroke-width="1.5"/>' +
+      '<path d="M16 7.5V11 M16 21V24.5 M7.5 16H11 M21 16H24.5" stroke-width="1.7"/>' +
+      '<path d="M10.1 10.1L12.3 12.3 M19.7 19.7L21.9 21.9 M21.9 10.1L19.7 12.3 M12.3 19.7L10.1 21.9" stroke-width="1.5"/>'
+    );
+
+    /* ── Hub card presets ───────────────────────────────────────── */
+    const PRESETS = {
       fresh: [
-        { icon: ICON_PHYSICAL_MEDIA, title: "Physical media", status: "warn", text: "Capture: not verified — ACRCloud: missing (stylus CTA hidden until vinyl topology)", dest: "/recognition.html — capture, ACRCloud, mic gain" },
-        { icon: "\u{1F50A}", title: "Streaming basics", status: "", text: "AirPlay / Bluetooth — optional after core path", dest: "index.html drawer — Streaming Sources" },
-        { icon: "\u{1F39B}", title: "Amplifier & IR", status: "warn", text: "Not configured", dest: "/amplifier.html or amplifier wizard" },
-        { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "warn", text: "Open for chain, mic gain, calibration wizard", dest: "/recognition.html" },
-        { icon: "\u{1F5A5}", title: "Now playing / idle", status: "", text: "Weather, themes — optional", dest: "index.html — Now Playing (HDMI; DSI not in plan scope yet)" },
-        { icon: "\u{2699}", title: "Advanced", status: "", text: "Sockets, paths, library DB", dest: "/advanced.html" },
+        {
+          icon: ICON_PHYSICAL,
+          title: 'Physical media',
+          chip: { cls: 'warn', label: 'Attention needed' },
+          detail: 'Capture: not verified · ACRCloud: missing · Recognition inactive',
+          dest: '/recognition.html (capture, ACRCloud, mic gain, calibration)',
+          borderCls: 'border-warn',
+        },
+        {
+          icon: ICON_STREAMING,
+          title: 'Streaming',
+          chip: { cls: 'neutral', label: 'Optional' },
+          detail: 'AirPlay name not set · Bluetooth on/off',
+          dest: 'index.html drawer → Streaming Sources',
+        },
+        {
+          icon: ICON_AMPLIFIER,
+          title: 'Amplifier & IR',
+          chip: { cls: 'warn', label: 'Not configured' },
+          detail: 'No inputs defined · IR disabled',
+          dest: 'Amplifier wizard /amplifier-wizard',
+          borderCls: 'border-warn',
+        },
+        {
+          icon: ICON_DISPLAY,
+          title: 'Now playing & display',
+          chip: { cls: 'neutral', label: 'Optional' },
+          detail: 'Weather, idle theme, ambient colour',
+          dest: 'index.html → Now Playing section',
+        },
+        {
+          icon: ICON_ADVANCED,
+          title: 'Advanced',
+          chip: { cls: 'neutral', label: 'Optional' },
+          detail: 'Sockets, paths, library DB, track hints (no tuning controls)',
+          dest: '/advanced.html',
+        },
       ],
       partial: [
-        { icon: ICON_PHYSICAL_MEDIA, title: "Physical media", status: "warn", text: "Capture OK — ACRCloud: set — Stylus: not configured (~vinyl on Phono)", dest: "/recognition.html + amplifier.html (stylus)" },
-        { icon: "\u{1F50A}", title: "Streaming basics", status: "ok", text: "AirPlay name set", dest: "index.html drawer — Streaming" },
-        { icon: "\u{1F39B}", title: "Amplifier & IR", status: "warn", text: "Broadlink OK — IR 3 / 8 learned", dest: "/amplifier.html" },
-        { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "warn", text: "Calibration: Phono incomplete", dest: "/recognition.html — Calibration" },
-        { icon: "\u{1F5A5}", title: "Now playing / idle", status: "", text: "Optional", dest: "/nowplaying.html" },
-        { icon: "\u{2699}", title: "Advanced", status: "", text: "Paths unchanged", dest: "/advanced.html" },
+        {
+          icon: ICON_PHYSICAL,
+          title: 'Physical media',
+          chip: { cls: 'warn', label: 'Calibration incomplete' },
+          detail: 'Capture OK · ACRCloud set · Phono: calibration missing · Stylus: not configured',
+          dest: '/recognition.html · amplifier.html (stylus)',
+          borderCls: 'border-warn',
+        },
+        {
+          icon: ICON_STREAMING,
+          title: 'Streaming',
+          chip: { cls: 'ok', label: 'Ready' },
+          detail: 'AirPlay name set · Bluetooth on',
+          dest: 'index.html drawer',
+        },
+        {
+          icon: ICON_AMPLIFIER,
+          title: 'Amplifier & IR',
+          chip: { cls: 'warn', label: 'IR 3 / 8 learned' },
+          detail: 'Broadlink paired · 5 IR commands still missing',
+          dest: '/amplifier.html',
+          borderCls: 'border-warn',
+        },
+        {
+          icon: ICON_DISPLAY,
+          title: 'Now playing & display',
+          chip: { cls: 'ok', label: 'Ready' },
+          detail: 'Weather off · Ambient colour on',
+          dest: 'index.html',
+        },
+        {
+          icon: ICON_ADVANCED,
+          title: 'Advanced',
+          chip: { cls: 'ok', label: 'No warnings' },
+          detail: 'All paths configured (tuning on Recognition page)',
+          dest: '/advanced.html',
+        },
       ],
       healthy: [
-        { icon: ICON_PHYSICAL_MEDIA, title: "Physical media", status: "ok", text: "Capture OK — recognition active — Stylus ~12h / 500h rated", dest: "/recognition.html · Metrics · amplifier (stylus)" },
-        { icon: "\u{1F50A}", title: "Streaming basics", status: "ok", text: "AirPlay + BT ready", dest: "index.html drawer" },
-        { icon: "\u{1F39B}", title: "Amplifier & IR", status: "ok", text: "Paired — IR complete", dest: "/amplifier.html" },
-        { icon: "\u{1F4CA}", title: "Recognition & calibration", status: "ok", text: "Calibrated inputs: Phono, CD", dest: "/recognition.html" },
-        { icon: "\u{1F5A5}", title: "Now playing / idle", status: "ok", text: "Weather off", dest: "/nowplaying.html" },
-        { icon: "\u{2699}", title: "Advanced", status: "ok", text: "No warnings", dest: "/advanced.html" },
+        {
+          icon: ICON_PHYSICAL,
+          title: 'Physical media',
+          chip: { cls: 'ok', label: 'Ready' },
+          detail: 'Capture OK · Recognition active · Phono calibrated · Stylus ~12 h / 500 h rated',
+          dest: '/recognition.html · Metrics · amplifier (stylus)',
+        },
+        {
+          icon: ICON_STREAMING,
+          title: 'Streaming',
+          chip: { cls: 'ok', label: 'Ready' },
+          detail: 'AirPlay + BT ready',
+          dest: 'index.html drawer',
+        },
+        {
+          icon: ICON_AMPLIFIER,
+          title: 'Amplifier & IR',
+          chip: { cls: 'ok', label: 'Ready' },
+          detail: 'Broadlink paired · IR complete · 3 devices mapped',
+          dest: '/amplifier.html',
+        },
+        {
+          icon: ICON_DISPLAY,
+          title: 'Now playing & display',
+          chip: { cls: 'ok', label: 'Ready' },
+          detail: 'Weather off · Kiosk display active',
+          dest: 'index.html',
+        },
+        {
+          icon: ICON_ADVANCED,
+          title: 'Advanced',
+          chip: { cls: 'ok', label: 'No warnings' },
+          detail: 'All paths configured (tuning on Recognition page)',
+          dest: '/advanced.html',
+        },
+      ],
+      down: [
+        {
+          icon: ICON_PHYSICAL,
+          title: 'Physical media',
+          chip: { cls: 'error', label: 'State manager offline' },
+          detail: 'oceano-state-manager is not running — recognition and VU monitor inactive',
+          dest: '/recognition.html',
+          borderCls: 'border-error',
+        },
+        {
+          icon: ICON_STREAMING,
+          title: 'Streaming',
+          chip: { cls: 'ok', label: 'Ready' },
+          detail: 'AirPlay + BT unaffected (independent services)',
+          dest: 'index.html drawer',
+        },
+        {
+          icon: ICON_AMPLIFIER,
+          title: 'Amplifier & IR',
+          chip: { cls: 'ok', label: 'Ready' },
+          detail: 'Broadlink reachable · IR operational',
+          dest: '/amplifier.html',
+        },
+        {
+          icon: ICON_DISPLAY,
+          title: 'Now playing & display',
+          chip: { cls: 'error', label: 'No state feed' },
+          detail: 'Idle — SSE stream has no data source while state manager is down',
+          dest: 'index.html',
+          borderCls: 'border-error',
+        },
+        {
+          icon: ICON_ADVANCED,
+          title: 'Advanced',
+          chip: { cls: 'neutral', label: 'No warnings' },
+          detail: 'Config paths OK — check systemd logs',
+          dest: '/advanced.html',
+        },
       ],
     };
 
-    function syncChecklist(state) {
-      for (var i = 1; i <= 6; i++) {
-        var li = document.getElementById("chk-" + i);
-        if (li) li.classList.remove("done");
-      }
-      if (state === "fresh") {
-        var a = document.getElementById("chk-1");
-        if (a) a.classList.add("done");
-      } else if (state === "partial") {
-        [1, 2, 3].forEach(function (n) {
-          var li = document.getElementById("chk-" + n);
-          if (li) li.classList.add("done");
-        });
-      } else if (state === "healthy") {
-        [1, 2, 3, 4, 5, 6].forEach(function (n) {
-          var li = document.getElementById("chk-" + n);
-          if (li) li.classList.add("done");
-        });
-      }
+    function renderHub(state) {
+      const grid = document.getElementById('hub-cards');
+      grid.innerHTML = PRESETS[state].map(function(c) {
+        const destEsc = String(c.dest || '').replace(/"/g, '&quot;');
+        return (
+          '<div class="card ' + (c.borderCls || '') + '" role="button" tabindex="0"' +
+          ' onclick="alert(\'Prototype — would open:\\n' + destEsc + '\')"' +
+          ' onkeydown="if(event.key===\'Enter\'||event.key===\' \')this.click()">' +
+            '<div class="card-top">' +
+              '<div class="icon">' + c.icon + '</div>' +
+              '<div class="card-arrow" aria-hidden="true">→</div>' +
+            '</div>' +
+            '<h2>' + c.title + '</h2>' +
+            '<span class="status-chip ' + c.chip.cls + '">' +
+              '<span class="dot"></span>' + c.chip.label +
+            '</span>' +
+            '<div class="card-detail">' + c.detail + '</div>' +
+          '</div>'
+        );
+      }).join('');
     }
 
-    function renderHub(state) {
-      const grid = document.getElementById("hub-cards");
-      grid.innerHTML = hubPresets[state].map(function (c, idx) {
-        var cls = c.status === "ok" ? "ok" : c.status === "warn" ? "warn" : "";
-        var dest = c.dest || "(detail route TBD)";
-        var esc = String(dest).replace(/"/g, "&quot;");
-        return (
-          '<div class="card">' +
-            '<div class="icon" aria-hidden="true">' + c.icon + "</div>" +
-            "<h2>" + c.title + "</h2>" +
-            '<div class="status ' + cls + '">' + c.text + "</div>" +
-            '<button type="button" class="btn-open" title="Would navigate to: ' + esc + '" data-dest="' + esc + '">Open</button>' +
-          "</div>"
-        );
-      }).join("");
-      grid.querySelectorAll(".btn-open").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-          alert("Prototype — would open:\\n" + (btn.getAttribute("data-dest") || ""));
-        });
+    function syncChecklist(state) {
+      for (var i = 1; i <= 6; i++) {
+        var li = document.getElementById('chk-' + i);
+        if (li) li.classList.remove('done');
+      }
+      var done = { fresh: [1], partial: [1,2,3], healthy: [1,2,3,4,5,6], down: [1,2,3,4] };
+      (done[state] || []).forEach(function(n) {
+        var li = document.getElementById('chk-' + n);
+        if (li) li.classList.add('done');
       });
     }
 
-    document.querySelectorAll("nav.tabs button").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        document.querySelectorAll("nav.tabs button").forEach(function (b) { b.classList.remove("active"); });
-        document.querySelectorAll("main .panel").forEach(function (p) { p.classList.remove("active"); });
-        btn.classList.add("active");
-        var id = "panel-" + btn.getAttribute("data-panel");
-        var el = document.getElementById(id);
-        if (el) el.classList.add("active");
+    document.querySelectorAll('nav.tabs button').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('nav.tabs button').forEach(function(b) { b.classList.remove('active'); });
+        document.querySelectorAll('main .panel').forEach(function(p) { p.classList.remove('active'); });
+        btn.classList.add('active');
+        var el = document.getElementById('panel-' + btn.getAttribute('data-panel'));
+        if (el) el.classList.add('active');
       });
     });
 
-    document.getElementById("hub-mock").addEventListener("change", function () {
+    document.getElementById('hub-mock').addEventListener('change', function() {
       renderHub(this.value);
       syncChecklist(this.value);
     });
-    renderHub("fresh");
-    syncChecklist("fresh");
 
+    /* ── Wizard ─────────────────────────────────────────────────── */
     var wizStep = 1;
     var wizWantsIR = true;
-    function wizSetIR(yes) {
-      wizWantsIR = yes;
-      wizGo(2);
+
+    function wizSetIR(yes) { wizWantsIR = yes; wizGo(2); }
+    function wizFromIdentityNext() { wizGo(wizWantsIR ? 3 : 6); }
+    function wizStylusBack() { wizGo(wizWantsIR ? 5 : 6); }
+
+    function wizActiveDot() {
+      var map = wizWantsIR
+        ? { 1:0, 2:1, 3:2, 4:3, 5:4, 7:5 }
+        : { 1:0, 2:1, 6:2, 7:3 };
+      return map[wizStep] !== undefined ? map[wizStep] : -1;
     }
-    function wizFromIdentityNext() {
-      wizGo(wizWantsIR ? 3 : 6);
-    }
-    /** Map wizard step number to highlighted dot index (IR: 1–5,7 no-IR: 1,2,6,7). */
-    function wizActiveDotIndex() {
-      if (wizWantsIR) {
-        if (wizStep >= 1 && wizStep <= 5) return wizStep - 1;
-        if (wizStep === 7) return 5;
-        return -1;
-      }
-      if (wizStep === 1) return 0;
-      if (wizStep === 2) return 1;
-      if (wizStep === 6) return 2;
-      if (wizStep === 7) return 3;
-      return -1;
-    }
+
     function wizDots() {
       var labels = wizWantsIR
-        ? ["Intent", "Identity", "Broadlink", "IR learn", "Devices", "Stylus (opt.)"]
-        : ["Intent", "Identity", "Devices", "Stylus (opt.)"];
-      var activeIdx = wizActiveDotIndex();
-      var el = document.getElementById("wiz-steps");
-      el.innerHTML = labels.map(function (label, i) {
-        var on = i === activeIdx;
-        return '<span class="' + (on ? "on" : "") + '">' + (i + 1) + ". " + label + "</span>";
-      }).join("");
+        ? ['Intent', 'Identity', 'Broadlink', 'IR learn', 'Devices', 'Stylus (opt.)']
+        : ['Intent', 'Identity', 'Devices', 'Stylus (opt.)'];
+      var active = wizActiveDot();
+      document.getElementById('wiz-steps').innerHTML = labels.map(function(l, i) {
+        return '<span class="' + (i === active ? 'on' : '') + '">' + (i+1) + '. ' + l + '</span>';
+      }).join('');
     }
+
     function wizGo(n) {
       wizStep = n;
       for (var i = 1; i <= 7; i++) {
-        var p = document.getElementById("wiz-" + i);
-        if (p) p.classList.toggle("on", i === wizStep);
+        var p = document.getElementById('wiz-' + i);
+        if (p) p.classList.toggle('on', i === wizStep);
       }
-      var note = document.getElementById("wiz-2-noir-note");
-      if (note) note.style.display = wizStep === 2 && !wizWantsIR ? "block" : "none";
+      var note = document.getElementById('wiz-2-noir-note');
+      if (note) note.style.display = (wizStep === 2 && !wizWantsIR) ? 'block' : 'none';
       wizDots();
     }
-    function wizStylusBack() {
-      wizGo(wizWantsIR ? 5 : 6);
+
+    function npToggleTouch() {
+      var d = document.getElementById('np-touch-dropdown');
+      if (d) d.style.display = d.style.display === 'none' ? 'block' : 'none';
     }
-    function npToggleTouchDemo() {
-      var d = document.getElementById("np-touch-dropdown");
-      if (!d) return;
-      d.style.display = d.style.display === "none" ? "block" : "none";
-    }
+
+    /* ── Init ───────────────────────────────────────────────────── */
+    renderHub('fresh');
+    syncChecklist('fresh');
     wizDots();
   </script>
 </body>

@@ -227,6 +227,17 @@ const _boundaryOutcomeLabels = {
   suppressed_intra_track_silence: 'Legacy (intra-track experiment)',
 };
 
+// R7: post-recognition follow-up on boundary rows (internal DB values)
+const _followupOutcomeLabels = {
+  matched: 'Follow-up: matched',
+  no_match: 'Follow-up: no match',
+  same_track_restored: 'Follow-up: same track (restored)',
+  recognition_error: 'Follow-up: provider error',
+  capture_error: 'Follow-up: capture error',
+  discarded_source_changed: 'Follow-up: discarded (source changed)',
+  skipped_coordinator: 'Follow-up: skipped (coordinator guard)',
+};
+
 async function loadBoundaryStats(statsReqSeq) {
   const container = document.getElementById('boundary-stats-grid');
   if (!container) return;
@@ -245,14 +256,57 @@ async function loadBoundaryStats(statsReqSeq) {
   }
 }
 
+function renderBoundaryReadinessCard(cr) {
+  const level = String(cr.readiness_level || '');
+  const levelClass = level ? ` boundary-readiness-${level}` : '';
+  const nudgesOn = cr.effective_calibration_nudges_on ? 'On' : 'Off';
+  const friendlyMessage = level === 'strong'
+    ? 'Great coverage: enough paired follow-ups for stable automatic calibration nudges.'
+    : level === 'adequate'
+    ? 'Good coverage: nudges can run with reasonable confidence.'
+    : level === 'low'
+    ? 'Borderline coverage: nudges can run, but behavior may still be noisy.'
+    : 'Not enough paired follow-ups yet. Keep listening and this will unlock automatically.';
+  const detailsHtml =
+    `<details class="boundary-readiness-details">` +
+    `<summary>Technical details</summary>` +
+    `<div class="boundary-readiness-details-body">` +
+    `<div class="rec-prov-row"><span class="lbl">Paired follow-ups (window)</span><span class="val">${Number(cr.paired_followups_r3_window || 0)}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Minimum pairs required</span><span class="val">${Number(cr.min_followup_pairs_required || 0)}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Analysis window (days)</span><span class="val">${Number(cr.r3_lookback_days || 0)}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Adaptive tuning enabled</span><span class="val">${cr.r3_telemetry_nudges_enabled ? 'Yes' : 'No'}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Autonomous mode</span><span class="val">${cr.autonomous_calibration_enabled ? 'Yes' : 'No'}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Effective runtime nudges</span><span class="val">${nudgesOn}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">Nudges apply now</span><span class="val">${cr.ready_for_r3_nudges ? 'Yes' : 'No'}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">RMS histogram learning</span><span class="val">${cr.rms_learning_enabled ? 'Yes' : 'No'}</span></div>` +
+    `<div class="rec-prov-row"><span class="lbl">RMS autonomous apply</span><span class="val">${cr.rms_autonomous_apply ? 'Yes' : 'No'}</span></div>` +
+    `<p class="boundary-rms-note">${esc(cr.rms_capture_note || '')}</p>` +
+    `</div>` +
+    `</details>`;
+  return (
+    `<div class="rec-prov-card boundary-readiness-card${levelClass}">` +
+    `<div class="rec-prov-name">Auto-tuning readiness</div>` +
+    `<div class="rec-prov-row"><span class="lbl">Readiness</span><span class="val boundary-readiness-level">${esc(level || '—')}</span></div>` +
+    `<p class="boundary-readiness-desc">${esc(friendlyMessage)}</p>` +
+    `<p class="boundary-readiness-note">${esc(cr.readiness_message || '')}</p>` +
+    detailsHtml +
+    `</div>`
+  );
+}
+
 function renderBoundaryStats(container, payload) {
+  const cr = payload.calibration_readiness;
+  const readinessHtml = cr ? renderBoundaryReadinessCard(cr) : '';
+
   const total = Number(payload.total || 0);
   const by = payload.by_outcome || {};
   const actionable = Number(payload.actionable_total || 0);
   const fr = payload.fire_rate;
 
   if (total === 0) {
-    container.innerHTML = '<div class="rec-stats-placeholder">No boundary events in this period yet.</div>';
+    container.innerHTML = readinessHtml
+      ? `<div class="boundary-stats-stack">${readinessHtml}</div><div class="rec-stats-placeholder">No boundary events in this period yet.</div>`
+      : '<div class="rec-stats-placeholder">No boundary events in this period yet.</div>';
     return;
   }
 
@@ -284,14 +338,36 @@ function renderBoundaryStats(container, payload) {
     : '';
   const rateTitle = rateHint ? ` title="${esc(rateHint)}"` : '';
 
-  container.innerHTML =
+  const fu = payload.followup_totals || {};
+  const fuKeys = Object.keys(fu).sort();
+  let fuRows = '';
+  for (const k of fuKeys) {
+    const n = Number(fu[k] || 0);
+    const label = _followupOutcomeLabels[k] || ('Follow-up: ' + k);
+    fuRows += `<div class="rec-prov-row"><span class="lbl">${esc(label)}</span><span class="val">${n}</span></div>`;
+  }
+  const fuLinked = Number(payload.followup_linked_total || 0);
+  const earlyB = Number(payload.early_boundary_total || 0);
+  const followupBlock = fuLinked > 0 || earlyB > 0 || fuRows
+    ? `<div class="boundary-followup-block">` +
+      `<div class="rec-prov-subname">Post-recognition linkage (R7)</div>` +
+      `<div class="rec-prov-row"><span class="lbl">Linked follow-ups</span><span class="val">${fuLinked}</span></div>` +
+      `<div class="rec-prov-row"><span class="lbl">Early-boundary cohort</span><span class="val" title="Fired boundary while progress was well below nominal track duration (conservative analytics).">${earlyB}</span></div>` +
+      fuRows +
+      `</div>`
+    : '';
+
+  const summaryCard =
     `<div class="rec-prov-card boundary-stats-card">` +
     `<div class="rec-prov-name">Summary</div>` +
     `<div class="rec-prov-row"><span class="lbl">Total events</span><span class="val">${total}</span></div>` +
     `<div class="rec-prov-row"><span class="lbl">Actionable decisions</span><span class="val">${actionable}</span></div>` +
     `<div class="rec-prov-rate"><span class="lbl">Fire rate</span><span class="${rateLabel !== '—' ? 'val-ok' : 'val-none'}"${rateTitle}>${rateLabel}</span></div>` +
     `<div class="boundary-outcome-block">${rows}</div>` +
+    followupBlock +
     `</div>`;
+
+  container.innerHTML = `<div class="boundary-stats-stack">${readinessHtml}${summaryCard}</div>`;
 }
 
 // ─── Recognition provider stats ───────────────────────────────────────────────

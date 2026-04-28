@@ -33,6 +33,9 @@ type LibraryEntry struct {
 	FirstPlayed   string `json:"first_played"`
 	LastPlayed    string `json:"last_played"`
 	UserConfirmed bool   `json:"user_confirmed"`
+	// BoundarySensitive marks tracks where quiet passages are often mistaken for
+	// track boundaries (R8); the state manager nudges duration-based VU guards.
+	BoundarySensitive bool `json:"boundary_sensitive"`
 }
 
 // LibraryDB wraps the collection SQLite database for the web UI.
@@ -102,6 +105,27 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 			collection_id INTEGER
 		)`,
 		`CREATE INDEX IF NOT EXISTS boundary_events_occurred_at_idx ON boundary_events(occurred_at)`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_outcome TEXT`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_acrid TEXT`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_shazam_id TEXT`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_collection_id INTEGER`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_play_history_id INTEGER`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_new_recording INTEGER`,
+		`ALTER TABLE boundary_events ADD COLUMN early_boundary INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE boundary_events ADD COLUMN followup_recorded_at TEXT`,
+		`ALTER TABLE collection ADD COLUMN boundary_sensitive INTEGER NOT NULL DEFAULT 0`,
+		`CREATE TABLE IF NOT EXISTS rms_learning (
+			format_key TEXT NOT NULL PRIMARY KEY,
+			updated_at TEXT NOT NULL,
+			bins INTEGER NOT NULL,
+			max_rms REAL NOT NULL,
+			silence_counts TEXT NOT NULL,
+			music_counts TEXT NOT NULL,
+			silence_total INTEGER NOT NULL DEFAULT 0,
+			music_total INTEGER NOT NULL DEFAULT 0,
+			derived_enter REAL,
+			derived_exit REAL
+		)`,
 	}
 	for _, stmt := range ensureCols {
 		if _, err := l.db.Exec(stmt); err != nil {
@@ -149,16 +173,201 @@ func (l *LibraryDB) getRecognitionStats() (map[string]map[string]int, error) {
 	return stats, nil
 }
 
-// boundaryStatsResponse is JSON for GET /api/recognition/boundary-stats.
-type boundaryStatsResponse struct {
-	PeriodDays       int            `json:"period_days"`
-	Total            int            `json:"total"`
-	ByOutcome        map[string]int `json:"by_outcome"`
-	ActionableTotal  int            `json:"actionable_total"`
-	FireRate         float64        `json:"fire_rate"` // fraction of actionable outcomes that fired; -1 if not applicable
+// rmsLearningRowDTO is one row for GET /api/recognition/rms-learning.
+type rmsLearningRowDTO struct {
+	FormatKey      string   `json:"format_key"`
+	SilenceTotal   int64    `json:"silence_total"`
+	MusicTotal     int64    `json:"music_total"`
+	DerivedEnter   *float64 `json:"derived_enter,omitempty"`
+	DerivedExit    *float64 `json:"derived_exit,omitempty"`
+	UpdatedAt      string   `json:"updated_at"`
+	ReadinessLevel string   `json:"readiness_level"` // "collecting" | "separating" | "ready"
+	SilencePct     int      `json:"silence_pct"`     // 0–100, capped at 100
+	MusicPct       int      `json:"music_pct"`       // 0–100, capped at 100
 }
 
-func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, error) {
+// rmsLearningListResponse is JSON for GET /api/recognition/rms-learning.
+type rmsLearningListResponse struct {
+	Rows              []rmsLearningRowDTO `json:"rows"`
+	MinSilenceSamples int                 `json:"min_silence_samples"`
+	MinMusicSamples   int                 `json:"min_music_samples"`
+	AutonomousApply   bool                `json:"autonomous_apply"`
+}
+
+func rmsReadinessLevel(silN, musN int64, minSil, minMus int, hasDerived bool) string {
+	if silN < int64(minSil) || musN < int64(minMus) {
+		return "collecting"
+	}
+	if !hasDerived {
+		return "separating"
+	}
+	return "ready"
+}
+
+func rmsPct(n int64, min int) int {
+	if min <= 0 {
+		return 100
+	}
+	v := int(n * 100 / int64(min))
+	if v > 100 {
+		return 100
+	}
+	return v
+}
+
+func (l *LibraryDB) listRMSLearningRows() ([]rmsLearningRowDTO, error) {
+	rows, err := l.db.Query(`
+		SELECT format_key, silence_total, music_total, derived_enter, derived_exit, updated_at
+		FROM rms_learning
+		ORDER BY format_key`)
+	if err != nil {
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "no such table") {
+			return []rmsLearningRowDTO{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []rmsLearningRowDTO
+	for rows.Next() {
+		var r rmsLearningRowDTO
+		var de, dx sql.NullFloat64
+		if err := rows.Scan(&r.FormatKey, &r.SilenceTotal, &r.MusicTotal, &de, &dx, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if de.Valid {
+			v := de.Float64
+			r.DerivedEnter = &v
+		}
+		if dx.Valid {
+			v := dx.Float64
+			r.DerivedExit = &v
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []rmsLearningRowDTO{}
+	}
+	return out, nil
+}
+
+// boundaryStatsResponse is JSON for GET /api/recognition/boundary-stats.
+type boundaryStatsResponse struct {
+	PeriodDays           int                           `json:"period_days"`
+	Total                int                           `json:"total"`
+	ByOutcome            map[string]int                `json:"by_outcome"`
+	ActionableTotal      int                           `json:"actionable_total"`
+	FireRate             float64                       `json:"fire_rate"` // fraction of actionable outcomes that fired; -1 if not applicable
+	FollowupTotals       map[string]int                `json:"followup_totals,omitempty"`
+	EarlyBoundaryTotal   int                           `json:"early_boundary_total"`
+	FollowupLinkedTotal  int                           `json:"followup_linked_total"`
+	CalibrationReadiness *boundaryCalibrationReadiness `json:"calibration_readiness,omitempty"`
+}
+
+// boundaryCalibrationReadiness explains whether paired follow-up telemetry is
+// sufficient for bounded R3 nudges and clarifies what is (not) persisted as RMS.
+type boundaryCalibrationReadiness struct {
+	R3LookbackDays               int    `json:"r3_lookback_days"`
+	MinFollowupPairsRequired     int    `json:"min_followup_pairs_required"`
+	PairedFollowupsR3Window      int    `json:"paired_followups_r3_window"`
+	ReadinessLevel               string `json:"readiness_level"`
+	ReadinessMessage             string `json:"readiness_message"`
+	ReadyForR3Nudges             bool   `json:"ready_for_r3_nudges"`
+	R3TelemetryNudgesEnabled     bool   `json:"r3_telemetry_nudges_enabled"`
+	AutonomousCalibrationEnabled bool   `json:"autonomous_calibration_enabled"`
+	EffectiveCalibrationNudgesOn bool   `json:"effective_calibration_nudges_on"`
+	RmsLearningEnabled           bool   `json:"rms_learning_enabled"`
+	RmsAutonomousApply           bool   `json:"rms_autonomous_apply"`
+	RmsCaptureNote               string `json:"rms_capture_note"`
+}
+
+func (l *LibraryDB) countR3PairedFollowupsSince(sinceRFC3339 string) (int, error) {
+	var n int
+	err := l.db.QueryRow(`
+		SELECT COUNT(*) FROM boundary_events
+		WHERE occurred_at >= ?
+		  AND outcome = 'fired'
+		  AND followup_outcome IN ('matched', 'same_track_restored')`, sinceRFC3339).Scan(&n)
+	if err != nil {
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "no such table") || strings.Contains(errText, "no such column") {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return n, nil
+}
+
+func buildBoundaryCalibrationReadiness(l *LibraryDB, cfg *Config) *boundaryCalibrationReadiness {
+	lookback := 14
+	minPairs := 25
+	r3On := false
+	if cfg.Advanced.TelemetryNudges != nil {
+		t := cfg.Advanced.TelemetryNudges
+		r3On = t.Enabled
+		if t.LookbackDays > 0 {
+			lookback = t.LookbackDays
+		}
+		if t.MinFollowupPairs > 0 {
+			minPairs = t.MinFollowupPairs
+		}
+	}
+	auto := cfg.Advanced.AutonomousCalibration != nil && cfg.Advanced.AutonomousCalibration.Enabled
+	effective := r3On || auto
+
+	since := time.Now().UTC().Add(-time.Duration(lookback) * 24 * time.Hour).Format(time.RFC3339Nano)
+	paired, _ := l.countR3PairedFollowupsSince(since)
+
+	level, msg := classifyCalibrationReadinessLevel(paired, minPairs)
+	ready := paired >= minPairs
+
+	rmsEn := true // default: collect without applying, matching state-manager default
+	rmsAp := false
+	if cfg.Advanced.RMSPercentileLearning != nil {
+		rms := cfg.Advanced.RMSPercentileLearning
+		if rms.Enabled != nil {
+			rmsEn = *rms.Enabled
+		}
+		rmsAp = rms.AutonomousApply
+	}
+
+	return &boundaryCalibrationReadiness{
+		R3LookbackDays:               lookback,
+		MinFollowupPairsRequired:     minPairs,
+		PairedFollowupsR3Window:      paired,
+		ReadinessLevel:               level,
+		ReadinessMessage:             msg,
+		ReadyForR3Nudges:             ready,
+		R3TelemetryNudgesEnabled:     r3On,
+		AutonomousCalibrationEnabled: auto,
+		EffectiveCalibrationNudgesOn: effective,
+		RmsLearningEnabled:           rmsEn,
+		RmsAutonomousApply:           rmsAp,
+		RmsCaptureNote:               "Per-event RMS is not stored in boundary_events. Optional RMS percentile learning writes aggregated histograms to table rms_learning (per format). Wizard calibration_profiles remain useful for vinyl gap (transition) metrics.",
+	}
+}
+
+func classifyCalibrationReadinessLevel(paired, minRequired int) (level, message string) {
+	if minRequired <= 0 {
+		minRequired = 25
+	}
+	switch {
+	case paired < minRequired:
+		return "insufficient", "Not enough paired follow-ups (matched + same_track_restored on fired rows) in the R3 lookback window; bounded nudges stay idle until the minimum is met."
+	case paired < minRequired*2:
+		return "low", "Borderline sample size; nudges may apply but false-positive ratio estimates are noisy."
+	case paired < minRequired*4:
+		return "adequate", "Enough paired events for stable bounded nudges under typical drift."
+	default:
+		return "strong", "Rich paired telemetry; good confidence for telemetry-driven calibration nudges within configured caps."
+	}
+}
+
+func (l *LibraryDB) getBoundaryEventStats(days int, cfg *Config) (*boundaryStatsResponse, error) {
 	out := &boundaryStatsResponse{
 		PeriodDays: days,
 		ByOutcome:  make(map[string]int),
@@ -190,6 +399,9 @@ func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, err
 		out.ByOutcome[o] = c
 		out.Total += c
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	actionableOutcomes := []string{
 		"fired",
 		"suppressed_duration_guard",
@@ -203,7 +415,57 @@ func (l *LibraryDB) getBoundaryEventStats(days int) (*boundaryStatsResponse, err
 	if out.ActionableTotal > 0 {
 		out.FireRate = float64(out.ByOutcome["fired"]) / float64(out.ActionableTotal)
 	}
-	return out, rows.Err()
+
+	out.FollowupTotals = make(map[string]int)
+	var fuRows *sql.Rows
+	if days <= 0 {
+		fuRows, err = l.db.Query(`SELECT COALESCE(followup_outcome,''), COUNT(*) FROM boundary_events WHERE followup_outcome IS NOT NULL AND followup_outcome != '' GROUP BY followup_outcome`)
+	} else {
+		cut := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour).Format(time.RFC3339Nano)
+		fuRows, err = l.db.Query(`SELECT COALESCE(followup_outcome,''), COUNT(*) FROM boundary_events WHERE occurred_at >= ? AND followup_outcome IS NOT NULL AND followup_outcome != '' GROUP BY followup_outcome`, cut)
+	}
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such column") {
+			return out, nil
+		}
+		return nil, err
+	}
+	defer fuRows.Close()
+	for fuRows.Next() {
+		var o string
+		var c int
+		if err := fuRows.Scan(&o, &c); err != nil {
+			return nil, err
+		}
+		out.FollowupTotals[o] = c
+		out.FollowupLinkedTotal += c
+	}
+	if err := fuRows.Err(); err != nil {
+		return nil, err
+	}
+
+	var earlyN int
+	if days <= 0 {
+		err = l.db.QueryRow(`
+			SELECT COUNT(*) FROM boundary_events
+			WHERE IFNULL(early_boundary,0) != 0 AND followup_outcome IS NOT NULL AND followup_outcome != ''`).Scan(&earlyN)
+	} else {
+		cut := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour).Format(time.RFC3339Nano)
+		err = l.db.QueryRow(`
+			SELECT COUNT(*) FROM boundary_events
+			WHERE occurred_at >= ? AND IFNULL(early_boundary,0) != 0 AND followup_outcome IS NOT NULL AND followup_outcome != ''`, cut).Scan(&earlyN)
+	}
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such column") {
+			return out, nil
+		}
+		return nil, err
+	}
+	out.EarlyBoundaryTotal = earlyN
+	if cfg != nil {
+		out.CalibrationReadiness = buildBoundaryCalibrationReadiness(l, cfg)
+	}
+	return out, nil
 }
 
 func (l *LibraryDB) close() {
@@ -242,7 +504,8 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist, COALESCE(album,''), COALESCE(label,''),
 		       COALESCE(released,''), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
-		       COALESCE(duration_ms,0), play_count, first_played, last_played, COALESCE(user_confirmed,0)
+		       COALESCE(duration_ms,0), play_count, first_played, last_played, COALESCE(user_confirmed,0),
+		       COALESCE(boundary_sensitive,0)
 		FROM collection ORDER BY last_played DESC`)
 	if err != nil {
 		return nil, err
@@ -252,12 +515,13 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 	var entries []LibraryEntry
 	for rows.Next() {
 		var e LibraryEntry
-		var confirmed int
+		var confirmed, boundarySens int
 		if err := rows.Scan(&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist, &e.Album, &e.Label, &e.Released, &e.Format,
-			&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed); err != nil {
+			&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed, &boundarySens); err != nil {
 			return nil, err
 		}
 		e.UserConfirmed = confirmed == 1
+		e.BoundarySensitive = boundarySens == 1
 		entries = append(entries, e)
 	}
 	return entries, rows.Err()
@@ -304,15 +568,20 @@ func (l *LibraryDB) search(q string, limit int) ([]LibraryEntry, error) {
 // update patches editable fields for a single entry and cascades the changes
 // to any play_history rows linked to the same collection entry so the history
 // reflects corrected metadata (format badge, title, artwork, etc.) immediately.
-func (l *LibraryDB) update(id int64, title, artist, album, label, released, format, trackNumber, artworkPath string, durationMs int) error {
+func (l *LibraryDB) update(id int64, title, artist, album, label, released, format, trackNumber, artworkPath string, durationMs int, boundarySensitive bool) error {
+	boundarySens := 0
+	if boundarySensitive {
+		boundarySens = 1
+	}
 	_, err := l.db.Exec(`
 		UPDATE collection
 		SET title=?, artist=?, album=?, label=?, released=?, format=?, track_number=?, artwork_path=?,
 		    duration_ms=CASE WHEN ? > 0 THEN ? ELSE duration_ms END,
-		    user_confirmed=1
+		    user_confirmed=1,
+		    boundary_sensitive=?
 		WHERE id=?`,
 		title, artist, album, label, released, format, trackNumber, artworkPath,
-		durationMs, durationMs, id,
+		durationMs, durationMs, boundarySens, id,
 	)
 	if err != nil {
 		return err
@@ -328,7 +597,57 @@ func (l *LibraryDB) update(id int64, title, artist, album, label, released, form
 		artworkPath, artworkPath,
 		id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return l.backfillBoundaryEventsFormatResolvedForCollection(id, format)
+}
+
+// backfillBoundaryEventsFormatResolvedForCollection sets format_resolved on
+// boundary telemetry rows for this library entry (R2). Idempotent for the same
+// resolved label; clearing Unknown removes resolution so analytics fall back to
+// format_at_event only.
+func (l *LibraryDB) backfillBoundaryEventsFormatResolvedForCollection(collectionID int64, libraryFormat string) error {
+	if l == nil || l.db == nil {
+		return nil
+	}
+	norm := strings.TrimSpace(libraryFormat)
+	if norm == "" {
+		norm = "Unknown"
+	}
+	switch norm {
+	case "Vinyl", "CD":
+		ts := time.Now().UTC().Format(time.RFC3339Nano)
+		_, err := l.db.Exec(`
+			UPDATE boundary_events
+			SET format_resolved = ?, format_resolved_at = ?
+			WHERE collection_id = ?`,
+			norm, ts, collectionID,
+		)
+		if err != nil {
+			errText := strings.ToLower(err.Error())
+			if strings.Contains(errText, "no such table") || strings.Contains(errText, "no such column") {
+				return nil
+			}
+			return err
+		}
+		return nil
+	default:
+		_, err := l.db.Exec(`
+			UPDATE boundary_events
+			SET format_resolved = NULL, format_resolved_at = NULL
+			WHERE collection_id = ?`,
+			collectionID,
+		)
+		if err != nil {
+			errText := strings.ToLower(err.Error())
+			if strings.Contains(errText, "no such table") || strings.Contains(errText, "no such column") {
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
 }
 
 // resolveStub merges an unconfirmed entry (stub) into an existing confirmed
@@ -460,7 +779,7 @@ func (l *LibraryDB) deleteEntry(id int64) error {
 // registerLibraryRoutes wires all /api/library/* endpoints into mux.
 // libraryDBPath is read from the running state-manager service file so the web
 // UI always talks to the same database without extra configuration.
-func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string, artworkDir string) {
+func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string, artworkDir string, configPath string) {
 	// GET  /api/library        → list all entries
 	// GET  /api/library/search?q=...&limit=20 → search confirmed tracks
 	// PUT  /api/library/{id}   → update entry metadata
@@ -581,13 +900,68 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			return
 		}
 		defer lib.close()
-		stats, err := lib.getBoundaryEventStats(days)
+		cfgSnap := defaultConfig()
+		if c, err := loadConfig(configPath); err == nil {
+			cfgSnap = c
+		}
+		stats, err := lib.getBoundaryEventStats(days, &cfgSnap)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(stats)
+	})
+
+	// GET /api/recognition/rms-learning — per-format histogram totals and derived VU thresholds.
+	mux.HandleFunc("/api/recognition/rms-learning", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		cfgSnap := defaultConfig()
+		if c, err := loadConfig(configPath); err == nil {
+			cfgSnap = c
+		}
+		minSil, minMus := 400, 400
+		autoApply := false
+		if cfgSnap.Advanced.RMSPercentileLearning != nil {
+			if v := cfgSnap.Advanced.RMSPercentileLearning.MinSilenceSamples; v > 0 {
+				minSil = v
+			}
+			if v := cfgSnap.Advanced.RMSPercentileLearning.MinMusicSamples; v > 0 {
+				minMus = v
+			}
+			autoApply = cfgSnap.Advanced.RMSPercentileLearning.AutonomousApply
+		}
+		lib, err := openLibraryDB(libraryDBPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(&rmsLearningListResponse{
+				Rows: []rmsLearningRowDTO{}, MinSilenceSamples: minSil, MinMusicSamples: minMus,
+			})
+			return
+		}
+		defer lib.close()
+		list, err := lib.listRMSLearningRows()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for i := range list {
+			r := &list[i]
+			r.ReadinessLevel = rmsReadinessLevel(r.SilenceTotal, r.MusicTotal, minSil, minMus, r.DerivedEnter != nil)
+			r.SilencePct = rmsPct(r.SilenceTotal, minSil)
+			r.MusicPct = rmsPct(r.MusicTotal, minMus)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(&rmsLearningListResponse{
+			Rows: list, MinSilenceSamples: minSil, MinMusicSamples: minMus, AutonomousApply: autoApply,
+		})
 	})
 
 	// GET /api/library/artworks — recent tracks with artwork, for the picker.
@@ -723,15 +1097,16 @@ func handleUploadArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB,
 
 func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, stateFilePath string) {
 	var body struct {
-		Title       string `json:"title"`
-		Artist      string `json:"artist"`
-		Album       string `json:"album"`
-		Label       string `json:"label"`
-		Released    string `json:"released"`
-		Format      string `json:"format"`
-		TrackNumber string `json:"track_number"`
-		ArtworkPath string `json:"artwork_path"`
-		DurationMs  int    `json:"duration_ms"`
+		Title             string `json:"title"`
+		Artist            string `json:"artist"`
+		Album             string `json:"album"`
+		Label             string `json:"label"`
+		Released          string `json:"released"`
+		Format            string `json:"format"`
+		TrackNumber       string `json:"track_number"`
+		ArtworkPath       string `json:"artwork_path"`
+		DurationMs        int    `json:"duration_ms"`
+		BoundarySensitive bool   `json:"boundary_sensitive"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -754,7 +1129,7 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 		body.Format = "Unknown"
 	}
 
-	if err := lib.update(id, body.Title, body.Artist, body.Album, body.Label, body.Released, body.Format, body.TrackNumber, body.ArtworkPath, body.DurationMs); err != nil {
+	if err := lib.update(id, body.Title, body.Artist, body.Album, body.Label, body.Released, body.Format, body.TrackNumber, body.ArtworkPath, body.DurationMs, body.BoundarySensitive); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

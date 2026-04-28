@@ -89,6 +89,19 @@ func newVUBoundaryDetector(cfg vuBoundaryDetectorConfig) *vuBoundaryDetector {
 	return &vuBoundaryDetector{cfg: cfg}
 }
 
+// SetSilenceEnterExit updates live silence thresholds (RMS percentile learning)
+// without resetting internal silence state.
+func (d *vuBoundaryDetector) SetSilenceEnterExit(enter, exit float32) {
+	if d == nil || enter <= 0 {
+		return
+	}
+	if exit <= enter {
+		exit = enter + 0.0005
+	}
+	d.cfg.silenceEnterThreshold = enter
+	d.cfg.silenceExitThreshold = exit
+}
+
 func (d *vuBoundaryDetector) Feed(avg float32, now time.Time) vuBoundaryOutcome {
 	out := vuBoundaryOutcome{}
 	silenceThreshold := d.cfg.silenceEnterThreshold

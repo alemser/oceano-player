@@ -10,6 +10,9 @@ function renderCalibrationSummary() {
   const allInputs = Array.isArray(cfg?.amplifier?.inputs)
     ? cfg.amplifier.inputs.filter(i => i && i.visible !== false)
     : [];
+  const phonoInputs = (typeof _phonoInputsFromConfig === 'function')
+    ? _phonoInputsFromConfig(cfg)
+    : allInputs.filter(i => _isVinylLabel(i.logical_name || '', String(i.id || '')));
 
   const profiles = _calibrationState.byInput;
   const shown = new Set();
@@ -17,25 +20,26 @@ function renderCalibrationSummary() {
 
   for (const [key, slot] of Object.entries(profiles)) {
     if (!slot || (!slot.off && !slot.on && !slot.vinyl_transition)) continue;
-    const ampInp = allInputs.find(i => String(i.id) === key);
+    const ampInp = phonoInputs.find(i => String(i.id) === key);
+    if (!ampInp) continue;
     shown.add(key);
     items.push({ key, label: ampInp?.logical_name || key, slot, measured: true });
   }
 
-  for (const inp of allInputs) {
+  for (const inp of phonoInputs) {
     const key = String(inp.id || '');
     if (shown.has(key)) continue;
     items.push({ key, label: inp.logical_name || `Input ${inp.id}`, slot: null, measured: false });
   }
 
   if (items.length === 0) {
-    container.innerHTML = '<div class="hint" style="padding:4px 0 2px">No amplifier inputs configured. Run the wizard after setting up inputs in the Amplifier section.</div>';
+    container.innerHTML = '<div class="hint" style="padding:4px 0 2px">No Phono input configured. Set one in Amplifier settings to run vinyl calibration.</div>';
     return;
   }
 
   container.innerHTML = items.map(item => {
     const { label, slot, measured, key } = item;
-    const isPhono = _isVinylLabel(label, key);
+    const isPhono = phonoInputs.some(i => String(i.id) === String(key));
 
     const badges = [];
     if (measured) badges.push(`<span class="cal-sc-badge measured">Measured</span>`);
@@ -44,21 +48,13 @@ function renderCalibrationSummary() {
 
     let valsHtml = '';
     if (measured && slot) {
-      const rec = calibrationRecommendation(slot.off, slot.on, slot.vinyl_transition || null);
+      const rec = calibrationRecommendation(slot.off, slot.on, null);
       if (rec && rec.ok) {
         valsHtml += `<div class="cal-sc-val"><span class="lbl">Source</span><span class="val">${rec.detectorThreshold.toFixed(4)}</span></div>`;
         valsHtml += `<div class="cal-sc-val"><span class="lbl">VU</span><span class="val">${rec.vuThreshold.toFixed(4)}</span></div>`;
         if (rec.gap != null) valsHtml += `<div class="cal-sc-val"><span class="lbl">OFF/ON gap</span><span class="val">${rec.gap.toFixed(4)}</span></div>`;
       } else {
         valsHtml += `<span class="hint" style="align-self:center">Incomplete — run wizard again to capture OFF and ON.</span>`;
-      }
-      if (slot.vinyl_transition) {
-        if (Number.isFinite(slot.vinyl_transition.gap_avg_rms) && slot.vinyl_transition.gap_avg_rms > 0) {
-          valsHtml += `<div class="cal-sc-val"><span class="lbl">Groove noise</span><span class="val">${slot.vinyl_transition.gap_avg_rms.toFixed(5)}</span></div>`;
-        }
-        if (Number.isFinite(slot.vinyl_transition.gap_duration_secs)) {
-          valsHtml += `<div class="cal-sc-val"><span class="lbl">Vinyl gap</span><span class="val">${slot.vinyl_transition.gap_duration_secs.toFixed(2)}s</span></div>`;
-        }
       }
     } else {
       const vu  = _rfloat('rec-vu-silence-threshold', 0.0095);
@@ -185,12 +181,35 @@ async function loadRecognitionPage() {
   _rset('rec-duration-guard-bypass',   cfg.recognition?.duration_guard_bypass_window_secs);
   _rset('rec-duration-pessimism',      cfg.recognition?.duration_pessimism);
   _rset('rec-boundary-restore-min-seek', cfg.recognition?.boundary_restore_min_seek_secs);
+  const autonomous = cfg.advanced?.autonomous_calibration;
+  const autoBox = document.getElementById('rec-autonomous-calibration-enabled');
+  if (autoBox) autoBox.checked = (autonomous == null || autonomous.enabled == null) ? true : !!autonomous.enabled;
+  const telemetryNudges = cfg.advanced?.r3_telemetry_nudges;
+  const telemetryBox = document.getElementById('rec-telemetry-nudges-enabled');
+  if (telemetryBox) telemetryBox.checked = !!telemetryNudges?.enabled;
+  _rset('rec-telemetry-lookback', telemetryNudges?.lookback_days ?? '');
+  _rset('rec-telemetry-min-pairs', telemetryNudges?.min_followup_pairs ?? '');
+  _rset('rec-telemetry-baseline-fp', telemetryNudges?.baseline_false_positive_ratio ?? '');
+  _rset('rec-telemetry-max-silence', telemetryNudges?.max_silence_threshold_delta ?? '');
+  _rset('rec-telemetry-max-pess', telemetryNudges?.max_duration_pessimism_delta ?? '');
+  const rms = cfg.advanced?.rms_percentile_learning;
+  const rmsEn = document.getElementById('rec-rms-learning-enabled');
+  if (rmsEn) rmsEn.checked = (rms == null || rms.enabled == null) ? true : !!rms.enabled;
+  const rmsAp = document.getElementById('rec-rms-learning-apply');
+  if (rmsAp) rmsAp.checked = !!rms?.autonomous_apply;
+  _rset('rec-rms-min-silence', rms?.min_silence_samples ?? '');
+  _rset('rec-rms-min-music', rms?.min_music_samples ?? '');
+  _rset('rec-rms-persist-secs', rms?.persist_interval_secs ?? '');
 
   _calibrationState.cfg      = cfg;
   _calibrationState.byInput  = _normalizeCalibrationProfiles(cfg.advanced?.calibration_profiles);
 
   renderCalibrationSummary();
   updateRecognitionUI();
+
+  if (typeof refreshRMSLearningSnapshot === 'function') {
+    refreshRMSLearningSnapshot('rec-rms-learning-summary');
+  }
 
   const sel = document.getElementById('rec-tuning-preset');
   if (sel) sel.value = detectTuningPreset();
@@ -224,6 +243,46 @@ async function saveRecognitionPage() {
     idle_delay_secs:            _rint('rec-idle-delay',   _cfgInt(fullCfg.advanced?.idle_delay_secs, 10)),
     calibration_profiles:       _normalizeCalibrationProfiles(_calibrationState.byInput),
   };
+  const previousTelemetryNudges = fullCfg.advanced?.r3_telemetry_nudges ?? {};
+  const previousAutonomous = fullCfg.advanced?.autonomous_calibration ?? {};
+  const previousRMS = fullCfg.advanced?.rms_percentile_learning ?? {};
+  function _recFloatOptional(id) {
+    const s = _rval(id);
+    if (s === '') return undefined;
+    const x = parseFloat(s);
+    return Number.isFinite(x) ? x : undefined;
+  }
+  const telemetryOut = {
+    ...previousTelemetryNudges,
+    enabled: document.getElementById('rec-telemetry-nudges-enabled')?.checked ?? false,
+  };
+  const lb = _rint('rec-telemetry-lookback', 0);
+  if (lb > 0) telemetryOut.lookback_days = lb;
+  const mp = _rint('rec-telemetry-min-pairs', 0);
+  if (mp > 0) telemetryOut.min_followup_pairs = mp;
+  const bfp = _recFloatOptional('rec-telemetry-baseline-fp');
+  if (bfp !== undefined) telemetryOut.baseline_false_positive_ratio = bfp;
+  const ms = _recFloatOptional('rec-telemetry-max-silence');
+  if (ms !== undefined) telemetryOut.max_silence_threshold_delta = ms;
+  const mpess = _recFloatOptional('rec-telemetry-max-pess');
+  if (mpess !== undefined) telemetryOut.max_duration_pessimism_delta = mpess;
+  const rmsOut = {
+    ...previousRMS,
+    enabled: document.getElementById('rec-rms-learning-enabled')?.checked ?? false,
+    autonomous_apply: document.getElementById('rec-rms-learning-apply')?.checked ?? false,
+  };
+  const rmsSil = _rint('rec-rms-min-silence', 0);
+  if (rmsSil > 0) rmsOut.min_silence_samples = rmsSil;
+  const rmsMus = _rint('rec-rms-min-music', 0);
+  if (rmsMus > 0) rmsOut.min_music_samples = rmsMus;
+  const rmsPer = _rint('rec-rms-persist-secs', 0);
+  if (rmsPer > 0) rmsOut.persist_interval_secs = rmsPer;
+  fullCfg.advanced.autonomous_calibration = {
+    ...previousAutonomous,
+    enabled: document.getElementById('rec-autonomous-calibration-enabled')?.checked ?? false,
+  };
+  fullCfg.advanced.r3_telemetry_nudges = telemetryOut;
+  fullCfg.advanced.rms_percentile_learning = rmsOut;
 
   const recCurrent = fullCfg.recognition ?? {};
   fullCfg.recognition = {
@@ -260,7 +319,12 @@ async function saveRecognitionPage() {
     });
     const res = await r.json().catch(() => ({}));
     if (!r.ok) { toast(res.error || 'Save failed.', true); }
-    else        { toast('Saved — services restarting…'); }
+    else {
+      toast('Saved — services restarting…');
+      if (typeof refreshRMSLearningSnapshot === 'function') {
+        refreshRMSLearningSnapshot('rec-rms-learning-summary');
+      }
+    }
   } catch {
     toast('Save failed.', true);
   }

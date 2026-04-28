@@ -785,6 +785,7 @@
     .modal-title-block p  { font-size: 0.8rem; color: var(--text-dim); margin-top: 3px; }
     .modal-field { margin-bottom: 14px; }
     .modal-field label { display: block; font-size: 0.75rem; color: var(--text-dim); margin-bottom: 5px; }
+    .modal-field label.modal-check { display: flex; align-items: flex-start; gap: 10px; font-size: 0.8rem; color: var(--text); margin-bottom: 4px; }
     .modal-field input, .modal-field select {
       width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
       color: var(--text); font-size: 0.88rem; padding: 8px 10px; outline: none;
@@ -793,6 +794,13 @@
     .modal-field input:focus, .modal-field select:focus { border-color: var(--accent); }
     .modal-field select option { background: #1a1a1a; }
     .modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .modal-row-full { grid-template-columns: 1fr; }
+    .modal-check {
+      display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+      font-size: 0.8rem; color: var(--text); margin-bottom: 0;
+    }
+    .modal-check input { width: auto; margin-top: 3px; accent-color: var(--accent); flex-shrink: 0; }
+    .modal-hint { font-size: 0.7rem; color: var(--text-dim); margin: 6px 0 0 26px; line-height: 1.4; }
     .modal-actions {
       display: flex;
       flex-direction: column;
@@ -1201,4 +1209,102 @@
     }
     .amp-device-ir-section {
       margin-top: 8px; padding-top: 8px;
+    }
+
+    /* RMS learning snapshot (Advanced + Recognition) */
+    .rms-snap-wrap { margin-top: 4px; }
+    .rms-snap-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .rms-snap-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .rms-snap-format {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text);
+      text-transform: capitalize;
+    }
+    .rms-snap-chip {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border-radius: 999px;
+      padding: 2px 9px;
+      border: 1px solid;
+    }
+    .rms-chip-collecting {
+      color: var(--muted);
+      border-color: rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.05);
+    }
+    .rms-chip-separating {
+      color: #d4a843;
+      border-color: rgba(212,168,67,0.35);
+      background: rgba(212,168,67,0.08);
+    }
+    .rms-chip-ready {
+      color: #5ecb80;
+      border-color: rgba(94,203,128,0.35);
+      background: rgba(94,203,128,0.08);
+    }
+    .rms-snap-desc {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      margin: 4px 0 10px;
+      line-height: 1.4;
+    }
+    .rms-snap-bar-row {
+      display: grid;
+      grid-template-columns: 52px 1fr 60px;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .rms-snap-bar-lbl {
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .rms-snap-bar-wrap {
+      height: 5px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .rms-snap-bar {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--accent);
+      transition: width 400ms ease;
+      min-width: 2px;
+    }
+    .rms-status-ready    .rms-snap-bar { background: #5ecb80; }
+    .rms-status-separating .rms-snap-bar { background: #d4a843; }
+    .rms-status-collecting .rms-snap-bar { background: rgba(255,255,255,0.25); }
+    .rms-snap-bar-count {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .rms-snap-thresholds {
+      display: flex;
+      gap: 16px;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin: 8px 0 4px;
+    }
+    .rms-snap-thresholds strong { color: var(--text); }
+    .rms-snap-updated {
+      font-size: 0.73rem;
+      color: var(--muted);
+      margin-top: 6px;
     }

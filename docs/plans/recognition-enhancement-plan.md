@@ -4,9 +4,15 @@ This document extends the earlier discussion into a concrete, incremental roadma
 
 **Status (2026-04):** Milestone **R1 + R1b** (boundary telemetry + Listening Metrics) is on **`main`**. **R1c** (intra-track silence→audio coalesce) was **aborted** after field feedback: the heuristic suppressed too many legitimate track boundaries. Short-lived builds may still have rows with `outcome = suppressed_intra_track_silence` in `boundary_events`; the Listening Metrics UI labels those as **Legacy (intra-track experiment)** (`history.js`). A future retry should be **opt-in** (config flag) and/or gated on **Boundary-sensitive** (R8), not global defaults.
 
+**R2 + R2b + R2c** are **Done** on branch **`feat/recognition-enhancement-plan`** (merge to `main` when ready): library **`format_resolved`** backfill on save; calibration **floor clamp** + **minimum off→on gap** + load-time log in `loadBoundaryCalibrationModel`.
+
+**R7** (**boundary ↔ recognition follow-up** + **early-boundary** cohort flag + Listening Metrics aggregates) is **Done** on **`feat/recognition-enhancement-plan`** — see `boundary_events.followup_*`, **`GET /api/recognition/boundary-stats`**, `history.js`.
+
 ### Priority (concrete next work)
 
-Land **R2** (format backfill for analytics when the user corrects Vinyl/CD on library rows) and continue telemetry-driven tuning using **Listening Metrics** (`fired` vs suppression outcomes, **Trigger** boundary rate vs fallback timer, provider success vs **error** counts). Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators. *(Repeated at document end for readers who scroll the PR table first.)*
+**R3** (optional bounded telemetry **nudges** to effective VU silence thresholds + duration pessimism, `advanced.r3_telemetry_nudges` in config, Advanced Settings UI) is **Done** on **`feat/recognition-enhancement-plan`**. **R8** (*Boundary-sensitive*) is also **Done** there. Continue telemetry-driven tuning using **Listening Metrics**. Treat **lifetime** provider stats and **period-scoped** boundary stats as complementary, not interchangeable denominators.
+
+**RMS percentile learning** (`advanced.rms_percentile_learning`, SQLite **`rms_learning`**) is **Done**: autonomous **histograms of stable-silence vs stable-music RMS** per format (`vinyl` / `cd` / `physical`) derive VU silence enter/exit from distributional separation; **`autonomous_apply`** overrides wizard profile thresholds once minimum sample counts are met. Wizard **`vinyl_transition`** metrics remain recommended for energy-dip / gap behaviour. Code: `internal/library/rms_learning.go`, `cmd/oceano-state-manager/rms_percentile_learner.go`, `source_vu_monitor.go`, Advanced UI.
 
 ---
 
@@ -271,68 +277,30 @@ Append a row after the pre-backlog investigation completes. Until then, plan **A
 
 ---
 
-## Roadmap: shadow calibration evaluation → optional autonomous thresholds
+## Autonomous calibration: RMS percentile learning (shipped)
 
-### Motivation
+### Behaviour
 
-Today, **per-input calibration** (wizard + `calibration_profiles`) and **VU-driven boundaries** assume the capture path delivers **RMS that is stable enough** to be meaningful. Users who skip the wizard rely on **global defaults**; users who calibrate depend on **manual** measurements staying valid as gain, stylus, or room noise drift.
+While **Physical** is active, the VU loop classifies **stable silence** (≥ ~1.5 s in the detector’s silence state) vs **stable music** (active audio above a small margin over the global floor) and increments **fixed-width RMS histograms** per format key **`vinyl` / `cd` / `physical`** in the library SQLite table **`rms_learning`**. On each persist interval, counts are saved and **percentiles** derive **silence enter / exit** when silence and music distributions separate (`DeriveSilenceThresholdsFromHistograms` in `internal/library/rms_learning.go`). Thresholds remain **floor-clamped** to **`advanced.vu_silence_threshold`** (R2b).
 
-The idea is to **keep the current mechanism as production** while, in the background, **collecting and periodically analysing** whether the **active calibration** behaves better than a **reference (“standard”) policy** on the same live stream of VU / boundary telemetry.
+- **`autonomous_apply`**: when true and minimum sample counts are met, learned enter/exit **override** wizard profile thresholds for the VU boundary detector (including live updates via `SetSilenceEnterExit` after each flush). **`vinyl_transition`** gap metrics from the wizard are **unchanged** and still feed energy-dip behaviour.
+- **R3 telemetry nudges** remain additive on top of whichever base (profile or learned) is active before the detector is constructed for a VU socket session; order is documented in `source_vu_monitor.go`.
 
-### Proposed behaviour (conceptual)
+### Configuration
 
-1. **Shadow / challenger** — On a fixed cadence (e.g. **every 4 hours**, configurable), a **batch job** (or low-priority goroutine in the state manager) replays or re-evaluates recent windows of **stored signals** (RMS summaries, `boundary_events` outcomes, optional aggregates from **Phase 1A**) under two policies in parallel **for comparison only**:
-   - **A:** current user calibration (per-input profiles + existing detector).
-   - **B:** **reference** policy — e.g. shipped **defaults** (`advanced.vu_silence_threshold` + no per-input profile, or a conservative “uncalibrated” branch), clearly documented so it is not circular with the same tuned numbers.
+`advanced.rms_percentile_learning`: **`enabled`**, **`autonomous_apply`**, **`min_silence_samples`**, **`min_music_samples`**, **`persist_interval_secs`**, optional **`histogram_bins`**, **`histogram_max_rms`**. Advanced page: `cmd/oceano-web/static/advanced.html` + `advanced_page.js`.
 
-2. **Fidelity / accuracy metric** — Define **explicit, testable** scores before shipping, for example (examples, not final):
-   - agreement rate on **hard vs soft** boundary classifications vs a human-labelled holdout **or** vs downstream outcomes (e.g. recognition success rate conditional on boundary type);
-   - rate of **false intra-track** fires vs **missed** track changes compared to **R7**-linked post-recognition outcomes;
-   - stability across **cohorts** (Vinyl / CD / unresolved Physical) as in **Phase 1B**.
+### Optional future: dual-policy shadow (R10)
 
-   The job answers: “Over the last window, did **A** beat **B** by at least **Δ** with sufficient sample size?”
+**Not required** for RMS learning. Optional research: periodically compare **Policy A** (current stack) vs a **frozen reference Policy B** on recent `boundary_events` / metrics — opt-out, bounded I/O, suggest-first if ever promoted.
 
-3. **Promotion** — When a **positive threshold** holds for **K** consecutive windows (or cumulative evidence), either:
-   - **Auto-apply** a promoted set of thresholds (true “autonomous calibration” / auto-tuned profile), **or**
-   - **Recommend** in Listening Metrics and require one confirmation tap (safer first ship).
+### Interaction today: global VU threshold vs calibration profiles vs RMS learning
 
-4. **User control** — **`auto_calibration_enabled`** (or similar) default **off** or **“suggest only”**; when off, **no** background promotion runs. Clear copy: “Automatic calibration tuning uses listening statistics; you can disable it.”
-
-5. **Auditability** — Log **when** the system changed thresholds, **from → to**, and **which metric** triggered promotion; surface a one-line event on Listening Metrics so operators trust the feature.
-
-### UX / product principles (first ship and beyond)
-
-These complement items 3–5 above; they were discussed as operator-trust requirements and should stay **normative** when implementing R10:
-
-- **Suggest-first** — Ship **recommendation + explicit “Apply” / “Dismiss”** before any silent auto-apply. Full background promotion remains gated on **`auto_calibration_enabled`** (or equivalent) and user expectation.
-- **Legible feedback** — Prefer short **outcome-oriented** copy on Listening Metrics (e.g. “fewer wasted recognition attempts this week vs last” when metrics support it) alongside technical detail for power users; avoid **only** raw percentiles as the sole surface.
-- **Reversibility** — Provide a **clear rollback**: restore **previous saved calibration** (snapshot before apply) or fall back to **Policy B / documented defaults**, without requiring SSH. Users who experiment should not feel locked in.
-
-### Opinion (worth adding?)
-
-**Yes, it belongs in this plan** as a **late** milestone: it **reuses** the telemetry and cohort story from **Phase 1A / 1B** and fits the principle **telemetry before policy changes**. It must **not** ship before (a) **stable metrics**, (b) **shadow-only** soak, and (c) **opt-out** — otherwise a noisy evening could rewrite calibration silently.
-
-**Caveats**
-
-- **Non-stationary noise** (hum, HVAC, stylus wear) means a 4-hour window can **lie**; use **minimum sample size**, **hysteresis** (K consecutive wins), and **bounds** on how far auto-tuning may move any threshold (same spirit as **Phase 1B** “nudges within safe bounds”).
-- **Reference policy B** must be a **true** baseline, not another hidden tuned copy of A.
-- **CPU / SD** — batch analysis should be **bounded** (time-box, row limit) and respect **Pi-first resource budget** (see Design principles). **Reads** of large `boundary_events` windows every 4h add **read** traffic on microSD — align with [Operational persistence](#operational-persistence--sqlite-sd-wear-and-telemetry-volume) and size limits.
-
-**Policy B (concrete):** ship as **versioned constants** in code (e.g. `internal/.../calibration_reference_v1.go` or documented defaults table in **README / this doc**) — values are the **factory defaults** for `advanced.vu_silence_threshold` and **no per-input** `calibration_profiles` entries. Bump a **`reference_policy_version`** field whenever those constants change so shadow comparisons remain reproducible.
-
-### Interaction today: global VU threshold vs calibration profiles
-
-The state manager builds VU silence enter/exit from **`loadBoundaryCalibrationModel`** (`cmd/oceano-state-manager/calibration_profile.go`): when Off/On samples yield a positive gap, **profile-derived thresholds replace** the detector defaults seeded from **`advanced.vu_silence_threshold`** — there is **no clamp** enforcing “never below global”. A profile with enter/exit **below** idle REC hum therefore **overrides** a carefully set global threshold until the profile is corrected or removed. **R10** shadow comparison should treat this as first-class when comparing Policy **A** vs **B**.
-
-**Operational gap vs long-term roadmap:** Shadow evaluation (R10) and percentile nudges (R3) assume **meaningful inputs** and time to ship; they do **not** stop a bad JSON profile from breaking boundaries **today**. **R2b** / **R2c** below are deliberate **small, low-risk** guards (floor clamp + profile validation); implement before or independent of **R3**.
+`loadBoundaryCalibrationModel` still resolves wizard profiles and R2b/R2c rules first; **persisted `rms_learning`** may then override enter/exit when **`rms_percentile_learning.autonomous_apply`** is on; the in-process learner continues to refine histograms during the VU session.
 
 ### VU reconnect (implemented behaviour)
 
 After each **new connection** to the VU Unix socket, the monitor **suppresses the first `silence→audio` boundary only** (`source_vu_monitor.go`) — separate from calibration. It reduces false triggers after stream/detector restarts (`unexpected EOF`) but **does not** replace threshold tuning when hum ramps **above** the effective silence threshold on a **single** stable connection.
-
-### Suggested PR row
-
-Treat as **research + metrics** first; auto-apply only after shadow soak.
 
 ---
 
@@ -345,24 +313,26 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 | R1 | `boundary_events` (or equivalent) + linkage ids for backfill; no trigger behavior change | Low | **Done** (on `main`) |
 | R1b | (same milestone) Expose aggregates on **Listening Metrics** (API + `history.js`) — even a minimal “boundary events logged / period” card | Low | **Done** |
 | R1c | Coalesce redundant **silence→audio** in early segment of known track — **aborted** (too aggressive); retry behind flag / per-track hint; legacy DB rows + UI label (see status) | Low | **Aborted** |
+| R2 | Backfill **`format_resolved`** / **`format_resolved_at`** on **`boundary_events`** when the user saves Vinyl/CD/Unknown for a library row (`LibraryDB.update`; async bulk-edit queue remains future-only per plan notes) | Low | **Done** (`feat/recognition-enhancement-plan`) |
+| R2b | **Calibration floor clamp** in `loadBoundaryCalibrationModel`: profile-derived enter/exit never below global `fallbackSilenceThreshold`; hysteresis preserved | Low | **Done** (`feat/recognition-enhancement-plan`) |
+| R2c | **Minimum off→on gap** ε for profile-derived thresholds; tiny-gap profiles fall back to global thresholds; load-time log | Low | **Done** (`feat/recognition-enhancement-plan`) |
+| R7 | Link **`boundary_events`** to post-recognition outcomes (`followup_*`, `early_boundary`); VU path inserts fired row **before** enqueueing recognition so rows carry stable ids; coordinator writes outcomes (matched / no_match / errors / skipped / same-track restored); Metrics API + **Listening Metrics** UI | Medium | **Done** (`feat/recognition-enhancement-plan`) |
+| RMS-L | — | **RMS percentile learning:** `rms_learning` histograms + `autonomous_apply` VU threshold override; `rms_percentile_learning` in config + Advanced UI; `SetSilenceEnterExit` live updates | Medium | **Done** |
+| RMS-V | **RMS-L** | **Visual feedback for RMS learning:** `/api/recognition/rms-learning` extended with `readiness_level`, `silence_pct`, `music_pct`, `min_silence_samples`, `min_music_samples`, `autonomous_apply`; snapshot widget replaced with per-format cards (status chip + progress bars + derived thresholds); CSS in `index.css` | Low | **Done** |
 
 ### Active backlog
 
 | PR | Depends on / prerequisite | Scope | Risk | Status |
 |----|---------------------------|--------|------|--------|
-| R2 | — | Backfill job when user updates Vinyl/CD classification; docs + tests | Low | Pending |
-| R2b | — | **Calibration floor clamp:** after computing profile-derived `enter` / `exit` in `loadBoundaryCalibrationModel`, ensure neither falls **below** `fallbackSilenceThreshold` (**`advanced.vu_silence_threshold`** passed from the VU monitor). Preserve hysteresis (**exit > enter**) after clamping (re-order if needed). Mitigates corrupted profiles driving silence thresholds under idle hum while global is intentionally high | Low | Pending |
-| R2c | — | **Calibration profile validation:** reject or warn when `on_avg - off_avg < ε` (product-tuned ε, e.g. ~0.002) or when profiles are otherwise **non-discriminative**; optionally surface in web UI on save and/or log at load time. Does not replace **`on <= off`** branch (already skips derivation); catches **tiny positive gaps** that hug noise. Complements **R3** — nudges assume usable base profiles | Low | Pending |
-| R3 | — | Optional percentile-based nudges to calibration inputs (bounded). **Does not fix** garbage-in profiles by itself — prefer **R2c** hygiene and **R2b** floor | Low–medium | Pending |
+| R3 | — | Optional telemetry-based bounded nudges (same_track_restored vs matched + P75 seek/duration on matched fires); **off** by default via `advanced.r3_telemetry_nudges`; R3 `silenceNudge` kept fresh via `telemetryRefreshInterval = 24 h` soft-reconnect in `readVUFrames` (no separate goroutine needed) | Low–medium | **Done** (`feat/recognition-enhancement-plan`) |
 | R4 | — | `LocalLibraryRecognizer` + config flag + tests | Medium | Pending |
 | R4b | **R4** | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts; optional **ACR error class** breakdown (timeout vs rate limit vs DNS) for operator health | Low–medium | Pending |
 | R5 | — | Post-match fingerprint persistence + local lookup; **cloud re-verify** policy (TTL, 1-in-N plays, or low local score → cloud) bundled with cache | Medium | Pending |
 | R6 | — | Offline-trained classifier for boundary confidence (optional) | Medium–high | Pending |
 | R6b | **R6** | If R6 ships: model health / confidence distribution on metrics page (optional chart or percentile text) | Medium | Pending |
-| R7 | — | Link boundary events to post-recognition outcomes + **early-boundary** aggregates (conservative rules + Listening Metrics) | Medium | Pending |
-| R8 | — | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium | Pending |
+| R8 | — | Library **per-track hint** (recommended label: *Boundary-sensitive*; schema e.g. `boundary_sensitive`) + web UI + state-manager consumption for optional policy nudges | Medium | **Done** (`feat/recognition-enhancement-plan`) |
 | R9 | **Pre-R9 investigation** documented in this file (Shazam `matches[]` cardinality — see **Low-confidence UX** + pre-backlog gate above). **Not** blocked on R4/R5 | **Low-confidence UX:** parse ACRCloud `metadata.music[1..]` (and Shazam multi-match **if** investigation showed it is feasible) → optional `recognition_alternatives` in state + threshold config; **now playing carousel** + API to **apply user-selected candidate** (library/history integration) | Medium | Pending |
-| R10 | **R7** stable metrics + Policy B frozen | **Shadow calibration evaluation:** periodic job compares active calibration vs **reference** defaults on recent telemetry; gated **promotion** to auto-tuned thresholds (or suggest-only); **`auto_calibration_enabled`** off by default; audit log + metrics UI | High | **Research** — do not implement before R7 + metric definitions are stable (detail below may go stale) |
+| R10 | Optional hardening | **Dual-policy shadow (optional):** compare active calibration vs frozen **reference** defaults on recent telemetry; suggest-only or gated promotion; **not** required now that **RMS percentile learning** covers autonomous silence thresholds | High | **Research** — optional; do not block on shadow for RMS learning |
 
 ---
 
@@ -373,10 +343,11 @@ Treat as **research + metrics** first; auto-apply only after shadow soak.
 - **Physical format lag** — all analytics and models must support **late correction** (see above).
 - **Dependencies on Pi** — prefer optional components (like Shazam env) and clear install docs.
 - **“Early boundary” heuristics** — easy to over-interpret; keep as analytics until validated on real collections; never block playback or recognition on a single signal.
-- **Auto-tuned calibration (R10)** — silent threshold drift can **worsen** recognition or boundaries on one bad window; mitigate with **shadow-only** period, **hard bounds**, **opt-out**, and **never** promote without minimum evidence + hysteresis. **SD / I/O:** periodic batch reads over `boundary_events` add **read** load — bound batch size and window (see R10 body + [Operational persistence](#operational-persistence--sqlite-sd-wear-and-telemetry-volume)).
+- **RMS histogram learning** — `rms_learning` writes are **batched** on `persist_interval_secs` (default ~2 min), not per VU frame; histogram size is bounded (bins × JSON). Disable **`autonomous_apply`** if behaviour regresses after a hardware change.
+- **Auto-tuned calibration (R10 shadow, if ever shipped)** — dual-policy comparison remains optional; mitigate with bounded I/O and opt-out ([Operational persistence](#operational-persistence--sqlite-sd-wear-and-telemetry-volume)).
 
 ---
 
 ## Immediate next step
 
-See **[Priority (concrete next work)](#priority-concrete-next-work)** at the top of this document.
+See **[Priority (concrete next work)](#priority-concrete-next-work)** — next suggested milestone: **R4** (local library recognizer) or **R5**; **R2**, **R3**, **R7**, and **R8** are archived as **Done** above.

@@ -264,6 +264,9 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 		entry, err = lib.LookupByTitleArtist(title, artist)
 	}
 	if err != nil || entry == nil {
+		m.mu.Lock()
+		m.physicalBoundarySensitive = false
+		m.mu.Unlock()
 		return
 	}
 
@@ -313,6 +316,11 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 				m.physicalArtworkPath = entry.ArtworkPath
 				changed = true
 			}
+			if m.physicalBoundarySensitive != entry.BoundarySensitive {
+				m.physicalBoundarySensitive = entry.BoundarySensitive
+			}
+		} else {
+			m.physicalBoundarySensitive = false
 		}
 	}
 	m.mu.Unlock()

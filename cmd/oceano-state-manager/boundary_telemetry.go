@@ -29,10 +29,8 @@ func boundaryFormatAtEventSnapshot(physicalSource, physicalFormat string, rec *R
 	return "Unknown"
 }
 
-func (m *mgr) recordBoundaryTelemetry(outcome, boundaryType string, isHard bool) {
-	if m.lib == nil {
-		return
-	}
+// buildBoundaryEvent fills a BoundaryEvent snapshot from current mgr state (holds mu briefly).
+func (m *mgr) buildBoundaryEvent(outcome, boundaryType string, isHard bool) internallibrary.BoundaryEvent {
 	ev := internallibrary.BoundaryEvent{
 		OccurredAt:   time.Now(),
 		Outcome:      outcome,
@@ -49,8 +47,15 @@ func (m *mgr) recordBoundaryTelemetry(outcome, boundaryType string, isHard bool)
 	ev.PlayHistoryID = m.currentPlayHistoryID
 	ev.CollectionID = m.physicalLibraryEntryID
 	m.mu.Unlock()
+	return ev
+}
 
-	if err := m.lib.RecordBoundaryEvent(ev); err != nil {
+func (m *mgr) recordBoundaryTelemetry(outcome, boundaryType string, isHard bool) {
+	if m.lib == nil {
+		return
+	}
+	ev := m.buildBoundaryEvent(outcome, boundaryType, isHard)
+	if _, err := m.lib.RecordBoundaryEvent(ev); err != nil {
 		log.Printf("boundary telemetry: %v", err)
 	}
 }

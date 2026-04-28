@@ -8,6 +8,38 @@ This document describes how first-time configuration feels today, why it is hard
 - **Concrete implementation order:** [Proposed work (phased)](#proposed-work-phased) — Phases **1–7** (sequential numbering; no `5b`).
 - **Skim / backlog bullets:** [Editorial](#editorial-what-we-would-add-remove-or-defer) at the end intentionally mirrors roadmap intent for readers who jump to the bottom; **normative detail** remains in the body sections above.
 
+### Current implementation snapshot (2026-04)
+
+- **Calibration scope now supports explicit turntable mapping:** `connected_devices[].is_turntable` (with name fallback for `phono`/`vinyl`) is already used by the recognition calibration wizard.
+- **Vinyl transition (groove noise / vinyl gap) wizard step removed:** the `vinyl_transition` calibration step — which captured inter-track groove noise RMS and gap duration to feed `transitionGapRMS` in the boundary detector — has been removed from the wizard and the calibration summary UI. **Rationale:** with RMS histogram learning active, the derived per-format silence threshold (e.g., `0.0162` for vinyl) already sits above measured groove noise (`0.0080 RMS`), meaning the primary `silence→audio` boundary path handles inter-track detection without needing `transitionGapRMS`. The `energy-change` secondary path is marginal in comparison. The `vinyl_transition` field may be stored in existing `calibration_profiles` JSON but is no longer displayed or used for new captures. Can be reinstated if future edge cases require it.
+- **Calibration UX is vinyl-first:** wizard copy and selection emphasize phono/turntable paths; no generic “all inputs equally” framing.
+- **Metrics telemetry is progressively disclosed:** boundary telemetry moved under a collapsed **Advanced** accordion; readiness card shows a friendly summary with technical details collapsed.
+- **User-facing copy no longer exposes “R3” labels** on current UI surfaces (uses auto-tuning/adaptive wording).
+- **Recognition page now owns auto-tuning controls:** `Auto-tuning from playback results` and `RMS percentile learning` live in `recognition.html`, with advanced parameters collapsed by default.
+- **RMS snapshot is user-focused in UI:** snapshot cards show `CD` + `Vinyl`; `Physical` stays collected in background for internal learning.
+
+### Review notes before merge (recognition pass)
+
+- **Transient source dropout guard is active:** `physical -> none` pulses are ignored for up to **8 s** to absorb source-detector reconnects and prevent idle/artwork flicker. This is intentional, but introduces a trade-off: real stops shorter than that window may take longer to show idle.
+- **Boundary-sensitive hardening is in place:** with known track duration, boundary-sensitive tracks suppress boundary triggers until track end (except `duration-exceeded` path), reducing mid-track false transitions.
+- **Residual risk:** no dedicated front-end integration suite currently validates full `recognition.html` relocation flows (load/edit/save across moved controls). Coverage relies on existing Go/package tests plus manual UI verification.
+
+### Delivery status vs this plan (2026-04)
+
+**Done (implemented now):**
+
+- Recognition UX now centralizes tuning controls (`auto-tuning` + `RMS learning`) with advanced parameters collapsed.
+- RMS snapshot presentation now targets user-facing formats (`CD`, `Vinyl`) while internal `Physical` learning remains enabled.
+- Boundary-sensitive behavior and short source-reconnect flicker mitigation landed in state-manager runtime.
+- Onboarding plan + prototype documentation are synchronized with the shipped recognition UX.
+
+**Still pending from roadmap phases:**
+
+- **Phase 1:** full neutral defaults cleanup (`defaultConfig()` amplifier/weather/calibration fixtures) is not fully completed in this pass.
+- **Phase 2/5:** checklist + `/api/setup-status` orchestration remains roadmap work.
+- **Phase 3:** dedicated production amplifier wizard route/orchestration is still pending.
+- **Phase 6/7:** full now-playing parity polish and CLI↔web bridge completion remain in progress roadmap items.
+
 ---
 
 ## Product positioning & primary audience
@@ -43,11 +75,11 @@ This document describes how first-time configuration feels today, why it is hard
 | Surface | Role |
 |--------|------|
 | `sudo oceano-setup` | AirPlay name, Bluetooth, ALSA devices, PipeWire resilience, optional display |
-| Main config drawer (`index.html`) | Streaming, capture, amplifier toggle + profile link, advanced link |
-| `recognition.html` | ACRCloud / chain / calibration wizards / mic gain |
+| Main config drawer (`index.html`) | Streaming, capture, amplifier toggle + profile link, **Library** (collection editor; per-track **Boundary-sensitive** hint for VU/duration policy), advanced link |
+| `recognition.html` | ACRCloud / chain / calibration wizards / mic gain / auto-tuning + RMS snapshot |
 | `amplifier.html` | Broadlink host, pairing, IR learning, inputs, USB reset, connected devices |
 | `pair.html` | Broadlink pairing wizard |
-| `advanced.html` | Sockets, paths, library DB |
+| `advanced.html` | Sockets, paths, library DB (recognition auto-tuning moved out) |
 
 A first user opening **Configuration** sees many sections and external links without a **single ordered checklist** or “you are 2/5 steps done” model. For a **vinyl-first** user, the mental model (“REC OUT → capture → identify my records”) is disconnected from “Amplifier Control” and “Broadlink” until they read hints.
 
@@ -108,7 +140,8 @@ So the product already has “cards” visually, but not a **hub mental model**:
 | **Amplifier & IR** | “Not set up” / “Broadlink OK, 4/8 IR learned” | → amplifier wizard or `amplifier.html` |
 | **Streaming basics** | AirPlay name, BT on/off summary | → inline quick fields *or* lightweight sub-page |
 | **Display & idle** | Now playing / weather summary | → existing sections or `nowplaying`-related UI |
-| **Advanced** | “Sockets, paths, library” | → `advanced.html` |
+| **Advanced** | “Sockets, paths, library DB” — library metadata editing including **Boundary-sensitive** lives on the main drawer **Library** section | → `advanced.html` |
+| **Recognition tuning** | Auto-tuning toggle, RMS learning toggle/apply, CD/Vinyl snapshot; advanced tuning params collapsed | → `recognition.html` |
 
 **Large icons (or simple illustrations)** on each card are worthwhile **if**:
 
@@ -119,8 +152,10 @@ So the product already has “cards” visually, but not a **hub mental model**:
 **What to avoid**
 
 - **Duplicating** every field from `recognition.html` / `amplifier.html` on the hub — double maintenance and overwhelming first screen.
-- **More than ~5–7 hub tiles** without grouping — use a **“Physical media”** group and a **“Everything else”** collapsed region to preserve the audience-first story.
-- **Relying on the narrow drawer** for a rich 2×2 card grid on desktop — the drawer is ~520px wide; a **dedicated `/config` hub page** (full width) or widening the drawer on large breakpoints may be needed for comfortable large tiles.
+- **More than ~5–7 hub tiles** without grouping — use a **”Physical media”** group and a **”Everything else”** collapsed region to preserve the audience-first story.
+- **Relying on the narrow drawer** for a rich card grid — the config drawer is ~520px wide, which is too narrow for a comfortable 2-column layout.
+
+**Decision — hub lives at `/config` (full-page route):** implement the hub as a dedicated full-width page, not inside the config drawer. The existing drawer remains for quick single-field edits (capture device, ACRCloud credentials) reachable from the top status bar. `/config` is the navigation and first-run orientation surface. This removes the need for column-count hacks in the narrow drawer and gives room for a 2–3 column card grid on desktop while collapsing to a single column on mobile / Pi kiosk browser.
 
 ### Hub rollout steps (non-prescriptive — **not** the same numbers as [Proposed work (phased)](#proposed-work-phased))
 
@@ -131,6 +166,16 @@ These three steps are **UI sequencing** for the hub only; do not confuse them wi
 3. **Hub step 3 — Responsive:** on wide viewports, **two columns of hub cards**; on mobile, single column; optional full-page hub when opened from first-run checklist.
 
 This aligns with the **physical-first onboarding** narrative and with **progressive disclosure**: the hub answers “where do I go?”; detail pages answer “how do I tune it?”
+
+### After first-time setup: wizard vs direct pages
+
+Use a **hybrid model**:
+
+- **Wizard remains available** for first run and big changes (new amplifier, rewiring, major topology edits).
+- **Direct pages remain first-class** (`recognition.html`, `amplifier.html`, `advanced.html`) for quick expert edits without replaying the full flow.
+- Hub behaviour by status:
+  - **Incomplete setup:** prioritize checklist/wizard CTA.
+  - **Complete setup:** prioritize direct actions + visible **“Re-run setup wizard”** entry point.
 
 ---
 
@@ -162,6 +207,8 @@ Yes — this belongs here as **cross-cutting display + configuration outcome**: 
 
 ## Device roles (connected equipment → input usage)
 
+**State today:** implementation already supports **`connected_devices[].is_turntable`** and uses it to scope calibration targets. This gives users an explicit mapping even when the amplifier input label is not “Phono” (for example AUX1 used as turntable path). Name-based detection (`phono` / `vinyl`) remains fallback.
+
 When the user defines a **connected device** (name + amplifier input IDs), they should optionally classify **what that device is for**:
 
 | Role | Meaning | Calibration wizard | Notes |
@@ -177,7 +224,8 @@ When the user defines a **connected device** (name + amplifier input IDs), they 
 
 **Migration (decided):** if `role` is **absent**, treat as **`physical_media`**. If `physical_format` is **absent**, treat as **`unspecified`** — UI may **nudge** once: “Is this device vinyl, CD, or tape?” with emphasis when the mapped **logical input label** is **Phono** (strong prior for vinyl). Do not auto-write `vinyl` without user confirmation.
 
-**Calibration wizard behaviour:** calibratable inputs = union of input IDs on `physical_media` devices, plus manual “always calibrate”. **Vinyl gap** sub-step only when **`physical_format === vinyl`** (or product-approved equivalent).
+**Calibration wizard behaviour (target):** calibratable inputs = union of input IDs on `physical_media` devices, plus manual “always calibrate”. ~~Vinyl gap sub-step only when `physical_format === vinyl`~~ — **removed** (see implementation snapshot; RMS learning supersedes it).
+**Calibration wizard behaviour (current):** OFF/ON capture for union of input IDs on devices marked **`is_turntable`**, with fallback to phono/vinyl input name matching. Vinyl transition step removed from wizard.
 
 **Off/On wizard limitations (CD and some line paths):** The wizard assumes two measurably different RMS levels (“off” vs “on” / programme). On many **CD** setups the REC OUT path shows **similar idle hum** whether transport is idle or outputs are muted — there is **no usable differential**, so wizard-derived thresholds may be noise or collapse to meaningless gaps. Copy should **not promise** universal Off/On calibration; steer users toward (a) a conservative **`advanced.vu_silence_threshold`** above idle hum on REC, (b) re-running wizard only when contrast is audible, and (c) the statistical / shadow path in **`recognition-enhancement-plan.md`** (Phase **1B**, **R10**) rather than insisting on per-input profiles for CD-only rigs.
 
@@ -269,6 +317,7 @@ This closes the loop for **repeat configuration** as a first-class story, not on
 - **Weather:** default off; empty or null location until enabled.
 - **Calibration profiles:** empty map on fresh install; move numeric fixtures to **tests** or `docs/examples/*.json` if still needed for CI.
 - **UI:** “Set up amplifier” CTA opens wizard; no pre-selected profile in `<select>`.
+- **Migration safety:** `defaultConfig()` changes apply **only when no `config.json` exists** at startup. On upgrade, `oceano-web` reads the existing file and leaves all amplifier, IR, and calibration data intact. Document this guarantee in install scripts and upgrade notes so users are not surprised by apparent config loss after `apt upgrade`.
 
 ### Phase 2 — Physical-first welcome checklist
 
@@ -283,15 +332,26 @@ Ordered for the target audience:
 
 Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Bluetooth (optional)”.
 
-**Checklist “done” rules (implementation):** each row is **complete** when the corresponding booleans from **`GET /api/setup-status`** are true — use the **field names in the draft contract** below (`capture_configured`, `recognition_credentials_set`, `amplifier_topology_complete`, `calibration_physical_complete`, `stylus_profile_configured`, etc.). **Dismissed checklist** can remain a **client** flag (`localStorage`) so we do not invent new server state unless product wants sync across browsers.
+**Checklist “done” rules (implementation):** each row is **complete** when the corresponding booleans from **`GET /api/setup-status`** are true — use the **field names in the draft contract** below (`capture_configured`, `recognition_credentials_set`, `amplifier_topology_complete`, `calibration_physical_complete`, `stylus_profile_configured`, etc.).
+
+**Skip vs. dismiss (important distinction):** rows must track two different user intents:
+- **Skip for now** — implicit; no state written; row reappears next session. Used when the user closed the page mid-setup.
+- **Dismiss permanently** — explicit opt-out stored in `localStorage` keyed by row ID (e.g. `oceano_dismissed_stylus`). Used when a CD-only listener taps “Not relevant for me” on the stylus row. Dismissed rows hide without reappearing.
+
+This distinction avoids two failure modes: rows that nag forever vs rows that silently disappear after an accidental swipe. Do not invent server state for dismissed rows — `localStorage` is sufficient and avoids sync complexity across browsers.
 
 ### Phase 3 — Amplifier wizard implementation
 
-- As specified in the previous section; **gate** IR-learning steps on successful Broadlink pairing (reuse `pair.html` and/or same APIs — **separate pairing wizard is OK**). Persist atomically at end (or per major milestone with explicit “saved draft” if needed).
+- As specified in the previous section; **gate** IR-learning steps on successful Broadlink pairing (reuse `pair.html` and/or same APIs — **separate pairing wizard is OK**).
+- **Wizard abandonment:** if the user closes the browser mid-wizard the partial state must not be silently lost on an 8-step flow. Two acceptable strategies:
+  - **(A — preferred)** persist each completed step to `localStorage` as a draft, restoring on re-open with a “Continue where you left off?” banner. Most useful for steps 3–5 where IR learning is the most time-consuming.
+  - **(B)** show a browser `beforeunload` confirmation (“Leave setup? Progress will be lost”) — simpler but intrusive.
+  Persist to the server only at the final **”Save & restart”** step; no partial server writes.
 
 ### Phase 4 — Calibration scoped by device role (+ physical format)
 
-- Extend config + UI for **`role`** on `connected_devices` (`physical_media` | `streaming` | `other`); **migration:** missing `role` → **`physical_media`** (see [Device roles](#device-roles-connected-equipment--input-usage)).
+- Keep **`is_turntable`** as a supported path (already shipped) and expose it in onboarding copy as the practical way to map turntable topology to arbitrary amplifier inputs.
+- Extend config + UI for **`role`** on `connected_devices` (`physical_media` | `streaming` | `other`); **migration:** missing `role` → **`physical_media`** (existing `connected_devices` rows in pre-Phase-4 configs are almost always physical sources — streamers were not historically modelled as named connected devices). **New devices added via wizard must select role explicitly** — no silent assignment. If a miscategorised streaming device surfaces (e.g. Chromecast on AUX1), a one-time nudge ("Is this a physical source or a streamer?") can correct it without invalidating existing calibration profiles (see [Device roles](#device-roles-connected-equipment--input-usage)).
 - Add **`physical_format`** on `physical_media` rows (`vinyl` | `cd` | `tape` | `mixed` | `unspecified`); **migration:** missing → **`unspecified`** with optional one-time UI nudge (stronger when input is **Phono**).
 - Filter calibration wizard input list; update `recognition_page.js` / `calibration-wizard.js` copy to explain **why** some inputs are hidden.
 - Ensure **state manager** still receives calibration keyed by input ID (no breaking change unless we add aliases).
@@ -299,6 +359,7 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 ### Phase 5 — Contextual hints & API
 
 - Implement **`GET /api/setup-status`** (or extend an existing aggregate) returning the booleans needed for the hub, checklist, and header chips (“Missing ACRCloud”, “Amplifier not configured”, “Calibrate Phono for best vinyl boundaries”, etc.).
+- **Caching:** `services_healthy` requires a `systemctl is-active` subprocess call per service. Cache this result in-process for **10–30 s** to avoid forking on every hub poll or SSE tick. Config-derived booleans (`capture_configured`, `recognition_credentials_set`, etc.) are cheap reads from the in-memory config and do not need caching.
 - Config drawer **reorders** sections based on incomplete flags.
 
 #### `GET /api/setup-status` — draft JSON contract

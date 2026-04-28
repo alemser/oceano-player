@@ -55,6 +55,9 @@ type mgr struct {
 	physicalArtworkPath    string             // artwork path for current physical track (from library or fetch)
 	physicalFormat         string             // "CD" | "Vinyl" — set on recognition success; cleared only on new session
 	physicalLibraryEntryID int64              // library DB row ID for the current physical track; 0 when unknown
+	// physicalBoundarySensitive is the R8 library hint for the current track: nudges
+	// duration-based VU boundary guards when true.
+	physicalBoundarySensitive bool
 
 	// streamingPhysicalMatch is set when a streaming track (AirPlay, etc.) matches
 	// an entry in the local physical library. Cleared when the track changes or
@@ -63,6 +66,9 @@ type mgr struct {
 	// streamingMatchKey is the "title\x00artist" key of the last lookup so we
 	// avoid re-querying the library on every tick when the track hasn't changed.
 	streamingMatchKey string
+
+	// telemetryDurationPessimismDelta is optional telemetry-derived adjustment (R3).
+	telemetryDurationPessimismDelta float64
 
 	// recognizeTrigger is sent to when a new recognition attempt should start:
 	// on Physical source activation and on track-boundary events from runVUMonitor.

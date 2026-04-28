@@ -24,7 +24,28 @@ const (
 	// Allow duration-guard bypass only near track start so a quick needle re-drop
 	// can trigger recognition, but mid-track false positives still remain guarded.
 	earlyBypassGuardWindow = 45 * time.Second
+	// Source-detector restarts can briefly emit None while the capture device
+	// reconnects; keep Physical stable for a short window to avoid idle flicker.
+	transientNoneIgnoreWindow = 8 * time.Second
 )
+
+// effectiveDurationPessimism applies a conservative boost when the current library
+// row is marked boundary-sensitive (quiet passages mistaken for track changes).
+func effectiveDurationPessimism(base float64, boundarySensitive bool) float64 {
+	const boost = 0.12
+	const capVal = 0.98
+	if base <= 0 || base > 1 {
+		base = 0.75
+	}
+	if !boundarySensitive {
+		return base
+	}
+	v := base + boost
+	if v > capVal {
+		return capVal
+	}
+	return v
+}
 
 func shouldSuppressBoundary(durationMs int, seekMS int64, seekUpdatedAt, bypassUntil, now time.Time, durationPessimism float64) bool {
 	if durationMs <= 0 || seekUpdatedAt.IsZero() {
@@ -84,6 +105,20 @@ func shouldClearStaleRecognitionOnSilence(durationMs int, seekMS int64, seekUpda
 	return false
 }
 
+func shouldSuppressBoundarySensitiveBoundary(durationMs int, seekMS int64, seekUpdatedAt, now time.Time, boundarySensitive bool, reason string) bool {
+	if !boundarySensitive || durationMs <= 0 || seekUpdatedAt.IsZero() {
+		return false
+	}
+	if reason == "duration-exceeded" {
+		return false
+	}
+	elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
+	trackDuration := time.Duration(durationMs) * time.Millisecond
+	// Boundary-sensitive tracks with known duration stay locked until the known
+	// track end so quiet passages do not trigger mid-track re-recognition.
+	return elapsed < trackDuration
+}
+
 func (m *mgr) clearStalePhysicalRecognitionOnSilence(reason string, silenceElapsed time.Duration) bool {
 	m.mu.Lock()
 	if m.physicalSource != "Physical" || m.recognitionResult == nil {
@@ -95,6 +130,7 @@ func (m *mgr) clearStalePhysicalRecognitionOnSilence(reason string, silenceElaps
 	m.recognitionResult = nil
 	m.physicalArtworkPath = ""
 	m.physicalLibraryEntryID = 0
+	m.physicalBoundarySensitive = false
 	m.shazamContinuityReady = false
 	m.shazamContinuityAbandoned = false
 	m.physicalSeekMS = 0
@@ -135,6 +171,12 @@ func (m *mgr) pollSourceFile() {
 		src = "None"
 	}
 	m.mu.Lock()
+	if src == "None" && m.physicalSource == "Physical" && !m.lastPhysicalAt.IsZero() {
+		if sincePhysical := time.Since(m.lastPhysicalAt); sincePhysical >= 0 && sincePhysical <= transientNoneIgnoreWindow {
+			m.mu.Unlock()
+			return
+		}
+	}
 	changed := m.physicalSource != src
 	newSession := false
 	resumedAfterIdle := false
@@ -164,6 +206,7 @@ func (m *mgr) pollSourceFile() {
 	if newSession {
 		m.recognitionResult = nil
 		m.physicalArtworkPath = ""
+		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
 		m.shazamContinuityReady = false
 		m.lastContinuityMismatchAt = time.Time{}
@@ -174,6 +217,7 @@ func (m *mgr) pollSourceFile() {
 	} else if resumedAfterIdle {
 		m.recognitionResult = nil
 		m.physicalArtworkPath = ""
+		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
 		m.shazamContinuityReady = false
 		m.lastContinuityMismatchAt = time.Time{}
@@ -195,6 +239,7 @@ func (m *mgr) pollSourceFile() {
 		// until the next match, which matches user expectation better than a wrong title.
 		m.recognitionResult = nil
 		m.physicalArtworkPath = ""
+		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
 		m.shazamContinuityReady = false
 		m.lastContinuityMismatchAt = time.Time{}
@@ -239,6 +284,9 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 		silenceFrames = 22 // ~1 s of silence (vinyl inter-track gaps can be < 2 s)
 		activeFrames  = 11 // ~0.5 s of audio resumption
 		retryDelay    = 5 * time.Second
+		// Rebuild detector settings periodically so telemetry nudges stay fresh
+		// during long uptimes even when the VU socket remains connected.
+		telemetryRefreshInterval = 24 * time.Hour
 	)
 
 	silenceThreshold := float32(m.cfg.VUSilenceThreshold)
@@ -270,7 +318,26 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 			durationGuardBypassWindow = 20 * time.Second
 		}
 		detectorCfg := defaultVUBoundaryDetectorConfig(silenceThreshold, silenceFrames, activeFrames)
-		calModel := loadBoundaryCalibrationModel(m.cfg.CalibrationConfigPath, silenceThreshold, m.currentPhysicalFormatForCalibration())
+		calModel, telemetryCfg, rmsLearn := loadBoundaryCalibrationModel(m.cfg.CalibrationConfigPath, silenceThreshold, m.currentPhysicalFormatForCalibration())
+		calFormat := m.currentPhysicalFormatForCalibration()
+		silNudge, pessNudge, telemetrySummary := computeTelemetryCalibrationNudges(m.lib, telemetryCfg, calFormat)
+		m.mu.Lock()
+		if !telemetryCfg.Enabled || m.lib == nil {
+			m.telemetryDurationPessimismDelta = 0
+		} else {
+			m.telemetryDurationPessimismDelta = pessNudge
+		}
+		m.mu.Unlock()
+		if telemetryCfg.Enabled && telemetrySummary != "" {
+			log.Printf("VU monitor: R3 telemetry nudges — %s", telemetrySummary)
+		}
+		if silNudge != 0 {
+			calModel.enterSilenceThreshold += silNudge
+			calModel.exitSilenceThreshold += silNudge
+			calModel.enterSilenceThreshold, calModel.exitSilenceThreshold = clampSilenceThresholdsToFloor(
+				calModel.enterSilenceThreshold, calModel.exitSilenceThreshold, silenceThreshold,
+			)
+		}
 		if calModel.enterSilenceThreshold > 0 {
 			detectorCfg.silenceEnterThreshold = calModel.enterSilenceThreshold
 		}
@@ -294,10 +361,30 @@ func (m *mgr) runVUMonitor(ctx context.Context) {
 		if detectorCfg.energyDipMaxFrames > 0 && detectorCfg.energyDipMaxFrames < detectorCfg.energyDipMinFrames+4 {
 			detectorCfg.energyDipMaxFrames = detectorCfg.energyDipMinFrames + 4
 		}
+		applyPersistedRMSLearningToDetector(m.lib, rmsLearn, silenceThreshold, calFormat, &detectorCfg)
+		// Re-apply R3 silence nudge on top of profile- or RMS-learned enter/exit.
+		if silNudge != 0 {
+			detectorCfg.silenceEnterThreshold += silNudge
+			detectorCfg.silenceExitThreshold += silNudge
+			detectorCfg.silenceEnterThreshold, detectorCfg.silenceExitThreshold = clampSilenceThresholdsToFloor(
+				detectorCfg.silenceEnterThreshold, detectorCfg.silenceExitThreshold, silenceThreshold,
+			)
+		}
 		if calModel.profileID != "" {
 			log.Printf("VU monitor: calibration profile=%s silenceEnter=%.4f silenceExit=%.4f gapRMS=%.4f gapDur=%s", calModel.profileID, detectorCfg.silenceEnterThreshold, detectorCfg.silenceExitThreshold, detectorCfg.transitionGapRMS, calModel.transitionGapDuration.Round(100*time.Millisecond))
 		}
-		m.readVUFrames(ctx, conn, detectorCfg, durationGuardBypassWindow, m.cfg.DurationPessimism)
+		var learner *rmsPercentileLearner
+		if rmsLearn.Enabled && m.lib != nil {
+			learner = newRMSPercentileLearner(m.lib, rmsLearn, silNudge)
+		}
+		refreshInterval := time.Duration(0)
+		if telemetryCfg.Enabled {
+			refreshInterval = telemetryRefreshInterval
+		} else if rmsLearn.Enabled && m.lib != nil {
+			// Reload calibration JSON + persisted RMS histograms periodically during long uptimes.
+			refreshInterval = telemetryRefreshInterval
+		}
+		m.readVUFrames(ctx, conn, detectorCfg, durationGuardBypassWindow, m.effectiveDurationPessimismForPhysicalPolicy(), refreshInterval, learner, silenceThreshold)
 		conn.Close()
 
 		if ctx.Err() != nil {
@@ -324,7 +411,7 @@ func (m *mgr) currentPhysicalFormatForCalibration() string {
 	return ""
 }
 
-func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBoundaryDetectorConfig, durationGuardBypassWindow time.Duration, durationPessimism float64) {
+func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBoundaryDetectorConfig, durationGuardBypassWindow time.Duration, durationPessimism float64, refreshInterval time.Duration, learner *rmsPercentileLearner, floorSilence float32) {
 	// Reset silence state on reconnect — without a live stream we have no
 	// reliable VU state; clear it so the display doesn't stay frozen as idle.
 	m.mu.Lock()
@@ -339,6 +426,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 	// track is confirmed (recognition sets a fresh seekUpdatedAt). Avoids requiring
 	// an explicit reset signal for fully gapless albums where no VU boundary fires.
 	var durationExceededFiredForSeek time.Time
+	connectedAt := time.Now()
 
 	fireBoundaryTrigger := func(reason string, isHardBoundary bool, detectedAt time.Time) {
 		m.mu.Lock()
@@ -346,6 +434,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		var seekMS int64
 		var seekUpdatedAt time.Time
 		continuityReady := m.shazamContinuityReady
+		boundarySensitive := m.physicalBoundarySensitive
 		if m.recognitionResult != nil {
 			durationMs = m.recognitionResult.DurationMs
 		}
@@ -353,20 +442,29 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		seekUpdatedAt = m.physicalSeekUpdatedAt
 		m.mu.Unlock()
 
+		effPess := effectiveDurationPessimism(durationPessimism, boundarySensitive)
 		now := time.Now()
-		if shouldSuppressBoundary(durationMs, seekMS, seekUpdatedAt, durationGuardBypassUntil, now, durationPessimism) {
+		if shouldSuppressBoundarySensitiveBoundary(durationMs, seekMS, seekUpdatedAt, now, boundarySensitive, reason) {
 			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
-			suppressUntil := time.Duration(float64(trackDuration) * durationPessimism)
+			log.Printf("VU monitor: boundary suppressed (%s) — boundary-sensitive lock active (%s < %s)",
+				reason, elapsed.Round(time.Second), trackDuration.Round(time.Second))
+			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeSuppressedDurationGuard, reason, isHardBoundary)
+			return
+		}
+		if shouldSuppressBoundary(durationMs, seekMS, seekUpdatedAt, durationGuardBypassUntil, now, effPess) {
+			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
+			trackDuration := time.Duration(durationMs) * time.Millisecond
+			suppressUntil := time.Duration(float64(trackDuration) * effPess)
 			log.Printf("VU monitor: boundary suppressed (%s) — %s elapsed, checks active from %s (track %s)",
 				reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))
 			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeSuppressedDurationGuard, reason, isHardBoundary)
 			return
 		}
-		if shouldIgnoreBoundaryAtMatureProgress(durationMs, seekMS, seekUpdatedAt, now, durationPessimism) {
+		if shouldIgnoreBoundaryAtMatureProgress(durationMs, seekMS, seekUpdatedAt, now, effPess) {
 			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
-			suppressUntil := time.Duration(float64(trackDuration) * normalizedDurationPessimism(durationPessimism))
+			suppressUntil := time.Duration(float64(trackDuration) * normalizedDurationPessimism(effPess))
 			if continuityReady {
 				log.Printf("VU monitor: boundary ignored (%s) — continuity monitor preferred at mature progress (%s >= %s, track %s)",
 					reason, elapsed.Round(time.Second), suppressUntil.Round(time.Second), trackDuration.Round(time.Second))
@@ -394,11 +492,30 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		}
 
 		log.Printf("VU monitor: track boundary detected (%s hard=%v) — triggering recognition", reason, isHardBoundary)
+		var evID int64
+		if m.lib != nil {
+			ev := m.buildBoundaryEvent(internallibrary.BoundaryOutcomeFired, reason, isHardBoundary)
+			var err error
+			evID, err = m.lib.RecordBoundaryEvent(ev)
+			if err != nil {
+				log.Printf("boundary telemetry: %v", err)
+				evID = 0
+			}
+		}
 		select {
-		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true, isHardBoundary: isHardBoundary, detectedAt: detectedAt}:
-			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeFired, reason, isHardBoundary)
+		case m.recognizeTrigger <- recognizeTrigger{
+			isBoundary: true, isHardBoundary: isHardBoundary, detectedAt: detectedAt,
+			boundaryEventID: evID,
+		}:
 		default:
-			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeTriggerChannelFull, reason, isHardBoundary)
+			if evID > 0 && m.lib != nil {
+				if err := m.lib.ConvertBoundaryEventOutcome(evID,
+					internallibrary.BoundaryOutcomeTriggerChannelFull, reason, isHardBoundary); err != nil {
+					log.Printf("boundary telemetry: %v", err)
+				}
+			} else {
+				m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeTriggerChannelFull, reason, isHardBoundary)
+			}
 		}
 	}
 
@@ -408,6 +525,10 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 	}()
 
 	for {
+		if refreshInterval > 0 && time.Since(connectedAt) >= refreshInterval {
+			log.Printf("VU monitor: refreshing detector settings after %s uptime", refreshInterval)
+			return
+		}
 		if _, err := io.ReadFull(conn, buf); err != nil {
 			return
 		}
@@ -416,6 +537,9 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		right := math.Float32frombits(binary.LittleEndian.Uint32(buf[4:8]))
 		avg := (left + right) / 2
 		out := detector.Feed(avg, now)
+		if learner != nil {
+			learner.observe(m, avg, out, floorSilence, detector)
+		}
 
 		if out.armDurationBypass {
 			durationGuardBypassUntil = now.Add(durationGuardBypassWindow)
@@ -443,12 +567,21 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 			durationMS := 0
 			seekMS := int64(0)
 			seekUpdatedAt := time.Time{}
+			boundarySensitive := false
 			if m.recognitionResult != nil {
 				durationMS = m.recognitionResult.DurationMs
 				seekMS = m.physicalSeekMS
 				seekUpdatedAt = m.physicalSeekUpdatedAt
+				boundarySensitive = m.physicalBoundarySensitive
 			}
 			m.mu.Unlock()
+			if boundarySensitive && durationMS > 0 && !seekUpdatedAt.IsZero() {
+				elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
+				trackDuration := time.Duration(durationMS) * time.Millisecond
+				if elapsed < trackDuration {
+					continue
+				}
+			}
 			if shouldClearStaleRecognitionOnSilence(durationMS, seekMS, seekUpdatedAt, now, out.silenceElapsed) {
 				if m.clearStalePhysicalRecognitionOnSilence("prolonged-silence", out.silenceElapsed) {
 					staleSilenceCleared = true

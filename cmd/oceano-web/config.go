@@ -131,6 +131,10 @@ type ConnectedDeviceConfig struct {
 	InputIDs []AmplifierInputID `json:"input_ids,omitempty"`
 	// HasRemote indicates whether this device has a remote control (IR codes).
 	HasRemote bool `json:"has_remote,omitempty"`
+	// IsTurntable marks this connected device as the vinyl source.
+	// Calibration wizard uses this to target the proper input(s) even when
+	// the input label is not explicitly "Phono".
+	IsTurntable bool `json:"is_turntable,omitempty"`
 	// IRCodes maps command names to base64-encoded Broadlink IR codes.
 	// Keys follow the same convention as CD player: power_on, power_off,
 	// play, pause, stop, next, previous, eject.
@@ -422,6 +426,50 @@ type AdvancedConfig struct {
 	// recognition calibration wizard. Keys are amplifier input IDs (for example
 	// "10"=Phono, "20"=CD).
 	CalibrationProfiles map[string]CalibrationProfile `json:"calibration_profiles,omitempty"`
+	// TelemetryNudges optionally adjusts effective VU silence thresholds and
+	// duration pessimism from boundary_events follow-up telemetry (same_track_restored vs matched).
+	TelemetryNudges *TelemetryNudgesConfig `json:"r3_telemetry_nudges,omitempty"`
+	// AutonomousCalibration when enabled forces telemetry nudges (R3) on at runtime
+	// even if r3_telemetry_nudges.enabled is false — bounded adjustments still require
+	// enough paired follow-ups (see Listening Metrics calibration readiness).
+	AutonomousCalibration *AutonomousCalibrationConfig `json:"autonomous_calibration,omitempty"`
+	// RMSPercentileLearning collects stable-silence vs stable-music RMS histograms
+	// into the library DB and can autonomously set VU silence enter/exit thresholds.
+	RMSPercentileLearning *RMSPercentileLearningConfig `json:"rms_percentile_learning,omitempty"`
+}
+
+// RMSPercentileLearningConfig enables autonomous RMS histogram learning (library DB).
+type RMSPercentileLearningConfig struct {
+	Enabled             *bool `json:"enabled,omitempty"`
+	AutonomousApply     bool `json:"autonomous_apply"`
+	MinSilenceSamples   int  `json:"min_silence_samples,omitempty"`
+	MinMusicSamples     int  `json:"min_music_samples,omitempty"`
+	PersistIntervalSecs int  `json:"persist_interval_secs,omitempty"`
+	HistogramBins       int  `json:"histogram_bins,omitempty"`
+	HistogramMaxRMS     float64 `json:"histogram_max_rms,omitempty"`
+}
+
+// AutonomousCalibrationConfig enables hands-off application of R3 telemetry nudges.
+type AutonomousCalibrationConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
+// TelemetryNudgesConfig enables bounded calibration nudges driven by Listening Metrics telemetry (R3).
+type TelemetryNudgesConfig struct {
+	Enabled bool `json:"enabled"`
+	// LookbackDays restricts boundary_events aggregation (default 14).
+	LookbackDays int `json:"lookback_days,omitempty"`
+	// MinFollowupPairs requires at least this many (same_track_restored + matched) rows before nudging.
+	MinFollowupPairs int `json:"min_followup_pairs,omitempty"`
+	// BaselineFalsePositiveRatio is the target acceptable rate of same_track_restored among pairs (default 0.10).
+	BaselineFalsePositiveRatio float64 `json:"baseline_false_positive_ratio,omitempty"`
+	// MaxSilenceThresholdDelta caps the absolute additive change to RMS silence enter/exit (default 0.004).
+	MaxSilenceThresholdDelta float64 `json:"max_silence_threshold_delta,omitempty"`
+	// MaxDurationPessimismDelta caps the additive adjustment to duration pessimism (default 0.06).
+	MaxDurationPessimismDelta float64 `json:"max_duration_pessimism_delta,omitempty"`
+	// EarlyTrackProgressP75Threshold: when P75 seek/duration among matched fires is below this, apply an extra silence nudge (default 0.18).
+	EarlyTrackProgressP75Threshold float64 `json:"early_track_progress_p75_threshold,omitempty"`
+	EarlyTrackExtraSilenceDelta      float64 `json:"early_track_extra_silence_delta,omitempty"`
 }
 
 // CalibrationProfile stores OFF/ON RMS snapshots captured by the recognition

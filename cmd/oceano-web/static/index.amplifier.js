@@ -144,11 +144,20 @@ function renderAmpInputSelect() {
 
 function setConnectedDevicesModel(devices) {
   const arr = Array.isArray(devices) ? devices : [];
+  const isVinylLikeInput = (inputID) => {
+    const input = _ampInputsModel.find((i) => String(i.id) === String(inputID));
+    const label = String(input?.logical_name || '').toLowerCase();
+    return label.includes('phono') || label.includes('vinyl') || label.includes('vinil');
+  };
   _ampConnectedDevices = arr.map((d) => ({
     id:         String(d?.id        ?? '').trim(),
     name:       String(d?.name      ?? '').trim(),
     input_ids:  (d?.input_ids ?? []).map(String),
     has_remote: !!d?.has_remote,
+    is_turntable: (typeof d?.is_turntable === 'boolean')
+      ? !!d.is_turntable
+      : (d?.input_ids ?? []).some((id) => isVinylLikeInput(id)),
+    _turntable_manual: typeof d?.is_turntable === 'boolean',
     ir_codes:   d?.ir_codes ?? {},
   })).filter((d) => d.id !== '');
   renderConnectedDevicesTable();
@@ -156,11 +165,26 @@ function setConnectedDevicesModel(devices) {
 }
 
 function collectConnectedDevicesFromUI() {
-  return _ampConnectedDevices.map((d) => ({ ...d }));
+  return _ampConnectedDevices.map((d) => ({
+    id: d.id,
+    name: d.name,
+    input_ids: d.input_ids,
+    has_remote: !!d.has_remote,
+    is_turntable: !!d.is_turntable,
+    ir_codes: d.ir_codes ?? {},
+  }));
 }
 
 function addConnectedDevice() {
-  _ampConnectedDevices.push({ id: _newInputID(), name: '', input_ids: [], has_remote: false, ir_codes: {} });
+  _ampConnectedDevices.push({
+    id: _newInputID(),
+    name: '',
+    input_ids: [],
+    has_remote: false,
+    is_turntable: false,
+    _turntable_manual: false,
+    ir_codes: {},
+  });
   renderConnectedDevicesTable();
 }
 
@@ -215,6 +239,22 @@ function renderConnectedDevicesTable() {
       renderConnectedDevicesTable();
     };
 
+    const turntableLabel = document.createElement('label');
+    turntableLabel.className = 'amp-device-remote-toggle';
+    turntableLabel.title = 'Mark this device as the turntable/vinyl source used by calibration wizard';
+    const turntableCb = document.createElement('input');
+    turntableCb.type = 'checkbox';
+    turntableCb.checked = !!dev.is_turntable;
+    turntableCb.style.cssText = 'width:auto;accent-color:var(--accent);';
+    const turntableSpan = document.createElement('span');
+    turntableSpan.textContent = 'Turntable';
+    turntableLabel.appendChild(turntableCb);
+    turntableLabel.appendChild(turntableSpan);
+    turntableCb.onchange = () => {
+      _ampConnectedDevices[idx].is_turntable = turntableCb.checked;
+      _ampConnectedDevices[idx]._turntable_manual = true;
+    };
+
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
     removeBtn.className = 'btn-input-remove';
@@ -224,6 +264,7 @@ function renderConnectedDevicesTable() {
 
     topBar.appendChild(nameInput);
     topBar.appendChild(remoteLabel);
+    topBar.appendChild(turntableLabel);
     topBar.appendChild(removeBtn);
 
     // ── Inputs checkboxes ──────────────────────────────────────────────────
@@ -244,6 +285,15 @@ function renderConnectedDevicesTable() {
         const s = new Set(_ampConnectedDevices[idx].input_ids);
         cb.checked ? s.add(String(inp.id)) : s.delete(String(inp.id));
         _ampConnectedDevices[idx].input_ids = Array.from(s);
+        if (!_ampConnectedDevices[idx]._turntable_manual) {
+          const hasVinylInput = _ampConnectedDevices[idx].input_ids.some((id) => {
+            const modelInput = _ampInputsModel.find((ii) => String(ii.id) === String(id));
+            const label = String(modelInput?.logical_name || '').toLowerCase();
+            return label.includes('phono') || label.includes('vinyl') || label.includes('vinil');
+          });
+          _ampConnectedDevices[idx].is_turntable = hasVinylInput;
+          turntableCb.checked = hasVinylInput;
+        }
         renderAmpInputSelect();
       };
       const cbSpan = document.createElement('span');

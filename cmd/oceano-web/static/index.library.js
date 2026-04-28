@@ -20,6 +20,7 @@ function librarySignature(items) {
     e.format || '',
     e.track_number || '',
     e.artwork_path || '',
+    e.boundary_sensitive ? '1' : '0',
     e.play_count,
     e.last_played,
   ].join('|')).join('\n');
@@ -158,6 +159,8 @@ function openModal(id) {
   document.getElementById('modal-released').value     = e.released || '';
   document.getElementById('modal-track-number').value = e.track_number || '';
   document.getElementById('modal-duration').value     = msToDuration(e.duration_ms || 0);
+  document.getElementById('modal-boundary-sensitive').checked = !!e.boundary_sensitive;
+  syncBoundarySensitiveAvailability();
 
   const img = document.getElementById('modal-art-img');
   img.classList.remove('loaded');
@@ -194,6 +197,8 @@ function closeModal() {
   document.getElementById('modal-released').value = '';
   document.getElementById('modal-track-number').value = '';
   document.getElementById('modal-duration').value = '';
+  document.getElementById('modal-boundary-sensitive').checked = false;
+  syncBoundarySensitiveAvailability();
   const img = document.getElementById('modal-art-img');
   img.classList.remove('loaded');
   img.src = '';
@@ -216,13 +221,35 @@ async function saveEntry() {
     track_number: document.getElementById('modal-track-number').value.trim(),
     artwork_path: (_library.find(x => x.id === _editingId)||{}).artwork_path || '',
     duration_ms:  durationToMs(document.getElementById('modal-duration').value.trim()),
+    boundary_sensitive: document.getElementById('modal-boundary-sensitive').checked,
   };
   if (!body.title || !body.artist) { toast('Title and artist are required', true); return; }
+  if (body.boundary_sensitive && body.duration_ms <= 0) {
+    toast('Set track duration before enabling boundary-sensitive mode', true);
+    return;
+  }
   const r = await fetch(`/api/library/${_editingId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   if (!r.ok) { toast('Save failed', true); return; }
   toast('Saved');
   closeModal();
   await loadLibrary();
+}
+
+function syncBoundarySensitiveAvailability() {
+  const durationInput = document.getElementById('modal-duration');
+  const boundaryCheckbox = document.getElementById('modal-boundary-sensitive');
+  const hint = document.getElementById('modal-boundary-sensitive-hint');
+  if (!durationInput || !boundaryCheckbox) return;
+  const hasDuration = durationToMs(durationInput.value.trim()) > 0;
+  boundaryCheckbox.disabled = !hasDuration;
+  if (!hasDuration) {
+    boundaryCheckbox.checked = false;
+  }
+  if (hint) {
+    hint.textContent = hasDuration
+      ? 'Turn on when quiet passages on this recording are often mistaken for the next track. Stricter duration checks apply when identifying boundaries.'
+      : 'Set Duration first to enable boundary-sensitive mode.';
+  }
 }
 
 async function deleteEntry() {

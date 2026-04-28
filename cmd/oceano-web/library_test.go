@@ -6,12 +6,14 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -42,7 +44,8 @@ func createTestDB(t *testing.T, dir string, artworkPaths []string) string {
 		artwork_path TEXT,
 		play_count   INTEGER NOT NULL DEFAULT 1,
 		first_played TEXT    NOT NULL,
-		last_played  TEXT    NOT NULL
+		last_played  TEXT    NOT NULL,
+		duration_ms  INTEGER NOT NULL DEFAULT 0
 	)`)
 	if err != nil {
 		db.Close()
@@ -446,7 +449,7 @@ func TestGetBoundaryEventStats(t *testing.T) {
 		       (datetime('now'), 'energy_change_cooldown', 'energy-change', 0, 'Physical', 'Physical', 0, 0)`); err != nil {
 		t.Fatalf("insert boundary_events: %v", err)
 	}
-	stats, err := lib.getBoundaryEventStats(0)
+	stats, err := lib.getBoundaryEventStats(0, nil)
 	if err != nil {
 		t.Fatalf("getBoundaryEventStats: %v", err)
 	}
@@ -465,6 +468,42 @@ func TestGetBoundaryEventStats(t *testing.T) {
 	wantRate := 0.5
 	if stats.FireRate != wantRate {
 		t.Fatalf("fire_rate = %v, want %v", stats.FireRate, wantRate)
+	}
+}
+
+func TestGetBoundaryEventStats_ReadinessUsesR3Window(t *testing.T) {
+	dir := t.TempDir()
+	path := createTestDB(t, dir, nil)
+	lib, err := openLibraryDB(path)
+	if err != nil {
+		t.Fatalf("openLibraryDB: %v", err)
+	}
+	defer lib.close()
+	old := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339Nano)
+	if _, err := lib.db.Exec(`
+		INSERT INTO boundary_events (occurred_at, outcome, boundary_type, is_hard, physical_source, format_at_event, duration_ms, seek_ms, followup_outcome)
+		VALUES (?, 'fired', 'silence->audio', 1, 'Physical', 'CD', 180000, 10000, 'matched')`, old); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	cfg := defaultConfig()
+	cfg.Advanced.TelemetryNudges = &TelemetryNudgesConfig{
+		Enabled:          true,
+		LookbackDays:     3,
+		MinFollowupPairs: 1,
+	}
+	stats, err := lib.getBoundaryEventStats(0, &cfg)
+	if err != nil {
+		t.Fatalf("getBoundaryEventStats: %v", err)
+	}
+	cr := stats.CalibrationReadiness
+	if cr == nil {
+		t.Fatal("expected calibration_readiness")
+	}
+	if cr.PairedFollowupsR3Window != 1 {
+		t.Fatalf("paired = %d, want 1", cr.PairedFollowupsR3Window)
+	}
+	if !cr.ReadyForR3Nudges {
+		t.Fatal("expected ready_for_r3_nudges with min_pairs=1 and one row")
 	}
 }
 
@@ -554,5 +593,118 @@ func TestDeleteEntry_ClearsBoundaryEventsCollectionRef(t *testing.T) {
 	}
 	if cid.Valid && cid.Int64 != 0 {
 		t.Fatalf("boundary_events.collection_id = %v, want NULL", cid)
+	}
+}
+
+func TestUpdate_BackfillsBoundaryEventsFormatResolved(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := createTestDB(t, dir, nil)
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
+	defer lib.close()
+
+	if _, err := lib.db.Exec(`CREATE TABLE IF NOT EXISTS play_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		collection_id INTEGER,
+		title TEXT NOT NULL DEFAULT '',
+		artist TEXT NOT NULL DEFAULT '',
+		album TEXT,
+		track_number TEXT,
+		media_format TEXT,
+		artwork_path TEXT
+	)`); err != nil {
+		t.Fatalf("create play_history: %v", err)
+	}
+
+	if _, err := lib.db.Exec(`
+		INSERT INTO boundary_events (
+			occurred_at, outcome, boundary_type, is_hard, physical_source,
+			format_at_event, duration_ms, seek_ms, collection_id
+		) VALUES ('2026-04-01T12:00:00Z','fired','silence->audio',1,'Physical','Physical',0,0,1)`); err != nil {
+		t.Fatalf("insert boundary_events: %v", err)
+	}
+
+	if err := lib.update(1, "Track", "Artist", "", "", "", "Vinyl", "", "", 0, false); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	var resolved sql.NullString
+	var resolvedAt sql.NullString
+	if err := lib.db.QueryRow(`SELECT format_resolved, format_resolved_at FROM boundary_events WHERE id=1`).Scan(&resolved, &resolvedAt); err != nil {
+		t.Fatal(err)
+	}
+	if !resolved.Valid || resolved.String != "Vinyl" {
+		t.Fatalf("format_resolved = %v, want Vinyl", resolved)
+	}
+	if !resolvedAt.Valid || resolvedAt.String == "" {
+		t.Fatalf("format_resolved_at should be set")
+	}
+
+	if err := lib.update(1, "Track", "Artist", "", "", "", "Unknown", "", "", 0, false); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if err := lib.db.QueryRow(`SELECT format_resolved, format_resolved_at FROM boundary_events WHERE id=1`).Scan(&resolved, &resolvedAt); err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Valid || resolvedAt.Valid {
+		t.Fatalf("want NULL resolution after Unknown, got resolved=%v at=%v", resolved, resolvedAt)
+	}
+
+	if err := lib.update(1, "Track", "Artist", "", "", "", "CD", "", "", 0, false); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if err := lib.db.QueryRow(`SELECT format_resolved FROM boundary_events WHERE id=1`).Scan(&resolved); err != nil {
+		t.Fatal(err)
+	}
+	if !resolved.Valid || resolved.String != "CD" {
+		t.Fatalf("format_resolved = %v, want CD", resolved)
+	}
+}
+
+func TestListRMSLearningRows(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := createTestDB(t, dir, nil)
+	lib, err := openLibraryDB(dbPath)
+	if err != nil || lib == nil {
+		t.Fatalf("openLibraryDB: err=%v lib=%v", err, lib)
+	}
+	defer lib.close()
+
+	empty, err := lib.listRMSLearningRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("want no rows, got %d", len(empty))
+	}
+
+	_, err = lib.db.Exec(`INSERT INTO rms_learning (
+		format_key, updated_at, bins, max_rms, silence_counts, music_counts,
+		silence_total, music_total, derived_enter, derived_exit
+	) VALUES ('cd','2026-04-27T12:34:56Z',80,0.25,'[]','[]',50,150,0.0088,0.0101)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := lib.listRMSLearningRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("want 1 row, got %d", len(rows))
+	}
+	r := rows[0]
+	if r.FormatKey != "cd" || r.SilenceTotal != 50 || r.MusicTotal != 150 {
+		t.Fatalf("unexpected row: %+v", r)
+	}
+	if r.DerivedEnter == nil || math.Abs(*r.DerivedEnter-0.0088) > 1e-6 {
+		t.Fatalf("derived_enter = %v", r.DerivedEnter)
+	}
+	if r.DerivedExit == nil || math.Abs(*r.DerivedExit-0.0101) > 1e-6 {
+		t.Fatalf("derived_exit = %v", r.DerivedExit)
+	}
+	if r.UpdatedAt == "" {
+		t.Fatal("want updated_at")
 	}
 }
