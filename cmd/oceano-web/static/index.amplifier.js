@@ -166,10 +166,8 @@ function setConnectedDevicesModel(devices) {
     has_remote: !!d?.has_remote,
     role: normalizeRole(d?.role),
     physical_format: normalizePhysicalFormat(d?.physical_format),
-    is_turntable: (typeof d?.is_turntable === 'boolean')
-      ? !!d.is_turntable
-      : (d?.input_ids ?? []).some((id) => isVinylLikeInput(id)),
-    _turntable_manual: typeof d?.is_turntable === 'boolean',
+    is_turntable: (normalizeRole(d?.role) === 'physical_media' && normalizePhysicalFormat(d?.physical_format) === 'vinyl') ||
+      (d?.input_ids ?? []).some((id) => isVinylLikeInput(id)),
     ir_codes:   d?.ir_codes ?? {},
   })).filter((d) => d.id !== '');
   renderConnectedDevicesTable();
@@ -198,7 +196,6 @@ function addConnectedDevice() {
     role: 'physical_media',
     physical_format: 'unspecified',
     is_turntable: false,
-    _turntable_manual: false,
     ir_codes: {},
   });
   renderConnectedDevicesTable();
@@ -255,29 +252,6 @@ function renderConnectedDevicesTable() {
       renderConnectedDevicesTable();
     };
 
-    const turntableLabel = document.createElement('label');
-    turntableLabel.className = 'amp-device-remote-toggle';
-    turntableLabel.title = 'Mark this device as the turntable/vinyl source used by calibration wizard';
-    const turntableCb = document.createElement('input');
-    turntableCb.type = 'checkbox';
-    turntableCb.checked = !!dev.is_turntable;
-    turntableCb.style.cssText = 'width:auto;accent-color:var(--accent);';
-    const turntableSpan = document.createElement('span');
-    turntableSpan.textContent = 'Turntable';
-    turntableLabel.appendChild(turntableCb);
-    turntableLabel.appendChild(turntableSpan);
-    turntableCb.onchange = () => {
-      _ampConnectedDevices[idx].is_turntable = turntableCb.checked;
-      _ampConnectedDevices[idx]._turntable_manual = true;
-      if (turntableCb.checked) {
-        _ampConnectedDevices[idx].role = 'physical_media';
-        _ampConnectedDevices[idx].physical_format = 'vinyl';
-        roleSel.value = 'physical_media';
-        fmtSel.value = 'vinyl';
-        fmtWrap.style.display = '';
-      }
-    };
-
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
     removeBtn.className = 'btn-input-remove';
@@ -287,7 +261,6 @@ function renderConnectedDevicesTable() {
 
     topBar.appendChild(nameInput);
     topBar.appendChild(remoteLabel);
-    topBar.appendChild(turntableLabel);
     topBar.appendChild(removeBtn);
 
     const classifyRow = document.createElement('div');
@@ -334,7 +307,9 @@ function renderConnectedDevicesTable() {
         _ampConnectedDevices[idx].physical_format = 'unspecified';
         _ampConnectedDevices[idx].is_turntable = false;
         fmtSel.value = 'unspecified';
-        turntableCb.checked = false;
+      }
+      if (_ampConnectedDevices[idx].role === 'physical_media' && _ampConnectedDevices[idx].physical_format === 'vinyl') {
+        _ampConnectedDevices[idx].is_turntable = true;
       }
       fmtWrap.style.display = (_ampConnectedDevices[idx].role === 'physical_media') ? '' : 'none';
     };
@@ -344,9 +319,9 @@ function renderConnectedDevicesTable() {
       if (_ampConnectedDevices[idx].physical_format === 'vinyl') {
         _ampConnectedDevices[idx].role = 'physical_media';
         _ampConnectedDevices[idx].is_turntable = true;
-        _ampConnectedDevices[idx]._turntable_manual = true;
         roleSel.value = 'physical_media';
-        turntableCb.checked = true;
+      } else {
+        _ampConnectedDevices[idx].is_turntable = false;
       }
     };
 
@@ -371,18 +346,17 @@ function renderConnectedDevicesTable() {
         const s = new Set(_ampConnectedDevices[idx].input_ids);
         cb.checked ? s.add(String(inp.id)) : s.delete(String(inp.id));
         _ampConnectedDevices[idx].input_ids = Array.from(s);
-        if (!_ampConnectedDevices[idx]._turntable_manual) {
-          const hasVinylInput = _ampConnectedDevices[idx].input_ids.some((id) => {
-            const modelInput = _ampInputsModel.find((ii) => String(ii.id) === String(id));
-            const label = String(modelInput?.logical_name || '').toLowerCase();
-            return label.includes('phono') || label.includes('vinyl') || label.includes('vinil');
-          });
-          _ampConnectedDevices[idx].is_turntable = hasVinylInput;
-          turntableCb.checked = hasVinylInput;
-          if (hasVinylInput && (_ampConnectedDevices[idx].role || 'physical_media') === 'physical_media') {
-            _ampConnectedDevices[idx].physical_format = 'vinyl';
-            fmtSel.value = 'vinyl';
-          }
+        const hasVinylInput = _ampConnectedDevices[idx].input_ids.some((id) => {
+          const modelInput = _ampInputsModel.find((ii) => String(ii.id) === String(id));
+          const label = String(modelInput?.logical_name || '').toLowerCase();
+          return label.includes('phono') || label.includes('vinyl') || label.includes('vinil');
+        });
+        if (hasVinylInput && (_ampConnectedDevices[idx].role || 'physical_media') === 'physical_media' && (_ampConnectedDevices[idx].physical_format || 'unspecified') === 'unspecified') {
+          _ampConnectedDevices[idx].physical_format = 'vinyl';
+          _ampConnectedDevices[idx].is_turntable = true;
+          fmtSel.value = 'vinyl';
+        } else if (!hasVinylInput && (_ampConnectedDevices[idx].physical_format || 'unspecified') !== 'vinyl') {
+          _ampConnectedDevices[idx].is_turntable = false;
         }
         renderAmpInputSelect();
       };
