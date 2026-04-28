@@ -80,9 +80,14 @@ const currentGateEl = document.getElementById("wiz-current-gate");
 const openStepEl = document.getElementById("wiz-open-step");
 const prevBtn = document.getElementById("wiz-prev");
 const nextBtn = document.getElementById("wiz-next");
+const roleFormatEl = document.getElementById("wiz-role-format");
+const roleFormatListEl = document.getElementById("wiz-role-format-list");
+const roleFormatErrEl = document.getElementById("wiz-role-format-error");
+const roleFormatSaveBtn = document.getElementById("wiz-role-format-save");
 
 let _currentStepIdx = 0;
 let _lastStatus = null;
+let _wizardConfig = null;
 
 function escapeHTML(v) {
   return String(v)
@@ -154,6 +159,79 @@ function renderCurrentStep(status) {
   }
 }
 
+function inputNameByID(inputs, id) {
+  return (inputs || []).find((inp) => String(inp.id) === String(id))?.logical_name || String(id);
+}
+
+function renderRoleFormatEditor() {
+  const step = WIZ_STEPS[_currentStepIdx];
+  const isTopology = step && step.id === "topology";
+  roleFormatEl.hidden = !isTopology;
+  if (!isTopology) return;
+  if (!_wizardConfig || !_wizardConfig.amplifier) {
+    roleFormatListEl.innerHTML = `<div class="wiz-step-desc">Loading devices...</div>`;
+    return;
+  }
+  const amp = _wizardConfig.amplifier || {};
+  const devices = Array.isArray(amp.connected_devices) ? amp.connected_devices : [];
+  if (!devices.length) {
+    roleFormatListEl.innerHTML = `<div class="wiz-step-desc">No connected devices yet. Add devices in amplifier configuration first.</div>`;
+    return;
+  }
+  roleFormatListEl.innerHTML = devices.map((dev, idx) => {
+    const ids = Array.isArray(dev.input_ids) ? dev.input_ids : [];
+    const inputsLabel = ids.length ? ids.map((id) => inputNameByID(amp.inputs || [], id)).join(", ") : "No input mapping";
+    const role = String(dev.role || "physical_media");
+    const format = String(dev.physical_format || "unspecified");
+    return `
+      <div class="wiz-role-row">
+        <div class="wiz-role-name">
+          ${escapeHTML(dev.name || "Unnamed device")}
+          <small>${escapeHTML(inputsLabel)}</small>
+        </div>
+        <select class="wiz-role-select" data-role-idx="${idx}">
+          <option value="physical_media" ${role === "physical_media" ? "selected" : ""}>physical_media</option>
+          <option value="streaming" ${role === "streaming" ? "selected" : ""}>streaming</option>
+          <option value="other" ${role === "other" ? "selected" : ""}>other</option>
+        </select>
+        <select class="wiz-role-select" data-format-idx="${idx}" ${role === "physical_media" ? "" : "disabled"}>
+          <option value="unspecified" ${format === "unspecified" ? "selected" : ""}>unspecified</option>
+          <option value="vinyl" ${format === "vinyl" ? "selected" : ""}>vinyl</option>
+          <option value="cd" ${format === "cd" ? "selected" : ""}>cd</option>
+          <option value="tape" ${format === "tape" ? "selected" : ""}>tape</option>
+          <option value="mixed" ${format === "mixed" ? "selected" : ""}>mixed</option>
+        </select>
+      </div>
+    `;
+  }).join("");
+  roleFormatListEl.querySelectorAll("[data-role-idx]").forEach((el) => {
+    el.addEventListener("change", () => {
+      const idx = Number(el.getAttribute("data-role-idx"));
+      const dev = _wizardConfig?.amplifier?.connected_devices?.[idx];
+      if (!dev) return;
+      dev.role = el.value || "physical_media";
+      if (dev.role !== "physical_media") dev.physical_format = "unspecified";
+      renderRoleFormatEditor();
+    });
+  });
+  roleFormatListEl.querySelectorAll("[data-format-idx]").forEach((el) => {
+    el.addEventListener("change", () => {
+      const idx = Number(el.getAttribute("data-format-idx"));
+      const dev = _wizardConfig?.amplifier?.connected_devices?.[idx];
+      if (!dev) return;
+      dev.physical_format = el.value || "unspecified";
+      if (dev.physical_format === "vinyl") dev.role = "physical_media";
+      renderRoleFormatEditor();
+    });
+  });
+}
+
+async function loadWizardConfig() {
+  const r = await fetch("/api/config", { cache: "no-store" });
+  if (!r.ok) throw new Error(`config HTTP ${r.status}`);
+  _wizardConfig = await r.json();
+}
+
 function render(status) {
   let doneCount = 0;
   stepsEl.innerHTML = WIZ_STEPS.map((step, idx) => {
@@ -190,13 +268,17 @@ function render(status) {
     });
   });
   renderCurrentStep(status);
+  renderRoleFormatEditor();
 }
 
 async function loadStatus() {
   try {
-    const r = await fetch("/api/setup-status", { cache: "no-store" });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const status = await r.json();
+    const [statusResp] = await Promise.all([
+      fetch("/api/setup-status", { cache: "no-store" }),
+      loadWizardConfig(),
+    ]);
+    if (!statusResp.ok) throw new Error(`HTTP ${statusResp.status}`);
+    const status = await statusResp.json();
     errEl.hidden = true;
     _lastStatus = status;
     render(status);
@@ -209,6 +291,26 @@ async function loadStatus() {
 }
 
 refreshBtn.addEventListener("click", loadStatus);
+roleFormatSaveBtn.addEventListener("click", async () => {
+  if (!_wizardConfig) return;
+  roleFormatSaveBtn.disabled = true;
+  roleFormatErrEl.hidden = true;
+  try {
+    const r = await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(_wizardConfig),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok || body.ok === false) throw new Error(body.error || body.results?.join(" · ") || `HTTP ${r.status}`);
+    await loadStatus();
+  } catch (err) {
+    roleFormatErrEl.hidden = false;
+    roleFormatErrEl.textContent = `Failed to save role/format: ${err.message}`;
+  } finally {
+    roleFormatSaveBtn.disabled = false;
+  }
+});
 prevBtn.addEventListener("click", () => {
   if (_currentStepIdx <= 0) return;
   _currentStepIdx -= 1;

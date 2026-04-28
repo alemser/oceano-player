@@ -156,6 +156,49 @@ body {
   flex-wrap: wrap;
 }
 
+.wiz-role-format {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.wiz-role-format-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.wiz-role-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.wiz-role-name {
+  font-size: 0.92rem;
+}
+
+.wiz-role-name small {
+  display: block;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.wiz-role-select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #111;
+  color: var(--text);
+  padding: 6px 8px;
+}
+
 .wiz-steps {
   display: grid;
   gap: 12px;

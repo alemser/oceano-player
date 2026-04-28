@@ -162,12 +162,44 @@ func TestComputeSetupStatus_VinylTopology(t *testing.T) {
 		t.Error("vinyl_topology_present should be true via Role+PhysicalFormat")
 	}
 
+	// Role/format normalization should still detect vinyl.
+	cfg.Amplifier.ConnectedDevices = []ConnectedDeviceConfig{
+		{ID: "tt3", Name: "Dual", Role: "PHYSICAL_MEDIA", PhysicalFormat: "VINYL"},
+	}
+	if s := computeSetupStatus(cfg, ""); !s.VinylTopologyPresent {
+		t.Error("vinyl_topology_present should be true for normalized role/format")
+	}
+
 	// Streaming device is not vinyl.
 	cfg.Amplifier.ConnectedDevices = []ConnectedDeviceConfig{
 		{ID: "str1", Name: "Chromecast", Role: "streaming"},
 	}
 	if s := computeSetupStatus(cfg, ""); s.VinylTopologyPresent {
 		t.Error("vinyl_topology_present should be false for streaming device")
+	}
+}
+
+func TestEffectiveRole(t *testing.T) {
+	if got := effectiveRole(ConnectedDeviceConfig{}); got != "physical_media" {
+		t.Fatalf("empty role => %q, want physical_media", got)
+	}
+	if got := effectiveRole(ConnectedDeviceConfig{Role: "STREAMING"}); got != "streaming" {
+		t.Fatalf("uppercase streaming => %q, want streaming", got)
+	}
+	if got := effectiveRole(ConnectedDeviceConfig{Role: "invalid"}); got != "physical_media" {
+		t.Fatalf("invalid role => %q, want physical_media", got)
+	}
+}
+
+func TestEffectivePhysicalFormat(t *testing.T) {
+	if got := effectivePhysicalFormat(ConnectedDeviceConfig{}); got != "unspecified" {
+		t.Fatalf("empty format => %q, want unspecified", got)
+	}
+	if got := effectivePhysicalFormat(ConnectedDeviceConfig{PhysicalFormat: "VINYL"}); got != "vinyl" {
+		t.Fatalf("uppercase vinyl => %q, want vinyl", got)
+	}
+	if got := effectivePhysicalFormat(ConnectedDeviceConfig{PhysicalFormat: "unknown"}); got != "unspecified" {
+		t.Fatalf("invalid format => %q, want unspecified", got)
 	}
 }
 

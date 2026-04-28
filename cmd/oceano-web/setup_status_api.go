@@ -88,10 +88,27 @@ func queryServicesHealthy() map[string]bool {
 // per the migration rule in the plan.
 func effectiveRole(dev ConnectedDeviceConfig) string {
 	r := strings.TrimSpace(dev.Role)
+	r = strings.ToLower(r)
 	if r == "" {
 		return "physical_media"
 	}
+	if r != "physical_media" && r != "streaming" && r != "other" {
+		return "physical_media"
+	}
 	return r
+}
+
+func effectivePhysicalFormat(dev ConnectedDeviceConfig) string {
+	f := strings.ToLower(strings.TrimSpace(dev.PhysicalFormat))
+	if f == "" {
+		return "unspecified"
+	}
+	switch f {
+	case "vinyl", "cd", "tape", "mixed", "unspecified":
+		return f
+	default:
+		return "unspecified"
+	}
 }
 
 // physicalMediaInputIDs returns the deduplicated amplifier input IDs belonging
@@ -167,7 +184,7 @@ func computeSetupStatus(cfg Config, libraryDB string) setupStatus {
 
 	// Vinyl topology: physical_media device with physical_format=vinyl, or legacy is_turntable.
 	for _, dev := range cfg.Amplifier.ConnectedDevices {
-		if effectiveRole(dev) == "physical_media" && strings.TrimSpace(dev.PhysicalFormat) == "vinyl" {
+		if effectiveRole(dev) == "physical_media" && effectivePhysicalFormat(dev) == "vinyl" {
 			s.VinylTopologyPresent = true
 			break
 		}

@@ -144,6 +144,16 @@ function renderAmpInputSelect() {
 
 function setConnectedDevicesModel(devices) {
   const arr = Array.isArray(devices) ? devices : [];
+  const normalizeRole = (v) => {
+    const role = String(v || '').trim().toLowerCase();
+    if (role === 'streaming' || role === 'other') return role;
+    return 'physical_media';
+  };
+  const normalizePhysicalFormat = (v) => {
+    const format = String(v || '').trim().toLowerCase();
+    if (format === 'vinyl' || format === 'cd' || format === 'tape' || format === 'mixed') return format;
+    return 'unspecified';
+  };
   const isVinylLikeInput = (inputID) => {
     const input = _ampInputsModel.find((i) => String(i.id) === String(inputID));
     const label = String(input?.logical_name || '').toLowerCase();
@@ -154,6 +164,8 @@ function setConnectedDevicesModel(devices) {
     name:       String(d?.name      ?? '').trim(),
     input_ids:  (d?.input_ids ?? []).map(String),
     has_remote: !!d?.has_remote,
+    role: normalizeRole(d?.role),
+    physical_format: normalizePhysicalFormat(d?.physical_format),
     is_turntable: (typeof d?.is_turntable === 'boolean')
       ? !!d.is_turntable
       : (d?.input_ids ?? []).some((id) => isVinylLikeInput(id)),
@@ -170,6 +182,8 @@ function collectConnectedDevicesFromUI() {
     name: d.name,
     input_ids: d.input_ids,
     has_remote: !!d.has_remote,
+    role: String(d.role || 'physical_media'),
+    physical_format: String(d.physical_format || 'unspecified'),
     is_turntable: !!d.is_turntable,
     ir_codes: d.ir_codes ?? {},
   }));
@@ -181,6 +195,8 @@ function addConnectedDevice() {
     name: '',
     input_ids: [],
     has_remote: false,
+    role: 'physical_media',
+    physical_format: 'unspecified',
     is_turntable: false,
     _turntable_manual: false,
     ir_codes: {},
@@ -253,6 +269,13 @@ function renderConnectedDevicesTable() {
     turntableCb.onchange = () => {
       _ampConnectedDevices[idx].is_turntable = turntableCb.checked;
       _ampConnectedDevices[idx]._turntable_manual = true;
+      if (turntableCb.checked) {
+        _ampConnectedDevices[idx].role = 'physical_media';
+        _ampConnectedDevices[idx].physical_format = 'vinyl';
+        roleSel.value = 'physical_media';
+        fmtSel.value = 'vinyl';
+        fmtWrap.style.display = '';
+      }
     };
 
     const removeBtn = document.createElement('button');
@@ -266,6 +289,69 @@ function renderConnectedDevicesTable() {
     topBar.appendChild(remoteLabel);
     topBar.appendChild(turntableLabel);
     topBar.appendChild(removeBtn);
+
+    const classifyRow = document.createElement('div');
+    classifyRow.className = 'amp-device-topbar';
+
+    const roleWrap = document.createElement('label');
+    roleWrap.className = 'amp-device-remote-toggle';
+    roleWrap.style.gap = '8px';
+    const roleText = document.createElement('span');
+    roleText.textContent = 'Role';
+    const roleSel = document.createElement('select');
+    roleSel.style.minWidth = '140px';
+    roleSel.innerHTML = `
+      <option value="physical_media">Physical media</option>
+      <option value="streaming">Streaming</option>
+      <option value="other">Other</option>
+    `;
+    roleSel.value = dev.role || 'physical_media';
+    roleWrap.appendChild(roleText);
+    roleWrap.appendChild(roleSel);
+
+    const fmtWrap = document.createElement('label');
+    fmtWrap.className = 'amp-device-remote-toggle';
+    fmtWrap.style.gap = '8px';
+    const fmtText = document.createElement('span');
+    fmtText.textContent = 'Format';
+    const fmtSel = document.createElement('select');
+    fmtSel.style.minWidth = '140px';
+    fmtSel.innerHTML = `
+      <option value="unspecified">Unspecified</option>
+      <option value="vinyl">Vinyl</option>
+      <option value="cd">CD</option>
+      <option value="tape">Tape</option>
+      <option value="mixed">Mixed</option>
+    `;
+    fmtSel.value = dev.physical_format || 'unspecified';
+    fmtWrap.appendChild(fmtText);
+    fmtWrap.appendChild(fmtSel);
+    fmtWrap.style.display = (roleSel.value === 'physical_media') ? '' : 'none';
+
+    roleSel.onchange = () => {
+      _ampConnectedDevices[idx].role = roleSel.value || 'physical_media';
+      if (_ampConnectedDevices[idx].role !== 'physical_media') {
+        _ampConnectedDevices[idx].physical_format = 'unspecified';
+        _ampConnectedDevices[idx].is_turntable = false;
+        fmtSel.value = 'unspecified';
+        turntableCb.checked = false;
+      }
+      fmtWrap.style.display = (_ampConnectedDevices[idx].role === 'physical_media') ? '' : 'none';
+    };
+
+    fmtSel.onchange = () => {
+      _ampConnectedDevices[idx].physical_format = fmtSel.value || 'unspecified';
+      if (_ampConnectedDevices[idx].physical_format === 'vinyl') {
+        _ampConnectedDevices[idx].role = 'physical_media';
+        _ampConnectedDevices[idx].is_turntable = true;
+        _ampConnectedDevices[idx]._turntable_manual = true;
+        roleSel.value = 'physical_media';
+        turntableCb.checked = true;
+      }
+    };
+
+    classifyRow.appendChild(roleWrap);
+    classifyRow.appendChild(fmtWrap);
 
     // ── Inputs checkboxes ──────────────────────────────────────────────────
     const inputsWrap = document.createElement('div');
@@ -293,6 +379,10 @@ function renderConnectedDevicesTable() {
           });
           _ampConnectedDevices[idx].is_turntable = hasVinylInput;
           turntableCb.checked = hasVinylInput;
+          if (hasVinylInput && (_ampConnectedDevices[idx].role || 'physical_media') === 'physical_media') {
+            _ampConnectedDevices[idx].physical_format = 'vinyl';
+            fmtSel.value = 'vinyl';
+          }
         }
         renderAmpInputSelect();
       };
@@ -311,6 +401,7 @@ function renderConnectedDevicesTable() {
     }
 
     row.appendChild(topBar);
+    row.appendChild(classifyRow);
     row.appendChild(inputsWrap);
 
     // ── IR codes (only when has_remote) ────────────────────────────────────
