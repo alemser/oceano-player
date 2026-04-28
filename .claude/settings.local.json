@@ -7,7 +7,19 @@
       "Bash(chmod +x /Users/alemser/Projects/oceano-player/.git/hooks/pre-commit)",
       "Bash(/Users/alemser/Projects/oceano-player/.git/hooks/pre-commit)",
       "Bash(make build *)",
-      "Bash(make package *)"
+      "Bash(make package *)",
+      "Read(//Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Models/**)",
+      "Read(//Users/alemser/Projects/oceano-player-ios/OceanoPlayer/App/**)",
+      "Read(//Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/Config/**)",
+      "Read(//Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/History/**)",
+      "Read(//Users/alemser/Projects/oceano-player-ios/OceanoPlayer/**)"
+    ],
+    "additionalDirectories": [
+      "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Networking",
+      "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/Library",
+      "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/App",
+      "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/Config",
+      "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/History"
     ]
   }
 }

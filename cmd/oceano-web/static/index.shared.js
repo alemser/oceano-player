@@ -563,7 +563,9 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
     },
     amplifier: {
       ..._ampConfig,
-      enabled:    document.getElementById('amp-enabled')?.checked ?? false,
+      // Some pages (e.g. dedicated topology flow) no longer render amp-enabled.
+      // Preserve the loaded config value when the toggle is absent.
+      enabled:    document.getElementById('amp-enabled')?.checked ?? _ampConfig.enabled ?? false,
       profile_id: val('amp-profile-select') || _ampConfig.profile_id || '',
       input_mode: _ampConfig.input_mode || 'cycle',
       maker:      _ampConfig.maker  || '',

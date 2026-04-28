@@ -16,6 +16,12 @@ function setField(id, value) {
   el.value = value ?? "";
 }
 
+function setCheckbox(id, checked) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.checked = !!checked;
+}
+
 function fieldValue(id) {
   return (document.getElementById(id)?.value || "").trim();
 }
@@ -118,6 +124,7 @@ async function loadTopologyPage() {
   setField("amp-maker", amp.maker ?? "");
   setField("amp-model", amp.model ?? "");
   setField("amp-input-mode", amp.input_mode ?? "cycle");
+  setCheckbox("amp-enabled", amp.enabled ?? false);
 
   setAmplifierInputsModel(amp.inputs ?? []);
   setConnectedDevicesModel(amp.connected_devices ?? []);
@@ -148,7 +155,7 @@ async function saveTopologyPage() {
 
   fullCfg.amplifier = {
     ...(_ampConfig),
-    enabled: _ampConfig.enabled ?? fullCfg.amplifier?.enabled ?? false,
+    enabled: document.getElementById("amp-enabled")?.checked ?? _ampConfig.enabled ?? fullCfg.amplifier?.enabled ?? false,
     profile_id: _ampConfig.profile_id || fullCfg.amplifier?.profile_id || "",
     input_mode: fieldValue("amp-input-mode") || _ampConfig.input_mode || "cycle",
     maker: fieldValue("amp-maker") || _ampConfig.maker || "",
