@@ -191,7 +191,7 @@ async function loadRecognitionPage() {
   _rset('rec-boundary-restore-min-seek', cfg.recognition?.boundary_restore_min_seek_secs);
   const autonomous = cfg.advanced?.autonomous_calibration;
   const autoBox = document.getElementById('rec-autonomous-calibration-enabled');
-  if (autoBox) autoBox.checked = !!autonomous?.enabled;
+  if (autoBox) autoBox.checked = (autonomous == null || autonomous.enabled == null) ? true : !!autonomous.enabled;
   const telemetryNudges = cfg.advanced?.r3_telemetry_nudges;
   const telemetryBox = document.getElementById('rec-telemetry-nudges-enabled');
   if (telemetryBox) telemetryBox.checked = !!telemetryNudges?.enabled;
