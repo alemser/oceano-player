@@ -6,61 +6,25 @@
   <title>Advanced Settings — Oceano</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 52 52'><rect x='0' y='16' width='8' height='20' rx='4' fill='%23888'/><rect x='11' y='9' width='8' height='34' rx='4' fill='%23888'/><rect x='22' y='3' width='8' height='46' rx='4' fill='%23888'/><rect x='33' y='12' width='8' height='28' rx='4' fill='%23888'/><rect x='44' y='17' width='8' height='18' rx='4' fill='%23888'/></svg>">
   <link rel="stylesheet" href="index.css">
+  <link rel="stylesheet" href="page-nav.css">
   <style>
     body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
-    .adv-page-header {
-      display: flex; align-items: center; gap: 14px;
-      padding: 16px 20px 12px;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg);
-      position: sticky; top: 0; z-index: 10;
-    }
-    .adv-page-back {
-      display: inline-flex; align-items: center; gap: 6px;
-      color: var(--accent); text-decoration: none;
-      font-size: 0.85rem; padding: 6px 10px;
-      border-radius: 6px; border: 1px solid var(--border);
-      background: transparent; cursor: pointer;
-      transition: background 0.15s;
-    }
-    .adv-page-back:hover { background: var(--hover); }
-    .adv-page-hub-link {
-      margin-left: auto;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--text);
-      text-decoration: none;
-      font-size: 0.78rem;
-      padding: 6px 10px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.03);
-      transition: border-color 0.15s, background 0.15s;
-    }
-    .adv-page-hub-link:hover {
-      border-color: var(--accent);
-      background: rgba(74,158,255,0.10);
-    }
-    .adv-page-title { font-size: 1rem; font-weight: 600; color: var(--text); flex: 1; }
-    .adv-page-body { max-width: 660px; margin: 0 auto; padding: 20px 20px 60px; }
-    .adv-page-actions { margin-top: 28px; display: flex; gap: 10px; justify-content: flex-end; }
   </style>
 </head>
 <body>
 
-<div class="adv-page-header">
-  <a href="/" class="adv-page-back">
+<div class="page-header">
+  <a href="/" class="page-back">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M15 18l-6-6 6-6"/>
     </svg>
     Back
   </a>
-  <span class="adv-page-title">Advanced Settings</span>
-  <a href="/config" class="adv-page-hub-link">Setup Hub</a>
+  <span class="page-title">Advanced Settings</span>
+  <a href="/config" class="page-hub-link">Setup Hub</a>
 </div>
 
-<div class="adv-page-body">
+<div class="page-body">
 
   <!-- ── Socket & File Paths ────────────────────────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
@@ -108,11 +72,11 @@
   </div>
 
   <!-- ── Save ──────────────────────────────────────────────────────────── -->
-  <div class="adv-page-actions">
+  <div class="page-actions">
     <button type="button" class="btn-save" id="btn-adv-page-save" onclick="saveAdvancedPage()">Save &amp; Restart Services</button>
   </div>
 
-</div><!-- .adv-page-body -->
+</div><!-- .page-body -->
 
 <div id="toast"></div>
 

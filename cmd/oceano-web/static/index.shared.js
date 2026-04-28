@@ -147,19 +147,28 @@ function renderSetupBridge(status) {
     healthy.oceano_state_manager !== false &&
     healthy.oceano_web !== false;
 
+  const vinylIcon = window.SOURCE_ICONS?.Vinyl ?? '';
+  const airplayIcon = window.SOURCE_ICONS?.AirPlay ?? '';
+  const ampIcon = window.HUB_ICONS?.Amplifier ?? '';
+  const stylusIcon = window.HUB_ICONS?.Stylus ?? '';
+  const displayIcon = window.HUB_ICONS?.Display ?? '';
+  const advancedIcon = window.HUB_ICONS?.Advanced ?? '';
+
   const quickCards = [
     {
       title: 'Physical media',
       href: '/recognition.html',
+      icon: vinylIcon,
       status: !status.capture_configured
         ? { text: 'Capture not configured', tone: 'warn' }
         : !status.recognition_credentials_set
           ? { text: 'ACRCloud credentials missing', tone: 'warn' }
-          : { text: 'Capture and recognition ready', tone: 'ok' },
+          : { text: 'Capture & recognition ready', tone: 'ok' },
     },
     {
       title: 'Amplifier & IR',
-      href: '/amplifier-wizard.html',
+      href: '/amplifier.html',
+      icon: ampIcon,
       status: !status.amplifier_topology_complete
         ? { text: 'Topology not configured', tone: 'warn' }
         : status.amplifier_ir_enabled && !status.broadlink_paired
@@ -169,43 +178,46 @@ function renderSetupBridge(status) {
             : { text: 'Topology ready, IR optional', tone: 'ok' },
     },
     {
-      title: 'Recognition & calibration',
-      href: '/recognition.html',
-      status: status.calibration_physical_recommended && !status.calibration_physical_complete
-        ? { text: 'Calibration recommended for physical inputs', tone: 'warn' }
-        : status.calibration_physical_complete
-          ? { text: 'Calibration complete', tone: 'ok' }
-          : { text: 'No physical calibration pending', tone: 'ok' },
-    },
-    {
       title: 'Stylus tracking',
-      href: '/amplifier-wizard.html?step=stylus',
+      href: '/amplifier.html',
+      icon: stylusIcon,
       status: !status.vinyl_topology_present
-        ? { text: 'No vinyl topology configured', tone: '' }
+        ? { text: 'No vinyl topology configured', tone: 'neutral' }
         : status.stylus_profile_configured
           ? { text: 'Stylus profile configured', tone: 'ok' }
-          : { text: 'Configure stylus profile and rated life', tone: 'warn' },
+          : { text: 'Configure stylus profile', tone: 'warn' },
     },
     {
-      title: 'Streaming basics',
+      title: 'Streaming',
       href: '/index.html',
+      icon: airplayIcon,
       status: servicesHealthy
         ? { text: 'Core services healthy', tone: 'ok' }
         : { text: 'One or more services unhealthy', tone: 'warn' },
     },
     {
+      title: 'Now playing & display',
+      href: '/nowplaying.html',
+      icon: displayIcon,
+      status: { text: 'Open display page', tone: 'neutral' },
+    },
+    {
       title: 'Advanced',
       href: '/advanced.html',
-      status: { text: `Schema v${status.schema_version || 1} · Live setup status API`, tone: '' },
+      icon: advancedIcon,
+      status: { text: `Schema v${status.schema_version || 1}`, tone: 'neutral' },
     },
   ];
 
   quickEl.innerHTML = quickCards.map((card) => `
-    <article class="setup-bridge-card">
+    <a class="setup-bridge-card ${card.status.tone === 'warn' ? 'border-warn' : ''}" href="${esc(card.href)}">
+      <div class="sb-top">
+        <span class="sb-icon" aria-hidden="true">${card.icon}</span>
+        <span class="sb-arrow" aria-hidden="true">→</span>
+      </div>
       <div class="setup-bridge-card-title">${esc(card.title)}</div>
-      <div class="setup-bridge-card-status ${card.status.tone === 'warn' ? 'warn' : ''}">${esc(card.status.text)}</div>
-      <a class="setup-bridge-card-open" href="${esc(card.href)}">Open</a>
-    </article>
+      <span class="sb-chip ${esc(card.status.tone || 'neutral')}"><span class="dot"></span>${esc(card.status.text)}</span>
+    </a>
   `).join('');
 }
 
