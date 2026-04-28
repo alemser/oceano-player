@@ -102,6 +102,20 @@ func shouldClearStaleRecognitionOnSilence(durationMs int, seekMS int64, seekUpda
 	return false
 }
 
+func shouldSuppressBoundarySensitiveBoundary(durationMs int, seekMS int64, seekUpdatedAt, now time.Time, boundarySensitive bool, reason string) bool {
+	if !boundarySensitive || durationMs <= 0 || seekUpdatedAt.IsZero() {
+		return false
+	}
+	if reason == "duration-exceeded" {
+		return false
+	}
+	elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
+	trackDuration := time.Duration(durationMs) * time.Millisecond
+	// Boundary-sensitive tracks with known duration stay locked until the known
+	// track end so quiet passages do not trigger mid-track re-recognition.
+	return elapsed < trackDuration
+}
+
 func (m *mgr) clearStalePhysicalRecognitionOnSilence(reason string, silenceElapsed time.Duration) bool {
 	m.mu.Lock()
 	if m.physicalSource != "Physical" || m.recognitionResult == nil {
@@ -421,6 +435,14 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 
 		effPess := effectiveDurationPessimism(durationPessimism, boundarySensitive)
 		now := time.Now()
+		if shouldSuppressBoundarySensitiveBoundary(durationMs, seekMS, seekUpdatedAt, now, boundarySensitive, reason) {
+			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
+			trackDuration := time.Duration(durationMs) * time.Millisecond
+			log.Printf("VU monitor: boundary suppressed (%s) — boundary-sensitive lock active (%s < %s)",
+				reason, elapsed.Round(time.Second), trackDuration.Round(time.Second))
+			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeSuppressedDurationGuard, reason, isHardBoundary)
+			return
+		}
 		if shouldSuppressBoundary(durationMs, seekMS, seekUpdatedAt, durationGuardBypassUntil, now, effPess) {
 			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
@@ -536,12 +558,21 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 			durationMS := 0
 			seekMS := int64(0)
 			seekUpdatedAt := time.Time{}
+			boundarySensitive := false
 			if m.recognitionResult != nil {
 				durationMS = m.recognitionResult.DurationMs
 				seekMS = m.physicalSeekMS
 				seekUpdatedAt = m.physicalSeekUpdatedAt
+				boundarySensitive = m.physicalBoundarySensitive
 			}
 			m.mu.Unlock()
+			if boundarySensitive && durationMS > 0 && !seekUpdatedAt.IsZero() {
+				elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
+				trackDuration := time.Duration(durationMS) * time.Millisecond
+				if elapsed < trackDuration {
+					continue
+				}
+			}
 			if shouldClearStaleRecognitionOnSilence(durationMS, seekMS, seekUpdatedAt, now, out.silenceElapsed) {
 				if m.clearStalePhysicalRecognitionOnSilence("prolonged-silence", out.silenceElapsed) {
 					staleSilenceCleared = true

@@ -120,6 +120,30 @@ func TestShouldClearStaleRecognitionOnSilence_UnknownDurationDoesNotClear(t *tes
 	}
 }
 
+func TestShouldSuppressBoundarySensitiveBoundary_BlocksUntilTrackEnd(t *testing.T) {
+	now := time.Now()
+	seekUpdatedAt := now.Add(-5 * time.Second)
+	if got := shouldSuppressBoundarySensitiveBoundary(240000, 120000, seekUpdatedAt, now, true, "silence-resume"); !got {
+		t.Fatal("expected boundary-sensitive suppression before known track end")
+	}
+}
+
+func TestShouldSuppressBoundarySensitiveBoundary_AllowsAtTrackEnd(t *testing.T) {
+	now := time.Now()
+	seekUpdatedAt := now.Add(-5 * time.Second)
+	if got := shouldSuppressBoundarySensitiveBoundary(240000, 236000, seekUpdatedAt, now, true, "silence-resume"); got {
+		t.Fatal("expected no boundary-sensitive suppression at/after known track end")
+	}
+}
+
+func TestShouldSuppressBoundarySensitiveBoundary_AllowsDurationExceeded(t *testing.T) {
+	now := time.Now()
+	seekUpdatedAt := now.Add(-5 * time.Second)
+	if got := shouldSuppressBoundarySensitiveBoundary(240000, 120000, seekUpdatedAt, now, true, "duration-exceeded"); got {
+		t.Fatal("duration-exceeded trigger must bypass boundary-sensitive suppression")
+	}
+}
+
 func TestPollSourceFile_TinyGapDoesNotQueueRecognition(t *testing.T) {
 	m := newTestMgr()
 	file := filepath.Join(t.TempDir(), "source.json")
