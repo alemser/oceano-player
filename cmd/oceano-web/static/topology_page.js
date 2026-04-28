@@ -28,6 +28,7 @@ function applyTopologyContext() {
   const backEl = document.getElementById("topology-back-link");
   const irEl = document.getElementById("topology-ir-link");
   const nextEl = document.getElementById("topology-next-step-link");
+  const profileSectionEl = document.getElementById("topology-profile-section");
 
   if (fromWizard) {
     if (titleEl) titleEl.textContent = "Topology for onboarding";
@@ -41,6 +42,7 @@ function applyTopologyContext() {
       nextEl.style.display = "";
       nextEl.href = "/amplifier-wizard?step=pairing";
     }
+    if (profileSectionEl) profileSectionEl.style.display = "none";
     return;
   }
 
@@ -52,6 +54,52 @@ function applyTopologyContext() {
   }
   if (irEl) irEl.href = "/ir-setup";
   if (nextEl) nextEl.style.display = "none";
+  if (profileSectionEl) profileSectionEl.style.display = "";
+}
+
+function updateTopologyProfileSummary() {
+  const hintEl = document.getElementById("topology-profile-current");
+  const selectEl = document.getElementById("amp-profile-select");
+  if (!hintEl || !selectEl) return;
+  const selectedText = selectEl.options?.[selectEl.selectedIndex]?.textContent?.trim();
+  hintEl.textContent = selectedText ? `Current selection: ${selectedText}` : "No profile selected.";
+}
+
+async function loadTopologyProfiles(cfg) {
+  if (typeof loadAmplifierProfiles !== "function") return;
+  await loadAmplifierProfiles(cfg);
+  updateTopologyProfileSummary();
+}
+
+async function topologyActivateSelectedProfile() {
+  const select = document.getElementById("amp-profile-select");
+  const profileID = select?.value || "";
+  if (!profileID) {
+    toast("Select a profile first.", true);
+    return;
+  }
+
+  const btn = document.getElementById("topology-profile-activate-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Activating…"; }
+
+  try {
+    const r = await fetch("/api/amplifier/profiles/activate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile_id: profileID }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      toast(data?.error || "Failed to activate profile.", true);
+      return;
+    }
+    toast("Profile activated.");
+    await loadTopologyPage();
+  } catch {
+    toast("Failed to activate profile.", true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Activate selected profile"; }
+  }
 }
 
 async function loadTopologyPage() {
@@ -78,6 +126,7 @@ async function loadTopologyPage() {
 
   setAmplifierInputsModel(amp.inputs ?? []);
   setConnectedDevicesModel(amp.connected_devices ?? []);
+  await loadTopologyProfiles(cfg);
 }
 
 async function saveTopologyPage() {
@@ -136,5 +185,7 @@ async function saveTopologyPage() {
 document.addEventListener("DOMContentLoaded", () => {
   applyTopologyContext();
   document.getElementById("btn-topology-save")?.addEventListener("click", saveTopologyPage);
+  document.getElementById("topology-profile-activate-btn")?.addEventListener("click", topologyActivateSelectedProfile);
+  document.getElementById("amp-profile-select")?.addEventListener("change", updateTopologyProfileSummary);
   loadTopologyPage();
 });
