@@ -34,6 +34,24 @@
       transition: background 0.15s;
     }
     .amp-page-back:hover { background: var(--hover); }
+    .amp-page-hub-link {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.78rem;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .amp-page-hub-link:hover {
+      border-color: var(--accent);
+      background: rgba(74,158,255,0.10);
+    }
     .amp-page-title {
       font-size: 1rem;
       font-weight: 600;
@@ -147,6 +165,7 @@
     Back
   </a>
   <span class="amp-page-title">Amplifier Configuration</span>
+  <a href="/config" class="amp-page-hub-link">Setup Hub</a>
 </div>
 
 <div class="amp-page-body">
