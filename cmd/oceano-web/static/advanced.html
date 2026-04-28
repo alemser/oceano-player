@@ -72,8 +72,39 @@
   </div>
 
   <!-- ── Save ──────────────────────────────────────────────────────────── -->
-  <div class="page-actions">
+  <div class="page-actions" style="margin-bottom:32px">
     <button type="button" class="btn-save" id="btn-adv-page-save" onclick="saveAdvancedPage()">Save &amp; Restart Services</button>
+  </div>
+
+  <!-- ── Backup & Restore ──────────────────────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Backup &amp; Restore</div>
+    <p class="hint" style="margin-bottom:14px">Daily automatic backup of library and configuration. Last 7 backups are kept.</p>
+
+    <div class="field" style="margin-bottom:16px">
+      <button type="button" class="detect-btn" id="btn-backup-now" onclick="runBackupNow()">Back Up Now</button>
+    </div>
+
+    <div id="backup-list"></div>
+
+    <div class="backup-upload-wrap">
+      <div class="config-subtitle" style="margin-top:18px;margin-bottom:10px">Restore from file</div>
+      <p class="hint" style="margin-bottom:12px">Upload a previously downloaded <code>.tar.gz</code> backup to restore on this device.</p>
+      <div class="backup-upload-row">
+        <label class="backup-upload-label" id="backup-upload-label" onclick="document.getElementById('backup-upload-input').click()">
+          Choose file…
+        </label>
+        <input type="file" id="backup-upload-input" accept=".tar.gz,application/gzip,application/x-gzip"
+               style="display:none" onchange="onBackupFileSelected(this)">
+        <select id="backup-upload-scope" class="lib-format-filter">
+          <option value="both">Library + Config</option>
+          <option value="library">Library only</option>
+          <option value="config">Config only</option>
+        </select>
+        <button type="button" class="detect-btn" id="btn-upload-restore"
+                onclick="uploadAndRestore()" disabled>Restore</button>
+      </div>
+    </div>
   </div>
 
 </div><!-- .page-body -->
@@ -81,6 +112,7 @@
 <div id="toast"></div>
 
 <script src="advanced_page.js"></script>
+<script src="index.library.js"></script>
 
 </body>
 </html>

@@ -202,9 +202,9 @@ function renderSetupBridge(status) {
     },
     {
       title: 'Now playing & display',
-      href: '/nowplaying.html',
+      href: '/display.html',
       icon: displayIcon,
-      status: { text: 'Open display page', tone: 'neutral' },
+      status: { text: 'HDMI/DSI · Weather · Idle screen', tone: 'neutral' },
     },
     {
       title: 'Advanced',

@@ -81,7 +81,7 @@ const HUB_CARDS = [
     id: "display",
     title: "Now playing & display",
     detail: "Kiosk · Weather · Idle screen",
-    href: "/nowplaying.html",
+    href: "/display.html",
     icon() { return (window.HUB_ICONS || {}).Display || ""; },
     chip(s) {
       if (!s) return { cls: "neutral", text: "Loading…" };

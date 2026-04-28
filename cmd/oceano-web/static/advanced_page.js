@@ -86,4 +86,7 @@ function toast(msg, isError = false) {
   el._t = setTimeout(() => el.className = '', 3500);
 }
 
-document.addEventListener('DOMContentLoaded', loadAdvancedPage);
+document.addEventListener('DOMContentLoaded', () => {
+  loadAdvancedPage();
+  if (typeof loadBackups === 'function') loadBackups();
+});
