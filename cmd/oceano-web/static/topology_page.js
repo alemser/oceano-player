@@ -23,6 +23,7 @@ function fieldValue(id) {
 function applyTopologyContext() {
   const params = new URLSearchParams(window.location.search || "");
   const fromWizard = params.get("from") === "wizard";
+  const fromMain = params.get("from") === "main";
   const titleEl = document.getElementById("topology-context-title");
   const copyEl = document.getElementById("topology-context-copy");
   const backEl = document.getElementById("topology-back-link");
@@ -43,6 +44,19 @@ function applyTopologyContext() {
       nextEl.href = "/amplifier-wizard?step=pairing";
     }
     if (profileSectionEl) profileSectionEl.style.display = "none";
+    return;
+  }
+
+  if (fromMain) {
+    if (titleEl) titleEl.textContent = "Amplifier & IR";
+    if (copyEl) copyEl.textContent = "Configure amplifier identity, input map, and connected device classification.";
+    if (backEl) {
+      backEl.href = "/?drawer=1";
+      backEl.innerHTML = backEl.innerHTML.replace("Back to wizard", "Back");
+    }
+    if (irEl) irEl.href = "/ir-setup?from=main";
+    if (nextEl) nextEl.style.display = "none";
+    if (profileSectionEl) profileSectionEl.style.display = "";
     return;
   }
 

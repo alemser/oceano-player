@@ -8,6 +8,25 @@ const stylusPageState = {
   canEdit: false,
 };
 
+function applyStylusContext() {
+  const params = new URLSearchParams(window.location.search || "");
+  const from = params.get("from") || "";
+  const backEl = document.getElementById("page-back-link");
+  const topologyEl = document.getElementById("stylus-topology-link");
+
+  if (from === "main") {
+    if (backEl) backEl.href = "/?drawer=1";
+    if (topologyEl) topologyEl.href = "/topology?from=main";
+    return;
+  }
+  if (from === "hub") {
+    if (backEl) backEl.href = "/config";
+    if (topologyEl) topologyEl.href = "/topology?from=hub";
+    return;
+  }
+  if (topologyEl) topologyEl.href = "/topology";
+}
+
 function toast(msg, isError) {
   const el = document.getElementById("toast");
   if (!el) return;
@@ -320,4 +339,7 @@ async function replaceStylusNow() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", loadStylusPage);
+document.addEventListener("DOMContentLoaded", () => {
+  applyStylusContext();
+  loadStylusPage();
+});

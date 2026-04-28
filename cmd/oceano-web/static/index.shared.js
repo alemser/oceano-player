@@ -172,7 +172,7 @@ function renderSetupBridge(status) {
     },
     {
       title: 'Amplifier & IR',
-      href: '/topology',
+      href: '/topology?from=main',
       icon: ampIcon,
       status: !status.amplifier_topology_complete
         ? { text: 'Topology not configured', tone: 'warn' }
@@ -184,7 +184,7 @@ function renderSetupBridge(status) {
     },
     {
       title: 'Stylus tracking',
-      href: '/stylus',
+      href: '/stylus?from=main',
       icon: stylusIcon,
       status: !status.vinyl_topology_present
         ? { text: 'No vinyl topology configured', tone: 'neutral' }
