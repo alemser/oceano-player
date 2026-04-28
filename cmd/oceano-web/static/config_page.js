@@ -25,7 +25,7 @@ const HUB_WIZARDS = [
     id: "physical",
     title: "Physical media",
     detail: "Capture · ACRCloud · Input calibration",
-    href: "/recognition.html",
+    href: "/recognition.html?from=hub",
     steps: [
       "Set capture device and threshold",
       "Add ACRCloud credentials",
@@ -45,7 +45,7 @@ const HUB_WIZARDS = [
     id: "stylus",
     title: "Stylus tracking",
     detail: "Cartridge profile · Initial hours · Replacement flow",
-    href: "/stylus",
+    href: "/stylus?from=hub",
     steps: [
       "Confirm vinyl topology",
       "Configure stylus profile",
@@ -62,7 +62,7 @@ const HUB_WIZARDS = [
     id: "streaming",
     title: "Streaming",
     detail: "AirPlay · Bluetooth health",
-    href: "/index.html",
+    href: "/streaming.html?from=hub",
     steps: [
       "Confirm service health",
       "Validate AirPlay and Bluetooth visibility",
@@ -79,7 +79,7 @@ const HUB_WIZARDS = [
     id: "display",
     title: "Now playing & display",
     detail: "Now playing page · Kiosk and local panel behavior",
-    href: "/display.html",
+    href: "/display.html?from=hub",
     steps: [
       "Open now playing display settings",
       "Validate kiosk behavior if using HDMI/DSI",

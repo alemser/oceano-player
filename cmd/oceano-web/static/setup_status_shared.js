@@ -22,7 +22,7 @@
       {
         id: "recognition",
         label: "ACRCloud credentials configured",
-        href: "/recognition.html",
+        href: "/recognition.html?from=hub",
         isDone: (s) => !!s && !!s.recognition_credentials_set,
       },
       {
@@ -42,7 +42,7 @@
       {
         id: "stylus",
         label: "Stylus tracking configured (vinyl path)",
-        href: "/stylus",
+        href: "/stylus?from=hub",
         isDone: (s) => !!s && (!!s.stylus_profile_configured || !s.stylus_tracking_recommended),
         skippable: true,
       },
