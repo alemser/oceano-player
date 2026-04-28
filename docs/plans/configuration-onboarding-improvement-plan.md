@@ -35,7 +35,7 @@ This document describes how first-time configuration feels today, why it is hard
 
 **Still pending from roadmap phases:**
 
-- **Phase 6/7:** full now-playing parity polish and CLI↔web bridge completion remain in progress roadmap items.
+- **Phase 6:** full now-playing parity polish remains in progress.
 
 **Newly completed in this branch (2026-04):**
 
@@ -425,6 +425,8 @@ Single JSON object (HTTP 200). **`schema_version`** lets clients evolve without 
 ### Phase 7 — CLI ↔ web bridge
 
 - **`oceano-setup`:** closing screen points to web checklist; emphasise **physical media** finish line.
+
+**Implemented (2026-04):** `oceano-setup` now persists `advanced.oceano_setup_acknowledged=true` in `config.json` on completion and the closing screen explicitly points users to `/config` with physical-media-first next steps.
 
 ### Phase 8 — Config surface convergence ✅ Done (2026-04)
 
