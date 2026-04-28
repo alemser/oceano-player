@@ -11,6 +11,7 @@ const SOURCE_LABELS = {
 };
 
 const STREAMING_SOURCES = new Set(['AirPlay', 'Bluetooth', 'UPnP']);
+const PHYSICAL_IDLE_HOLD_MS = 5000;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 
@@ -211,6 +212,29 @@ function updateStreamingProgress() {
 
 let _lastState = null;
 let _isIdle = true;
+let _physicalGapHoldUntilMs = 0;
+let _physicalGapHoldTimer = null;
+let _wasPhysicalGapIdle = false;
+
+function isPhysicalPlaybackSource(source) {
+  return source === 'Physical' || source === 'CD' || source === 'Vinyl';
+}
+
+function clearPhysicalGapHold() {
+  _physicalGapHoldUntilMs = 0;
+  if (_physicalGapHoldTimer) {
+    clearTimeout(_physicalGapHoldTimer);
+    _physicalGapHoldTimer = null;
+  }
+}
+
+function schedulePhysicalGapHoldRepaint(waitMs) {
+  if (_physicalGapHoldTimer || waitMs <= 0) return;
+  _physicalGapHoldTimer = setTimeout(() => {
+    _physicalGapHoldTimer = null;
+    if (_lastState) applyState(_lastState);
+  }, waitMs);
+}
 
 function applyState(state) {
   const source  = state.source  || 'None';
@@ -224,7 +248,23 @@ function applyState(state) {
   const physicalDetectorOn =
     state.physical_detector_active === true || state.physical_detector_active === undefined;
 
-  const isIdle = !playing || source === 'None';
+  const physicalGapIdle = isPhysicalPlaybackSource(source) && state.state === 'idle';
+  const nowMs = Date.now();
+  if (physicalGapIdle && !_wasPhysicalGapIdle) {
+    _physicalGapHoldUntilMs = nowMs + PHYSICAL_IDLE_HOLD_MS;
+  } else if (!physicalGapIdle) {
+    clearPhysicalGapHold();
+  }
+  _wasPhysicalGapIdle = physicalGapIdle;
+
+  const holdActive = physicalGapIdle && nowMs < _physicalGapHoldUntilMs;
+  if (holdActive) {
+    schedulePhysicalGapHoldRepaint(_physicalGapHoldUntilMs - nowMs + 16);
+  }
+
+  const effectivePlaying = holdActive ? true : playing;
+  const effectiveTrack = holdActive && !track ? (_lastState?.track || null) : track;
+  const isIdle = (!effectivePlaying || source === 'None');
   _isIdle = isIdle;
   $idle.classList.toggle('visible', isIdle);
   const $ampInd = document.getElementById('amp-indicator');
@@ -238,25 +278,25 @@ function applyState(state) {
 
   // Option 1 UX: when there is active playback, keep source context in the
   // in-content badge and hide the separate top bar.
-  $sourceBar.classList.toggle('hidden', playing && source !== 'None');
+  $sourceBar.classList.toggle('hidden', effectivePlaying && source !== 'None');
 
   // Playback badge
-  $badge.textContent = playing ? 'Playing' : 'Stopped';
-  $badge.classList.toggle('playing', playing);
-  $sourcePlayDot.classList.toggle('playing', playing);
-  document.getElementById('app')?.classList.toggle('source-playing', playing);
+  $badge.textContent = effectivePlaying ? 'Playing' : 'Stopped';
+  $badge.classList.toggle('playing', effectivePlaying);
+  $sourcePlayDot.classList.toggle('playing', effectivePlaying);
+  document.getElementById('app')?.classList.toggle('source-playing', effectivePlaying);
 
   // Track metadata
-  const hasTrack = track && (track.title || track.artist);
+  const hasTrack = effectiveTrack && (effectiveTrack.title || effectiveTrack.artist);
   $identifying.className = '';
   $identifying.textContent = '';
 
   if (hasTrack) {
-    $title.textContent  = track.title  || '—';
-    $artist.textContent = track.artist || '';
-    $album.textContent  = track.album  || '';
-    updateArtwork(track.artwork_path || null);
-  } else if (playing && physicalDetectorOn && (source === 'Physical' || source === 'CD' || source === 'Vinyl')) {
+    $title.textContent  = effectiveTrack.title  || '—';
+    $artist.textContent = effectiveTrack.artist || '';
+    $album.textContent  = effectiveTrack.album  || '';
+    updateArtwork(effectiveTrack.artwork_path || null);
+  } else if (effectivePlaying && physicalDetectorOn && (source === 'Physical' || source === 'CD' || source === 'Vinyl')) {
     // Without a configured capture path, the recognizer cannot run — do not show "Identifying…".
     if (_captureInputKnown && !_captureInputConfigured) {
       $title.textContent  = 'Unidentified';
@@ -273,7 +313,7 @@ function applyState(state) {
       $identifying.textContent = 'Listening for a match';
       showDefaultArtwork();
     }
-  } else if (playing && source !== 'None') {
+  } else if (effectivePlaying && source !== 'None') {
     // Streaming source playing without metadata (e.g. Bluetooth without AVRCP).
     $title.textContent  = '—';
     $artist.textContent = '';
@@ -298,8 +338,8 @@ function applyState(state) {
     const physicalWithCDFormat = normalizedSource.toLowerCase() === 'physical' && normalizedFormat === 'cd';
 
     // Streaming: sample rate + bit depth merged into one chip
-    if (track.samplerate || track.bitdepth) {
-      const fmtLabel = [track.samplerate, track.bitdepth].filter(Boolean).join(' · ');
+    if (effectiveTrack.samplerate || effectiveTrack.bitdepth) {
+      const fmtLabel = [effectiveTrack.samplerate, effectiveTrack.bitdepth].filter(Boolean).join(' · ');
       $chips.appendChild(makeChip(
         chipSVG('M1 6 Q3 2 5 6 Q7 10 9 6 Q11 2 11 6'),
         fmtLabel
@@ -307,16 +347,16 @@ function applyState(state) {
     }
 
     // Bluetooth codec chip (SBC, AAC, LDAC, AptX, Opus, …)
-    if (track.codec) {
+    if (effectiveTrack.codec) {
       $chips.appendChild(makeChip(
         chipSVG('M6 2 L10 6 L6 10 L6 2 M6 6 L2 2 M6 6 L2 10'),
-        track.codec
+        effectiveTrack.codec
       ));
     }
 
     // Track/side chips: supports CD and Vinyl representations.
-    if (track.track_number) {
-      const trackRef = String(track.track_number).trim();
+    if (effectiveTrack.track_number) {
+      const trackRef = String(effectiveTrack.track_number).trim();
       const vinylRef = parseVinylTrackRef(trackRef);
       const shouldRenderVinyl = sourceLooksVinyl || physicalWithVinylFormat || (!!vinylRef && normalizedSource.toLowerCase() === 'physical');
       const shouldRenderCD = sourceLooksCD || physicalWithCDFormat;
@@ -346,8 +386,8 @@ function applyState(state) {
     }
 
     // Physical match chip: shown when a streaming track exists in the local library
-    if (track.physical_match && track.physical_match.format) {
-      const pm = track.physical_match;
+    if (effectiveTrack.physical_match && effectiveTrack.physical_match.format) {
+      const pm = effectiveTrack.physical_match;
       const fmt = pm.format; // "Vinyl" or "CD"
       const isVinyl = fmt === 'Vinyl';
       // Vinyl icon: disc with groove lines; CD icon: disc with centre hole
