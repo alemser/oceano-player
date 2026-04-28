@@ -59,6 +59,24 @@ function _isVinylLabel(label, key) {
   return key === '10' || l.includes('phono') || l.includes('vinyl') || l.includes('vinil');
 }
 
+function _phonoInputsFromConfig(cfg) {
+  const allInputs = Array.isArray(cfg?.amplifier?.inputs)
+    ? cfg.amplifier.inputs.filter(i => i && i.visible !== false)
+    : [];
+  const turntableInputIDs = new Set();
+  const devices = Array.isArray(cfg?.amplifier?.connected_devices) ? cfg.amplifier.connected_devices : [];
+  for (const dev of devices) {
+    if (!dev || !dev.is_turntable) continue;
+    const ids = Array.isArray(dev.input_ids) ? dev.input_ids : [];
+    for (const id of ids) turntableInputIDs.add(String(id));
+  }
+  if (turntableInputIDs.size > 0) {
+    const mapped = allInputs.filter(i => turntableInputIDs.has(String(i.id || '')));
+    if (mapped.length > 0) return mapped;
+  }
+  return allInputs.filter(i => _isVinylLabel(i.logical_name || '', String(i.id || '')));
+}
+
 // ── Recommendation engine ──────────────────────────────────────────────────────
 // Accepts explicit off/on/vinyl, or falls back to _calibrationState when called with no args.
 
@@ -247,19 +265,17 @@ function openCalibrationWizard() {
   _wiz.captureDuration = 6;
 
   const cfg = _calibrationState.cfg;
-  const allInputs = Array.isArray(cfg?.amplifier?.inputs)
-    ? cfg.amplifier.inputs.filter(i => i && i.visible !== false)
-    : [];
+  const phonoInputs = _phonoInputsFromConfig(cfg);
 
-  if (allInputs.length > 0) {
-    _wiz.inputKey   = String(allInputs[0].id || '');
-    _wiz.inputLabel = allInputs[0].logical_name || `Input ${allInputs[0].id}`;
+  if (phonoInputs.length > 0) {
+    _wiz.inputKey   = String(phonoInputs[0].id || '');
+    _wiz.inputLabel = phonoInputs[0].logical_name || `Input ${phonoInputs[0].id}`;
   } else {
     _wiz.inputKey   = '__manual__';
-    _wiz.inputLabel = 'Manual';
+    _wiz.inputLabel = 'Phono';
   }
 
-  _wiz.isPhono = _isVinylLabel(_wiz.inputLabel, _wiz.inputKey);
+  _wiz.isPhono = true;
   _wizLoadInputState();
 
   const overlay = document.getElementById('cal-wiz-overlay');
@@ -318,12 +334,11 @@ function wizNext() {
 
   if (_wiz.step === WIZ_STEPS.SELECT) {
     const sel = document.getElementById('wiz-input-select');
-    const cb  = document.getElementById('wiz-phono-cb');
     if (sel) {
       _wiz.inputKey   = sel.value || '__manual__';
       _wiz.inputLabel = (sel.options[sel.selectedIndex]?.textContent || '').trim() || _wiz.inputKey;
     }
-    if (cb) _wiz.isPhono = cb.checked;
+    _wiz.isPhono = true;
     _wizLoadInputState();
   }
 
@@ -350,13 +365,11 @@ function _wizCalibrateAnother() {
   _wiz.capturing = false;
 
   const cfg = _calibrationState.cfg;
-  const allInputs = Array.isArray(cfg?.amplifier?.inputs)
-    ? cfg.amplifier.inputs.filter(i => i && i.visible !== false)
-    : [];
-  if (allInputs.length > 0) {
-    _wiz.inputKey   = String(allInputs[0].id || '');
-    _wiz.inputLabel = allInputs[0].logical_name || `Input ${allInputs[0].id}`;
-    _wiz.isPhono    = _isVinylLabel(_wiz.inputLabel, _wiz.inputKey);
+  const phonoInputs = _phonoInputsFromConfig(cfg);
+  if (phonoInputs.length > 0) {
+    _wiz.inputKey   = String(phonoInputs[0].id || '');
+    _wiz.inputLabel = phonoInputs[0].logical_name || `Input ${phonoInputs[0].id}`;
+    _wiz.isPhono    = true;
   }
 
   _wizRender();
@@ -416,18 +429,7 @@ async function _wizSaveAndClose() {
 // ── Wizard input/checkbox change handlers ──────────────────────────────────────
 
 function _wizInputChanged() {
-  const sel = document.getElementById('wiz-input-select');
-  const cb  = document.getElementById('wiz-phono-cb');
-  if (!sel || !cb) return;
-  const key   = sel.value || '__manual__';
-  const label = (sel.options[sel.selectedIndex]?.textContent || '').trim();
-  cb.checked = _isVinylLabel(label, key);
-  _wiz.isPhono = cb.checked;
-  _wizRenderHeader();
-}
-
-function _wizPhonoCbChange(checkbox) {
-  _wiz.isPhono = checkbox.checked;
+  _wiz.isPhono = true;
   _wizRenderHeader();
 }
 
@@ -612,14 +614,12 @@ function _wizRenderFooter() {
 
 function _wizStep1() {
   const cfg = _calibrationState.cfg;
-  const allInputs = Array.isArray(cfg?.amplifier?.inputs)
-    ? cfg.amplifier.inputs.filter(i => i && i.visible !== false)
-    : [];
+  const phonoInputs = _phonoInputsFromConfig(cfg);
 
   let selectHtml;
-  if (allInputs.length > 0) {
+  if (phonoInputs.length > 0) {
     selectHtml = `<select id="wiz-input-select" class="cal-wiz-select" onchange="_wizInputChanged()">`;
-    for (const inp of allInputs) {
+    for (const inp of phonoInputs) {
       const key = String(inp.id || '');
       const label = inp.logical_name || `Input ${inp.id}`;
       const sel = key === _wiz.inputKey ? ' selected' : '';
@@ -627,37 +627,23 @@ function _wizStep1() {
     }
     selectHtml += `</select>`;
   } else {
-    selectHtml = `<div class="hint" style="padding:8px 10px;border:1px solid var(--border);border-radius:5px">No inputs configured in the Amplifier section. Data will be stored as "manual".</div>`;
+    selectHtml = `<div class="hint" style="padding:8px 10px;border:1px solid var(--border);border-radius:5px">No Phono input found in the Amplifier section. Add/rename one input as Phono to use vinyl calibration.</div>`;
   }
-
-  const phonoChecked = _wiz.isPhono ? ' checked' : '';
 
   return `
     <div class="cal-wiz-illus">${_SVG_AMP}</div>
-    <div class="cal-wiz-title">Choose an input to calibrate</div>
-    <div class="cal-wiz-desc">Calibration measures the noise floor of each input at rest — the difference between the REC OUT/LINE OUT signal when the source is off versus on but idle. These measurements let the system detect source switches precisely and avoid false track identifications.</div>
+    <div class="cal-wiz-title">Choose a Phono input</div>
+    <div class="cal-wiz-desc">This wizard is dedicated to vinyl calibration. It measures OFF/ON noise floor and optional vinyl track transitions for more precise inter-track detection.</div>
     <div class="cal-wiz-field">
-      <label class="cal-wiz-field-label"><span>Amplifier input</span></label>
+      <label class="cal-wiz-field-label"><span>Phono input</span></label>
       ${selectHtml}
     </div>
-    <label class="cal-wiz-cb-row">
-      <input type="checkbox" id="wiz-phono-cb"${phonoChecked} onchange="_wizPhonoCbChange(this)">
-      <div class="cal-wiz-cb-text">
-        <div class="cb-label">This is a phono stage / turntable input</div>
-        <div class="cb-hint">Enables a step to capture vinyl track transitions for precise inter-track gap detection.</div>
-      </div>
-    </label>
   `;
 }
 
 function _wizStep2() {
-  const isPhono   = _wiz.isPhono;
   const capturing = _wiz.capturing;
-  const illus     = isPhono ? _SVG_RCA_DISC : _SVG_POWER_OFF;
-
-  const instrHtml = isPhono
-    ? `Switch your amplifier to <b>${_esc(_wiz.inputLabel)}</b>. Unplug the RCA cables from the phono stage (or switch it off if available). Make sure the turntable motor is stopped.`
-    : `Switch your amplifier to <b>${_esc(_wiz.inputLabel)}</b>. <b>Power off the source device</b> — put the CD player in standby or unplug it. Make sure no audio is playing.`;
+  const instrHtml = `Switch your amplifier to <b>${_esc(_wiz.inputLabel)}</b>. Unplug the RCA cables from the phono stage (or switch it off if available). Make sure the turntable motor is stopped.`;
 
   const resultHtml = _wiz.off
     ? `<div class="cal-wiz-result-ok"><span class="r-icon">${_ICO_CHECK}</span><span class="r-text">avg ${_wiz.off.avg_rms.toFixed(4)} · min ${_wiz.off.min_rms.toFixed(4)} · max ${_wiz.off.max_rms.toFixed(4)} · ${_wiz.off.samples} samples</span></div>`
@@ -668,8 +654,8 @@ function _wizStep2() {
   const progHtml = capturing ? `<div class="cal-wiz-prog"><div class="cal-wiz-prog-bar" id="wiz-prog-bar"></div></div><div class="cal-wiz-cap-hint">Measuring noise floor for ${_wiz.captureDuration}s…</div>` : '';
 
   return `
-    <div class="cal-wiz-illus">${illus}</div>
-    <div class="cal-wiz-title">Silence — source ${isPhono ? 'disconnected' : 'off'}</div>
+    <div class="cal-wiz-illus">${_SVG_RCA_DISC}</div>
+    <div class="cal-wiz-title">Silence — phono disconnected/off</div>
     <div class="cal-wiz-desc">Captures the baseline noise floor when the source is inactive. This is the quietest state this input can be in.</div>
     <div class="cal-wiz-instr">${instrHtml}</div>
     <button class="cal-wiz-cap-btn"${btnDis} onclick="_wizCapture('off')">${_ICO_MIC} ${capturing ? 'Measuring…' : btnLabel}</button>
@@ -679,12 +665,9 @@ function _wizStep2() {
 }
 
 function _wizStep3() {
-  const isPhono   = _wiz.isPhono;
   const capturing = _wiz.capturing;
 
-  const instrHtml = isPhono
-    ? `Now <b>connect the RCA cables</b> back. The phono stage should be active but the turntable not playing anything.`
-    : `Now <b>power on the source device</b> but do not play anything. Wait a few seconds for it to settle, then start the measurement.`;
+  const instrHtml = `Now <b>connect the RCA cables</b> back. The phono stage should be active but the turntable not playing anything.`;
 
   let resultHtml = '';
   if (_wiz.on) {
@@ -759,9 +742,7 @@ function _wizStep5() {
 
 function _wizStep6() {
   const cfg = _calibrationState.cfg;
-  const allInputs = Array.isArray(cfg?.amplifier?.inputs)
-    ? cfg.amplifier.inputs.filter(i => i && i.visible !== false)
-    : [];
+  const phonoInputs = _phonoInputsFromConfig(cfg);
 
   const profiles = _calibrationState.byInput;
   const shown = new Set();
@@ -769,11 +750,12 @@ function _wizStep6() {
 
   for (const [key, slot] of Object.entries(profiles)) {
     if (!slot || (!slot.off && !slot.on && !slot.vinyl_transition)) continue;
-    const ampInp = allInputs.find(i => String(i.id) === key);
+    const ampInp = phonoInputs.find(i => String(i.id) === key);
+    if (!ampInp) continue;
     shown.add(key);
     items.push({ key, label: ampInp?.logical_name || key, slot, measured: true });
   }
-  for (const inp of allInputs) {
+  for (const inp of phonoInputs) {
     const key = String(inp.id || '');
     if (shown.has(key)) continue;
     items.push({ key, label: inp.logical_name || `Input ${inp.id}`, slot: null, measured: false });
@@ -783,7 +765,7 @@ function _wizStep6() {
     return `
       <div class="cal-wiz-illus">${_SVG_CHECK}</div>
       <div class="cal-wiz-title">Calibration complete</div>
-      <div class="cal-wiz-desc">No amplifier inputs are configured. The system will use the global silence thresholds as fallback.</div>
+      <div class="cal-wiz-desc">No Phono input is configured. The system will keep using global silence thresholds as fallback.</div>
       <div class="cal-wiz-save-note">Click <b>Save &amp; Close</b> then <b>Save &amp; Restart Services</b> on the main page to persist.</div>
     `;
   }

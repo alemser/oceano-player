@@ -10,6 +10,9 @@ function renderCalibrationSummary() {
   const allInputs = Array.isArray(cfg?.amplifier?.inputs)
     ? cfg.amplifier.inputs.filter(i => i && i.visible !== false)
     : [];
+  const phonoInputs = (typeof _phonoInputsFromConfig === 'function')
+    ? _phonoInputsFromConfig(cfg)
+    : allInputs.filter(i => _isVinylLabel(i.logical_name || '', String(i.id || '')));
 
   const profiles = _calibrationState.byInput;
   const shown = new Set();
@@ -17,25 +20,26 @@ function renderCalibrationSummary() {
 
   for (const [key, slot] of Object.entries(profiles)) {
     if (!slot || (!slot.off && !slot.on && !slot.vinyl_transition)) continue;
-    const ampInp = allInputs.find(i => String(i.id) === key);
+    const ampInp = phonoInputs.find(i => String(i.id) === key);
+    if (!ampInp) continue;
     shown.add(key);
     items.push({ key, label: ampInp?.logical_name || key, slot, measured: true });
   }
 
-  for (const inp of allInputs) {
+  for (const inp of phonoInputs) {
     const key = String(inp.id || '');
     if (shown.has(key)) continue;
     items.push({ key, label: inp.logical_name || `Input ${inp.id}`, slot: null, measured: false });
   }
 
   if (items.length === 0) {
-    container.innerHTML = '<div class="hint" style="padding:4px 0 2px">No amplifier inputs configured. Run the wizard after setting up inputs in the Amplifier section.</div>';
+    container.innerHTML = '<div class="hint" style="padding:4px 0 2px">No Phono input configured. Set one in Amplifier settings to run vinyl calibration.</div>';
     return;
   }
 
   container.innerHTML = items.map(item => {
     const { label, slot, measured, key } = item;
-    const isPhono = _isVinylLabel(label, key);
+    const isPhono = phonoInputs.some(i => String(i.id) === String(key));
 
     const badges = [];
     if (measured) badges.push(`<span class="cal-sc-badge measured">Measured</span>`);

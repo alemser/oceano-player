@@ -131,6 +131,10 @@ type ConnectedDeviceConfig struct {
 	InputIDs []AmplifierInputID `json:"input_ids,omitempty"`
 	// HasRemote indicates whether this device has a remote control (IR codes).
 	HasRemote bool `json:"has_remote,omitempty"`
+	// IsTurntable marks this connected device as the vinyl source.
+	// Calibration wizard uses this to target the proper input(s) even when
+	// the input label is not explicitly "Phono".
+	IsTurntable bool `json:"is_turntable,omitempty"`
 	// IRCodes maps command names to base64-encoded Broadlink IR codes.
 	// Keys follow the same convention as CD player: power_on, power_off,
 	// play, pause, stop, next, previous, eject.
