@@ -362,7 +362,7 @@ html, body {
 
 /* ─── Boundary telemetry ───────────────────────────────────────────────────── */
 #boundary-stats-section {
-  margin-top: clamp(24px, 4vw, 40px);
+  margin-top: 0;
 }
 
 .boundary-stats-card .boundary-outcome-block {
@@ -395,9 +395,16 @@ html, body {
 
 .boundary-readiness-desc {
   font-size: 0.78rem;
-  color: var(--text-dim);
+  color: var(--text);
   line-height: 1.45;
-  margin: 2px 0 4px;
+  margin: 2px 0 2px;
+}
+
+.boundary-readiness-note {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  line-height: 1.4;
+  margin: 0 0 4px;
 }
 
 .boundary-readiness-insufficient .boundary-readiness-level { color: #e0806a; }
@@ -412,9 +419,68 @@ html, body {
   line-height: 1.45;
 }
 
+.boundary-readiness-details {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.boundary-readiness-details > summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  user-select: none;
+}
+
+.boundary-readiness-details-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
 /* ─── Recognition provider stats ───────────────────────────────────────────── */
 #rec-stats-section {
   margin-top: clamp(24px, 4vw, 40px);
+}
+
+/* ─── Advanced accordion ───────────────────────────────────────────────────── */
+#advanced-metrics-section {
+  margin-top: clamp(24px, 4vw, 40px);
+}
+
+#advanced-metrics-accordion {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.advanced-metrics-summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  padding: 14px 16px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.advanced-metrics-summary::-webkit-details-marker { display: none; }
+.advanced-metrics-summary::after {
+  content: '▾';
+  float: right;
+  color: var(--text-faint);
+  transition: transform 0.15s ease;
+}
+#advanced-metrics-accordion[open] .advanced-metrics-summary::after {
+  transform: rotate(180deg);
+}
+
+.advanced-metrics-body {
+  padding: 0 16px 14px;
+  border-top: 1px solid var(--border);
 }
 
 .metrics-section-heading {

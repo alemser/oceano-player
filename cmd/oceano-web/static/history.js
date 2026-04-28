@@ -260,11 +260,17 @@ function renderBoundaryReadinessCard(cr) {
   const level = String(cr.readiness_level || '');
   const levelClass = level ? ` boundary-readiness-${level}` : '';
   const nudgesOn = cr.effective_calibration_nudges_on ? 'On' : 'Off';
-  return (
-    `<div class="rec-prov-card boundary-readiness-card${levelClass}">` +
-    `<div class="rec-prov-name">Calibration readiness (R3 lookback)</div>` +
-    `<div class="rec-prov-row"><span class="lbl">Readiness</span><span class="val boundary-readiness-level">${esc(level || '—')}</span></div>` +
-    `<p class="boundary-readiness-desc">${esc(cr.readiness_message || '')}</p>` +
+  const friendlyMessage = level === 'strong'
+    ? 'Great coverage: enough paired follow-ups for stable automatic calibration nudges.'
+    : level === 'adequate'
+    ? 'Good coverage: nudges can run with reasonable confidence.'
+    : level === 'low'
+    ? 'Borderline coverage: nudges can run, but behavior may still be noisy.'
+    : 'Not enough paired follow-ups yet. Keep listening and this will unlock automatically.';
+  const detailsHtml =
+    `<details class="boundary-readiness-details">` +
+    `<summary>Technical details</summary>` +
+    `<div class="boundary-readiness-details-body">` +
     `<div class="rec-prov-row"><span class="lbl">Paired follow-ups (window)</span><span class="val">${Number(cr.paired_followups_r3_window || 0)}</span></div>` +
     `<div class="rec-prov-row"><span class="lbl">Minimum pairs required</span><span class="val">${Number(cr.min_followup_pairs_required || 0)}</span></div>` +
     `<div class="rec-prov-row"><span class="lbl">Lookback (days)</span><span class="val">${Number(cr.r3_lookback_days || 0)}</span></div>` +
@@ -275,6 +281,15 @@ function renderBoundaryReadinessCard(cr) {
     `<div class="rec-prov-row"><span class="lbl">RMS histogram learning</span><span class="val">${cr.rms_learning_enabled ? 'Yes' : 'No'}</span></div>` +
     `<div class="rec-prov-row"><span class="lbl">RMS autonomous apply</span><span class="val">${cr.rms_autonomous_apply ? 'Yes' : 'No'}</span></div>` +
     `<p class="boundary-rms-note">${esc(cr.rms_capture_note || '')}</p>` +
+    `</div>` +
+    `</details>`;
+  return (
+    `<div class="rec-prov-card boundary-readiness-card${levelClass}">` +
+    `<div class="rec-prov-name">Calibration readiness (R3 lookback)</div>` +
+    `<div class="rec-prov-row"><span class="lbl">Readiness</span><span class="val boundary-readiness-level">${esc(level || '—')}</span></div>` +
+    `<p class="boundary-readiness-desc">${esc(friendlyMessage)}</p>` +
+    `<p class="boundary-readiness-note">${esc(cr.readiness_message || '')}</p>` +
+    detailsHtml +
     `</div>`
   );
 }
@@ -352,7 +367,7 @@ function renderBoundaryStats(container, payload) {
     followupBlock +
     `</div>`;
 
-  container.innerHTML = `<div class="boundary-stats-stack">${summaryCard}${readinessHtml}</div>`;
+  container.innerHTML = `<div class="boundary-stats-stack">${readinessHtml}${summaryCard}</div>`;
 }
 
 // ─── Recognition provider stats ───────────────────────────────────────────────
