@@ -194,6 +194,10 @@ type rmsLearningListResponse struct {
 	AutonomousApply   bool                `json:"autonomous_apply"`
 }
 
+type importRMSBaselineRequest struct {
+	Overwrite bool `json:"overwrite"`
+}
+
 func rmsReadinessLevel(silN, musN int64, minSil, minMus int, hasDerived bool) string {
 	if silN < int64(minSil) || musN < int64(minMus) {
 		return "collecting"
@@ -961,6 +965,60 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(&rmsLearningListResponse{
 			Rows: list, MinSilenceSamples: minSil, MinMusicSamples: minMus, AutonomousApply: autoApply,
+		})
+	})
+
+	// POST /api/recognition/rms-learning/import-default — import baseline histograms for empty setups.
+	mux.HandleFunc("/api/recognition/rms-learning/import-default", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req importRMSBaselineRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		lib, err := openLibraryDB(libraryDBPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			if err := os.MkdirAll(filepath.Dir(libraryDBPath), 0o755); err != nil {
+				jsonError(w, "failed to create library directory", http.StatusInternalServerError)
+				return
+			}
+			f, err := os.OpenFile(libraryDBPath, os.O_CREATE, 0o644)
+			if err != nil {
+				jsonError(w, "failed to create library database", http.StatusInternalServerError)
+				return
+			}
+			_ = f.Close()
+			lib, err = openLibraryDB(libraryDBPath)
+			if err != nil {
+				jsonError(w, "failed to open library database", http.StatusInternalServerError)
+				return
+			}
+			if lib == nil {
+				jsonError(w, "library database unavailable", http.StatusInternalServerError)
+				return
+			}
+		}
+		defer lib.close()
+
+		imported, hadExisting, err := lib.importDefaultRMSLearningBaseline(req.Overwrite)
+		if err != nil {
+			jsonError(w, "failed to import baseline: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if hadExisting {
+			jsonError(w, "rms learning data already exists; retry with overwrite=true", http.StatusConflict)
+			return
+		}
+		jsonOK(w, map[string]any{
+			"ok":               true,
+			"imported_formats": imported,
+			"source":           "default_baseline",
+			"note":             "Enable adaptive tuning and RMS autonomous apply, then Save & Restart Services.",
 		})
 	})
 

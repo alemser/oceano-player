@@ -95,12 +95,25 @@ func main() {
 	// Static files (HTML, CSS, JS)
 	sub, _ := fs.Sub(staticFiles, "static")
 	mux.Handle("/", http.FileServer(http.FS(sub)))
+	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
+		redirectWithQuery(w, r, "/config.html")
+	})
+	mux.HandleFunc("/stylus", func(w http.ResponseWriter, r *http.Request) {
+		redirectWithQuery(w, r, "/stylus.html")
+	})
+	mux.HandleFunc("/topology", func(w http.ResponseWriter, r *http.Request) {
+		redirectWithQuery(w, r, "/topology.html")
+	})
+	mux.HandleFunc("/ir-setup", func(w http.ResponseWriter, r *http.Request) {
+		redirectWithQuery(w, r, "/ir-setup.html")
+	})
 
 	// API: core state and config endpoints.
 	mux.HandleFunc("/api/config", handleConfig(*configPath))
 	mux.HandleFunc("/api/status", handleStatus(*configPath))
 	mux.HandleFunc("/api/stream", handleStream(*configPath))
 	mux.HandleFunc("/api/artwork", handleArtwork(*configPath))
+	mux.HandleFunc("/api/setup-status", handleSetupStatus(*configPath, *libraryDB))
 
 	// API: physical media collection (library) and backup/restore.
 	cfg, _ := loadConfig(*configPath)
@@ -161,6 +174,13 @@ func main() {
 	if err := http.ListenAndServe(*addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+func redirectWithQuery(w http.ResponseWriter, r *http.Request, target string) {
+	if q := strings.TrimSpace(r.URL.RawQuery); q != "" {
+		target += "?" + q
+	}
+	http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 }
 
 // BluetoothDevice is a paired Bluetooth device.

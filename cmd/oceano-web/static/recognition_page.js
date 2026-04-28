@@ -2,6 +2,28 @@
 
 // ── Calibration summary (main page) ───────────────────────────────────────────
 
+let _effectiveInputRecognitionPolicyMap = new Map();
+
+async function loadEffectiveInputRecognitionPolicies() {
+  _effectiveInputRecognitionPolicyMap = new Map();
+  try {
+    const r = await fetch('/api/amplifier/input-recognition-policies');
+    if (!r.ok) return;
+    const body = await r.json();
+    const items = Array.isArray(body?.items) ? body.items : [];
+    for (const it of items) {
+      const id = String(it?.input_id || '').trim();
+      if (!id) continue;
+      const pol = String(it?.effective_policy || '').trim().toLowerCase();
+      if (pol === 'library' || pol === 'display_only' || pol === 'off') {
+        _effectiveInputRecognitionPolicyMap.set(id, pol);
+      }
+    }
+  } catch {
+    // Best effort only: calibration page still renders without policy badges.
+  }
+}
+
 function renderCalibrationSummary() {
   const container = document.getElementById('cal-summary-grid');
   if (!container) return;
@@ -40,11 +62,15 @@ function renderCalibrationSummary() {
   container.innerHTML = items.map(item => {
     const { label, slot, measured, key } = item;
     const isPhono = phonoInputs.some(i => String(i.id) === String(key));
+    const policy = _effectiveInputRecognitionPolicyMap.get(String(key)) || 'off';
 
     const badges = [];
     if (measured) badges.push(`<span class="cal-sc-badge measured">Measured</span>`);
     else          badges.push(`<span class="cal-sc-badge defaults">Defaults</span>`);
     if (isPhono)  badges.push(`<span class="cal-sc-badge phono">Phono</span>`);
+    if (policy === 'library') badges.push(`<span class="cal-sc-badge measured">Recognition: Library</span>`);
+    else if (policy === 'display_only') badges.push(`<span class="cal-sc-badge defaults">Recognition: Display only</span>`);
+    else badges.push(`<span class="cal-sc-badge defaults">Recognition: Off</span>`);
 
     let valsHtml = '';
     if (measured && slot) {
@@ -140,6 +166,72 @@ function applyTuningPreset() {
   toast(`Preset applied: ${label}`);
 }
 
+async function importRMSBaseline(overwrite) {
+  const r = await fetch('/api/recognition/rms-learning/import-default', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ overwrite: !!overwrite }),
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = body?.error || `Import failed (HTTP ${r.status})`;
+    const err = new Error(msg);
+    err.status = r.status;
+    throw err;
+  }
+  return body;
+}
+
+async function importBaselineAndEnableAutonomy() {
+  const first = window.confirm(
+    'Import starter baseline for RMS learning?\n\n' +
+    'This is recommended for a new/empty setup. The system will still auto-calibrate based on your local playback.'
+  );
+  if (!first) return;
+
+  const btn = document.getElementById('rec-import-rms-baseline-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+  try {
+    try {
+      await importRMSBaseline(false);
+    } catch (err) {
+      if (err?.status !== 409) throw err;
+      const overwrite = window.confirm(
+        'Existing RMS learning data was found.\n\n' +
+        'Do you want to overwrite it with the starter baseline?'
+      );
+      if (!overwrite) {
+        toast('Import cancelled (existing data kept).');
+        return;
+      }
+      await importRMSBaseline(true);
+    }
+
+    const autoBox = document.getElementById('rec-autonomous-calibration-enabled');
+    const telemBox = document.getElementById('rec-telemetry-nudges-enabled');
+    const rmsEn = document.getElementById('rec-rms-learning-enabled');
+    const rmsApply = document.getElementById('rec-rms-learning-apply');
+    if (autoBox) autoBox.checked = true;
+    if (telemBox) telemBox.checked = true;
+    if (rmsEn) rmsEn.checked = true;
+    if (rmsApply) rmsApply.checked = true;
+    if (!_rval('rec-rms-min-silence')) _rset('rec-rms-min-silence', 400);
+    if (!_rval('rec-rms-min-music')) _rset('rec-rms-min-music', 400);
+    if (!_rval('rec-rms-persist-secs')) _rset('rec-rms-persist-secs', 120);
+
+    toast('Baseline imported. Saving autonomous settings…');
+    await saveRecognitionPage();
+    await loadRecognitionPage();
+    if (typeof refreshRMSLearningSnapshot === 'function') {
+      await refreshRMSLearningSnapshot('rec-rms-learning-summary');
+    }
+  } catch (err) {
+    toast(err?.message || 'Failed to import starter baseline.', true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Import starter baseline (recommended for new setup)'; }
+  }
+}
+
 // ── Page load / save ───────────────────────────────────────────────────────────
 
 async function loadRecognitionPage() {
@@ -203,6 +295,7 @@ async function loadRecognitionPage() {
 
   _calibrationState.cfg      = cfg;
   _calibrationState.byInput  = _normalizeCalibrationProfiles(cfg.advanced?.calibration_profiles);
+  await loadEffectiveInputRecognitionPolicies();
 
   renderCalibrationSummary();
   updateRecognitionUI();
@@ -336,5 +429,6 @@ async function saveRecognitionPage() {
 
 document.getElementById('rec-chain')?.addEventListener('change', updateRecognitionUI);
 document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('rec-import-rms-baseline-btn')?.addEventListener('click', importBaselineAndEnableAutonomy);
   loadRecognitionPage();
 });

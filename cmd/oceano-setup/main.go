@@ -1015,10 +1015,12 @@ func main() {
 	if captureDevice != "" {
 		setKey(cfg, "audio_input", "device", captureDevice)
 	}
+	// Bridge CLI setup completion to the web onboarding checklist.
+	setKey(cfg, "advanced", "oceano_setup_acknowledged", true)
 	if err := writeConfig(cfg); err != nil {
 		logWarn("Could not update config.json: " + err.Error())
 	} else {
-		logOK("Updated " + configPath)
+		logOK("Updated " + configPath + " (including oceano_setup_acknowledged=true)")
 	}
 
 	configureBluetooth(btName)
@@ -1075,6 +1077,9 @@ func main() {
 	if fields := strings.Fields(string(out)); len(fields) > 0 {
 		fmt.Printf("Open %shttp://%s:8080%s to review your configuration.\n",
 			cyan, fields[0], reset)
+		fmt.Printf("Then open %shttp://%s:8080/config%s to continue the web checklist (physical media first).\n",
+			cyan, fields[0], reset)
 	}
+	fmt.Println("Next recommended web steps: Capture → ACRCloud → Amplifier topology (optional IR) → Calibration → Stylus.")
 	printDisplayResolutionHints()
 }

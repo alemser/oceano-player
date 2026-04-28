@@ -532,10 +532,11 @@ async function doRestore(file, scope, triggerEl) {
     // Reload affected data.
     if (scope === 'library' || scope === 'both') {
       _librarySignature = '';
-      await loadLibrary();
+      if (typeof loadLibrary === 'function') await loadLibrary();
     }
     if (scope === 'config' || scope === 'both') {
-      await loadConfig();
+      if (typeof loadConfig === 'function') await loadConfig();
+      else window.location.reload();
     }
   } catch {
     toast('Restore failed', true);
@@ -614,10 +615,11 @@ async function uploadAndRestore() {
     // Reload affected data.
     if (scope === 'library' || scope === 'both') {
       _librarySignature = '';
-      await loadLibrary();
+      if (typeof loadLibrary === 'function') await loadLibrary();
     }
     if (scope === 'config' || scope === 'both') {
-      await loadConfig();
+      if (typeof loadConfig === 'function') await loadConfig();
+      else window.location.reload();
     }
   } catch {
     toast('Restore failed', true);

@@ -9,6 +9,12 @@ let _ampLastKnownInputID = '';
 // -1 means unknown (e.g. just after page load before any navigation).
 let _ampCurrentInputIdx = -1;
 
+function _normalizeRecognitionPolicy(v) {
+  const p = String(v || '').trim().toLowerCase();
+  if (p === 'library' || p === 'display_only' || p === 'off') return p;
+  return 'auto';
+}
+
 function _newInputID() {
   return String(Date.now()) + String(Math.floor(Math.random() * 1000));
 }
@@ -19,10 +25,11 @@ function setAmplifierInputsModel(inputs) {
     id: String(it?.id ?? '').trim(),
     logical_name: String(it?.logical_name ?? '').trim(),
     visible: !!it?.visible,
+    recognition_policy: _normalizeRecognitionPolicy(it?.recognition_policy),
   })).filter((it) => it.id !== '');
 
   if (_ampInputsModel.length === 0) {
-    _ampInputsModel = [{ id: _newInputID(), logical_name: 'USB Audio', visible: true }];
+    _ampInputsModel = [{ id: _newInputID(), logical_name: 'USB Audio', visible: true, recognition_policy: 'auto' }];
   }
   const knownIdx = _ampInputsModel.findIndex((it) => it.id === String(_ampLastKnownInputID || ''));
   _ampCurrentInputIdx = knownIdx >= 0 ? knownIdx : -1;
@@ -59,6 +66,7 @@ function collectAmplifierInputsFromUI() {
     id: it.id,
     logical_name: (it.logical_name || '').trim() || it.id,
     visible: !!it.visible,
+    recognition_policy: _normalizeRecognitionPolicy(it.recognition_policy),
   }));
 }
 
@@ -144,6 +152,16 @@ function renderAmpInputSelect() {
 
 function setConnectedDevicesModel(devices) {
   const arr = Array.isArray(devices) ? devices : [];
+  const normalizeRole = (v) => {
+    const role = String(v || '').trim().toLowerCase();
+    if (role === 'streaming' || role === 'other') return role;
+    return 'physical_media';
+  };
+  const normalizePhysicalFormat = (v) => {
+    const format = String(v || '').trim().toLowerCase();
+    if (format === 'vinyl' || format === 'cd' || format === 'tape' || format === 'mixed') return format;
+    return 'unspecified';
+  };
   const isVinylLikeInput = (inputID) => {
     const input = _ampInputsModel.find((i) => String(i.id) === String(inputID));
     const label = String(input?.logical_name || '').toLowerCase();
@@ -154,10 +172,10 @@ function setConnectedDevicesModel(devices) {
     name:       String(d?.name      ?? '').trim(),
     input_ids:  (d?.input_ids ?? []).map(String),
     has_remote: !!d?.has_remote,
-    is_turntable: (typeof d?.is_turntable === 'boolean')
-      ? !!d.is_turntable
-      : (d?.input_ids ?? []).some((id) => isVinylLikeInput(id)),
-    _turntable_manual: typeof d?.is_turntable === 'boolean',
+    role: normalizeRole(d?.role),
+    physical_format: normalizePhysicalFormat(d?.physical_format),
+    is_turntable: (normalizeRole(d?.role) === 'physical_media' && normalizePhysicalFormat(d?.physical_format) === 'vinyl') ||
+      (d?.input_ids ?? []).some((id) => isVinylLikeInput(id)),
     ir_codes:   d?.ir_codes ?? {},
   })).filter((d) => d.id !== '');
   renderConnectedDevicesTable();
@@ -170,6 +188,8 @@ function collectConnectedDevicesFromUI() {
     name: d.name,
     input_ids: d.input_ids,
     has_remote: !!d.has_remote,
+    role: String(d.role || 'physical_media'),
+    physical_format: String(d.physical_format || 'unspecified'),
     is_turntable: !!d.is_turntable,
     ir_codes: d.ir_codes ?? {},
   }));
@@ -181,8 +201,9 @@ function addConnectedDevice() {
     name: '',
     input_ids: [],
     has_remote: false,
+    role: 'physical_media',
+    physical_format: 'unspecified',
     is_turntable: false,
-    _turntable_manual: false,
     ir_codes: {},
   });
   renderConnectedDevicesTable();
@@ -197,6 +218,7 @@ function removeConnectedDevice(idx) {
 function renderConnectedDevicesTable() {
   const container = document.getElementById('amp-devices-list');
   if (!container) return;
+  const irEditorEnabled = document.body?.dataset?.irEditor !== 'disabled';
 
   container.innerHTML = '';
 
@@ -239,22 +261,6 @@ function renderConnectedDevicesTable() {
       renderConnectedDevicesTable();
     };
 
-    const turntableLabel = document.createElement('label');
-    turntableLabel.className = 'amp-device-remote-toggle';
-    turntableLabel.title = 'Mark this device as the turntable/vinyl source used by calibration wizard';
-    const turntableCb = document.createElement('input');
-    turntableCb.type = 'checkbox';
-    turntableCb.checked = !!dev.is_turntable;
-    turntableCb.style.cssText = 'width:auto;accent-color:var(--accent);';
-    const turntableSpan = document.createElement('span');
-    turntableSpan.textContent = 'Turntable';
-    turntableLabel.appendChild(turntableCb);
-    turntableLabel.appendChild(turntableSpan);
-    turntableCb.onchange = () => {
-      _ampConnectedDevices[idx].is_turntable = turntableCb.checked;
-      _ampConnectedDevices[idx]._turntable_manual = true;
-    };
-
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
     removeBtn.className = 'btn-input-remove';
@@ -264,8 +270,72 @@ function renderConnectedDevicesTable() {
 
     topBar.appendChild(nameInput);
     topBar.appendChild(remoteLabel);
-    topBar.appendChild(turntableLabel);
     topBar.appendChild(removeBtn);
+
+    const classifyRow = document.createElement('div');
+    classifyRow.className = 'amp-device-topbar';
+
+    const roleWrap = document.createElement('label');
+    roleWrap.className = 'amp-device-remote-toggle';
+    roleWrap.style.gap = '8px';
+    const roleText = document.createElement('span');
+    roleText.textContent = 'Role';
+    const roleSel = document.createElement('select');
+    roleSel.style.minWidth = '140px';
+    roleSel.innerHTML = `
+      <option value="physical_media">Physical media</option>
+      <option value="streaming">Streaming</option>
+      <option value="other">Other</option>
+    `;
+    roleSel.value = dev.role || 'physical_media';
+    roleWrap.appendChild(roleText);
+    roleWrap.appendChild(roleSel);
+
+    const fmtWrap = document.createElement('label');
+    fmtWrap.className = 'amp-device-remote-toggle';
+    fmtWrap.style.gap = '8px';
+    const fmtText = document.createElement('span');
+    fmtText.textContent = 'Format';
+    const fmtSel = document.createElement('select');
+    fmtSel.style.minWidth = '140px';
+    fmtSel.innerHTML = `
+      <option value="unspecified">Unspecified</option>
+      <option value="vinyl">Vinyl</option>
+      <option value="cd">CD</option>
+      <option value="tape">Tape</option>
+      <option value="mixed">Mixed</option>
+    `;
+    fmtSel.value = dev.physical_format || 'unspecified';
+    fmtWrap.appendChild(fmtText);
+    fmtWrap.appendChild(fmtSel);
+    fmtWrap.style.display = (roleSel.value === 'physical_media') ? '' : 'none';
+
+    roleSel.onchange = () => {
+      _ampConnectedDevices[idx].role = roleSel.value || 'physical_media';
+      if (_ampConnectedDevices[idx].role !== 'physical_media') {
+        _ampConnectedDevices[idx].physical_format = 'unspecified';
+        _ampConnectedDevices[idx].is_turntable = false;
+        fmtSel.value = 'unspecified';
+      }
+      if (_ampConnectedDevices[idx].role === 'physical_media' && _ampConnectedDevices[idx].physical_format === 'vinyl') {
+        _ampConnectedDevices[idx].is_turntable = true;
+      }
+      fmtWrap.style.display = (_ampConnectedDevices[idx].role === 'physical_media') ? '' : 'none';
+    };
+
+    fmtSel.onchange = () => {
+      _ampConnectedDevices[idx].physical_format = fmtSel.value || 'unspecified';
+      if (_ampConnectedDevices[idx].physical_format === 'vinyl') {
+        _ampConnectedDevices[idx].role = 'physical_media';
+        _ampConnectedDevices[idx].is_turntable = true;
+        roleSel.value = 'physical_media';
+      } else {
+        _ampConnectedDevices[idx].is_turntable = false;
+      }
+    };
+
+    classifyRow.appendChild(roleWrap);
+    classifyRow.appendChild(fmtWrap);
 
     // ── Inputs checkboxes ──────────────────────────────────────────────────
     const inputsWrap = document.createElement('div');
@@ -285,14 +355,17 @@ function renderConnectedDevicesTable() {
         const s = new Set(_ampConnectedDevices[idx].input_ids);
         cb.checked ? s.add(String(inp.id)) : s.delete(String(inp.id));
         _ampConnectedDevices[idx].input_ids = Array.from(s);
-        if (!_ampConnectedDevices[idx]._turntable_manual) {
-          const hasVinylInput = _ampConnectedDevices[idx].input_ids.some((id) => {
-            const modelInput = _ampInputsModel.find((ii) => String(ii.id) === String(id));
-            const label = String(modelInput?.logical_name || '').toLowerCase();
-            return label.includes('phono') || label.includes('vinyl') || label.includes('vinil');
-          });
-          _ampConnectedDevices[idx].is_turntable = hasVinylInput;
-          turntableCb.checked = hasVinylInput;
+        const hasVinylInput = _ampConnectedDevices[idx].input_ids.some((id) => {
+          const modelInput = _ampInputsModel.find((ii) => String(ii.id) === String(id));
+          const label = String(modelInput?.logical_name || '').toLowerCase();
+          return label.includes('phono') || label.includes('vinyl') || label.includes('vinil');
+        });
+        if (hasVinylInput && (_ampConnectedDevices[idx].role || 'physical_media') === 'physical_media' && (_ampConnectedDevices[idx].physical_format || 'unspecified') === 'unspecified') {
+          _ampConnectedDevices[idx].physical_format = 'vinyl';
+          _ampConnectedDevices[idx].is_turntable = true;
+          fmtSel.value = 'vinyl';
+        } else if (!hasVinylInput && (_ampConnectedDevices[idx].physical_format || 'unspecified') !== 'vinyl') {
+          _ampConnectedDevices[idx].is_turntable = false;
         }
         renderAmpInputSelect();
       };
@@ -311,10 +384,11 @@ function renderConnectedDevicesTable() {
     }
 
     row.appendChild(topBar);
+    row.appendChild(classifyRow);
     row.appendChild(inputsWrap);
 
     // ── IR codes (only when has_remote) ────────────────────────────────────
-    if (dev.has_remote) {
+    if (dev.has_remote && irEditorEnabled) {
       const irSection = document.createElement('div');
       irSection.className = 'amp-device-ir-section';
       const irLabel = document.createElement('div');
@@ -330,7 +404,7 @@ function renderConnectedDevicesTable() {
 
     container.appendChild(row);
 
-    if (dev.has_remote) {
+    if (dev.has_remote && irEditorEnabled) {
       renderIRTable(`device-ir-table-${dev.id}`, DEVICE_REMOTE_COMMANDS, `device-${dev.id}`, dev.ir_codes ?? {});
     }
   });
@@ -436,6 +510,29 @@ function renderAmplifierInputsTable() {
     defaultTag.style.whiteSpace = 'nowrap';
     defaultTag.textContent = idx === 0 ? 'Default' : '';
 
+    const recWrap = document.createElement('label');
+    recWrap.style.display = 'inline-flex';
+    recWrap.style.alignItems = 'center';
+    recWrap.style.gap = '6px';
+    recWrap.style.whiteSpace = 'nowrap';
+    recWrap.className = 'hint';
+    recWrap.textContent = 'Recognition';
+    recWrap.title = 'Library: save recognized tracks. Display only: show metadata without library writes. Off: disable recognition for this input (recommended for FM/talk/news).';
+    const recSel = document.createElement('select');
+    recSel.style.minWidth = '170px';
+    recSel.title = recWrap.title;
+    recSel.innerHTML = `
+      <option value="auto">Auto (conservative)</option>
+      <option value="library">Recognize + add to library</option>
+      <option value="display_only">Recognize only for display</option>
+      <option value="off">Do not recognize</option>
+    `;
+    recSel.value = _normalizeRecognitionPolicy(input.recognition_policy);
+    recSel.onchange = () => {
+      _ampInputsModel[idx].recognition_policy = _normalizeRecognitionPolicy(recSel.value);
+    };
+    recWrap.appendChild(recSel);
+
     const up = document.createElement('button');
     up.type = 'button';
     up.className = 'detect-btn';
@@ -466,6 +563,7 @@ function renderAmplifierInputsTable() {
     controls.className = 'amp-input-controls';
     controls.appendChild(visibleWrap);
     controls.appendChild(defaultTag);
+    controls.appendChild(recWrap);
     controls.appendChild(up);
     controls.appendChild(del);
 
@@ -478,7 +576,7 @@ function renderAmplifierInputsTable() {
 }
 
 function addAmplifierInputRow() {
-  _ampInputsModel.push({ id: _newInputID(), logical_name: '', visible: true });
+  _ampInputsModel.push({ id: _newInputID(), logical_name: '', visible: true, recognition_policy: 'auto' });
   refreshAmplifierInputViews();
 }
 
@@ -793,404 +891,3 @@ async function importAmplifierProfileFile(input) {
     if (input) input.value = '';
   }
 }
-
-// ── IR Learning ───────────────────────────────────────────────────────────────
-
-const DEVICE_REMOTE_COMMANDS = [
-  { id: 'power_on',  label: 'Power On' },
-  { id: 'power_off', label: 'Power Off' },
-  { id: 'play',      label: 'Play' },
-  { id: 'pause',     label: 'Pause' },
-  { id: 'stop',      label: 'Stop' },
-  { id: 'next',      label: 'Next Track' },
-  { id: 'previous',  label: 'Prev Track' },
-  { id: 'eject',     label: 'Eject' },
-];
-
-let _learnPoll = null; // setInterval handle
-
-function renderIRTable(tableId, commands, device, irCodes) {
-  const el = document.getElementById(tableId);
-  if (!el) return;
-  el.innerHTML = '';
-  commands.forEach(cmd => {
-    const configured = !!(irCodes && irCodes[cmd.id]);
-    const row = document.createElement('div');
-    row.className = 'ir-row';
-    row.id = `ir-row-${device}-${cmd.id}`;
-    row.innerHTML = `
-      <span class="ir-label">${cmd.label}</span>
-      <span class="ir-status ${configured ? 'ir-ok' : 'ir-missing'}" id="ir-status-${device}-${cmd.id}">
-        ${configured ? '✓' : '—'}
-      </span>
-      <button type="button" class="ir-learn-btn" id="ir-btn-${device}-${cmd.id}"
-              onclick="learnCommand('${cmd.id}','${device}')">Learn</button>`;
-    el.appendChild(row);
-  });
-}
-
-async function learnCommand(command, device) {
-  const btn = document.getElementById(`ir-btn-${device}-${command}`);
-  const statusEl = document.getElementById(`ir-status-${device}-${command}`);
-  if (!btn) return;
-
-  // Cancel any previous poll
-  if (_learnPoll) { clearInterval(_learnPoll); _learnPoll = null; }
-
-  btn.disabled = true;
-  btn.textContent = 'Listening…';
-  btn.classList.add('ir-learning');
-  if (statusEl) { statusEl.textContent = '…'; statusEl.className = 'ir-status ir-listening'; }
-
-  try {
-    const r = await fetch('/api/broadlink/learn-start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command, device }),
-    });
-    if (!r.ok) {
-      const err = await r.json();
-      setLearnResult(btn, statusEl, 'error', err.error || 'Failed to start');
-      return;
-    }
-  } catch (e) {
-    setLearnResult(btn, statusEl, 'error', 'Network error');
-    return;
-  }
-
-  // Poll for result
-  _learnPoll = setInterval(async () => {
-    try {
-      const r = await fetch('/api/broadlink/learn-status');
-      if (!r.ok) return;
-      const s = await r.json();
-      if (s.status === 'listening') return; // still waiting
-
-      clearInterval(_learnPoll);
-      _learnPoll = null;
-
-      if (s.status === 'captured') {
-        // Keep local config in sync so Save & Restart includes the new code.
-        if (device === 'amplifier') {
-          if (!_ampConfig.ir_codes) _ampConfig.ir_codes = {};
-          _ampConfig.ir_codes[command] = s.code;
-          _refreshDirectIRWarning();
-        } else if (device.startsWith('device-')) {
-          const devID = device.slice('device-'.length);
-          const devEntry = _ampConnectedDevices.find((d) => d.id === devID);
-          if (devEntry) {
-            if (!devEntry.ir_codes) devEntry.ir_codes = {};
-            devEntry.ir_codes[command] = s.code;
-          }
-        }
-        setLearnResult(btn, statusEl, 'ok', null);
-      } else {
-        setLearnResult(btn, statusEl, 'error', s.message || s.status);
-      }
-    } catch { /* network blip — keep polling */ }
-  }, 600);
-
-  // Safety timeout: stop polling after 35 s
-  setTimeout(() => {
-    if (_learnPoll) {
-      clearInterval(_learnPoll);
-      _learnPoll = null;
-      setLearnResult(btn, statusEl, 'error', 'No response');
-    }
-  }, 35000);
-}
-
-function setLearnResult(btn, statusEl, result, msg) {
-  btn.disabled = false;
-  btn.classList.remove('ir-learning');
-  if (result === 'ok') {
-    btn.textContent = 'Learn';
-    if (statusEl) { statusEl.textContent = '✓'; statusEl.className = 'ir-status ir-ok'; }
-  } else {
-    btn.textContent = 'Retry';
-    if (statusEl) { statusEl.textContent = '✗'; statusEl.className = 'ir-status ir-error'; }
-    if (msg) toast(msg, true);
-  }
-}
-
-function updateAmpPanel() {
-  const ampEnabled = document.getElementById('amp-enabled')?.checked;
-  const panel = document.getElementById('amp-panel');
-  if (panel) panel.style.display = ampEnabled ? '' : 'none';
-  renderCurrentInputDeviceWidget();
-}
-
-function updateAmpIRSummary(irCodes) {
-  renderIRTable('amp-ir-table', _buildAmplifierIRCommands(), 'amplifier', irCodes);
-}
-
-async function loadAmplifierState() {
-  try {
-    const r = await fetch('/api/amplifier/state');
-    if (!r.ok) return;
-    renderAmpWidget(await r.json());
-    startPowerStatePolling();
-  } catch { /* not configured or offline — widget stays hidden */ }
-
-}
-
-function handleAmpHeaderKey(event, widgetId) {
-  if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault();
-    toggleAmpWidget(widgetId);
-  }
-}
-
-function toggleAmpWidget(widgetId) {
-  const widget = document.getElementById(widgetId);
-  if (!widget) return;
-  const isExpanded = widget.classList.toggle('expanded');
-  const header = widget.querySelector('.amp-header');
-  if (header) header.setAttribute('aria-expanded', isExpanded);
-}
-
-function renderAmpWidget(state) {
-  const panel = document.getElementById('amp-panel');
-  if (!state || !panel) return;
-
-  const ampEnabled = document.getElementById('amp-enabled')?.checked;
-  if (ampEnabled === false) return;
-  panel.style.display = '';
-
-  const title = document.getElementById('amp-widget-title');
-  if (title) title.textContent = `${state.maker} ${state.model}`;
-
-  if (state.power_state) applyPowerState(state.power_state);
-}
-
-const _powerStateLabels = {
-  on:          'On',
-  warming_up:  'Warming up',
-  standby:     'Standby',
-  off:         'Off',
-  unknown:     '?',
-};
-
-let _ampProcessingCount = 0;
-
-function setAmpProcessing(active) {
-  if (active) {
-    _ampProcessingCount += 1;
-  } else {
-    _ampProcessingCount = Math.max(0, _ampProcessingCount - 1);
-  }
-
-  const busy = _ampProcessingCount > 0;
-  const indicator = document.getElementById('amp-processing-indicator');
-  if (indicator) {
-    indicator.dataset.active = busy ? 'true' : 'false';
-    indicator.title = busy ? 'Processing...' : 'Idle';
-  }
-
-  const select = document.getElementById('amp-input-select');
-  if (select) select.disabled = busy;
-  const btnReset = document.getElementById('btn-amp-reset-usb');
-  if (btnReset) btnReset.disabled = busy;
-}
-
-function applyPowerState(ps) {
-  const badge = document.getElementById('amp-power-badge');
-  if (badge) {
-    badge.dataset.state = ps;
-    badge.textContent   = _powerStateLabels[ps] ?? ps;
-    badge.title         = `Power state: ${ps.replace('_', ' ')}`;
-  }
-
-  const btnOn  = document.getElementById('btn-amp-on');
-  const btnOff = document.getElementById('btn-amp-off');
-  if (btnOn)  btnOn.classList.toggle('pwr-active',  ps === 'on' || ps === 'warming_up');
-  if (btnOff) btnOff.classList.toggle('pwr-active', ps === 'off' || ps === 'standby');
-}
-
-let _powerStatePoll = null;
-
-function startPowerStatePolling() {
-  if (_powerStatePoll) return;
-  _pollPowerState();
-  _powerStatePoll = setInterval(_pollPowerState, 30000);
-}
-
-async function _pollPowerState() {
-  try {
-    const r = await fetch('/api/amplifier/power-state');
-    if (!r.ok) return;
-    const data = await r.json();
-    applyPowerState(data.power_state);
-  } catch { /* offline — keep last state */ }
-}
-
-// ── Power ON / OFF ────────────────────────────────────────────────────────────
-
-async function ampPowerOn() {
-  applyPowerState('warming_up'); // optimistic UI
-  await fetch('/api/amplifier/power-on', { method: 'POST' });
-}
-
-async function ampPowerOff() {
-  applyPowerState('off'); // optimistic UI
-  await fetch('/api/amplifier/power-off', { method: 'POST' });
-}
-
-// ── Volume hold-to-repeat ─────────────────────────────────────────────────────
-
-let _repeatTimer  = null;
-let _repeatActive = false;
-
-function startRepeat(type, direction) {
-  stopRepeat();
-  _repeatActive = true;
-  _doRepeat(type, direction); // fire immediately
-  const delay   = 300;
-  const cadence = 150;
-  _repeatTimer = setTimeout(() => {
-    if (!_repeatActive) return;
-    _repeatTimer = setInterval(() => {
-      if (!_repeatActive) { stopRepeat(); return; }
-      _doRepeat(type, direction);
-    }, cadence);
-  }, delay);
-}
-
-function stopRepeat() {
-  _repeatActive = false;
-  if (_repeatTimer !== null) { clearTimeout(_repeatTimer); clearInterval(_repeatTimer); _repeatTimer = null; }
-}
-
-function _doRepeat(type, direction) {
-  if (type === 'volume') ampVolume(direction);
-}
-
-async function ampVolume(direction) {
-  await fetch('/api/amplifier/volume', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({direction}),
-  });
-}
-
-// ── Input navigation buttons ──────────────────────────────────────────────────
-
-async function ampNextInput() {
-  const r = await fetch('/api/amplifier/next-input', { method: 'POST' });
-  if (!r.ok) return;
-  const total = _ampInputsModel.length;
-  if (total > 0) {
-    _ampCurrentInputIdx = (_ampCurrentInputIdx + 1 + total) % total;
-    renderAmpInputSelect();
-    await persistKnownInputByFullIdx(_ampCurrentInputIdx);
-  }
-}
-
-async function ampPrevInput() {
-  const r = await fetch('/api/amplifier/prev-input', { method: 'POST' });
-  if (!r.ok) return;
-  const total = _ampInputsModel.length;
-  if (total > 0) {
-    _ampCurrentInputIdx = (_ampCurrentInputIdx - 1 + total) % total;
-    renderAmpInputSelect();
-    await persistKnownInputByFullIdx(_ampCurrentInputIdx);
-  }
-}
-
-// Navigate to a visible input identified by its index in the full _ampInputsModel.
-// Always navigates forward (ascending index order), wrapping around if needed.
-// Uses all inputs (including hidden) to count the IR presses correctly.
-// In cycle mode, the backend handles the first IR press as selector activation,
-// then performs one additional press per requested forward step.
-async function ampSelectInputByFullIdx(targetFullIdx) {
-  if (_ampProcessingCount > 0) return;
-  const total = _ampInputsModel.length;
-  if (total === 0 || targetFullIdx < 0) return;
-
-  // If current position is unknown, reset tracking to 0 before computing distance
-  const current = _ampCurrentInputIdx < 0 ? 0 : _ampCurrentInputIdx;
-  const steps = (targetFullIdx - current + total) % total;
-
-  setAmpProcessing(true);
-  try {
-    const r = await fetch('/api/amplifier/select-input', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ steps }),
-    });
-    if (!r.ok) {
-      let msg = 'Failed to change input.';
-      try {
-        const err = await r.json();
-        if (err?.error) msg = err.error;
-      } catch {
-        // Keep fallback message when backend does not return JSON.
-      }
-      toast(msg, true);
-      renderAmpInputSelect();
-      return;
-    }
-
-    _ampCurrentInputIdx = targetFullIdx;
-    renderAmpInputSelect();
-    await persistKnownInputByFullIdx(_ampCurrentInputIdx);
-  } finally {
-    setAmpProcessing(false);
-  }
-}
-
-async function ampResetUSBInput() {
-  if (_ampProcessingCount > 0) return;
-  setAmpProcessing(true);
-
-  try {
-    const r = await fetch('/api/amplifier/reset-usb-input', { method: 'POST' });
-    if (!r.ok) throw new Error('request failed');
-
-    const res = await r.json();
-    switch (res?.status) {
-      case 'already_usb':
-        toast('USB input is already active.');
-        _syncSelectToUSBInput();
-        break;
-      case 'found_usb':
-        toast(`USB input found after ${res.attempts} input jump(s).`);
-        _syncSelectToUSBInput();
-        break;
-      case 'usb_not_found':
-        toast(`USB input not found after ${res?.attempts ?? 13} input jump(s).`, true);
-        break;
-      default:
-        toast('USB input reset finished.');
-        _syncSelectToUSBInput();
-        break;
-    }
-  } catch {
-    toast('Failed to reset input to USB.', true);
-  } finally {
-    setAmpProcessing(false);
-  }
-}
-
-// After a successful USB reset, find the USB input in the model and reflect it in the select.
-function _syncSelectToUSBInput() {
-  const idx = _ampInputsModel.findIndex(
-    (inp) => inp.logical_name.toLowerCase().includes('usb')
-  );
-  if (idx >= 0) {
-    _ampCurrentInputIdx = idx;
-    renderAmpInputSelect();
-  }
-}
-
-async function deviceTransport(action) {
-  const widget = document.getElementById('amp-device-widget');
-  const deviceID = widget?.dataset?.deviceId || '';
-  if (!deviceID) return;
-
-  await fetch('/api/amplifier/device-action', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ device_id: deviceID, action }),
-  });
-}
-

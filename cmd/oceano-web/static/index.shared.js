@@ -4,6 +4,8 @@
 let _advancedConfig = {};
 let _recognitionConfig = {};
 let _audioInputConfig = {};
+const SETUP_BRIDGE_POLL_MS = 10000;
+let _setupBridgeTimer = null;
 
 async function loadConfig() {
   const r = await fetch('/api/config');
@@ -102,8 +104,140 @@ async function loadConfig() {
 
   // Preserve advanced values as-is from server.
   _advancedConfig = cfg.advanced ?? {};
+  loadSetupBridge();
   updateRecognitionUI();
   loadRecognitionStats();
+}
+
+function renderSetupBridge(status) {
+  const summaryEl = document.getElementById('setup-bridge-summary');
+  const listEl = document.getElementById('setup-bridge-list');
+  const quickEl = document.getElementById('setup-bridge-quick');
+  if (!summaryEl || !listEl || !quickEl) return;
+
+  if (!status) {
+    summaryEl.textContent = 'Setup status unavailable right now.';
+    listEl.innerHTML = '<li class="pending"><span>Retrying setup status...</span></li>';
+    quickEl.innerHTML = '<div class="setup-bridge-card">Retrying quick access status...</div>';
+    return;
+  }
+
+  const shared = window.OceanoSetupShared;
+  const items = typeof shared?.bridgeItems === 'function'
+    ? shared.bridgeItems(status)
+    : [];
+  if (!items.length) {
+    summaryEl.textContent = 'Setup bridge unavailable.';
+    listEl.innerHTML = '<li class="pending"><span>Shared setup helpers missing.</span></li>';
+    quickEl.innerHTML = '<div class="setup-bridge-card">Shared setup helpers missing.</div>';
+    return;
+  }
+  const doneCount = items.filter((item) => item.done).length;
+  const allDone = doneCount === items.length;
+  const titleEl = document.getElementById('setup-bridge-title');
+  if (titleEl) titleEl.textContent = allDone ? 'Quick access' : 'Continue setup';
+  summaryEl.textContent = allDone ? '' : `${doneCount}/${items.length} steps complete`;
+  const checklistWrap = document.getElementById('setup-bridge-checklist');
+  if (checklistWrap) checklistWrap.hidden = allDone;
+  listEl.innerHTML = items.map((item) => `
+    <li class="${item.done ? 'done' : 'pending'}">
+      <span>${esc(item.label)}</span>
+      <span class="setup-bridge-pill ${item.done ? 'done' : ''}">${item.done ? 'Done' : 'Pending'}</span>
+    </li>
+  `).join('');
+
+  const healthy = status.services_healthy || {};
+  const servicesHealthy =
+    healthy.oceano_source_detector !== false &&
+    healthy.oceano_state_manager !== false &&
+    healthy.oceano_web !== false;
+
+  const vinylIcon = window.SOURCE_ICONS?.Vinyl ?? '';
+  const airplayIcon = window.SOURCE_ICONS?.AirPlay ?? '';
+  const ampIcon = window.HUB_ICONS?.Amplifier ?? '';
+  const stylusIcon = window.HUB_ICONS?.Stylus ?? '';
+  const displayIcon = window.HUB_ICONS?.Display ?? '';
+  const advancedIcon = window.HUB_ICONS?.Advanced ?? '';
+
+  const quickCards = [
+    {
+      title: 'Physical media',
+      href: '/recognition.html',
+      icon: vinylIcon,
+      status: !status.capture_configured
+        ? { text: 'Capture not configured', tone: 'warn' }
+        : !status.recognition_credentials_set
+          ? { text: 'ACRCloud credentials missing', tone: 'warn' }
+          : { text: 'Capture & recognition ready', tone: 'ok' },
+    },
+    {
+      title: 'Amplifier & IR',
+      href: '/topology?from=main',
+      icon: ampIcon,
+      status: !status.amplifier_topology_complete
+        ? { text: 'Topology not configured', tone: 'warn' }
+        : status.amplifier_ir_enabled && !status.broadlink_paired
+          ? { text: 'IR enabled, Broadlink not paired', tone: 'warn' }
+          : status.amplifier_ir_enabled
+            ? { text: 'Topology ready, IR paired', tone: 'ok' }
+            : { text: 'Topology ready, IR optional', tone: 'ok' },
+    },
+    {
+      title: 'Stylus tracking',
+      href: '/stylus?from=main',
+      icon: stylusIcon,
+      status: !status.vinyl_topology_present
+        ? { text: 'No vinyl topology configured', tone: 'neutral' }
+        : status.stylus_profile_configured
+          ? { text: 'Stylus profile configured', tone: 'ok' }
+          : { text: 'Configure stylus profile', tone: 'warn' },
+    },
+    {
+      title: 'Streaming',
+      href: '/streaming.html',
+      icon: airplayIcon,
+      status: servicesHealthy
+        ? { text: 'Core services healthy', tone: 'ok' }
+        : { text: 'One or more services unhealthy', tone: 'warn' },
+    },
+    {
+      title: 'Now playing & display',
+      href: '/display.html',
+      icon: displayIcon,
+      status: { text: 'HDMI/DSI · Weather · Idle screen', tone: 'neutral' },
+    },
+    {
+      title: 'Advanced',
+      href: '/advanced.html',
+      icon: advancedIcon,
+      status: { text: `Schema v${status.schema_version || 1}`, tone: 'neutral' },
+    },
+  ];
+
+  quickEl.innerHTML = quickCards.map((card) => `
+    <a class="setup-bridge-card ${card.status.tone === 'warn' ? 'border-warn' : ''}" href="${esc(card.href)}">
+      <div class="sb-top">
+        <span class="sb-icon" aria-hidden="true">${card.icon}</span>
+        <span class="sb-arrow" aria-hidden="true">→</span>
+      </div>
+      <div class="setup-bridge-card-title">${esc(card.title)}</div>
+      <span class="sb-chip ${esc(card.status.tone || 'neutral')}"><span class="dot"></span>${esc(card.status.text)}</span>
+    </a>
+  `).join('');
+}
+
+async function loadSetupBridge() {
+  try {
+    const res = await fetch('/api/setup-status', { cache: 'no-store' });
+    if (!res.ok) throw new Error('setup status unavailable');
+    const status = await res.json();
+    renderSetupBridge(status);
+  } catch {
+    renderSetupBridge(null);
+  }
+
+  if (_setupBridgeTimer) clearTimeout(_setupBridgeTimer);
+  _setupBridgeTimer = setTimeout(loadSetupBridge, SETUP_BRIDGE_POLL_MS);
 }
 
 async function loadRecognitionStats() {

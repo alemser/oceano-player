@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Setup Hub — Oceano</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 52 52'><rect x='0' y='16' width='8' height='20' rx='4' fill='%23888'/><rect x='11' y='9' width='8' height='34' rx='4' fill='%23888'/><rect x='22' y='3' width='8' height='46' rx='4' fill='%23888'/><rect x='33' y='12' width='8' height='28' rx='4' fill='%23888'/><rect x='44' y='17' width='8' height='18' rx='4' fill='%23888'/></svg>">
+  <link rel="stylesheet" href="config.css">
+</head>
+<body>
+
+<header class="hub-header">
+  <a href="/" class="hub-logo-link" title="Now Playing">
+    <svg width="30" height="30" viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="0"  y="16" width="8" height="20" rx="4" fill="#888"/>
+      <rect x="11" y="9"  width="8" height="34" rx="4" fill="#888"/>
+      <rect x="22" y="3"  width="8" height="46" rx="4" fill="#888"/>
+      <rect x="33" y="12" width="8" height="28" rx="4" fill="#888"/>
+      <rect x="44" y="17" width="8" height="18" rx="4" fill="#888"/>
+    </svg>
+  </a>
+  <div class="hub-header-title">
+    <h1>Oceano</h1>
+    <p>Setup hub</p>
+  </div>
+  <div class="hub-header-actions">
+    <button id="refresh-btn" class="btn-subtle" type="button" title="Refresh status">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M23 4v6h-6"/><path d="M20.5 15a9 9 0 1 1-2.8-9.4L23 10"/>
+      </svg>
+      Refresh
+    </button>
+  </div>
+</header>
+
+<main class="hub-main">
+
+  <div id="hub-error" class="hub-error" hidden></div>
+
+  <!-- First-run checklist -->
+  <section class="hub-checklist" id="onboarding-checklist">
+    <div class="hub-checklist-head">
+      <div>
+        <h2>Getting started</h2>
+        <p id="checklist-progress">Loading setup status…</p>
+      </div>
+    </div>
+    <ol class="hub-checklist-list" id="checklist-list"></ol>
+  </section>
+
+  <section class="hub-wizard-list" id="hub-wizard-list" aria-label="Setup sections"></section>
+
+</main>
+
+<script src="icons.js"></script>
+<script src="setup_status_shared.js"></script>
+<script src="config_page.js"></script>
+</body>
+</html>

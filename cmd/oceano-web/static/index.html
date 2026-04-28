@@ -189,307 +189,23 @@
     <button type="button" class="config-drawer-close" onclick="closeConfig()" aria-label="Close configuration">✕</button>
   </div>
   <div class="config-drawer-body">
-<form id="cfg-form" onsubmit="event.preventDefault(); return false;">
-  <div class="sections">
-
-    <!-- Streaming Sources -->
-    <div class="section">
-      <div class="section-title">Streaming Sources</div>
-      <p class="hint" style="margin-bottom:14px">Wireless audio sources: AirPlay from Apple devices and Bluetooth from phones or computers.</p>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">AirPlay</div>
-        <p class="hint" style="margin-bottom:10px">Receives audio via AirPlay 2 (shairport-sync). The USB DAC below is the output device used during playback.</p>
-
-        <div class="field">
-          <label><span>AirPlay name</span></label>
-          <input type="text" id="out-airplay-name" name="out-airplay-name"
-                 placeholder="Oceano">
-          <div class="hint">Name shown in AirPlay device lists.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Output device</span></label>
-          <div class="device-picker-wrap">
-            <div class="device-row">
-              <input type="text" id="out-device" name="out-device"
-                     placeholder="auto-detect or e.g. plughw:1,0">
-              <button type="button" class="detect-btn" onclick="detectDevices('out')">Detect</button>
-            </div>
-            <div class="device-picker" id="picker-out"></div>
-          </div>
-          <div class="hint">Leave empty to auto-detect by name. Or enter an explicit device (e.g. <code>plughw:1,0</code>).</div>
-        </div>
-
-        <div class="field">
-          <label><span>Auto-detect name</span></label>
-          <input type="text" id="out-device-match" name="out-device-match"
-                 placeholder="MR 780">
-        </div>
-      </div>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">Bluetooth</div>
-        <p class="hint" style="margin-bottom:10px">Receives audio via A2DP. Track metadata (title, artist, album) is shown in the now-playing display via AVRCP.</p>
-
-        <div class="field">
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input type="checkbox" id="bt-enabled" style="width:auto;accent-color:var(--accent)">
-            <span>Enable Bluetooth audio sink</span>
-          </label>
-          <div class="hint">Powers on the adapter and keeps it discoverable. Pair your phone once from its Bluetooth settings — the Pi remembers trusted devices across reboots.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Device name</span></label>
-          <input type="text" id="bt-name" name="bt-name" placeholder="Oceano">
-          <div class="hint">Name shown in Bluetooth device lists. Leave empty to use the AirPlay name.</div>
-        </div>
-
-        <div class="field">
-          <label><span>Paired devices</span></label>
-          <div id="bt-devices-list" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
-          <div class="hint">Devices that have been paired with this Pi. Remove a device to force re-pairing.</div>
-        </div>
-      </div>
+<section class="setup-bridge" id="setup-bridge">
+  <div class="setup-bridge-head">
+    <div>
+      <h3 id="setup-bridge-title">Continue setup</h3>
+      <p id="setup-bridge-summary"></p>
     </div>
-
-    <!-- Track Recognition -->
-    <div class="section">
-      <div class="section-title">Physical Sources</div>
-      <p class="hint" style="margin-bottom:14px">Physical media identification via ALSA capture card connected to amplifier's audio out.</p>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">Capture Device</div>
-        <div class="field">
-          <label><span>Device</span></label>
-          <div class="device-picker-wrap">
-            <div class="device-row">
-              <input type="text" id="inp-device" name="inp-device"
-                     placeholder="e.g. plughw:3,0 or plughw:CARD=Name,DEV=0">
-              <button type="button" class="detect-btn" onclick="detectDevices('inp')">Detect</button>
-            </div>
-            <div class="device-picker" id="picker-inp"></div>
-          </div>
-          <div class="hint">Empty when you rely only on <b>Auto-detect name</b> below, or set an explicit ALSA string.</div>
-        </div>
-        <div class="field">
-          <label><span>Auto-detect name</span></label>
-          <input type="text" id="inp-device-match" name="inp-device-match"
-                 placeholder="substring from arecord -l, e.g. Device">
-          <div class="hint">Matched as a case-insensitive substring in <code>/proc/asound/cards</code> (e.g. <code>Device</code>, <code>GeneralPlus</code>) so the card number can change after reboot. Not a single fixed product name.</div>
-        </div>
-        <div class="field" style="margin-top:12px">
-          <a href="/recognition.html" class="detect-btn" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-            Configure Recognition &amp; Providers ↗
-          </a>
-          <div class="hint">Chain, credentials, timing, Shazam continuity and statistics.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Amplifier Control -->
-    <div class="section">
-      <div class="section-title">Amplifier Control</div>
-      <p class="hint" style="margin-bottom:14px">IR control via Broadlink RM4 Mini. Requires pairing before commands work.</p>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-          <input type="checkbox" id="amp-enabled" style="width:auto;accent-color:var(--accent)" onchange="updateAmpPanel()">
-          <span>Enable amplifier control</span>
-        </label>
-      </div>
-
-      <div class="config-subsection">
-        <div class="config-subtitle">Active Profile</div>
-        <div class="field">
-          <label><span>Profile</span></label>
-          <select id="amp-profile-select" onchange="_refreshCloneBuiltInButton()"></select>
-          <div class="hint">Built-in and imported profiles. Activating a profile updates amplifier defaults.</div>
-        </div>
-        <div class="field" style="margin-top:12px">
-          <a href="/amplifier.html" class="detect-btn" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            Configure Amplifier &amp; IR Codes ↗
-          </a>
-          <div class="hint">Maker, model, input mapping, USB reset timing, Broadlink pairing, and all IR codes.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Display -->
-    <div class="section" id="spi-section" style="display:none">
-      <div class="section-title">SPI Display</div>
-      <p class="hint" style="margin-bottom:14px">Settings for the attached SPI screen only. Future HDMI and DSI display options will live in separate sections.</p>
-
-      <div class="field">
-        <label><span>UI preset</span></label>
-        <select id="disp-preset" name="disp-preset">
-          <option value="high_contrast_rotate">Rotate (text ↔ artwork)</option>
-          <option value="high_contrast_text">Text only</option>
-          <option value="high_contrast_artwork">Artwork only</option>
-          <option value="high_contrast_hybrid">Hybrid (text + artwork)</option>
-          <option value="high_contrast_vu">VU meter</option>
-        </select>
-        <div class="hint">Visual style and layout shown on the SPI screen.</div>
-      </div>
-
-      <div class="field">
-        <label><span>Cycle time (seconds)</span></label>
-        <input type="number" id="disp-cycle-time" name="disp-cycle-time"
-               step="5" min="5" max="300" placeholder="30">
-        <div class="hint">Seconds between text and artwork in rotate mode.</div>
-      </div>
-
-      <div class="field">
-        <label><span>Standby timeout (seconds)</span></label>
-        <input type="number" id="disp-standby-timeout" name="disp-standby-timeout"
-               step="30" min="30" placeholder="600">
-        <div class="hint">Seconds of silence before the display goes to sleep.</div>
-      </div>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-          <input type="checkbox" id="disp-external-artwork" name="disp-external-artwork"
-                 style="width:auto;accent-color:var(--accent)">
-          <span>External artwork lookup</span>
-        </label>
-        <div class="hint">Fetch album art from online providers when not included in the stream.</div>
-      </div>
-    </div>
-
-    <!-- Now Playing (HDMI/DSI) -->
-    <div class="section" id="nowplaying-section" style="display:none">
-      <div class="section-title">Now Playing (HDMI/DSI)</div>
-      <p class="hint" id="nowplaying-display-hint" style="margin-bottom:14px">Options for the HDMI/DSI now playing page.</p>
-
-      <div class="field">
-        <button type="button" class="detect-btn" id="restart-display-btn" onclick="restartHDMIDisplayService()">Restart display service</button>
-        <div class="hint">Restarts the HDMI/DSI now-playing service when the display page needs a manual refresh.</div>
-      </div>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-          <input type="checkbox" id="np-ambient-color" name="np-ambient-color"
-                 style="width:auto;accent-color:var(--accent)">
-          <span>Ambient colour from artwork</span>
-        </label>
-        <div class="hint">Shows a blurred version of the track artwork as a background behind the metadata, similar to Apple Music.</div>
-      </div>
-
-      <div class="field">
-        <label><span>Idle screen style</span></label>
-        <select id="np-idle-screen-theme" name="np-idle-screen-theme" style="max-width:320px">
-          <option value="classic">Classic (monochrome, default)</option>
-          <option value="colourful">Colourful (weather-tinted sky, similar to Apple Weather)</option>
-        </select>
-        <div class="hint">The colourful idle screen changes background and text with current conditions (sun, cloud, rain, night). Works from weather data; without weather, it follows the time of day.</div>
-      </div>
-
-      <div class="field">
-        <label><span>Idle delay (seconds)</span></label>
-        <input type="number" id="np-idle-delay" name="np-idle-delay" step="1" min="1" max="30" placeholder="3">
-        <div class="hint">How long to keep showing the last track after audio stops before switching to the idle screen. 3s is recommended when calibration data is available.</div>
-      </div>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-          <input type="checkbox" id="weather-enabled" name="weather-enabled"
-                 style="width:auto;accent-color:var(--accent)">
-          <span>Enable weather on idle screen</span>
-        </label>
-      </div>
-
-      <div class="field" style="position:relative">
-        <label><span>City search</span></label>
-        <div style="display:flex;gap:8px;align-items:center">
-          <input type="text" id="weather-city-search" placeholder="Type a city name…"
-                 autocomplete="off" oninput="onWeatherCityInput()"
-                 onkeydown="onWeatherCityKeydown(event)"
-                 style="flex:1">
-          <button type="button" class="detect-btn" style="flex-shrink:0;white-space:nowrap"
-                  onclick="detectCurrentLocationWeather()">Use my location</button>
-        </div>
-        <div id="weather-city-results" style="display:none;position:absolute;z-index:200;
-             left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);
-             border-radius:6px;margin-top:2px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
-        </div>
-        <div class="hint">Search by city name to set location automatically, or use your current browser location.</div>
-      </div>
-
-      <div class="field">
-        <label><span>Location label</span></label>
-        <input type="text" id="weather-label" name="weather-label" placeholder="Dublin">
-        <div class="hint">Displayed in the weather chip. Auto-filled when you pick a city above.</div>
-      </div>
-
-      <div style="display:flex;gap:12px">
-        <div class="field" style="flex:1">
-          <label><span>Latitude</span></label>
-          <input type="number" id="weather-lat" name="weather-lat" step="any" min="-90" max="90" placeholder="53.3498">
-        </div>
-        <div class="field" style="flex:1">
-          <label><span>Longitude</span></label>
-          <input type="number" id="weather-lon" name="weather-lon" step="any" min="-180" max="180" placeholder="-6.2603">
-        </div>
-      </div>
-
-      <div class="field">
-        <label><span>Refresh interval (minutes)</span></label>
-        <input type="number" id="weather-refresh" name="weather-refresh" step="1" min="2" max="120" placeholder="10">
-      </div>
-    </div>
-
-    <!-- Advanced -->
-    <div class="section">
-      <div class="section-title">Advanced</div>
-      <div class="field" style="margin-top:4px">
-        <a href="/advanced.html" class="detect-btn" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14M8.46 15.54a5 5 0 0 1 0-7.07"/></svg>
-          Configure Advanced Settings ↗
-        </a>
-        <div class="hint">Library, idle delay, session gap, socket paths and streaming USB guard.</div>
-      </div>
-    </div>
-
-    <!-- Backup & Restore -->
-    <div class="section">
-      <div class="section-title">Backup &amp; Restore</div>
-      <p class="hint" style="margin-bottom:14px">Daily automatic backup of library and configuration. Last 7 backups are kept.</p>
-
-      <div class="field" style="margin-bottom:16px">
-        <button type="button" class="detect-btn" id="btn-backup-now" onclick="runBackupNow()">Back Up Now</button>
-      </div>
-
-      <div id="backup-list"></div>
-
-      <div class="backup-upload-wrap">
-        <div class="config-subtitle" style="margin-top:18px;margin-bottom:10px">Restore from file</div>
-        <p class="hint" style="margin-bottom:12px">Upload a previously downloaded <code>.tar.gz</code> backup to restore on this device.</p>
-        <div class="backup-upload-row">
-          <label class="backup-upload-label" id="backup-upload-label" onclick="document.getElementById('backup-upload-input').click()">
-            Choose file…
-          </label>
-          <input type="file" id="backup-upload-input" accept=".tar.gz,application/gzip,application/x-gzip"
-                 style="display:none" onchange="onBackupFileSelected(this)">
-          <select id="backup-upload-scope" class="lib-format-filter">
-            <option value="both">Library + Config</option>
-            <option value="library">Library only</option>
-            <option value="config">Config only</option>
-          </select>
-          <button type="button" class="detect-btn" id="btn-upload-restore"
-                  onclick="uploadAndRestore()" disabled>Restore</button>
-        </div>
-      </div>
-    </div>
-
-  </div><!-- .sections -->
-
-  <div class="actions">
-    <button type="submit" class="btn-save" id="btn-save">Save &amp; Restart Services</button>
+    <a href="/config" class="setup-bridge-link">Setup Hub</a>
   </div>
-</form>
+  <div id="setup-bridge-checklist">
+    <ul class="setup-bridge-list" id="setup-bridge-list">
+      <li>Loading checklist...</li>
+    </ul>
+  </div>
+  <div class="setup-bridge-quick" id="setup-bridge-quick">
+    <div class="setup-bridge-card">Loading quick access...</div>
+  </div>
+</section>
   </div><!-- .config-drawer-body -->
 </div><!-- .config-drawer -->
 
@@ -621,9 +337,13 @@
 <div id="toast"></div>
 
 
+<script src="icons.js"></script>
+<script src="/setup_status_shared.js"></script>
 <script src="index.shared.js"></script>
 <script src="index.library.js"></script>
-<script src="index.amplifier.js"></script>
+<script src="amplifier/model.js"></script>
+<script src="amplifier/ir.js"></script>
+<script src="amplifier/runtime.js"></script>
 <script src="index.boot.js"></script>
 
 <!-- Power confirmation dialog -->

@@ -6,27 +6,9 @@
   <title>Recognition Configuration — Oceano</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 52 52'><rect x='0' y='16' width='8' height='20' rx='4' fill='%23888'/><rect x='11' y='9' width='8' height='34' rx='4' fill='%23888'/><rect x='22' y='3' width='8' height='46' rx='4' fill='%23888'/><rect x='33' y='12' width='8' height='28' rx='4' fill='%23888'/><rect x='44' y='17' width='8' height='18' rx='4' fill='%23888'/></svg>">
   <link rel="stylesheet" href="index.css">
+  <link rel="stylesheet" href="page-nav.css">
   <style>
     body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
-    .rec-page-header {
-      display: flex; align-items: center; gap: 14px;
-      padding: 16px 20px 12px;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg);
-      position: sticky; top: 0; z-index: 10;
-    }
-    .rec-page-back {
-      display: inline-flex; align-items: center; gap: 6px;
-      color: var(--accent); text-decoration: none;
-      font-size: 0.85rem; padding: 6px 10px;
-      border-radius: 6px; border: 1px solid var(--border);
-      background: transparent; cursor: pointer;
-      transition: background 0.15s;
-    }
-    .rec-page-back:hover { background: var(--hover); }
-    .rec-page-title { font-size: 1rem; font-weight: 600; color: var(--text); flex: 1; }
-    .rec-page-body { max-width: 660px; margin: 0 auto; padding: 20px 20px 60px; }
-    .rec-page-actions { margin-top: 28px; display: flex; gap: 10px; justify-content: flex-end; }
 
     /* ── Button variants ── */
     .btn-secondary {
@@ -233,17 +215,18 @@
 </head>
 <body>
 
-<div class="rec-page-header">
-  <a href="/" class="rec-page-back">
+<div class="page-header">
+  <a href="/?drawer=1" class="page-back" id="page-back-link">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M15 18l-6-6 6-6"/>
     </svg>
     Back
   </a>
-  <span class="rec-page-title">Recognition Configuration</span>
+  <span class="page-title">Recognition Configuration</span>
+  <a href="/config" class="page-hub-link">Setup Hub</a>
 </div>
 
-<div class="rec-page-body">
+<div class="page-body">
   <!-- ── Providers ──────────────────────────────────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
     <div class="section-title">Providers</div>
@@ -332,6 +315,15 @@
       <div class="rms-snap-heading">RMS learning snapshot</div>
       <p class="hint" style="margin:0 0 8px">Histogram totals and derived VU thresholds for CD/Vinyl.</p>
       <div id="rec-rms-learning-summary"><span class="hint">Loading…</span></div>
+    </div>
+
+    <div class="field" style="margin-top:8px">
+      <button type="button" class="btn-secondary" id="rec-import-rms-baseline-btn">
+        Import starter baseline (recommended for new setup)
+      </button>
+      <div class="hint" style="margin-top:6px">
+        Imports a reusable RMS histogram baseline for CD/Vinyl/Physical. The system still needs local playback to adapt and confirm thresholds for your hardware.
+      </div>
     </div>
 
     <details>
@@ -578,11 +570,11 @@
   </div>
 
   <!-- ── Save ──────────────────────────────────────────────────────────── -->
-  <div class="rec-page-actions">
+  <div class="page-actions">
     <button type="button" class="btn-save" id="btn-rec-page-save" onclick="saveRecognitionPage()">Save &amp; Restart Services</button>
   </div>
 
-</div><!-- .rec-page-body -->
+</div><!-- .page-body -->
 
 <!-- ── Calibration Wizard Modal ─────────────────────────────────────────── -->
 <div id="cal-wiz-overlay" class="cal-wiz-overlay" onclick="if(event.target===this)closeCalibrationWizard()">
@@ -620,6 +612,23 @@
 <script src="recognition/rms-monitor.js"></script>
 <script src="recognition/mic-gain-wizard.js"></script>
 <script src="recognition_page.js"></script>
+<script>
+  (function configureBackLink() {
+    const back = document.getElementById("page-back-link");
+    if (!back) return;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("from") === "hub") {
+      back.href = "/config";
+      return;
+    }
+    try {
+      const ref = document.referrer ? new URL(document.referrer) : null;
+      if (ref && ref.origin === window.location.origin && ref.pathname !== window.location.pathname) {
+        back.href = ref.pathname + ref.search + ref.hash;
+      }
+    } catch (_) {}
+  })();
+</script>
 
 </body>
 </html>
