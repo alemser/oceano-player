@@ -171,3 +171,41 @@ func TestPollSourceFile_TinyGapDoesNotQueueRecognition(t *testing.T) {
 	default:
 	}
 }
+
+func TestPollSourceFile_TransientNoneIgnoredAfterRecentPhysical(t *testing.T) {
+	m := newTestMgr()
+	file := filepath.Join(t.TempDir(), "source.json")
+	m.cfg.SourceFile = file
+	m.physicalSource = "Physical"
+	m.lastPhysicalAt = time.Now().Add(-2 * time.Second)
+	m.recognitionResult = &RecognitionResult{Title: "Behind the Wall", Artist: "Tracy Chapman", DurationMs: 106000, Format: "CD"}
+
+	if err := os.WriteFile(file, []byte(`{"source":"None"}`), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	m.pollSourceFile()
+
+	if m.physicalSource != "Physical" {
+		t.Fatalf("physicalSource = %q, want Physical (transient None should be ignored)", m.physicalSource)
+	}
+	if m.recognitionResult == nil {
+		t.Fatal("recognitionResult should be preserved while transient None is ignored")
+	}
+}
+
+func TestPollSourceFile_NoneAfterWindowIsApplied(t *testing.T) {
+	m := newTestMgr()
+	file := filepath.Join(t.TempDir(), "source.json")
+	m.cfg.SourceFile = file
+	m.physicalSource = "Physical"
+	m.lastPhysicalAt = time.Now().Add(-20 * time.Second)
+
+	if err := os.WriteFile(file, []byte(`{"source":"None"}`), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	m.pollSourceFile()
+
+	if m.physicalSource != "None" {
+		t.Fatalf("physicalSource = %q, want None after transient-ignore window", m.physicalSource)
+	}
+}

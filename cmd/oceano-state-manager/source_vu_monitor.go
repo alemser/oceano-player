@@ -24,6 +24,9 @@ const (
 	// Allow duration-guard bypass only near track start so a quick needle re-drop
 	// can trigger recognition, but mid-track false positives still remain guarded.
 	earlyBypassGuardWindow = 45 * time.Second
+	// Source-detector restarts can briefly emit None while the capture device
+	// reconnects; keep Physical stable for a short window to avoid idle flicker.
+	transientNoneIgnoreWindow = 8 * time.Second
 )
 
 // effectiveDurationPessimism applies a conservative boost when the current library
@@ -168,6 +171,12 @@ func (m *mgr) pollSourceFile() {
 		src = "None"
 	}
 	m.mu.Lock()
+	if src == "None" && m.physicalSource == "Physical" && !m.lastPhysicalAt.IsZero() {
+		if sincePhysical := time.Since(m.lastPhysicalAt); sincePhysical >= 0 && sincePhysical <= transientNoneIgnoreWindow {
+			m.mu.Unlock()
+			return
+		}
+	}
 	changed := m.physicalSource != src
 	newSession := false
 	resumedAfterIdle := false

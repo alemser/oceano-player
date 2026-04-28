@@ -33,6 +33,10 @@ function _rmsFormatLabel(key) {
   }
 }
 
+function _isRMSFormatVisibleInUI(key) {
+  return key === 'cd' || key === 'vinyl';
+}
+
 function _rmsProgressBar(pct, label, count, min) {
   const w = Math.max(0, Math.min(100, pct));
   const countStr = count >= min ? `${count}` : `${count} / ${min}`;
@@ -94,6 +98,7 @@ async function refreshRMSLearningSnapshot(containerId) {
     }
     const data = await res.json();
     const rows = Array.isArray(data.rows) ? data.rows : [];
+    const visibleRows = rows.filter(r => _isRMSFormatVisibleInUI(String(r?.format_key || '').toLowerCase()));
     const minSil = Number(data.min_silence_samples || 400);
     const minMus = Number(data.min_music_samples || 400);
     const autoApply = !!data.autonomous_apply;
@@ -102,7 +107,11 @@ async function refreshRMSLearningSnapshot(containerId) {
       el.innerHTML = '<span class="hint">No histogram data yet — enable RMS learning and play physical media.</span>';
       return;
     }
-    el.innerHTML = rows.map(r => _rmsCard(r, minSil, minMus, autoApply)).join('');
+    if (visibleRows.length === 0) {
+      el.innerHTML = '<span class="hint">Collecting in background. CD/Vinyl cards appear once those formats receive samples.</span>';
+      return;
+    }
+    el.innerHTML = visibleRows.map(r => _rmsCard(r, minSil, minMus, autoApply)).join('');
   } catch {
     el.innerHTML = '<span class="hint">Could not load snapshot.</span>';
   }
