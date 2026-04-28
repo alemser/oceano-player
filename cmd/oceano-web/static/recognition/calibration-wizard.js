@@ -58,22 +58,48 @@ function _isVinylLabel(label, key) {
   return key === '10' || l.includes('phono') || l.includes('vinyl') || l.includes('vinil');
 }
 
-function _phonoInputsFromConfig(cfg) {
+function _effectiveDeviceRole(dev) {
+  const role = String(dev?.role || '').trim().toLowerCase();
+  if (role === 'streaming' || role === 'other') return role;
+  return 'physical_media';
+}
+
+function _effectivePhysicalFormat(dev) {
+  const format = String(dev?.physical_format || '').trim().toLowerCase();
+  if (format === 'vinyl' || format === 'cd' || format === 'tape' || format === 'mixed') return format;
+  return 'unspecified';
+}
+
+function _physicalInputsFromConfig(cfg) {
   const allInputs = Array.isArray(cfg?.amplifier?.inputs)
     ? cfg.amplifier.inputs.filter(i => i && i.visible !== false)
     : [];
-  const turntableInputIDs = new Set();
+  const physicalInputIDs = new Set();
+  const vinylInputIDs = new Set();
   const devices = Array.isArray(cfg?.amplifier?.connected_devices) ? cfg.amplifier.connected_devices : [];
   for (const dev of devices) {
-    if (!dev || !dev.is_turntable) continue;
+    if (!dev) continue;
+    const role = _effectiveDeviceRole(dev);
+    const format = _effectivePhysicalFormat(dev);
+    const isPhysical = role === 'physical_media' || !!dev.is_turntable;
+    if (!isPhysical) continue;
     const ids = Array.isArray(dev.input_ids) ? dev.input_ids : [];
-    for (const id of ids) turntableInputIDs.add(String(id));
+    for (const id of ids) {
+      const key = String(id);
+      if (!key) continue;
+      physicalInputIDs.add(key);
+      if (format === 'vinyl' || dev.is_turntable) vinylInputIDs.add(key);
+    }
   }
-  if (turntableInputIDs.size > 0) {
-    const mapped = allInputs.filter(i => turntableInputIDs.has(String(i.id || '')));
+  if (physicalInputIDs.size > 0) {
+    const mapped = allInputs
+      .filter(i => physicalInputIDs.has(String(i.id || '')))
+      .map((i) => ({ ...i, _is_vinyl: vinylInputIDs.has(String(i.id || '')) || _isVinylLabel(i.logical_name || '', String(i.id || '')) }));
     if (mapped.length > 0) return mapped;
   }
-  return allInputs.filter(i => _isVinylLabel(i.logical_name || '', String(i.id || '')));
+  return allInputs
+    .filter(i => _isVinylLabel(i.logical_name || '', String(i.id || '')))
+    .map((i) => ({ ...i, _is_vinyl: true }));
 }
 
 // ── Recommendation engine ──────────────────────────────────────────────────────
@@ -196,14 +222,14 @@ function openCalibrationWizard() {
   _wiz.captureDuration = 6;
 
   const cfg = _calibrationState.cfg;
-  const phonoInputs = _phonoInputsFromConfig(cfg);
+  const physicalInputs = _physicalInputsFromConfig(cfg);
 
-  if (phonoInputs.length > 0) {
-    _wiz.inputKey   = String(phonoInputs[0].id || '');
-    _wiz.inputLabel = phonoInputs[0].logical_name || `Input ${phonoInputs[0].id}`;
+  if (physicalInputs.length > 0) {
+    _wiz.inputKey   = String(physicalInputs[0].id || '');
+    _wiz.inputLabel = physicalInputs[0].logical_name || `Input ${physicalInputs[0].id}`;
   } else {
     _wiz.inputKey   = '__manual__';
-    _wiz.inputLabel = 'Phono';
+    _wiz.inputLabel = 'Physical input';
   }
 
   _wiz.isPhono = true;
@@ -292,10 +318,10 @@ function _wizCalibrateAnother() {
   _wiz.capturing = false;
 
   const cfg = _calibrationState.cfg;
-  const phonoInputs = _phonoInputsFromConfig(cfg);
-  if (phonoInputs.length > 0) {
-    _wiz.inputKey   = String(phonoInputs[0].id || '');
-    _wiz.inputLabel = phonoInputs[0].logical_name || `Input ${phonoInputs[0].id}`;
+  const physicalInputs = _physicalInputsFromConfig(cfg);
+  if (physicalInputs.length > 0) {
+    _wiz.inputKey   = String(physicalInputs[0].id || '');
+    _wiz.inputLabel = physicalInputs[0].logical_name || `Input ${physicalInputs[0].id}`;
     _wiz.isPhono    = true;
   }
 
@@ -496,28 +522,29 @@ function _wizRenderFooter() {
 
 function _wizStep1() {
   const cfg = _calibrationState.cfg;
-  const phonoInputs = _phonoInputsFromConfig(cfg);
+  const physicalInputs = _physicalInputsFromConfig(cfg);
 
   let selectHtml;
-  if (phonoInputs.length > 0) {
+  if (physicalInputs.length > 0) {
     selectHtml = `<select id="wiz-input-select" class="cal-wiz-select" onchange="_wizInputChanged()">`;
-    for (const inp of phonoInputs) {
+    for (const inp of physicalInputs) {
       const key = String(inp.id || '');
       const label = inp.logical_name || `Input ${inp.id}`;
       const sel = key === _wiz.inputKey ? ' selected' : '';
-      selectHtml += `<option value="${_esc(key)}"${sel}>${_esc(label)}</option>`;
+      const suffix = inp._is_vinyl ? ' (vinyl)' : '';
+      selectHtml += `<option value="${_esc(key)}"${sel}>${_esc(label)}${suffix}</option>`;
     }
     selectHtml += `</select>`;
   } else {
-    selectHtml = `<div class="hint" style="padding:8px 10px;border:1px solid var(--border);border-radius:5px">No Phono input found in the Amplifier section. Add/rename one input as Phono to use vinyl calibration.</div>`;
+    selectHtml = `<div class="hint" style="padding:8px 10px;border:1px solid var(--border);border-radius:5px">No physical-media input mapping found. Set connected device role to physical_media in Amplifier Setup first.</div>`;
   }
 
   return `
     <div class="cal-wiz-illus">${_SVG_AMP}</div>
-    <div class="cal-wiz-title">Choose a Phono input</div>
-    <div class="cal-wiz-desc">This wizard calibrates the noise floor for physical media inputs (OFF/ON RMS). Inter-track detection uses RMS histogram learning and does not require a separate vinyl gap capture.</div>
+    <div class="cal-wiz-title">Choose a physical-media input</div>
+    <div class="cal-wiz-desc">This wizard calibrates the noise floor for inputs classified as physical media. Inter-track detection uses RMS histogram learning and does not require a separate vinyl gap capture.</div>
     <div class="cal-wiz-field">
-      <label class="cal-wiz-field-label"><span>Phono input</span></label>
+      <label class="cal-wiz-field-label"><span>Input</span></label>
       ${selectHtml}
     </div>
   `;
@@ -525,7 +552,7 @@ function _wizStep1() {
 
 function _wizStep2() {
   const capturing = _wiz.capturing;
-  const instrHtml = `Switch your amplifier to <b>${_esc(_wiz.inputLabel)}</b>. Unplug the RCA cables from the phono stage (or switch it off if available). Make sure the turntable motor is stopped.`;
+  const instrHtml = `Switch your amplifier to <b>${_esc(_wiz.inputLabel)}</b>. Keep playback stopped and ensure this path is in its quiet baseline state.`;
 
   const resultHtml = _wiz.off
     ? `<div class="cal-wiz-result-ok"><span class="r-icon">${_ICO_CHECK}</span><span class="r-text">avg ${_wiz.off.avg_rms.toFixed(4)} · min ${_wiz.off.min_rms.toFixed(4)} · max ${_wiz.off.max_rms.toFixed(4)} · ${_wiz.off.samples} samples</span></div>`
@@ -537,8 +564,8 @@ function _wizStep2() {
 
   return `
     <div class="cal-wiz-illus">${_SVG_RCA_DISC}</div>
-    <div class="cal-wiz-title">Silence — phono disconnected/off</div>
-    <div class="cal-wiz-desc">Captures the baseline noise floor when the source is inactive. This is the quietest state this input can be in.</div>
+    <div class="cal-wiz-title">Silence — source inactive</div>
+    <div class="cal-wiz-desc">Captures the baseline noise floor when the selected physical source is inactive.</div>
     <div class="cal-wiz-instr">${instrHtml}</div>
     <button class="cal-wiz-cap-btn"${btnDis} onclick="_wizCapture('off')">${_ICO_MIC} ${capturing ? 'Measuring…' : btnLabel}</button>
     ${progHtml}
@@ -549,7 +576,7 @@ function _wizStep2() {
 function _wizStep3() {
   const capturing = _wiz.capturing;
 
-  const instrHtml = `Now <b>connect the RCA cables</b> back. The phono stage should be active but the turntable not playing anything.`;
+  const instrHtml = `Now activate the source path for <b>${_esc(_wiz.inputLabel)}</b>, but keep it idle with no music playing.`;
 
   let resultHtml = '';
   if (_wiz.on) {
@@ -570,7 +597,7 @@ function _wizStep3() {
 
   return `
     <div class="cal-wiz-illus">${_SVG_POWER_ON}</div>
-    <div class="cal-wiz-title">Silence — source on, no music</div>
+    <div class="cal-wiz-title">Silence — source active, no music</div>
     <div class="cal-wiz-desc">Captures the idle noise floor of the active source. The system uses the gap between OFF and ON to place the silence threshold precisely.</div>
     <div class="cal-wiz-instr">${instrHtml}</div>
     <button class="cal-wiz-cap-btn"${btnDis} onclick="_wizCapture('on')">${_ICO_MIC} ${capturing ? 'Measuring…' : btnLabel}</button>
@@ -599,7 +626,7 @@ function _wizStep4() {
 
 function _wizStep5() {
   const cfg = _calibrationState.cfg;
-  const phonoInputs = _phonoInputsFromConfig(cfg);
+  const physicalInputs = _physicalInputsFromConfig(cfg);
 
   const profiles = _calibrationState.byInput;
   const shown = new Set();
@@ -607,12 +634,12 @@ function _wizStep5() {
 
   for (const [key, slot] of Object.entries(profiles)) {
     if (!slot || (!slot.off && !slot.on)) continue;
-    const ampInp = phonoInputs.find(i => String(i.id) === key);
+    const ampInp = physicalInputs.find(i => String(i.id) === key);
     if (!ampInp) continue;
     shown.add(key);
     items.push({ key, label: ampInp?.logical_name || key, slot, measured: true });
   }
-  for (const inp of phonoInputs) {
+  for (const inp of physicalInputs) {
     const key = String(inp.id || '');
     if (shown.has(key)) continue;
     items.push({ key, label: inp.logical_name || `Input ${inp.id}`, slot: null, measured: false });
@@ -622,7 +649,7 @@ function _wizStep5() {
     return `
       <div class="cal-wiz-illus">${_SVG_CHECK}</div>
       <div class="cal-wiz-title">Calibration complete</div>
-      <div class="cal-wiz-desc">No Phono input is configured. The system will keep using global silence thresholds as fallback.</div>
+      <div class="cal-wiz-desc">No physical-media input is configured. The system will keep using global silence thresholds as fallback.</div>
       <div class="cal-wiz-save-note">Click <b>Save &amp; Close</b> then <b>Save &amp; Restart Services</b> on the main page to persist.</div>
     `;
   }
@@ -634,7 +661,7 @@ function _wizStep5() {
     const badges = [];
     if (measured) badges.push(`<span class="cal-sc-badge measured">Measured</span>`);
     else          badges.push(`<span class="cal-sc-badge defaults">Defaults</span>`);
-    if (isPhono)  badges.push(`<span class="cal-sc-badge phono">Phono</span>`);
+    if (isPhono)  badges.push(`<span class="cal-sc-badge phono">Vinyl</span>`);
 
     let valsHtml = '';
     if (measured && slot) {

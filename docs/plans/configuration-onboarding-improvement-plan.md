@@ -44,6 +44,7 @@ This document describes how first-time configuration feels today, why it is hard
 - **Phase 3a:** production route scaffolded at `/amplifier-wizard` (`amplifier-wizard.html`) with step shell, readiness badges sourced from `/api/setup-status`, and deep links into existing operational pages (`amplifier.html`, `pair.html`, `recognition.html`).
 - **Phase 3b:** wizard now persists current step in `localStorage`, accepts deep links via `?step=<id>`, and applies Broadlink gating to the IR step (`amplifier_ir_enabled && !broadlink_paired` blocks progression and points user to pairing). Checklist rows that map to wizard stages now deep-link to the corresponding step.
 - **Phase 4 (partial):** connected-devices editor now persists `role` (`physical_media|streaming|other`) and `physical_format` (`vinyl|cd|tape|mixed|unspecified`) in production UI (`amplifier.html` / `index.amplifier.js`), and `/api/setup-status` normalizes these values case-insensitively before deriving vinyl/stylus readiness. The wizard route (`/amplifier-wizard`) now also includes a topology-step inline role/format editor with save via `/api/config`.
+- **Phase 4 (extended):** calibration wizard input selection is now scoped to inputs mapped from `connected_devices` classified as physical media (with legacy vinyl-label fallback), so calibration flow aligns with role-based topology instead of only `is_turntable`.
 
 ---
 
