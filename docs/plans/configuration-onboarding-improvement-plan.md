@@ -309,7 +309,7 @@ This closes the loop for **repeat configuration** as a first-class story, not on
 
 ## Proposed work (phased)
 
-### Phase 1 — Empty amplifier by default + neutral globals
+### Phase 1 — Empty amplifier by default + neutral globals ✅ Done (2026-04)
 
 - **`defaultConfig()`**
   - Remove baked-in Magnat profile and input list; `amplifier.profile_id` empty; `inputs` empty or a single placeholder only if the UI requires non-empty array (prefer empty + UI handles).
@@ -318,6 +318,8 @@ This closes the loop for **repeat configuration** as a first-class story, not on
 - **Calibration profiles:** empty map on fresh install; move numeric fixtures to **tests** or `docs/examples/*.json` if still needed for CI.
 - **UI:** “Set up amplifier” CTA opens wizard; no pre-selected profile in `<select>`.
 - **Migration safety:** `defaultConfig()` changes apply **only when no `config.json` exists** at startup. On upgrade, `oceano-web` reads the existing file and leaves all amplifier, IR, and calibration data intact. Document this guarantee in install scripts and upgrade notes so users are not surprised by apparent config loss after `apt upgrade`.
+
+**Implemented:** `defaultConfig()` now returns empty `Amplifier` (no ProfileID/Inputs/Maker/Model), `Weather.Enabled=false`, and `CalibrationProfiles=nil`. Operational defaults (WarmUpSecs, StandbyTimeoutMins, InputCycling, USBReset) kept as reasonable per-amp defaults. Amplifier tests updated to be explicit about the hardware they require.
 
 ### Phase 2 — Physical-first welcome checklist
 
@@ -356,11 +358,13 @@ This distinction avoids two failure modes: rows that nag forever vs rows that si
 - Filter calibration wizard input list; update `recognition_page.js` / `calibration-wizard.js` copy to explain **why** some inputs are hidden.
 - Ensure **state manager** still receives calibration keyed by input ID (no breaking change unless we add aliases).
 
-### Phase 5 — Contextual hints & API
+### Phase 5 — Contextual hints & API ✅ Done (2026-04)
 
 - Implement **`GET /api/setup-status`** (or extend an existing aggregate) returning the booleans needed for the hub, checklist, and header chips (“Missing ACRCloud”, “Amplifier not configured”, “Calibrate Phono for best vinyl boundaries”, etc.).
 - **Caching:** `services_healthy` requires a `systemctl is-active` subprocess call per service. Cache this result in-process for **10–30 s** to avoid forking on every hub poll or SSE tick. Config-derived booleans (`capture_configured`, `recognition_credentials_set`, etc.) are cheap reads from the in-memory config and do not need caching.
 - Config drawer **reorders** sections based on incomplete flags.
+
+**Implemented:** `GET /api/setup-status` in `cmd/oceano-web/setup_status_api.go`. All fields from the draft contract are returned. `services_healthy` cached 20 s. Config fields added: `ConnectedDeviceConfig.Role`, `ConnectedDeviceConfig.PhysicalFormat` (Phase 4 struct fields, forward-compatible), `AdvancedConfig.OceanoSetupAcknowledged` (set by `oceano-setup` CLI). 12 unit tests covering all boolean derivations. Config drawer reordering is Phase 2 (UI work).
 
 #### `GET /api/setup-status` — draft JSON contract
 
