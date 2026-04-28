@@ -48,7 +48,7 @@ const HUB_CARDS = [
   {
     id: "amp",
     title: "Amplifier & IR",
-    href: "/amplifier.html",
+    href: "/amplifier-wizard.html",
     iconHTML: HUB_ICONS.amplifier,
     compute(status) {
       if (!status) return { text: "Loading...", tone: "" };

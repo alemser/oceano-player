@@ -35,10 +35,13 @@ This document describes how first-time configuration feels today, why it is hard
 
 **Still pending from roadmap phases:**
 
-- **Phase 1:** full neutral defaults cleanup (`defaultConfig()` amplifier/weather/calibration fixtures) is not fully completed in this pass.
-- **Phase 2/5:** checklist + `/api/setup-status` orchestration remains roadmap work.
-- **Phase 3:** dedicated production amplifier wizard route/orchestration is still pending.
+- **Phase 3b+:** dedicated production amplifier wizard **gating/orchestration** (Broadlink hard gate, explicit IR-learn lock, connected-devices role/format persistence flow, stylus step wiring) is still pending beyond shell.
 - **Phase 6/7:** full now-playing parity polish and CLI↔web bridge completion remain in progress roadmap items.
+
+**Newly completed in this branch (2026-04):**
+
+- **Phase 2a/2b:** `/config` hub page shipped with live cards + first-run checklist, done-state mapping from `/api/setup-status`, plus row-level skip/dismiss persistence in `localStorage`.
+- **Phase 3a:** production route scaffolded at `/amplifier-wizard` (`amplifier-wizard.html`) with step shell, readiness badges sourced from `/api/setup-status`, and deep links into existing operational pages (`amplifier.html`, `pair.html`, `recognition.html`).
 
 ---
 
@@ -321,7 +324,7 @@ This closes the loop for **repeat configuration** as a first-class story, not on
 
 **Implemented:** `defaultConfig()` now returns empty `Amplifier` (no ProfileID/Inputs/Maker/Model), `Weather.Enabled=false`, and `CalibrationProfiles=nil`. Operational defaults (WarmUpSecs, StandbyTimeoutMins, InputCycling, USBReset) kept as reasonable per-amp defaults. Amplifier tests updated to be explicit about the hardware they require.
 
-### Phase 2 — Physical-first welcome checklist
+### Phase 2 — Physical-first welcome checklist ✅ Done (2026-04)
 
 Ordered for the target audience:
 
@@ -342,9 +345,10 @@ Streaming basics can appear as **step 2b** or a compact row: “AirPlay / Blueto
 
 This distinction avoids two failure modes: rows that nag forever vs rows that silently disappear after an accidental swipe. Do not invent server state for dismissed rows — `localStorage` is sufficient and avoids sync complexity across browsers.
 
-### Phase 3 — Amplifier wizard implementation
+### Phase 3 — Amplifier wizard implementation 🚧 Phase 3a done (shell + route)
 
 - As specified in the previous section; **gate** IR-learning steps on successful Broadlink pairing (reuse `pair.html` and/or same APIs — **separate pairing wizard is OK**).
+- **Implemented (3a):** route `/amplifier-wizard` + static page scaffold with ordered steps, readiness/status badges from `/api/setup-status`, and explicit step entry links.
 - **Wizard abandonment:** if the user closes the browser mid-wizard the partial state must not be silently lost on an 8-step flow. Two acceptable strategies:
   - **(A — preferred)** persist each completed step to `localStorage` as a draft, restoring on re-open with a “Continue where you left off?” banner. Most useful for steps 3–5 where IR learning is the most time-consuming.
   - **(B)** show a browser `beforeunload` confirmation (“Leave setup? Progress will be lost”) — simpler but intrusive.

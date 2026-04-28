@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Oceano - Amplifier Setup Wizard</title>
+  <link rel="stylesheet" href="/amplifier-wizard.css">
+</head>
+<body>
+  <main class="wiz-page">
+    <header class="wiz-header">
+      <a href="/config.html" class="wiz-back">← Back to hub</a>
+      <h1>Amplifier Setup Wizard</h1>
+      <p>Guided setup with clear order: topology first, IR only when needed.</p>
+    </header>
+
+    <section class="wiz-overview">
+      <div class="wiz-overview-left">
+        <h2>Current readiness</h2>
+        <p id="wiz-summary">Loading setup status...</p>
+      </div>
+      <div class="wiz-overview-actions">
+        <button id="wiz-refresh" class="btn btn-ghost" type="button">Refresh</button>
+        <a class="btn btn-primary" href="/amplifier.html">Open full amplifier page</a>
+      </div>
+    </section>
+
+    <section class="wiz-error" id="wiz-error" hidden></section>
+
+    <section class="wiz-steps" id="wiz-steps">
+      <!-- Filled by amplifier-wizard.js -->
+    </section>
+  </main>
+
+  <script src="/icons.js"></script>
+  <script src="/amplifier-wizard.js"></script>
+</body>
+</html>
