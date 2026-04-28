@@ -19,7 +19,7 @@ const WIZ_STEPS = [
     id: "pairing",
     title: "Broadlink pairing (IR path)",
     desc: "Required before learning IR commands when IR is enabled.",
-    href: "/pair.html",
+    href: "/ir-setup",
     state(status) {
       if (!status) return { label: "Loading", tone: "" };
       if (!status.amplifier_ir_enabled) return { label: "Optional", tone: "" };
@@ -32,7 +32,7 @@ const WIZ_STEPS = [
     id: "ir",
     title: "IR learning",
     desc: "Learn power, volume and input commands only after pairing.",
-    href: "/amplifier.html#amp-ir-section",
+    href: "/ir-setup",
     state(status) {
       if (!status) return { label: "Loading", tone: "" };
       if (!status.amplifier_ir_enabled) return { label: "Skipped (IR off)", tone: "" };
