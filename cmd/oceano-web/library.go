@@ -325,11 +325,14 @@ func buildBoundaryCalibrationReadiness(l *LibraryDB, cfg *Config) *boundaryCalib
 	level, msg := classifyCalibrationReadinessLevel(paired, minPairs)
 	ready := paired >= minPairs
 
-	rmsEn := false
+	rmsEn := true // default: collect without applying, matching state-manager default
 	rmsAp := false
 	if cfg.Advanced.RMSPercentileLearning != nil {
-		rmsEn = cfg.Advanced.RMSPercentileLearning.Enabled
-		rmsAp = cfg.Advanced.RMSPercentileLearning.AutonomousApply
+		rms := cfg.Advanced.RMSPercentileLearning
+		if rms.Enabled != nil {
+			rmsEn = *rms.Enabled
+		}
+		rmsAp = rms.AutonomousApply
 	}
 
 	return &boundaryCalibrationReadiness{

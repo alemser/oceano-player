@@ -55,7 +55,7 @@ type autonomousCalibrationJSON struct {
 }
 
 type rmsPercentileLearningJSON struct {
-	Enabled               bool     `json:"enabled"`
+	Enabled               *bool    `json:"enabled,omitempty"`
 	AutonomousApply       bool     `json:"autonomous_apply"`
 	MinSilenceSamples     *int     `json:"min_silence_samples,omitempty"`
 	MinMusicSamples       *int     `json:"min_music_samples,omitempty"`
@@ -119,6 +119,7 @@ type rmsLearningRuntimeConfig struct {
 
 func defaultRMSLearningRuntimeConfig() rmsLearningRuntimeConfig {
 	return rmsLearningRuntimeConfig{
+		Enabled:           true, // collect by default; AutonomousApply stays false until explicitly set
 		MinSilenceSamples: 400,
 		MinMusicSamples:   400,
 		PersistInterval:   2 * time.Minute,
@@ -132,7 +133,9 @@ func mergeRMSLearningConfig(raw *rmsPercentileLearningJSON) rmsLearningRuntimeCo
 	if raw == nil {
 		return out
 	}
-	out.Enabled = raw.Enabled
+	if raw.Enabled != nil {
+		out.Enabled = *raw.Enabled
+	}
 	out.AutonomousApply = raw.AutonomousApply
 	if raw.MinSilenceSamples != nil {
 		out.MinSilenceSamples = *raw.MinSilenceSamples

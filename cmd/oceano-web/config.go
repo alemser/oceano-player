@@ -440,7 +440,7 @@ type AdvancedConfig struct {
 
 // RMSPercentileLearningConfig enables autonomous RMS histogram learning (library DB).
 type RMSPercentileLearningConfig struct {
-	Enabled             bool `json:"enabled"`
+	Enabled             *bool `json:"enabled,omitempty"`
 	AutonomousApply     bool `json:"autonomous_apply"`
 	MinSilenceSamples   int  `json:"min_silence_samples,omitempty"`
 	MinMusicSamples     int  `json:"min_music_samples,omitempty"`
