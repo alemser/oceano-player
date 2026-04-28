@@ -141,6 +141,12 @@ function renderSetupBridge(status) {
     </li>
   `).join('');
 
+  const healthy = status.services_healthy || {};
+  const servicesHealthy =
+    healthy.oceano_source_detector !== false &&
+    healthy.oceano_state_manager !== false &&
+    healthy.oceano_web !== false;
+
   const quickCards = [
     {
       title: 'Physical media',
@@ -162,17 +168,37 @@ function renderSetupBridge(status) {
             ? { text: 'Topology ready, IR paired', tone: 'ok' }
             : { text: 'Topology ready, IR optional', tone: 'ok' },
     },
-  ];
-
-  if (status.vinyl_topology_present) {
-    quickCards.push({
+    {
+      title: 'Recognition & calibration',
+      href: '/recognition.html',
+      status: status.calibration_physical_recommended && !status.calibration_physical_complete
+        ? { text: 'Calibration recommended for physical inputs', tone: 'warn' }
+        : status.calibration_physical_complete
+          ? { text: 'Calibration complete', tone: 'ok' }
+          : { text: 'No physical calibration pending', tone: 'ok' },
+    },
+    {
       title: 'Stylus tracking',
       href: '/amplifier-wizard.html?step=stylus',
-      status: status.stylus_profile_configured
-        ? { text: 'Stylus profile configured', tone: 'ok' }
-        : { text: 'Configure stylus profile', tone: 'warn' },
-    });
-  }
+      status: !status.vinyl_topology_present
+        ? { text: 'No vinyl topology configured', tone: '' }
+        : status.stylus_profile_configured
+          ? { text: 'Stylus profile configured', tone: 'ok' }
+          : { text: 'Configure stylus profile and rated life', tone: 'warn' },
+    },
+    {
+      title: 'Streaming basics',
+      href: '/index.html',
+      status: servicesHealthy
+        ? { text: 'Core services healthy', tone: 'ok' }
+        : { text: 'One or more services unhealthy', tone: 'warn' },
+    },
+    {
+      title: 'Advanced',
+      href: '/advanced.html',
+      status: { text: `Schema v${status.schema_version || 1} · Live setup status API`, tone: '' },
+    },
+  ];
 
   quickEl.innerHTML = quickCards.map((card) => `
     <article class="setup-bridge-card">
