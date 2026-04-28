@@ -295,12 +295,6 @@
     <!-- Per-input summary rendered by renderCalibrationSummary() -->
     <div id="cal-summary-grid" style="margin-bottom:16px"></div>
 
-    <div class="rms-snap-wrap" style="margin-bottom:16px">
-      <div class="rms-snap-heading">RMS learning snapshot</div>
-      <p class="hint" style="margin:0 0 8px">Histogram totals and derived VU thresholds per format when <a href="/advanced.html">RMS percentile learning</a> is enabled. Full toggles live on Advanced.</p>
-      <div id="rec-rms-learning-summary"><span class="hint">Loading…</span></div>
-    </div>
-
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button type="button" class="btn-secondary" onclick="openCalibrationWizard()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>
@@ -311,6 +305,85 @@
         Set Capture Gain
       </button>
     </div>
+  </div>
+
+  <!-- ── Auto-tuning from playback results ───────────────────────────────── -->
+  <div class="section" style="margin-bottom:24px">
+    <div class="section-title">Auto-tuning from playback results</div>
+    <p class="hint" style="margin-bottom:14px">Adaptive tuning and RMS percentile learning for physical-source recognition. Everyday usage should only need the snapshot and the two main toggles below.</p>
+
+    <div class="field">
+      <label class="modal-check" for="rec-autonomous-calibration-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="rec-autonomous-calibration-enabled" style="width:auto">
+        <span>Enable adaptive tuning (recommended)</span>
+      </label>
+      <div class="hint" style="margin-top:6px">When enabled, bounded runtime nudges are computed from recognition outcomes.</div>
+    </div>
+
+    <div class="field">
+      <label class="modal-check" for="rec-rms-learning-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="rec-rms-learning-enabled" style="width:auto">
+        <span>Enable RMS percentile learning</span>
+      </label>
+      <div class="hint" style="margin-top:6px">Learns silence/music histograms per format and derives VU enter/exit thresholds.</div>
+    </div>
+
+    <div class="field">
+      <label class="modal-check" for="rec-rms-learning-apply" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="rec-rms-learning-apply" style="width:auto">
+        <span>Autonomous apply learned thresholds</span>
+      </label>
+    </div>
+
+    <div class="rms-snap-wrap" style="margin-bottom:12px">
+      <div class="rms-snap-heading">RMS learning snapshot</div>
+      <p class="hint" style="margin:0 0 8px">Histogram totals and derived VU thresholds for CD/Vinyl.</p>
+      <div id="rec-rms-learning-summary"><span class="hint">Loading…</span></div>
+    </div>
+
+    <details>
+      <summary class="hint" style="cursor:pointer">Advanced auto-tuning parameters</summary>
+      <div style="margin-top:12px">
+        <div class="field">
+          <label class="modal-check" for="rec-telemetry-nudges-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" id="rec-telemetry-nudges-enabled" style="width:auto">
+            <span>Enable adaptive tuning nudges (manual override)</span>
+          </label>
+        </div>
+        <div class="field">
+          <label><span>Analysis window (days)</span></label>
+          <input type="number" id="rec-telemetry-lookback" min="1" max="365" step="1" placeholder="14">
+        </div>
+        <div class="field">
+          <label><span>Minimum follow-up pairs</span></label>
+          <input type="number" id="rec-telemetry-min-pairs" min="5" max="500" step="1" placeholder="25">
+        </div>
+        <div class="field">
+          <label><span>Baseline false-positive ratio</span></label>
+          <input type="text" id="rec-telemetry-baseline-fp" inputmode="decimal" placeholder="0.10">
+        </div>
+        <div class="field">
+          <label><span>Max silence threshold delta (RMS)</span></label>
+          <input type="text" id="rec-telemetry-max-silence" inputmode="decimal" placeholder="0.004">
+        </div>
+        <div class="field">
+          <label><span>Max duration pessimism delta</span></label>
+          <input type="text" id="rec-telemetry-max-pess" inputmode="decimal" placeholder="0.06">
+        </div>
+        <div class="field">
+          <label><span>Min silence samples</span></label>
+          <input type="number" id="rec-rms-min-silence" min="50" max="50000" step="1" placeholder="400">
+        </div>
+        <div class="field">
+          <label><span>Min music samples</span></label>
+          <input type="number" id="rec-rms-min-music" min="50" max="50000" step="1" placeholder="400">
+        </div>
+        <div class="field">
+          <label><span>Persist interval (seconds)</span></label>
+          <input type="number" id="rec-rms-persist-secs" min="30" max="86400" step="1" placeholder="120">
+        </div>
+      </div>
+    </details>
   </div>
 
   <!-- ── Source Detection ─────────────────────────────────────────────────── -->

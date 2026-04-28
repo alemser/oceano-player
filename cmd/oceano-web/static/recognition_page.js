@@ -189,6 +189,25 @@ async function loadRecognitionPage() {
   _rset('rec-duration-guard-bypass',   cfg.recognition?.duration_guard_bypass_window_secs);
   _rset('rec-duration-pessimism',      cfg.recognition?.duration_pessimism);
   _rset('rec-boundary-restore-min-seek', cfg.recognition?.boundary_restore_min_seek_secs);
+  const autonomous = cfg.advanced?.autonomous_calibration;
+  const autoBox = document.getElementById('rec-autonomous-calibration-enabled');
+  if (autoBox) autoBox.checked = !!autonomous?.enabled;
+  const telemetryNudges = cfg.advanced?.r3_telemetry_nudges;
+  const telemetryBox = document.getElementById('rec-telemetry-nudges-enabled');
+  if (telemetryBox) telemetryBox.checked = !!telemetryNudges?.enabled;
+  _rset('rec-telemetry-lookback', telemetryNudges?.lookback_days ?? '');
+  _rset('rec-telemetry-min-pairs', telemetryNudges?.min_followup_pairs ?? '');
+  _rset('rec-telemetry-baseline-fp', telemetryNudges?.baseline_false_positive_ratio ?? '');
+  _rset('rec-telemetry-max-silence', telemetryNudges?.max_silence_threshold_delta ?? '');
+  _rset('rec-telemetry-max-pess', telemetryNudges?.max_duration_pessimism_delta ?? '');
+  const rms = cfg.advanced?.rms_percentile_learning;
+  const rmsEn = document.getElementById('rec-rms-learning-enabled');
+  if (rmsEn) rmsEn.checked = (rms == null || rms.enabled == null) ? true : !!rms.enabled;
+  const rmsAp = document.getElementById('rec-rms-learning-apply');
+  if (rmsAp) rmsAp.checked = !!rms?.autonomous_apply;
+  _rset('rec-rms-min-silence', rms?.min_silence_samples ?? '');
+  _rset('rec-rms-min-music', rms?.min_music_samples ?? '');
+  _rset('rec-rms-persist-secs', rms?.persist_interval_secs ?? '');
 
   _calibrationState.cfg      = cfg;
   _calibrationState.byInput  = _normalizeCalibrationProfiles(cfg.advanced?.calibration_profiles);
@@ -232,6 +251,46 @@ async function saveRecognitionPage() {
     idle_delay_secs:            _rint('rec-idle-delay',   _cfgInt(fullCfg.advanced?.idle_delay_secs, 10)),
     calibration_profiles:       _normalizeCalibrationProfiles(_calibrationState.byInput),
   };
+  const previousTelemetryNudges = fullCfg.advanced?.r3_telemetry_nudges ?? {};
+  const previousAutonomous = fullCfg.advanced?.autonomous_calibration ?? {};
+  const previousRMS = fullCfg.advanced?.rms_percentile_learning ?? {};
+  function _recFloatOptional(id) {
+    const s = _rval(id);
+    if (s === '') return undefined;
+    const x = parseFloat(s);
+    return Number.isFinite(x) ? x : undefined;
+  }
+  const telemetryOut = {
+    ...previousTelemetryNudges,
+    enabled: document.getElementById('rec-telemetry-nudges-enabled')?.checked ?? false,
+  };
+  const lb = _rint('rec-telemetry-lookback', 0);
+  if (lb > 0) telemetryOut.lookback_days = lb;
+  const mp = _rint('rec-telemetry-min-pairs', 0);
+  if (mp > 0) telemetryOut.min_followup_pairs = mp;
+  const bfp = _recFloatOptional('rec-telemetry-baseline-fp');
+  if (bfp !== undefined) telemetryOut.baseline_false_positive_ratio = bfp;
+  const ms = _recFloatOptional('rec-telemetry-max-silence');
+  if (ms !== undefined) telemetryOut.max_silence_threshold_delta = ms;
+  const mpess = _recFloatOptional('rec-telemetry-max-pess');
+  if (mpess !== undefined) telemetryOut.max_duration_pessimism_delta = mpess;
+  const rmsOut = {
+    ...previousRMS,
+    enabled: document.getElementById('rec-rms-learning-enabled')?.checked ?? false,
+    autonomous_apply: document.getElementById('rec-rms-learning-apply')?.checked ?? false,
+  };
+  const rmsSil = _rint('rec-rms-min-silence', 0);
+  if (rmsSil > 0) rmsOut.min_silence_samples = rmsSil;
+  const rmsMus = _rint('rec-rms-min-music', 0);
+  if (rmsMus > 0) rmsOut.min_music_samples = rmsMus;
+  const rmsPer = _rint('rec-rms-persist-secs', 0);
+  if (rmsPer > 0) rmsOut.persist_interval_secs = rmsPer;
+  fullCfg.advanced.autonomous_calibration = {
+    ...previousAutonomous,
+    enabled: document.getElementById('rec-autonomous-calibration-enabled')?.checked ?? false,
+  };
+  fullCfg.advanced.r3_telemetry_nudges = telemetryOut;
+  fullCfg.advanced.rms_percentile_learning = rmsOut;
 
   const recCurrent = fullCfg.recognition ?? {};
   fullCfg.recognition = {

@@ -78,79 +78,14 @@
     </div>
   </div>
 
-  <!-- ── Auto-tuning from playback results ───────────────────────────── -->
+  <!-- ── Recognition tuning location note ─────────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
-    <div class="section-title">Auto-tuning from playback results</div>
-    <p class="hint" style="margin:0 0 12px">The state manager uses <code>boundary_events</code> follow-ups (matched vs same-track-restored) and applies <strong>small bounded</strong> adjustments to VU silence thresholds and duration pessimism. RMS time series are <strong>not</strong> logged per boundary row; RMS snapshots live in <code>calibration_profiles</code> from the wizard, while live RMS comes from the VU socket.</p>
-    <div class="field">
-      <label class="modal-check" for="adv-autonomous-calibration-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <input type="checkbox" id="adv-autonomous-calibration-enabled" style="width:auto">
-        <span>Autonomous calibration mode</span>
-      </label>
-      <div class="hint" style="margin-top:6px">When on, adaptive tuning runs whenever paired follow-ups meet the minimum — you do not need the manual checkbox below. Does not auto-edit calibration JSON; only bounded runtime nudges.</div>
-    </div>
-    <div class="field">
-      <label class="modal-check" for="adv-telemetry-nudges-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <input type="checkbox" id="adv-telemetry-nudges-enabled" style="width:auto">
-        <span>Enable adaptive tuning nudges (manual)</span>
-      </label>
-    </div>
-    <div class="field">
-      <label><span>Lookback (days)</span></label>
-      <input type="number" id="adv-telemetry-lookback" min="1" max="365" step="1" placeholder="14">
-    </div>
-    <div class="field">
-      <label><span>Minimum follow-up pairs</span></label>
-      <input type="number" id="adv-telemetry-min-pairs" min="5" max="500" step="1" placeholder="25">
-      <div class="hint">Requires at least this many (<code>same_track_restored</code> + <code>matched</code>) rows before adjusting.</div>
-    </div>
-    <div class="field">
-      <label><span>Baseline false-positive ratio</span></label>
-      <input type="text" id="adv-telemetry-baseline-fp" inputmode="decimal" placeholder="0.10">
-    </div>
-    <div class="field">
-      <label><span>Max silence threshold delta (RMS)</span></label>
-      <input type="text" id="adv-telemetry-max-silence" inputmode="decimal" placeholder="0.004">
-    </div>
-    <div class="field">
-      <label><span>Max duration pessimism delta</span></label>
-      <input type="text" id="adv-telemetry-max-pess" inputmode="decimal" placeholder="0.06">
-    </div>
-  </div>
-
-  <!-- ── RMS percentile learning (autonomous silence thresholds) ───── -->
-  <div class="section" style="margin-bottom:24px">
-    <div class="section-title">RMS percentile learning</div>
-    <p class="hint" style="margin:0 0 12px">While <strong>Physical</strong> is active, the state manager records RMS into per-format histograms (stable silence vs stable music) in the library database and derives VU silence enter/exit from percentiles. When <strong>Autonomous apply</strong> is on, those thresholds override wizard profiles once sample counts are met. The manual wizard remains optional for transition (vinyl gap) metrics.</p>
-    <div class="field">
-      <label class="modal-check" for="adv-rms-learning-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <input type="checkbox" id="adv-rms-learning-enabled" style="width:auto">
-        <span>Enable RMS histogram learning</span>
-      </label>
-    </div>
-    <div class="field">
-      <label class="modal-check" for="adv-rms-learning-apply" style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <input type="checkbox" id="adv-rms-learning-apply" style="width:auto">
-        <span>Autonomous apply (use learned enter/exit for VU)</span>
-      </label>
-    </div>
-    <div class="field">
-      <label><span>Min silence samples</span></label>
-      <input type="number" id="adv-rms-min-silence" min="50" max="50000" step="1" placeholder="400">
-    </div>
-    <div class="field">
-      <label><span>Min music samples</span></label>
-      <input type="number" id="adv-rms-min-music" min="50" max="50000" step="1" placeholder="400">
-    </div>
-    <div class="field">
-      <label><span>Persist interval (seconds)</span></label>
-      <input type="number" id="adv-rms-persist-secs" min="30" max="86400" step="1" placeholder="120">
-    </div>
-    <div class="rms-snap-wrap" style="margin-top:14px">
-      <div class="rms-snap-heading">Library snapshot</div>
-      <p class="hint" style="margin:0 0 8px">Per-format stable silence vs music sample totals and derived VU enter/exit (from the library database).</p>
-      <div id="adv-rms-learning-summary"><span class="hint">Loading…</span></div>
-    </div>
+    <div class="section-title">Recognition auto-tuning</div>
+    <p class="hint" style="margin:0">
+      Auto-tuning from playback results and RMS percentile learning now live on
+      <a href="/recognition.html">Recognition Configuration</a>, where physical-source
+      calibration and monitoring are managed together.
+    </p>
   </div>
 
   <!-- ── Save ──────────────────────────────────────────────────────────── -->
@@ -162,7 +97,6 @@
 
 <div id="toast"></div>
 
-<script src="rms_learning_snapshot.js"></script>
 <script src="advanced_page.js"></script>
 
 </body>

@@ -30,29 +30,6 @@ async function loadAdvancedPage() {
   _aset('adv-state-file',  cfg.advanced?.state_file ?? '');
   _aset('adv-artwork-dir', cfg.advanced?.artwork_dir ?? '');
   _aset('adv-metadata-pipe', cfg.advanced?.metadata_pipe ?? '');
-  const autonomous = cfg.advanced?.autonomous_calibration;
-  const autoBox = document.getElementById('adv-autonomous-calibration-enabled');
-  if (autoBox) autoBox.checked = !!autonomous?.enabled;
-  const telemetryNudges = cfg.advanced?.r3_telemetry_nudges;
-  const telemetryBox = document.getElementById('adv-telemetry-nudges-enabled');
-  if (telemetryBox) telemetryBox.checked = !!telemetryNudges?.enabled;
-  _aset('adv-telemetry-lookback', telemetryNudges?.lookback_days ?? '');
-  _aset('adv-telemetry-min-pairs', telemetryNudges?.min_followup_pairs ?? '');
-  _aset('adv-telemetry-baseline-fp', telemetryNudges?.baseline_false_positive_ratio ?? '');
-  _aset('adv-telemetry-max-silence', telemetryNudges?.max_silence_threshold_delta ?? '');
-  _aset('adv-telemetry-max-pess', telemetryNudges?.max_duration_pessimism_delta ?? '');
-  const rms = cfg.advanced?.rms_percentile_learning;
-  const rmsEn = document.getElementById('adv-rms-learning-enabled');
-  if (rmsEn) rmsEn.checked = (rms == null || rms.enabled == null) ? true : !!rms.enabled;
-  const rmsAp = document.getElementById('adv-rms-learning-apply');
-  if (rmsAp) rmsAp.checked = !!rms?.autonomous_apply;
-  _aset('adv-rms-min-silence', rms?.min_silence_samples ?? '');
-  _aset('adv-rms-min-music', rms?.min_music_samples ?? '');
-  _aset('adv-rms-persist-secs', rms?.persist_interval_secs ?? '');
-
-  if (typeof refreshRMSLearningSnapshot === 'function') {
-    refreshRMSLearningSnapshot('adv-rms-learning-summary');
-  }
 }
 
 async function saveAdvancedPage() {
@@ -70,44 +47,6 @@ async function saveAdvancedPage() {
     return;
   }
 
-  const previousTelemetryNudges = fullCfg.advanced?.r3_telemetry_nudges ?? {};
-  const previousAutonomous = fullCfg.advanced?.autonomous_calibration ?? {};
-  const previousRMS = fullCfg.advanced?.rms_percentile_learning ?? {};
-  function _advFloat(id) {
-    const s = _aval(id);
-    if (s === '') return undefined;
-    const x = parseFloat(s);
-    return Number.isFinite(x) ? x : undefined;
-  }
-  const autonomousEnabled = document.getElementById('adv-autonomous-calibration-enabled')?.checked ?? false;
-  const telemetryEnabled = document.getElementById('adv-telemetry-nudges-enabled')?.checked ?? false;
-  const telemetryOut = {
-    ...previousTelemetryNudges,
-    enabled: telemetryEnabled,
-  };
-  const lb = _aint('adv-telemetry-lookback', 0);
-  if (lb > 0) telemetryOut.lookback_days = lb;
-  const mp = _aint('adv-telemetry-min-pairs', 0);
-  if (mp > 0) telemetryOut.min_followup_pairs = mp;
-  const bfp = _advFloat('adv-telemetry-baseline-fp');
-  if (bfp !== undefined) telemetryOut.baseline_false_positive_ratio = bfp;
-  const ms = _advFloat('adv-telemetry-max-silence');
-  if (ms !== undefined) telemetryOut.max_silence_threshold_delta = ms;
-  const mpess = _advFloat('adv-telemetry-max-pess');
-  if (mpess !== undefined) telemetryOut.max_duration_pessimism_delta = mpess;
-
-  const rmsOut = {
-    ...previousRMS,
-    enabled: document.getElementById('adv-rms-learning-enabled')?.checked ?? false,
-    autonomous_apply: document.getElementById('adv-rms-learning-apply')?.checked ?? false,
-  };
-  const rmsSil = _aint('adv-rms-min-silence', 0);
-  if (rmsSil > 0) rmsOut.min_silence_samples = rmsSil;
-  const rmsMus = _aint('adv-rms-min-music', 0);
-  if (rmsMus > 0) rmsOut.min_music_samples = rmsMus;
-  const rmsPer = _aint('adv-rms-persist-secs', 0);
-  if (rmsPer > 0) rmsOut.persist_interval_secs = rmsPer;
-
   fullCfg.advanced = {
     ...(fullCfg.advanced ?? {}),
     library_db: _aval('adv-library-db') || fullCfg.advanced?.library_db || '',
@@ -117,9 +56,6 @@ async function saveAdvancedPage() {
     state_file:     _aval('adv-state-file')   || fullCfg.advanced?.state_file   || '',
     artwork_dir:    _aval('adv-artwork-dir')  || fullCfg.advanced?.artwork_dir  || '',
     metadata_pipe:  _aval('adv-metadata-pipe')|| fullCfg.advanced?.metadata_pipe|| '',
-    autonomous_calibration: { ...previousAutonomous, enabled: autonomousEnabled },
-    rms_percentile_learning: rmsOut,
-    r3_telemetry_nudges: telemetryOut,
   };
 
   try {
@@ -133,9 +69,6 @@ async function saveAdvancedPage() {
       toast(res.error || 'Save failed.', true);
     } else {
       toast('Saved — services restarting…');
-      if (typeof refreshRMSLearningSnapshot === 'function') {
-        refreshRMSLearningSnapshot('adv-rms-learning-summary');
-      }
     }
   } catch {
     toast('Save failed.', true);
