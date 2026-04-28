@@ -1213,25 +1213,98 @@
 
     /* RMS learning snapshot (Advanced + Recognition) */
     .rms-snap-wrap { margin-top: 4px; }
-    .rms-snap-heading {
-      font-size: 0.78rem;
+    .rms-snap-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .rms-snap-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .rms-snap-format {
+      font-size: 0.9rem;
       font-weight: 600;
-      color: var(--muted);
+      color: var(--text);
+      text-transform: capitalize;
+    }
+    .rms-snap-chip {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-      letter-spacing: 0.07em;
+      border-radius: 999px;
+      padding: 2px 9px;
+      border: 1px solid;
+    }
+    .rms-chip-collecting {
+      color: var(--muted);
+      border-color: rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.05);
+    }
+    .rms-chip-separating {
+      color: #d4a843;
+      border-color: rgba(212,168,67,0.35);
+      background: rgba(212,168,67,0.08);
+    }
+    .rms-chip-ready {
+      color: #5ecb80;
+      border-color: rgba(94,203,128,0.35);
+      background: rgba(94,203,128,0.08);
+    }
+    .rms-snap-desc {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      margin: 4px 0 10px;
+      line-height: 1.4;
+    }
+    .rms-snap-bar-row {
+      display: grid;
+      grid-template-columns: 52px 1fr 60px;
+      align-items: center;
+      gap: 8px;
       margin-bottom: 6px;
     }
-    .rms-snap-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    .rms-snap-table th {
-      text-align: left;
-      padding: 6px 10px 6px 0;
+    .rms-snap-bar-lbl {
+      font-size: 0.78rem;
       color: var(--muted);
-      font-weight: 600;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
     }
-    .rms-snap-table td {
-      padding: 6px 10px 6px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.04);
+    .rms-snap-bar-wrap {
+      height: 5px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 999px;
+      overflow: hidden;
     }
-    .rms-snap-table code { font-size: 0.78rem; color: var(--accent); }
-    .rms-snap-updated { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .rms-snap-bar {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--accent);
+      transition: width 400ms ease;
+      min-width: 2px;
+    }
+    .rms-status-ready    .rms-snap-bar { background: #5ecb80; }
+    .rms-status-separating .rms-snap-bar { background: #d4a843; }
+    .rms-status-collecting .rms-snap-bar { background: rgba(255,255,255,0.25); }
+    .rms-snap-bar-count {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .rms-snap-thresholds {
+      display: flex;
+      gap: 16px;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin: 8px 0 4px;
+    }
+    .rms-snap-thresholds strong { color: var(--text); }
+    .rms-snap-updated {
+      font-size: 0.73rem;
+      color: var(--muted);
+      margin-top: 6px;
+    }

@@ -175,17 +175,44 @@ func (l *LibraryDB) getRecognitionStats() (map[string]map[string]int, error) {
 
 // rmsLearningRowDTO is one row for GET /api/recognition/rms-learning.
 type rmsLearningRowDTO struct {
-	FormatKey    string   `json:"format_key"`
-	SilenceTotal int64    `json:"silence_total"`
-	MusicTotal   int64    `json:"music_total"`
-	DerivedEnter *float64 `json:"derived_enter,omitempty"`
-	DerivedExit  *float64 `json:"derived_exit,omitempty"`
-	UpdatedAt    string   `json:"updated_at"`
+	FormatKey      string   `json:"format_key"`
+	SilenceTotal   int64    `json:"silence_total"`
+	MusicTotal     int64    `json:"music_total"`
+	DerivedEnter   *float64 `json:"derived_enter,omitempty"`
+	DerivedExit    *float64 `json:"derived_exit,omitempty"`
+	UpdatedAt      string   `json:"updated_at"`
+	ReadinessLevel string   `json:"readiness_level"` // "collecting" | "separating" | "ready"
+	SilencePct     int      `json:"silence_pct"`     // 0–100, capped at 100
+	MusicPct       int      `json:"music_pct"`       // 0–100, capped at 100
 }
 
 // rmsLearningListResponse is JSON for GET /api/recognition/rms-learning.
 type rmsLearningListResponse struct {
-	Rows []rmsLearningRowDTO `json:"rows"`
+	Rows              []rmsLearningRowDTO `json:"rows"`
+	MinSilenceSamples int                 `json:"min_silence_samples"`
+	MinMusicSamples   int                 `json:"min_music_samples"`
+	AutonomousApply   bool                `json:"autonomous_apply"`
+}
+
+func rmsReadinessLevel(silN, musN int64, minSil, minMus int, hasDerived bool) string {
+	if silN < int64(minSil) || musN < int64(minMus) {
+		return "collecting"
+	}
+	if !hasDerived {
+		return "separating"
+	}
+	return "ready"
+}
+
+func rmsPct(n int64, min int) int {
+	if min <= 0 {
+		return 100
+	}
+	v := int(n * 100 / int64(min))
+	if v > 100 {
+		return 100
+	}
+	return v
 }
 
 func (l *LibraryDB) listRMSLearningRows() ([]rmsLearningRowDTO, error) {
@@ -889,6 +916,21 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		cfgSnap := defaultConfig()
+		if c, err := loadConfig(configPath); err == nil {
+			cfgSnap = c
+		}
+		minSil, minMus := 400, 400
+		autoApply := false
+		if cfgSnap.Advanced.RMSPercentileLearning != nil {
+			if v := cfgSnap.Advanced.RMSPercentileLearning.MinSilenceSamples; v > 0 {
+				minSil = v
+			}
+			if v := cfgSnap.Advanced.RMSPercentileLearning.MinMusicSamples; v > 0 {
+				minMus = v
+			}
+			autoApply = cfgSnap.Advanced.RMSPercentileLearning.AutonomousApply
+		}
 		lib, err := openLibraryDB(libraryDBPath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -896,7 +938,9 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		}
 		if lib == nil {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(&rmsLearningListResponse{Rows: []rmsLearningRowDTO{}})
+			_ = json.NewEncoder(w).Encode(&rmsLearningListResponse{
+				Rows: []rmsLearningRowDTO{}, MinSilenceSamples: minSil, MinMusicSamples: minMus,
+			})
 			return
 		}
 		defer lib.close()
@@ -905,8 +949,16 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		for i := range list {
+			r := &list[i]
+			r.ReadinessLevel = rmsReadinessLevel(r.SilenceTotal, r.MusicTotal, minSil, minMus, r.DerivedEnter != nil)
+			r.SilencePct = rmsPct(r.SilenceTotal, minSil)
+			r.MusicPct = rmsPct(r.MusicTotal, minMus)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(&rmsLearningListResponse{Rows: list})
+		_ = json.NewEncoder(w).Encode(&rmsLearningListResponse{
+			Rows: list, MinSilenceSamples: minSil, MinMusicSamples: minMus, AutonomousApply: autoApply,
+		})
 	})
 
 	// GET /api/library/artworks — recent tracks with artwork, for the picker.

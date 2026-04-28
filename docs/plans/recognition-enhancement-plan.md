@@ -318,12 +318,13 @@ After each **new connection** to the VU Unix socket, the monitor **suppresses th
 | R2c | **Minimum off→on gap** ε for profile-derived thresholds; tiny-gap profiles fall back to global thresholds; load-time log | Low | **Done** (`feat/recognition-enhancement-plan`) |
 | R7 | Link **`boundary_events`** to post-recognition outcomes (`followup_*`, `early_boundary`); VU path inserts fired row **before** enqueueing recognition so rows carry stable ids; coordinator writes outcomes (matched / no_match / errors / skipped / same-track restored); Metrics API + **Listening Metrics** UI | Medium | **Done** (`feat/recognition-enhancement-plan`) |
 | RMS-L | — | **RMS percentile learning:** `rms_learning` histograms + `autonomous_apply` VU threshold override; `rms_percentile_learning` in config + Advanced UI; `SetSilenceEnterExit` live updates | Medium | **Done** |
+| RMS-V | **RMS-L** | **Visual feedback for RMS learning:** `/api/recognition/rms-learning` extended with `readiness_level`, `silence_pct`, `music_pct`, `min_silence_samples`, `min_music_samples`, `autonomous_apply`; snapshot widget replaced with per-format cards (status chip + progress bars + derived thresholds); CSS in `index.css` | Low | **Done** |
 
 ### Active backlog
 
 | PR | Depends on / prerequisite | Scope | Risk | Status |
 |----|---------------------------|--------|------|--------|
-| R3 | — | Optional telemetry-based bounded nudges (same_track_restored vs matched + P75 seek/duration on matched fires); **off** by default via `advanced.r3_telemetry_nudges` | Low–medium | **Done** (`feat/recognition-enhancement-plan`) |
+| R3 | — | Optional telemetry-based bounded nudges (same_track_restored vs matched + P75 seek/duration on matched fires); **off** by default via `advanced.r3_telemetry_nudges`; R3 `silenceNudge` kept fresh via `telemetryRefreshInterval = 24 h` soft-reconnect in `readVUFrames` (no separate goroutine needed) | Low–medium | **Done** (`feat/recognition-enhancement-plan`) |
 | R4 | — | `LocalLibraryRecognizer` + config flag + tests | Medium | Pending |
 | R4b | **R4** | Extend `/api/recognition/stats` (or equivalent) + metrics UI for **local vs cloud** attempt/match counts; optional **ACR error class** breakdown (timeout vs rate limit vs DNS) for operator health | Low–medium | Pending |
 | R5 | — | Post-match fingerprint persistence + local lookup; **cloud re-verify** policy (TTL, 1-in-N plays, or low local score → cloud) bundled with cache | Medium | Pending |
