@@ -43,7 +43,7 @@ async function loadAdvancedPage() {
   _aset('adv-telemetry-max-pess', telemetryNudges?.max_duration_pessimism_delta ?? '');
   const rms = cfg.advanced?.rms_percentile_learning;
   const rmsEn = document.getElementById('adv-rms-learning-enabled');
-  if (rmsEn) rmsEn.checked = !!rms?.enabled;
+  if (rmsEn) rmsEn.checked = (rms == null || rms.enabled == null) ? true : !!rms.enabled;
   const rmsAp = document.getElementById('adv-rms-learning-apply');
   if (rmsAp) rmsAp.checked = !!rms?.autonomous_apply;
   _aset('adv-rms-min-silence', rms?.min_silence_samples ?? '');
