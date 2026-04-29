@@ -221,10 +221,8 @@ func computeSetupStatus(cfg Config, libraryDB string) setupStatus {
 
 	// IR enabled and Broadlink pairing.
 	s.AmplifierIREnabled = cfg.Amplifier.Enabled
-	if s.AmplifierIREnabled {
-		s.BroadlinkPaired = strings.TrimSpace(cfg.Amplifier.Broadlink.Host) != "" &&
-			strings.TrimSpace(cfg.Amplifier.Broadlink.Token) != ""
-	}
+	s.BroadlinkPaired = strings.TrimSpace(cfg.Amplifier.Broadlink.Host) != "" &&
+		strings.TrimSpace(cfg.Amplifier.Broadlink.Token) != ""
 
 	// Vinyl topology: physical_media device with physical_format=vinyl, or legacy is_turntable.
 	for _, dev := range cfg.Amplifier.ConnectedDevices {

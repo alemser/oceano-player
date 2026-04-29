@@ -131,6 +131,12 @@ run_chromium() {
   --hide-cursor \
   --app="\${NOWPLAYING_URL}"
 }
+apply_display_power_settings() {
+  # Keep kiosk displays awake: disable X11 screensaver + DPMS blanking.
+  xset s off >/dev/null 2>&1 || true
+  xset -dpms >/dev/null 2>&1 || true
+  xset s noblank >/dev/null 2>&1 || true
+}
 if [ -z "\${OCEANO_FORCE_XVFB:-}" ]; then
   if [ -z "\${DISPLAY:-}" ] && [ -S /tmp/.X11-unix/X0 ] && [ -f "\${HOME}/.Xauthority" ]; then
     export DISPLAY=:0
@@ -139,6 +145,7 @@ if [ -z "\${OCEANO_FORCE_XVFB:-}" ]; then
     d="\${DISPLAY#:}"
     d="\${d%%.*}"
     if [ -S "/tmp/.X11-unix/X\${d}" ]; then
+      apply_display_power_settings
       run_chromium
     fi
   fi
@@ -149,6 +156,7 @@ Xvfb :99 -screen 0 1024x768x24 -nolisten tcp &
 XVFB_PID=\$!
 export DISPLAY=:99
 sleep 2
+apply_display_power_settings
 run_chromium
 LAUNCHEOF
 chmod 0755 /usr/local/bin/oceano-display-launch
@@ -160,6 +168,16 @@ exec /usr/local/bin/oceano-display-launch
 XINITEOF
 chown "$KIOSK_USER:$KIOSK_USER" "${HOME_DIR}/.xinitrc"
 chmod 0755 "${HOME_DIR}/.xinitrc"
+
+cat > "${HOME_DIR}/.xprofile" <<XPROFILEEOF
+#!/bin/sh
+# Prevent local HDMI/DSI kiosk panel from blanking after idle.
+xset s off
+xset -dpms
+xset s noblank
+XPROFILEEOF
+chown "$KIOSK_USER:$KIOSK_USER" "${HOME_DIR}/.xprofile"
+chmod 0755 "${HOME_DIR}/.xprofile"
 
 # X session desktop (used if the user starts a graphical session manually)
 mkdir -p /usr/share/xsessions

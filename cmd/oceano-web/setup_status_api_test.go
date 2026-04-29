@@ -133,11 +133,11 @@ func TestComputeSetupStatus_IRAndBroadlink(t *testing.T) {
 		t.Error("broadlink_paired should be true when host+token are set")
 	}
 
-	// IR disabled → broadlink_paired stays false regardless of credentials.
+	// IR disabled → broadlink_paired still reflects stored pairing credentials.
 	cfg.Amplifier.Enabled = false
 	s = computeSetupStatus(cfg, "")
-	if s.BroadlinkPaired {
-		t.Error("broadlink_paired should be false when IR is disabled")
+	if !s.BroadlinkPaired {
+		t.Error("broadlink_paired should remain true when host+token are set")
 	}
 }
 

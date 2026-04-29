@@ -815,6 +815,12 @@ run_chromium() {
   --hide-cursor \
   --app="${NOWPLAYING_URL}"
 }
+apply_display_power_settings() {
+  # Keep kiosk displays awake: disable X11 screensaver + DPMS blanking.
+  xset s off >/dev/null 2>&1 || true
+  xset -dpms >/dev/null 2>&1 || true
+  xset s noblank >/dev/null 2>&1 || true
+}
 if [ -z "${OCEANO_FORCE_XVFB:-}" ]; then
   if [ -z "${DISPLAY:-}" ] && [ -S /tmp/.X11-unix/X0 ] && [ -f "${HOME}/.Xauthority" ]; then
     export DISPLAY=:0
@@ -823,6 +829,7 @@ if [ -z "${OCEANO_FORCE_XVFB:-}" ]; then
     d="${DISPLAY#:}"
     d="${d%%%%.*}"
     if [ -S "/tmp/.X11-unix/X${d}" ]; then
+      apply_display_power_settings
       run_chromium
     fi
   fi
@@ -833,6 +840,7 @@ Xvfb :99 -screen 0 1024x768x24 -nolisten tcp &
 XVFB_PID=$!
 export DISPLAY=:99
 sleep 2
+apply_display_power_settings
 run_chromium
 `, chromeQ, nowBash)
 	if err := os.WriteFile(displayLaunchBin, []byte(displayLaunch), 0755); err != nil {
@@ -849,6 +857,19 @@ run_chromium
 		} else {
 			chownToUser(p, kioskUser)
 			logOK("Wrote " + p)
+		}
+
+		xprofile := "#!/bin/sh\n" +
+			"# Prevent local HDMI/DSI kiosk panel from blanking after idle.\n" +
+			"xset s off\n" +
+			"xset -dpms\n" +
+			"xset s noblank\n"
+		xprofilePath := filepath.Join(home, ".xprofile")
+		if err := os.WriteFile(xprofilePath, []byte(xprofile), 0755); err != nil {
+			logWarn("Could not write .xprofile: " + err.Error())
+		} else {
+			chownToUser(xprofilePath, kioskUser)
+			logOK("Wrote " + xprofilePath)
 		}
 
 		if err := os.MkdirAll(xsessionsDir, 0755); err != nil {

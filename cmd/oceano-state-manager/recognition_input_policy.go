@@ -91,9 +91,9 @@ func labelLooksPhysicalMedia(label string) bool {
 func resolveRecognitionPolicyFromSnapshot(snap recognitionInputPolicySnapshot) resolvedRecognitionPolicy {
 	lastID := strings.TrimSpace(snap.AmplifierRuntime.LastKnownInputID)
 	out := resolvedRecognitionPolicy{
-		Policy:           inputRecognitionPolicyOff,
+		Policy:           inputRecognitionPolicyLibrary,
 		LastKnownInputID: lastID,
-		DerivedBy:        "default_off",
+		DerivedBy:        "fallback_no_input_context",
 	}
 	if lastID == "" {
 		return out
@@ -101,10 +101,12 @@ func resolveRecognitionPolicyFromSnapshot(snap recognitionInputPolicySnapshot) r
 
 	var inputPolicy inputRecognitionPolicy = inputRecognitionPolicyAuto
 	var inputLabel string
+	foundInput := false
 	for _, in := range snap.Amplifier.Inputs {
 		if strings.TrimSpace(in.ID) != lastID {
 			continue
 		}
+		foundInput = true
 		inputPolicy = normalizeInputRecognitionPolicy(in.RecognitionPolicy)
 		inputLabel = in.LogicalName
 		break
@@ -133,20 +135,27 @@ func resolveRecognitionPolicyFromSnapshot(snap recognitionInputPolicySnapshot) r
 			}
 		}
 	}
+	if foundInput {
+		return resolvedRecognitionPolicy{
+			Policy:           inputRecognitionPolicyOff,
+			LastKnownInputID: lastID,
+			DerivedBy:        "default_off",
+		}
+	}
 	return out
 }
 
 func resolveRecognitionPolicyFromConfigPath(path string) resolvedRecognitionPolicy {
 	if strings.TrimSpace(path) == "" {
-		return resolvedRecognitionPolicy{Policy: inputRecognitionPolicyOff, DerivedBy: "default_off"}
+		return resolvedRecognitionPolicy{Policy: inputRecognitionPolicyLibrary, DerivedBy: "fallback_no_config_path"}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return resolvedRecognitionPolicy{Policy: inputRecognitionPolicyOff, DerivedBy: "default_off"}
+		return resolvedRecognitionPolicy{Policy: inputRecognitionPolicyLibrary, DerivedBy: "fallback_config_unreadable"}
 	}
 	var snap recognitionInputPolicySnapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
-		return resolvedRecognitionPolicy{Policy: inputRecognitionPolicyOff, DerivedBy: "default_off"}
+		return resolvedRecognitionPolicy{Policy: inputRecognitionPolicyLibrary, DerivedBy: "fallback_config_invalid"}
 	}
 	return resolveRecognitionPolicyFromSnapshot(snap)
 }
@@ -154,7 +163,7 @@ func resolveRecognitionPolicyFromConfigPath(path string) resolvedRecognitionPoli
 func resolveRecognitionPolicyFromConfigPathCached(path string) resolvedRecognitionPolicy {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
-		return resolvedRecognitionPolicy{Policy: inputRecognitionPolicyOff, DerivedBy: "default_off"}
+		return resolvedRecognitionPolicy{Policy: inputRecognitionPolicyLibrary, DerivedBy: "fallback_no_config_path"}
 	}
 
 	st, statErr := os.Stat(trimmed)

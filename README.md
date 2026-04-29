@@ -83,7 +83,7 @@ troubleshooting notes:
 | **AirPlay (shairport)** | **ALSA** output to the chosen DAC (the `shairport-sync` system user cannot use the login user’s PipeWire). `oceano-web` migrates legacy `output_backend=pa` on startup. **`avahi-daemon`** (mDNS/Bonjour) so iPhones can discover the receiver. |
 | **Bluetooth audio** | Default **PipeWire sink** = same DAC (script + user systemd oneshot, **linger** so it can run at boot; BlueZ **codec** list for AAC/LDAC/… when WirePlumber ≥ 0.5). |
 | **Multiple USB sound cards** | Warning in the wizard; `device_match` in `config.json` from the chosen `plughw:CARD=…`; do **not** point output at a capture dongle. |
-| **Kiosk / HDMI** | No `xrandr --auto` in the launch script (avoids a **black** screen on some panels). Use `/boot/firmware/config.txt` or `raspi-config` for HDMI mode if needed. |
+| **Kiosk / HDMI** | No `xrandr --auto` in the launch script (avoids a **black** screen on some panels). Kiosk setup also writes anti-blanking defaults (`xset s off`, `xset -dpms`, `xset s noblank`) via `~/.xprofile` and launch-time guards. Use `/boot/firmware/config.txt` or `raspi-config` for HDMI mode if needed. |
 | **Bluetooth discoverable** | `bluetoothctl` + `main.conf` after the Bluetooth step. |
 
 The web UI on port **8080** is the ongoing control plane; “Save & Restart” rewrites
@@ -332,6 +332,20 @@ letterboxed, scaled wrong, or 4:3 on a 16:9 TV, set the mode on the Pi side:
   (older images: `/boot/config.txt`) — e.g. `hdmi_group`, `hdmi_mode`, or `hdmi_cvt` for custom timings.
 - After a valid mode, **X11 and Chromium** follow; avoid forcing `xrandr` in startup scripts (can black
   some panels — see the kiosk/HDMI table above).
+
+### HDMI/DSI: screen goes black after a few minutes
+
+If the panel works on boot and later goes black, this is usually X11 screen blanking / DPMS.
+Current `oceano-setup` and `install-oceano-display.sh` disable both automatically (`xset s off`,
+`xset -dpms`, `xset s noblank`) via `~/.xprofile` and launch-time guards.
+
+To verify on the Pi:
+
+```bash
+DISPLAY=:0 XAUTHORITY=~/.Xauthority xset -q
+```
+
+Expected: `DPMS is Disabled` and `timeout: 0`.
 
 ---
 

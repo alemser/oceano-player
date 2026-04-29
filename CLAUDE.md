@@ -140,8 +140,9 @@ sudo ./install-oceano-web.sh
 **Auto-launch on Pi boot**
 
 - **Official path:** after `apt install`, run **`sudo oceano-setup`**. For the **display** step, it
-  writes the same kiosk stack as the repo’s `install-oceano-display.sh` (Xvfb + `oceano-display.service`,
-  optional `~/.xinitrc` + `xsessions/oceano-kiosk` + **LightDM** autologin to `oceano-kiosk` if you
+ writes the same kiosk stack as the repo’s `install-oceano-display.sh` (Xvfb + `oceano-display.service`,
+ optional `~/.xinitrc` + `~/.xprofile` anti-blanking (`xset s off`, `xset -dpms`, `xset s noblank`)
+ + `xsessions/oceano-kiosk` + **LightDM** autologin to `oceano-kiosk` if you
   choose it). The wizard also **patches `/etc/lightdm/lightdm.conf`** (active `user-session` /
   `autologin-session` → `oceano-kiosk`), because on Raspberry Pi OS the main `lightdm.conf` still
   points at `rpd-labwc` and is applied **after** `lightdm.conf.d/`, so a drop-in file alone is not
@@ -166,7 +167,8 @@ works across the network, so you can see the live display from a laptop while th
 **Resilience (keep README in sync):** the README **Resilience** section tables what
 `oceano-setup` applies automatically: LightDM main `lightdm.conf`, ALSA shairport, PipeWire default
 sink for Bluetooth, multi-USB warning, `device_match` from `plughw`, no `xrandr` in the kiosk
-launch, WirePlumber BlueZ codecs, `loginctl enable-linger` for the GUI user, etc. The README
+launch, X11 anti-blanking/DPMS disable (`xset s off`, `xset -dpms`, `xset s noblank`), WirePlumber
+BlueZ codecs, `loginctl enable-linger` for the GUI user, etc. The README
 and install path document running `oceano-setup` after `apt install`.
 
 ## Repository layout

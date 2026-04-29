@@ -18,11 +18,11 @@ func TestNormalizeInputRecognitionPolicy(t *testing.T) {
 	}
 }
 
-func TestResolveRecognitionPolicyFromSnapshot_DefaultOffWithoutInput(t *testing.T) {
+func TestResolveRecognitionPolicyFromSnapshot_FallbackLibraryWithoutInput(t *testing.T) {
 	s := recognitionInputPolicySnapshot{}
 	got := resolveRecognitionPolicyFromSnapshot(s)
-	if got.Policy != inputRecognitionPolicyOff {
-		t.Fatalf("policy=%q want off", got.Policy)
+	if got.Policy != inputRecognitionPolicyLibrary {
+		t.Fatalf("policy=%q want library", got.Policy)
 	}
 }
 
