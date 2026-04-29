@@ -527,8 +527,8 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
   const cfg = {
     audio_input: {
       ..._audioInputConfig,
-      device:        val('inp-device'),
-      device_match:  val('inp-device-match'),
+      device:        document.getElementById('inp-device')       !== null ? val('inp-device')       : (_audioInputConfig.device       ?? ''),
+      device_match:  document.getElementById('inp-device-match') !== null ? val('inp-device-match') : (_audioInputConfig.device_match  ?? ''),
     },
     audio_output: {
       airplay_name:  val('out-airplay-name'),

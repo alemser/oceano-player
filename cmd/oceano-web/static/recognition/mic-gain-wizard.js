@@ -570,20 +570,58 @@ function _micSave() {
   const card = _mic.info?.card_num != null ? `?card=${_mic.info.card_num}` : '';
   fetch(`/api/mic-gain/store${card}`, {method: 'POST'})
     .then(r => r.json())
-    .then(d => {
+    .then(async d => {
       if (d.error) {
         toast('Error: ' + d.error);
         if (btn) btn.disabled = false;
         return;
       }
       if (_mic.info) { _calibrationState.gainInfo = _mic.info; }
+
+      if (_mic.selectedCard !== null) {
+        try {
+          await _micPersistCaptureDevice(_mic.selectedCard);
+        } catch (e) {
+          toast('Gain saved, but failed to update config: ' + e.message, true);
+          closeMicGainWizard();
+          return;
+        }
+      }
       closeMicGainWizard();
-      toast('Gain saved.');
+      toast('Gain and capture device saved.');
     })
     .catch(e => {
       toast('Error: ' + e.message);
       if (btn) btn.disabled = false;
     });
+}
+
+async function _micPersistCaptureDevice(cardNum) {
+  const cfgRes = await fetch('/api/config');
+  if (!cfgRes.ok) throw new Error('Failed to load config');
+  const cfg = await cfgRes.json();
+
+  const dev = (_mic.devices || []).find(d => d.card === cardNum);
+  const deviceMatch = dev ? (dev.desc || dev.name || '') : '';
+
+  const updated = {
+    ...cfg,
+    audio_input: {
+      ...cfg.audio_input,
+      device:       deviceMatch ? '' : `plughw:${cardNum},0`,
+      device_match: deviceMatch,
+    },
+  };
+
+  const saveRes = await fetch('/api/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(updated),
+  });
+  if (!saveRes.ok) {
+    const text = await saveRes.text();
+    throw new Error('Config save failed: ' + text);
+  }
 }
 
 function _micNext() {
