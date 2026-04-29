@@ -65,6 +65,7 @@ func (m *mgr) buildState() PlayerState {
 	}
 
 	var track *TrackInfo
+	var recognition *RecognitionStatus
 	displaySource := source
 	physFmt := "" // populated when Physical source format is known
 	if source == "Physical" {
@@ -82,6 +83,7 @@ func (m *mgr) buildState() PlayerState {
 			displaySource = "Vinyl"
 			physFmt = "Vinyl"
 		}
+		recognition = m.buildRecognitionStatusLocked()
 	}
 
 	switch source {
@@ -147,9 +149,42 @@ func (m *mgr) buildState() PlayerState {
 		Format:                 physFmt,
 		State:                  state,
 		Track:                  track,
+		Recognition:            recognition,
 		PhysicalDetectorActive: m.physicalSource == "Physical",
 		UpdatedAt:              time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+func (m *mgr) buildRecognitionStatusLocked() *RecognitionStatus {
+	// Only expose recognition UI while the physical detector is actively on.
+	if m.physicalSource != "Physical" {
+		return nil
+	}
+
+	if r := m.recognitionResult; r != nil {
+		provider := ""
+		switch {
+		case r.ACRID != "":
+			provider = "acrcloud"
+		case r.ShazamID != "":
+			provider = "shazam"
+		}
+		return &RecognitionStatus{
+			Phase:    "matched",
+			Provider: provider,
+			Score:    r.Score,
+		}
+	}
+
+	if time.Now().Before(m.recognizerBusyUntil) {
+		return &RecognitionStatus{Phase: "identifying"}
+	}
+
+	if m.recognitionPhase == "no_match" || m.recognitionPhase == "off" {
+		return &RecognitionStatus{Phase: m.recognitionPhase}
+	}
+
+	return &RecognitionStatus{Phase: "identifying"}
 }
 
 // runLibrarySync periodically refreshes the in-memory physical track metadata

@@ -12,6 +12,7 @@ const SOURCE_LABELS = {
 
 const STREAMING_SOURCES = new Set(['AirPlay', 'Bluetooth', 'UPnP']);
 const PHYSICAL_IDLE_HOLD_MS = 5000;
+const IDENTIFYING_ARTWORK_HOLD_MS = 15000;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 
@@ -120,6 +121,7 @@ function clearAmbientColor() {
 // ─── Artwork helpers ─────────────────────────────────────────────────────────
 
 let _lastArtworkPath = null;
+let _keepArtworkUntilMs = 0;
 
 function updateArtwork(artworkPath) {
   if (artworkPath === _lastArtworkPath) return;
@@ -132,6 +134,7 @@ function updateArtwork(artworkPath) {
       $artImg.style.opacity = '1';
       $artDefault.style.opacity = '0';
       applyAmbientArtwork(img.src);
+      _keepArtworkUntilMs = Date.now() + IDENTIFYING_ARTWORK_HOLD_MS;
     };
     img.onerror = () => showDefaultArtwork();
     // Bust cache between track changes with a timestamp parameter.
@@ -144,6 +147,9 @@ function updateArtwork(artworkPath) {
 }
 
 function showDefaultArtwork() {
+  if (Date.now() < _keepArtworkUntilMs && $artImg.src && $artImg.style.opacity === '1') {
+    return;
+  }
   $artImg.style.opacity = '0';
   $artDefault.style.opacity = '1';
   _lastArtworkPath = null;
@@ -287,7 +293,8 @@ function applyState(state) {
   document.getElementById('app')?.classList.toggle('source-playing', effectivePlaying);
 
   // Track metadata
-  const hasTrack = effectiveTrack && (effectiveTrack.title || effectiveTrack.artist);
+  const hasTrack = isRecognizedTrack(effectiveTrack);
+  const recognition = state.recognition || null;
   $identifying.className = '';
   $identifying.textContent = '';
 
@@ -299,18 +306,26 @@ function applyState(state) {
   } else if (effectivePlaying && physicalDetectorOn && (source === 'Physical' || source === 'CD' || source === 'Vinyl')) {
     // Without a configured capture path, the recognizer cannot run — do not show "Identifying…".
     if (_captureInputKnown && !_captureInputConfigured) {
-      $title.textContent  = 'Unidentified';
+      $title.textContent  = 'Recognition unavailable';
       $artist.textContent = '';
       $album.textContent  = '';
       $identifying.className = '';
       $identifying.textContent = 'Configure audio input in settings';
+      // Keep previous artwork during short inter-track/identification transitions.
       showDefaultArtwork();
     } else {
       $title.textContent  = 'Identifying…';
       $artist.textContent = '';
       $album.textContent  = '';
       $identifying.className = 'pulsing';
-      $identifying.textContent = 'Listening for a match';
+      if (recognition && recognition.phase === 'off') {
+        $identifying.className = '';
+        $identifying.textContent = 'Recognition disabled for this input';
+      } else if (recognition && recognition.phase === 'no_match') {
+        $identifying.textContent = 'Listening for the next match';
+      } else {
+        $identifying.textContent = 'Listening for a match';
+      }
       showDefaultArtwork();
     }
   } else if (effectivePlaying && source !== 'None') {
@@ -412,6 +427,15 @@ function applyState(state) {
   // Store for change detection
   _lastState = state;
   updateStreamingProgress();
+}
+
+function isRecognizedTrack(track) {
+  if (!track) return false;
+  const title = String(track.title || '').trim().toLowerCase();
+  const artist = String(track.artist || '').trim().toLowerCase();
+  const invalidTitles = new Set(['unrecognized', 'unknown', 'identifying…', 'identifying...']);
+  if (invalidTitles.has(title)) return false;
+  return Boolean(title || artist);
 }
 
 // Update streaming elapsed/progress every second using seek_ms +

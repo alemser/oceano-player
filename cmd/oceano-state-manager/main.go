@@ -122,6 +122,11 @@ type mgr struct {
 	// recognizerBusyUntil suppresses continuity checks while the main recognizer
 	// is already capturing/identifying, avoiding stale duplicate triggers.
 	recognizerBusyUntil time.Time
+	// recognitionPhase tracks the last terminal recognition outcome so the UI can
+	// distinguish "no_match" and "off" from the initial "identifying" state.
+	// "matched" is derived from recognitionResult != nil; "identifying" is derived
+	// from recognizerBusyUntil; this field only needs to carry "no_match" and "off".
+	recognitionPhase string
 	// Continuity mismatch confirmation: a mismatch must be observed twice within
 	// continuityMismatchConfirmWindow before a re-recognition trigger fires.
 	// This prevents a single Shazam mis-identification (common when running

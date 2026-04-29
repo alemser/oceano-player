@@ -174,6 +174,11 @@ func (c *recognitionCoordinator) handleNoMatch(isBoundaryTrigger bool, isHardBou
 		c.mgr.mu.Unlock()
 	}
 
+	c.mgr.mu.Lock()
+	c.mgr.recognitionPhase = "no_match"
+	c.mgr.mu.Unlock()
+	c.mgr.markDirty()
+
 	*backoffUntil = time.Now().Add(noMatchBackoff)
 	*backoffRateLimited = false
 }
@@ -388,6 +393,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 
 		c.mgr.mu.Lock()
 		c.mgr.recognitionResult = result
+		c.mgr.recognitionPhase = ""
 		c.mgr.lastRecognizedAt = now
 		c.mgr.physicalLibraryEntryID = entryID
 		c.mgr.physicalBoundarySensitive = boundarySensitive
@@ -419,6 +425,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 
 	c.mgr.mu.Lock()
 	c.mgr.recognitionResult = result
+	c.mgr.recognitionPhase = ""
 	c.mgr.lastRecognizedAt = now
 	c.mgr.physicalBoundarySensitive = false
 	c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
@@ -573,12 +580,19 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			if isBoundaryTrigger && isHardBoundaryTrigger {
 				c.mgr.mu.Lock()
 				c.mgr.recognitionResult = nil
+				c.mgr.recognitionPhase = "off"
 				c.mgr.physicalArtworkPath = ""
 				c.mgr.physicalLibraryEntryID = 0
 				c.mgr.physicalBoundarySensitive = false
 				c.mgr.shazamContinuityReady = false
 				c.mgr.shazamContinuityAbandoned = false
 				c.mgr.mu.Unlock()
+				c.mgr.markDirty()
+			} else {
+				c.mgr.mu.Lock()
+				c.mgr.recognitionPhase = "off"
+				c.mgr.mu.Unlock()
+				c.mgr.markDirty()
 			}
 			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
 				Outcome: internallibrary.FollowupOutcomeSkippedCoordinator,
@@ -658,6 +672,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		}
 		c.mgr.mu.Lock()
 		c.mgr.recognizerBusyUntil = time.Now().Add(skip + c.mgr.cfg.RecognizerCaptureDuration + 12*time.Second)
+		c.mgr.recognitionPhase = ""
 		c.mgr.mu.Unlock()
 
 		captureStartedAt := time.Now()
@@ -782,8 +797,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 					}
 					same := false
 					c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
-						Outcome:       internallibrary.FollowupOutcomeSameTrackRestored,
-						NewRecording:  &same,
+						Outcome:      internallibrary.FollowupOutcomeSameTrackRestored,
+						NewRecording: &same,
 					})
 					continue
 				}
