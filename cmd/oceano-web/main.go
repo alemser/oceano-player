@@ -43,6 +43,25 @@ type ALSADevice struct {
 
 const shairportConfigPath = "/etc/shairport-sync.conf"
 
+func resolveAirplayOutputDevice(cfg AudioOutputConfig) string {
+	device := strings.TrimSpace(cfg.Device)
+	if device != "" {
+		return device
+	}
+	match := strings.ToLower(strings.TrimSpace(cfg.DeviceMatch))
+	if match == "" {
+		return "default"
+	}
+	for _, d := range scanALSADevices() {
+		if strings.Contains(strings.ToLower(d.Name), match) ||
+			strings.Contains(strings.ToLower(d.Desc), match) {
+			return fmt.Sprintf("plughw:%d,0", d.Card)
+		}
+	}
+	// Keep legacy safe fallback if the DAC is temporarily missing.
+	return "default"
+}
+
 // migrateShairportPAToAlsaOnStartup rewrites a legacy "pa" shairport config. The
 // shairport-sync system user cannot connect to the session PipeWire at /run/user/…/pulse
 // (see journal: "Connection refused" to pulseaudio), so the unit failed and AirPlay disappeared.
@@ -60,10 +79,7 @@ func migrateShairportPAToAlsaOnStartup(configPath string) {
 		log.Printf("shairport migration: read config: %v", err)
 		return
 	}
-	alsa := strings.TrimSpace(cfg.AudioOutput.Device)
-	if alsa == "" {
-		alsa = "default"
-	}
+	alsa := resolveAirplayOutputDevice(cfg.AudioOutput)
 	name := strings.TrimSpace(cfg.AudioOutput.AirPlayName)
 	if name == "" {
 		name = "Oceano"
@@ -288,10 +304,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	// Rewrite shairport when AirPlay name or DAC (ALSA) changes — use ALSA output so
 	// the system shairport-sync user does not need the user's PipeWire-Pulse socket.
 	if old.AudioOutput != cfg.AudioOutput {
-		alsa := strings.TrimSpace(cfg.AudioOutput.Device)
-		if alsa == "" {
-			alsa = "default"
-		}
+		alsa := resolveAirplayOutputDevice(cfg.AudioOutput)
 		name := strings.TrimSpace(cfg.AudioOutput.AirPlayName)
 		if name == "" {
 			name = "Oceano"
