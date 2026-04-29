@@ -226,6 +226,8 @@ Output: `/tmp/oceano-source.json`
 - **Operational reliability on Raspberry Pi**: prioritize stable long-running behavior, predictable backoff/retry logic, and atomic state updates.
 - **Documentation stays in sync**: when architecture/workflows change, update README/CLAUDE/install help in the same change set.
 
+For an explicit, agent-oriented policy, see `docs/engineering-standards.md`.
+
 ## Deployment
 
 ```bash

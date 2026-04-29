@@ -12,7 +12,12 @@
       "Read(//Users/alemser/Projects/oceano-player-ios/OceanoPlayer/App/**)",
       "Read(//Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/Config/**)",
       "Read(//Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/History/**)",
-      "Read(//Users/alemser/Projects/oceano-player-ios/OceanoPlayer/**)"
+      "Read(//Users/alemser/Projects/oceano-player-ios/OceanoPlayer/**)",
+      "Read(//Users/alemser/Projects/oceano-player-ios/**)",
+      "Bash(grep -n \"^struct PhysicalMediaConfigView\\\\|^struct MicGainWizardView\\\\|^@MainActor$\" /Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/Config/PhysicalMediaConfigView.swift)",
+      "Bash(grep -n \"^private extension View\\\\|^@MainActor$\\\\|^private final class\\\\|^private struct \" /Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/History/HistoryView.swift)",
+      "Bash(sed -i '' '1s/import Combine//' /tmp/hv_clean.swift)",
+      "Bash(sed -i '' '/^import Combine$/d' /tmp/hv_clean.swift)"
     ],
     "additionalDirectories": [
       "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Networking",
@@ -20,7 +25,9 @@
       "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/App",
       "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/Config",
       "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/History",
-      "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/Amplifier"
+      "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/Amplifier",
+      "/private/tmp",
+      "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/NowPlaying"
     ]
   }
 }
