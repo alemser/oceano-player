@@ -96,6 +96,9 @@ monitor taps. Only `oceano-source-detector/main.go` changes; the state manager i
   service parameters (audio devices, ACRCloud credentials, thresholds, socket paths).
 - **Service restarter** — on save, rewrites the systemd unit files for `oceano-source-detector`
   and `oceano-state-manager` and restarts them via `systemctl`.
+- **AirPlay output guardian** — keeps `shairport-sync` ALSA output aligned with
+  `audio_output.device_match`: uses `plughw:N,0` when the DAC is present, falls back
+  to ALSA `null` (silent sink) when absent, and auto-returns when the DAC reappears.
 - **Status bar** — polls `/api/status` (proxies `/tmp/oceano-state.json`) to show live playback state.
 - **Real-time stream** — `/api/stream` is a Server-Sent Events endpoint that pushes state changes
   whenever `/tmp/oceano-state.json` is modified (500 ms poll, `: ping` keepalive every 15 s).
