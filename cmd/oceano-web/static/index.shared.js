@@ -67,7 +67,7 @@ async function loadConfig() {
   set('np-idle-delay', cfg.advanced?.idle_delay_secs ?? 3);
 
   const weatherEnabledEl = document.getElementById('weather-enabled');
-  if (weatherEnabledEl) weatherEnabledEl.checked = cfg.weather?.enabled ?? true;
+  if (weatherEnabledEl) weatherEnabledEl.checked = cfg.weather?.enabled ?? false;
   set('weather-label',   cfg.weather?.location_label ?? 'Dublin');
   set('weather-lat',     cfg.weather?.latitude ?? 53.3498);
   set('weather-lon',     cfg.weather?.longitude ?? -6.2603);
@@ -555,7 +555,7 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       idle_delay_secs: intOr('np-idle-delay', 3),
     },
     weather: {
-      enabled:        document.getElementById('weather-enabled')?.checked ?? true,
+      enabled:        document.getElementById('weather-enabled')?.checked ?? false,
       location_label: val('weather-label') || 'Dublin',
       latitude:       floatOr('weather-lat', 53.3498),
       longitude:      floatOr('weather-lon', -6.2603),
