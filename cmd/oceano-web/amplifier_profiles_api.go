@@ -175,9 +175,21 @@ func (s *amplifierServer) handleAmplifierProfileActivate(w http.ResponseWriter, 
 		cfg.Amplifier = pCfg
 		cfg.Amplifier.ProfileID = req.ProfileID
 		cfg.Amplifier.Enabled = preserved.Enabled
-		// Built-in profiles ship without IR codes or connected devices.
-		// Preserve everything the user has configured so learned codes survive.
-		cfg.Amplifier.IRCodes = preserved.IRCodes
+		// Merge built-in IR defaults with any learned overrides so activating a
+		// built-in profile keeps defaults while still preserving user learning.
+		mergedCodes := map[string]string{}
+		for k, v := range cfg.Amplifier.IRCodes {
+			mergedCodes[k] = v
+		}
+		for k, v := range preserved.IRCodes {
+			if strings.TrimSpace(v) == "" {
+				continue
+			}
+			mergedCodes[k] = v
+		}
+		cfg.Amplifier.IRCodes = mergedCodes
+		// Preserve user-configured devices because built-ins do not include
+		// device-specific remotes (CD players, etc).
 		cfg.Amplifier.ConnectedDevices = preserved.ConnectedDevices
 		if preserved.Broadlink.Host != "" {
 			cfg.Amplifier.Broadlink.Host = preserved.Broadlink.Host

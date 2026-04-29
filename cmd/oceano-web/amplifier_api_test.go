@@ -1151,6 +1151,33 @@ func TestAmplifierProfileActivate_Builtin_PreservesIRCodes(t *testing.T) {
 	}
 }
 
+func TestAmplifierProfileActivate_Builtin_UsesDefaultIRCodesWhenNoneLearned(t *testing.T) {
+	s := newTestServer(t, nil)
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cfg.Amplifier.IRCodes = map[string]string{}
+	if err := saveConfig(s.configPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	w := do(t, s.handleAmplifierProfileActivate, http.MethodPost, "/api/amplifier/profiles/activate", `{"profile_id":"magnat_mr780"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	loaded, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if strings.TrimSpace(loaded.Amplifier.IRCodes["power_on"]) == "" {
+		t.Fatalf("expected built-in power_on code to be present after activation")
+	}
+	if strings.TrimSpace(loaded.Amplifier.IRCodes["volume_up"]) == "" {
+		t.Fatalf("expected built-in volume_up code to be present after activation")
+	}
+}
+
 func TestAmplifierProfileActivate_Custom(t *testing.T) {
 	s := newTestServer(t, nil)
 	cfg, err := loadConfig(s.configPath)

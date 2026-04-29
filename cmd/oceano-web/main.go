@@ -237,6 +237,18 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		old.Advanced.SessionGapThresholdSecs != cfg.Advanced.SessionGapThresholdSecs ||
 		old.Advanced.LibraryDB != cfg.Advanced.LibraryDB
 
+	managerNeedsReconcile := false
+	if _, err := os.Stat(managerSvc); err == nil {
+		desiredExecStart := formatExecStart(managerBinary, managerArgs(cfg, configPath))
+		matches, matchErr := unitContainsExecStart(managerSvc, desiredExecStart)
+		if matchErr != nil {
+			results = append(results, "manager unit verify: "+matchErr.Error())
+			hadError = true
+		} else if !matches {
+			managerNeedsReconcile = true
+		}
+	}
+
 	// Restart source detector only when audio input settings or shared socket
 	// paths changed — recognition-only edits leave the detector untouched.
 	if detectorChanged {
@@ -255,7 +267,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 
 	// Restart state manager only when recognition settings or shared socket
 	// paths changed — audio input edits leave the manager untouched.
-	if managerChanged {
+	if managerChanged || managerNeedsReconcile {
 		if _, err := os.Stat(managerSvc); err == nil {
 			if err := writeManagerService(cfg, configPath); err != nil {
 				results = append(results, "manager service write: "+err.Error())
@@ -264,7 +276,11 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 				results = append(results, "manager restart: "+err.Error())
 				hadError = true
 			} else {
-				results = append(results, "oceano-state-manager restarted")
+				if managerNeedsReconcile && !managerChanged {
+					results = append(results, "oceano-state-manager restarted (unit reconciled)")
+				} else {
+					results = append(results, "oceano-state-manager restarted")
+				}
 			}
 		}
 	}
@@ -475,5 +491,14 @@ WantedBy=multi-user.target
 
 func restartService(unit string) error {
 	return serviceMgr.Restart(unit)
+}
+
+func unitContainsExecStart(unitPath, desiredExecStart string) (bool, error) {
+	unitBytes, err := os.ReadFile(unitPath)
+	if err != nil {
+		return false, err
+	}
+	expectedLine := "ExecStart=" + desiredExecStart
+	return strings.Contains(string(unitBytes), expectedLine), nil
 }
 
