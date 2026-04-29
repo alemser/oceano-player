@@ -4,6 +4,27 @@ Audio backend for making the **Raspberry Pi** a piece of your HI-FI equipament.
 
 ---
 
+## Companion clients and cross-repo sync
+
+This repository is the **backend contract owner** for the Oceano ecosystem.
+
+A separate iOS app repository, **`oceano-player-ios`**, depends directly on this project's API shape and behavior (for example: `/api/status`, `/api/stream`, `/api/config`, `/api/stylus`, `/api/history/stats`, `/api/recognition/*`, amplifier endpoints, and related JSON fields/semantics).
+
+When backend behavior changes here, the iOS app will often require updates in lockstep.
+
+**If you change any of the following, assume `oceano-player-ios` must be reviewed immediately:**
+
+- endpoint paths, methods, response codes, or payload fields
+- state semantics (source priority, idle/playing transitions, fallback behavior)
+- config keys and default values persisted by `/api/config`
+- stylus/recognition/history metrics fields and thresholds
+- amplifier/topology/IR payload shape
+
+Before shipping backend changes, run the short checklist in
+[`docs/ai-cross-repo-sync.md`](docs/ai-cross-repo-sync.md).
+
+---
+
 ## Installation (on the Pi)
 
 Raspberry Pi OS 64-bit (Bookworm) recommended.

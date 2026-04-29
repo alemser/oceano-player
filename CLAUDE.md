@@ -11,6 +11,20 @@ Oceano Player is an audio backend for a **Raspberry Pi 5** connected to a **Magn
 
 The long-term goal is a **unified backend** that the UI queries regardless of the active audio source.
 
+## Cross-repo dependency (critical)
+
+There is a companion iOS repository: **`oceano-player-ios`**.
+
+Treat this repository as the backend contract owner and `oceano-player-ios` as a strict downstream consumer.
+Any change to endpoint shapes, config keys/defaults, or playback/state semantics here can break native iOS flows.
+
+When implementing backend changes, agents must:
+
+1. Assume iOS impact by default for API/config/state changes.
+2. Update backend docs in the same change set (`README.md`, this file, and relevant docs).
+3. Record iOS follow-up requirements using the checklist in `docs/ai-cross-repo-sync.md`.
+4. Avoid "silent" response-shape drift (renames/removals without compatibility path).
+
 ## Intended sources
 
 | Source | Status |
