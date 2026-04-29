@@ -169,6 +169,8 @@ func main() {
 	mux.HandleFunc("/api/display/restart", handleDisplayServiceRestart)
 	mux.HandleFunc("/api/spi-display-installed", handleSPIDisplayInstalled())
 	mux.HandleFunc("/api/bluetooth/devices", handleBluetoothDevices())
+	mux.HandleFunc("/api/bluetooth/transport", handleBluetoothTransport())
+	mux.HandleFunc("/api/bluetooth/transport-capabilities", handleBluetoothTransportCapabilities())
 
 	log.Printf("oceano-web listening on %s", *addr)
 	if err := http.ListenAndServe(*addr, mux); err != nil {

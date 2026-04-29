@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -197,6 +198,53 @@ func handleBluetoothDevices() http.HandlerFunc {
 	}
 }
 
+func handleBluetoothTransport() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Action string `json:"action"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		method, ok := bluezPlayerMethodForAction(req.Action)
+		if !ok {
+			http.Error(w, `action must be "play", "pause", "next", "prev", or "stop"`, http.StatusBadRequest)
+			return
+		}
+		if err := runBluetoothTransport(method); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func handleBluetoothTransportCapabilities() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		playerPath, err := discoverBluezPlayerPath(ctx)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"available":   strings.TrimSpace(playerPath) != "",
+			"player_path": playerPath,
+		})
+	}
+}
+
 // formatSSEDataFrame converts arbitrary JSON/text payload into a valid SSE
 // event frame. Each line must be prefixed with "data: " by spec.
 func formatSSEDataFrame(data []byte) string {
@@ -254,6 +302,96 @@ func apiRemoveBluetoothDevice(w http.ResponseWriter, mac string) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func bluezPlayerMethodForAction(action string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "play":
+		return "Play", true
+	case "pause":
+		return "Pause", true
+	case "stop":
+		return "Stop", true
+	case "next":
+		return "Next", true
+	case "prev":
+		return "Previous", true
+	default:
+		return "", false
+	}
+}
+
+func runBluetoothTransport(method string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+
+	playerPath, err := discoverBluezPlayerPath(ctx)
+	if err != nil {
+		return err
+	}
+	if playerPath == "" {
+		return fmt.Errorf("no bluetooth media player available")
+	}
+
+	out, err := commandRunner.CombinedOutputContext(
+		ctx,
+		"dbus-send", "--system", "--print-reply",
+		"--dest=org.bluez",
+		playerPath,
+		"org.bluez.MediaPlayer1."+method,
+	)
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("bluetooth transport failed: %s", msg)
+	}
+	return nil
+}
+
+func discoverBluezPlayerPath(ctx context.Context) (string, error) {
+	out, err := commandRunner.OutputContext(
+		ctx,
+		"dbus-send", "--system", "--print-reply",
+		"--dest=org.bluez",
+		"/",
+		"org.freedesktop.DBus.ObjectManager.GetManagedObjects",
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to query bluez objects")
+	}
+	paths := parseBluezPlayerPaths(string(out))
+	if len(paths) == 0 {
+		return "", nil
+	}
+	return paths[0], nil
+}
+
+var bluezPlayerPathPattern = regexp.MustCompile(`(?m)object path "(/org/bluez/[^"]+/player\d+)"`)
+
+func parseBluezPlayerPaths(raw string) []string {
+	matches := bluezPlayerPathPattern.FindAllStringSubmatch(raw, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(matches))
+	paths := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		path := strings.TrimSpace(m[1])
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	return paths
 }
 
 func handleConfig(configPath string) http.HandlerFunc {
