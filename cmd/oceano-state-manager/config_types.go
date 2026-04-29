@@ -30,17 +30,32 @@ var itemRE = regexp.MustCompile(
 
 // --- Output schema ---
 
+// RecognitionStatus describes the current state of the physical track recognizer.
+// Only present in the state JSON when source is Physical (including CD/Vinyl).
+type RecognitionStatus struct {
+	// Phase is one of: "identifying" (capture in progress or first trigger pending),
+	// "matched" (recognition succeeded), "no_match" (last attempt returned no result),
+	// "off" (recognition disabled for the active input).
+	Phase    string `json:"phase"`
+	Provider string `json:"provider,omitempty"` // "acrcloud" | "shazam" — set when phase is "matched"
+	Score    int    `json:"score,omitempty"`    // provider confidence score; 0 when unavailable
+}
+
 // PlayerState is the unified state written to /tmp/oceano-state.json.
 type PlayerState struct {
-	Source    string     `json:"source"`           // AirPlay | Vinyl | CD | Physical | None
-	Format    string     `json:"format,omitempty"` // CD | Vinyl — only present when source is Physical with identified format
-	State     string     `json:"state"`            // playing | idle | stopped
-	Track     *TrackInfo `json:"track"`            // null when not playing or source is physical without metadata
+	Source string     `json:"source"`           // AirPlay | Vinyl | CD | Physical | None
+	Format string     `json:"format,omitempty"` // CD | Vinyl — only present when source is Physical with identified format
+	State  string     `json:"state"`            // playing | idle | stopped
+	Track  *TrackInfo `json:"track"`            // null when not playing or source is physical without metadata
+	// Recognition is only present when source is Physical and the physical
+	// detector is currently active. It exposes recognizer phase so the UI can
+	// distinguish "identifying", "matched", "no_match", and "off" states.
+	Recognition *RecognitionStatus `json:"recognition,omitempty"`
 	// PhysicalDetectorActive is true only while /tmp/oceano-source.json reports
 	// Physical. False during the post-Physical idle-delay tail when source is
 	// still promoted to CD/Vinyl for UI grace — lets the display avoid "Identifying…"
 	// from REC noise after the amp left the physical path.
-	PhysicalDetectorActive bool `json:"physical_detector_active"`
+	PhysicalDetectorActive bool   `json:"physical_detector_active"`
 	UpdatedAt              string `json:"updated_at"`
 }
 
