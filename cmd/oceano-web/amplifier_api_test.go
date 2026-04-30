@@ -163,6 +163,36 @@ func TestAmplifierVolume_InvalidDirection(t *testing.T) {
 func TestAmplifierNextInput_OK(t *testing.T) {
 	amp, mock := newTestAmp(t)
 	s := newTestServer(t, amp)
+	s.waitFn = func(context.Context, time.Duration) error { return nil }
+
+	w := do(t, s.handleAmplifierNextInput, http.MethodPost, "/api/amplifier/next-input", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if len(mock.Sent) != 2 || mock.Sent[0] != "IR_NEXT" || mock.Sent[1] != "IR_NEXT" {
+		t.Errorf("expected [IR_NEXT IR_NEXT], got %v", mock.Sent)
+	}
+}
+
+func TestAmplifierPrevInput_OK(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp)
+	s.waitFn = func(context.Context, time.Duration) error { return nil }
+
+	w := do(t, s.handleAmplifierPrevInput, http.MethodPost, "/api/amplifier/prev-input", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if len(mock.Sent) != 2 || mock.Sent[0] != "IR_PREV" || mock.Sent[1] != "IR_PREV" {
+		t.Errorf("expected [IR_PREV IR_PREV], got %v", mock.Sent)
+	}
+}
+
+func TestAmplifierNextInput_CycleModeWhileActive_UsesSingleStep(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp)
+	s.waitFn = func(context.Context, time.Duration) error { return nil }
+	s.lastInputNavPressAt = time.Now()
 
 	w := do(t, s.handleAmplifierNextInput, http.MethodPost, "/api/amplifier/next-input", "")
 	if w.Code != http.StatusOK {
@@ -173,9 +203,18 @@ func TestAmplifierNextInput_OK(t *testing.T) {
 	}
 }
 
-func TestAmplifierPrevInput_OK(t *testing.T) {
+func TestAmplifierPrevInput_DirectMode_UsesSingleStep(t *testing.T) {
 	amp, mock := newTestAmp(t)
 	s := newTestServer(t, amp)
+
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cfg.Amplifier.InputMode = "direct"
+	if err := saveConfig(s.configPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
 
 	w := do(t, s.handleAmplifierPrevInput, http.MethodPost, "/api/amplifier/prev-input", "")
 	if w.Code != http.StatusOK {

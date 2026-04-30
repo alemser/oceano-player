@@ -351,11 +351,14 @@ func (s *amplifierServer) handleAmplifierNextInput(w http.ResponseWriter, r *htt
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
 		return
 	}
-	if err := s.amp.NextInput(); err != nil {
+	if err := s.navigateInput(r.Context(), 1, "next"); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			jsonError(w, "request canceled", http.StatusRequestTimeout)
+			return
+		}
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	s.markInputNavPress()
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -368,11 +371,14 @@ func (s *amplifierServer) handleAmplifierPrevInput(w http.ResponseWriter, r *htt
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
 		return
 	}
-	if err := s.amp.PrevInput(); err != nil {
+	if err := s.navigateInput(r.Context(), 1, "prev"); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			jsonError(w, "request canceled", http.StatusRequestTimeout)
+			return
+		}
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	s.markInputNavPress()
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -396,7 +402,7 @@ func (s *amplifierServer) handleAmplifierSelectInput(w http.ResponseWriter, r *h
 		jsonError(w, "steps must be >= 0", http.StatusBadRequest)
 		return
 	}
-	if err := s.selectInputForward(r.Context(), req.Steps); err != nil {
+	if err := s.navigateInput(r.Context(), req.Steps, "next"); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			jsonError(w, "request canceled", http.StatusRequestTimeout)
 			return
@@ -656,7 +662,7 @@ func (s *amplifierServer) usbResetSettings() (int, time.Duration, time.Duration)
 	return maxAttempts, firstStepSettle, stepWait
 }
 
-func (s *amplifierServer) selectInputForward(ctx context.Context, steps int) error {
+func (s *amplifierServer) navigateInput(ctx context.Context, steps int, direction string) error {
 	if s.amp == nil {
 		return fmt.Errorf("amplifier not configured")
 	}
@@ -664,9 +670,19 @@ func (s *amplifierServer) selectInputForward(ctx context.Context, steps int) err
 		return nil
 	}
 
+	var press func() error
+	switch strings.ToLower(strings.TrimSpace(direction)) {
+	case "next":
+		press = s.amp.NextInput
+	case "prev":
+		press = s.amp.PrevInput
+	default:
+		return fmt.Errorf("invalid input direction %q", direction)
+	}
+
 	if s.configPath == "" {
 		for i := 0; i < steps; i++ {
-			if err := s.amp.NextInput(); err != nil {
+			if err := press(); err != nil {
 				return err
 			}
 			s.markInputNavPress()
@@ -681,7 +697,7 @@ func (s *amplifierServer) selectInputForward(ctx context.Context, steps int) err
 	ampCfg := resolveAmplifierConfig(cfg.Amplifier)
 	if !strings.EqualFold(strings.TrimSpace(ampCfg.InputMode), "cycle") {
 		for i := 0; i < steps; i++ {
-			if err := s.amp.NextInput(); err != nil {
+			if err := press(); err != nil {
 				return err
 			}
 			s.markInputNavPress()
@@ -692,7 +708,7 @@ func (s *amplifierServer) selectInputForward(ctx context.Context, steps int) err
 	_, firstStepSettle, _ := s.usbResetSettings()
 	selectionActiveWindow := 1200 * time.Millisecond
 	if !s.inputSelectionIsActive(selectionActiveWindow) {
-		if err := s.amp.NextInput(); err != nil {
+		if err := press(); err != nil {
 			return err
 		}
 		s.markInputNavPress()
@@ -706,7 +722,7 @@ func (s *amplifierServer) selectInputForward(ctx context.Context, steps int) err
 		stepAdvanceWait = 150 * time.Millisecond
 	}
 	for i := 0; i < steps; i++ {
-		if err := s.amp.NextInput(); err != nil {
+		if err := press(); err != nil {
 			return err
 		}
 		s.markInputNavPress()
