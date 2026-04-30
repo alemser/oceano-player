@@ -724,7 +724,7 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 		return nil
 	}
 
-	_, firstStepSettle, _ := s.usbResetSettings()
+	_, firstStepSettle, stepWait := s.usbResetSettings()
 	if isMagnatMR780(ampCfg.Maker, ampCfg.Model) {
 		// Magnat MR 780 requires a longer arming settle in cycle mode; shorter
 		// waits can make the next press select/highlight only.
@@ -744,12 +744,15 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 		}
 	}
 
-	stepAdvanceWait := firstStepSettle
+	stepAdvanceWait := stepWait
 	if isMagnatMR780(ampCfg.Maker, ampCfg.Model) {
-		minCycleStepWait := 250 * time.Millisecond
-		if stepAdvanceWait < minCycleStepWait {
-			stepAdvanceWait = minCycleStepWait
-		}
+		// Keep cycle stepping responsive on MR 780 once selector is armed.
+		stepAdvanceWait = 250 * time.Millisecond
+	} else if stepAdvanceWait <= 0 {
+		stepAdvanceWait = firstStepSettle
+	}
+	if stepAdvanceWait <= 0 {
+		stepAdvanceWait = 200 * time.Millisecond
 	}
 	for i := 0; i < steps; i++ {
 		if err := press(); err != nil {

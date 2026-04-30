@@ -237,6 +237,39 @@ func TestAmplifierSelectInput_CycleMode_ArmsThenAdvancesRequestedSteps(t *testin
 	}
 }
 
+func TestAmplifierSelectInput_CycleMode_MR780_UsesLongArmingAndFastStepWait(t *testing.T) {
+	amp, _ := newTestAmp(t)
+	s := newTestServer(t, amp)
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cfg.Amplifier.Maker = "Magnat"
+	cfg.Amplifier.Model = "MR 780"
+	if err := saveConfig(s.configPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+	waits := make([]time.Duration, 0, 4)
+	s.waitFn = func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		return nil
+	}
+
+	w := do(t, s.handleAmplifierSelectInput, http.MethodPost, "/api/amplifier/select-input", `{"steps":2}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if len(waits) != 2 {
+		t.Fatalf("wait count = %d, want 2", len(waits))
+	}
+	if waits[0] != 1200*time.Millisecond {
+		t.Fatalf("arming wait = %s, want 1200ms", waits[0])
+	}
+	if waits[1] != 250*time.Millisecond {
+		t.Fatalf("step wait = %s, want 250ms", waits[1])
+	}
+}
+
 func TestAmplifierSelectInput_CycleMode_WhileActive_OnlyAdvancesSteps(t *testing.T) {
 	amp, mock := newTestAmp(t)
 	s := newTestServer(t, amp)
