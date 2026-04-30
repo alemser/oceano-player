@@ -726,9 +726,9 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 
 	_, firstStepSettle, stepWait := s.usbResetSettings()
 	if isMagnatMR780(ampCfg.Maker, ampCfg.Model) {
-		// Magnat MR 780 requires a longer arming settle in cycle mode; shorter
-		// waits can make the next press select/highlight only.
-		minCycleArmingSettle := 1200 * time.Millisecond
+		// Magnat MR 780 needs a longer arming settle in cycle mode than generic
+		// hardware, but too long can make navigation feel laggy in practice.
+		minCycleArmingSettle := 900 * time.Millisecond
 		if firstStepSettle < minCycleArmingSettle {
 			firstStepSettle = minCycleArmingSettle
 		}
@@ -746,9 +746,13 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 
 	stepAdvanceWait := stepWait
 	if isMagnatMR780(ampCfg.Maker, ampCfg.Model) {
-		// Keep MR 780 responsive while preventing missed cycle steps on both
-		// directions observed in hardware tests (e.g. FM -> CD stopping at DVD).
-		stepAdvanceWait = 350 * time.Millisecond
+		// Directional pacing for MR 780: forward can be faster; reverse usually
+		// needs slightly more settle to avoid missed steps.
+		if strings.EqualFold(strings.TrimSpace(direction), "prev") {
+			stepAdvanceWait = 325 * time.Millisecond
+		} else {
+			stepAdvanceWait = 250 * time.Millisecond
+		}
 	} else if stepAdvanceWait <= 0 {
 		stepAdvanceWait = firstStepSettle
 	}

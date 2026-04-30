@@ -262,11 +262,11 @@ func TestAmplifierSelectInput_CycleMode_MR780_UsesLongArmingAndFastStepWait(t *t
 	if len(waits) != 2 {
 		t.Fatalf("wait count = %d, want 2", len(waits))
 	}
-	if waits[0] != 1200*time.Millisecond {
-		t.Fatalf("arming wait = %s, want 1200ms", waits[0])
+	if waits[0] != 900*time.Millisecond {
+		t.Fatalf("arming wait = %s, want 900ms", waits[0])
 	}
-	if waits[1] != 350*time.Millisecond {
-		t.Fatalf("step wait = %s, want 350ms", waits[1])
+	if waits[1] != 250*time.Millisecond {
+		t.Fatalf("step wait = %s, want 250ms", waits[1])
 	}
 }
 
@@ -295,11 +295,11 @@ func TestAmplifierSelectInput_CycleMode_MR780_PrevUsesLongerStepWait(t *testing.
 	if len(waits) != 2 {
 		t.Fatalf("wait count = %d, want 2", len(waits))
 	}
-	if waits[0] != 1200*time.Millisecond {
-		t.Fatalf("arming wait = %s, want 1200ms", waits[0])
+	if waits[0] != 900*time.Millisecond {
+		t.Fatalf("arming wait = %s, want 900ms", waits[0])
 	}
-	if waits[1] != 350*time.Millisecond {
-		t.Fatalf("step wait = %s, want 350ms", waits[1])
+	if waits[1] != 325*time.Millisecond {
+		t.Fatalf("step wait = %s, want 325ms", waits[1])
 	}
 }
 
