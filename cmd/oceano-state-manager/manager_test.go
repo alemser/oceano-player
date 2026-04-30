@@ -668,6 +668,31 @@ func TestBuildState_PhysicalNoVuSilenceIsPlaying(t *testing.T) {
 	}
 }
 
+// Recognition phase "off" must appear in state even if recognizerBusyUntil is still
+// in the future from a previous capture window; otherwise kiosk clients show
+// "Identifying…" while the coordinator is skipping by input policy.
+func TestBuildState_RecognitionOffPrecedesStaleRecognizerBusy(t *testing.T) {
+	m := newTestMgr()
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.vuInSilence = false
+	m.recognitionResult = nil
+	m.recognitionPhase = "off"
+	m.recognizerBusyUntil = time.Now().Add(2 * time.Minute)
+	m.mu.Unlock()
+
+	s := m.buildState()
+	if s.Recognition == nil {
+		t.Fatal("Recognition is nil")
+	}
+	if s.Recognition.Phase != "off" {
+		t.Fatalf("Recognition.Phase = %q, want off", s.Recognition.Phase)
+	}
+	if s.Recognition.Detail != "input_policy_off" {
+		t.Fatalf("Recognition.Detail = %q, want input_policy_off", s.Recognition.Detail)
+	}
+}
+
 func TestSyncFromLibrary_PreservesSeekWhenDurationArrivesLate(t *testing.T) {
 	lib := openTestLibrary(t)
 	now := time.Now().UTC().Format(time.RFC3339)

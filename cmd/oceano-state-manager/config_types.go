@@ -39,6 +39,13 @@ type RecognitionStatus struct {
 	Phase    string `json:"phase"`
 	Provider string `json:"provider,omitempty"` // "acrcloud" | "shazam" — set when phase is "matched"
 	Score    int    `json:"score,omitempty"`    // provider confidence score; 0 when unavailable
+	// Detail is a stable machine-readable reason for the current phase, for example:
+	// "input_policy_off", "no_match", "capturing", "waiting_trigger".
+	Detail string `json:"detail,omitempty"`
+	// ActiveInputID / ActiveInputName describe the amplifier input used for per-input
+	// recognition policy (from calibration config). Empty when unknown.
+	ActiveInputID   string `json:"active_input_id,omitempty"`
+	ActiveInputName string `json:"active_input_name,omitempty"`
 }
 
 // PlayerState is the unified state written to /tmp/oceano-state.json.

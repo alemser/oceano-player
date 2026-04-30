@@ -581,6 +581,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				c.mgr.mu.Lock()
 				c.mgr.recognitionResult = nil
 				c.mgr.recognitionPhase = "off"
+				c.mgr.recognizerBusyUntil = time.Time{}
 				c.mgr.physicalArtworkPath = ""
 				c.mgr.physicalLibraryEntryID = 0
 				c.mgr.physicalBoundarySensitive = false
@@ -591,6 +592,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			} else {
 				c.mgr.mu.Lock()
 				c.mgr.recognitionPhase = "off"
+				c.mgr.recognizerBusyUntil = time.Time{}
 				c.mgr.mu.Unlock()
 				c.mgr.markDirty()
 			}

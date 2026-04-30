@@ -85,11 +85,14 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 | `POST /api/amplifier/select-input` body | **Additive** | Optional `target_input_id`, `current_input_id` (with `steps`) for shortest-path + server-side `last_known_input_id` persistence. |
 | `amplifier.cycle_arming_settle_ms`, `cycle_step_next_wait_ms`, `cycle_step_prev_wait_ms` | **Additive** | Cycle-mode pacing; defaults in code + MR780 built-in profile values. |
 | VU hard boundary duration guard bypass | **Semantic** | Physical recognition only; iOS consumes `/api/stream` state as before. |
+| `recognition.detail`, `active_input_id`, `active_input_name` | **Additive** | Physical recognition status for kiosk/apps; terminal `off` / `no_match` take precedence over stale `recognizerBusyUntil` in state projection. |
 
 **iOS (`oceano-player-ios`) — done in repo**
 
 - [x] `AmplifierClient`: `nextInput` / `prevInput` only update index + `last-known-input` when selection was already active (1200 ms window, same as web `runtime.js`).
 - [x] `AmplifierClient`: `selectInput` sends `target_input_id` + `current_input_id` with `steps`.
+- [x] `PlayerState.Recognition`: optional `detail`, `active_input_id`, `active_input_name`.
+- [x] Now Playing + Physical media setup: titles/subtitles reflect `off` / `no_match` / `identifying` + input pill when name is present.
 
 **iOS follow-up (optional)**
 
