@@ -185,6 +185,15 @@ type AmplifierConfig struct {
 	StandbyTimeoutMins int `json:"standby_timeout_mins"`
 	// InputCycling controls the optional last-resort input-cycling probe.
 	InputCycling InputCyclingConfig `json:"input_cycling"`
+	// CycleArmingSettleMS is the settle delay (ms) after the arming pulse in
+	// cycle mode when the selector is not active yet.
+	CycleArmingSettleMS int `json:"cycle_arming_settle_ms,omitempty"`
+	// CycleStepNextWaitMS is the inter-step delay (ms) for forward cycle input
+	// navigation in cycle mode.
+	CycleStepNextWaitMS int `json:"cycle_step_next_wait_ms,omitempty"`
+	// CycleStepPrevWaitMS is the inter-step delay (ms) for reverse cycle input
+	// navigation in cycle mode.
+	CycleStepPrevWaitMS int `json:"cycle_step_prev_wait_ms,omitempty"`
 	// USBReset controls the manual/automatic "reset to USB input" flow timing.
 	USBReset USBResetConfig `json:"usb_reset"`
 	// ConnectedDevices lists physical devices wired to the amplifier inputs.

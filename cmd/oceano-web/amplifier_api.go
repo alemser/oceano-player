@@ -724,14 +724,9 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 		return nil
 	}
 
-	_, firstStepSettle, stepWait := s.usbResetSettings()
-	if isMagnatMR780(ampCfg.Maker, ampCfg.Model) {
-		// Magnat MR 780 needs a longer arming settle in cycle mode than generic
-		// hardware, but too long can make navigation feel laggy in practice.
-		minCycleArmingSettle := 900 * time.Millisecond
-		if firstStepSettle < minCycleArmingSettle {
-			firstStepSettle = minCycleArmingSettle
-		}
+	cycleArmingSettle := 800 * time.Millisecond
+	if ampCfg.CycleArmingSettleMS > 0 {
+		cycleArmingSettle = time.Duration(ampCfg.CycleArmingSettleMS) * time.Millisecond
 	}
 	selectionActiveWindow := 1200 * time.Millisecond
 	if !s.inputSelectionIsActive(selectionActiveWindow) {
@@ -739,25 +734,19 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 			return err
 		}
 		s.markInputNavPress()
-		if err := s.waitWithContext(ctx, firstStepSettle); err != nil {
+		if err := s.waitWithContext(ctx, cycleArmingSettle); err != nil {
 			return err
 		}
 	}
 
-	stepAdvanceWait := stepWait
-	if isMagnatMR780(ampCfg.Maker, ampCfg.Model) {
-		// Directional pacing for MR 780: forward can be faster; reverse usually
-		// needs slightly more settle to avoid missed steps.
-		if strings.EqualFold(strings.TrimSpace(direction), "prev") {
-			stepAdvanceWait = 325 * time.Millisecond
-		} else {
-			stepAdvanceWait = 250 * time.Millisecond
+	stepAdvanceWait := 200 * time.Millisecond
+	if strings.EqualFold(strings.TrimSpace(direction), "prev") {
+		stepAdvanceWait = 250 * time.Millisecond
+		if ampCfg.CycleStepPrevWaitMS > 0 {
+			stepAdvanceWait = time.Duration(ampCfg.CycleStepPrevWaitMS) * time.Millisecond
 		}
-	} else if stepAdvanceWait <= 0 {
-		stepAdvanceWait = firstStepSettle
-	}
-	if stepAdvanceWait <= 0 {
-		stepAdvanceWait = 200 * time.Millisecond
+	} else if ampCfg.CycleStepNextWaitMS > 0 {
+		stepAdvanceWait = time.Duration(ampCfg.CycleStepNextWaitMS) * time.Millisecond
 	}
 	for i := 0; i < steps; i++ {
 		if err := press(); err != nil {
@@ -771,12 +760,6 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 		}
 	}
 	return nil
-}
-
-func isMagnatMR780(maker, model string) bool {
-	m := strings.ToLower(strings.TrimSpace(maker))
-	mo := strings.ToLower(strings.TrimSpace(model))
-	return strings.Contains(m, "magnat") && strings.Contains(mo, "mr 780")
 }
 
 func (s *amplifierServer) pressInputOnce(direction string) error {

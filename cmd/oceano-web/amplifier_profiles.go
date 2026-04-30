@@ -50,6 +50,9 @@ func builtInAmplifierProfile(id string) (AmplifierConfig, bool) {
 				StepWaitSecs:   3,
 				MinSilenceSecs: 120,
 			},
+			CycleArmingSettleMS: 900,
+			CycleStepNextWaitMS: 250,
+			CycleStepPrevWaitMS: 325,
 			USBReset: USBResetConfig{
 				MaxAttempts:       13,
 				FirstStepSettleMS: 150,
@@ -137,6 +140,15 @@ func resolveAmplifierConfig(cfg AmplifierConfig) AmplifierConfig {
 	}
 	if cfg.InputCycling.MinSilenceSecs > 0 {
 		out.InputCycling.MinSilenceSecs = cfg.InputCycling.MinSilenceSecs
+	}
+	if cfg.CycleArmingSettleMS > 0 {
+		out.CycleArmingSettleMS = cfg.CycleArmingSettleMS
+	}
+	if cfg.CycleStepNextWaitMS > 0 {
+		out.CycleStepNextWaitMS = cfg.CycleStepNextWaitMS
+	}
+	if cfg.CycleStepPrevWaitMS > 0 {
+		out.CycleStepPrevWaitMS = cfg.CycleStepPrevWaitMS
 	}
 
 	if cfg.USBReset.MaxAttempts > 0 {
