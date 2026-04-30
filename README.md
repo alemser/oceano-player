@@ -90,6 +90,20 @@ The web UI on port **8080** is the ongoing control plane; “Save & Restart” r
 service units and shairport when needed. Deeper failure modes (RMS, ACRCloud, …)
 are in [Troubleshooting](#troubleshooting) below.
 
+### AirPlay DAC auto-return (silent fallback mode)
+
+When `audio_output.device_match` is configured, `oceano-web` continuously reconciles
+`shairport-sync` output with currently detected ALSA cards:
+
+- If the matching USB DAC is present, output is pinned to `plughw:N,0`.
+- If the DAC disappears (power off/unplug), output switches to ALSA `null`
+  (silent sink) so AirPlay sessions can still connect reliably.
+- As soon as the DAC returns, output is switched back automatically to `plughw:N,0`
+  and `shairport-sync` is restarted.
+
+This avoids “visible but fails to connect” behavior when a fixed DAC path is absent,
+without routing audio to an unexpected physical default sink.
+
 ### Option B — Install from source
 
 Use this when you need to apply a specific branch or customise flags during
@@ -298,13 +312,18 @@ Frame rate: ~22 fps (2048-sample buffer at 44.1 kHz ≈ 46 ms per frame).
 
 1. **Amplifier input not set to USB** — shairport-sync needs the DAC to be present at startup. Set the input to USB and re-run `sudo ./install.sh`.
 
-2. **shairport-sync not running**:
+2. **AirPlay connects but no sound while DAC is off** — expected with silent fallback mode.
+   With `audio_output.device_match`, Oceano intentionally routes to ALSA `null` when
+   the matched DAC is missing, then auto-returns to `plughw:N,0` once the DAC is detected.
+   Keep the DAC powered if you want immediate audible playback.
+
+3. **shairport-sync not running**:
    ```bash
    sudo systemctl status shairport-sync.service
    journalctl -u shairport-sync.service -n 30 --no-pager
    ```
 
-3. **Loopback module not loaded**:
+4. **Loopback module not loaded**:
    ```bash
    lsmod | grep snd_aloop
    # if empty: sudo modprobe snd-aloop

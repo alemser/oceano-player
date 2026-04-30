@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -42,6 +41,91 @@ type ALSADevice struct {
 }
 
 const shairportConfigPath = "/etc/shairport-sync.conf"
+const shairportSilentFallbackDevice = "null"
+
+func resolveAirplayOutputDevice(cfg AudioOutputConfig) string {
+	return resolveAirplayOutputDeviceWithScanner(cfg, scanALSADevices)
+}
+
+func resolveAirplayOutputDeviceWithScanner(cfg AudioOutputConfig, scanFn func() []ALSADevice) string {
+	device := strings.TrimSpace(cfg.Device)
+	if device != "" {
+		return device
+	}
+	match := strings.ToLower(strings.TrimSpace(cfg.DeviceMatch))
+	if match == "" {
+		return "default"
+	}
+	for _, d := range scanFn() {
+		if strings.Contains(strings.ToLower(d.Name), match) ||
+			strings.Contains(strings.ToLower(d.Desc), match) {
+			return fmt.Sprintf("plughw:%d,0", d.Card)
+		}
+	}
+	// In device_match mode, prefer a silent sink when the DAC disappears so
+	// AirPlay sessions can still connect and recover automatically when the DAC
+	// returns.
+	return shairportSilentFallbackDevice
+}
+
+func applyShairportALSAOutput(airplayName, alsaDevice string) error {
+	name := strings.TrimSpace(airplayName)
+	if name == "" {
+		name = "Oceano"
+	}
+	alsa := strings.TrimSpace(alsaDevice)
+	if alsa == "" {
+		alsa = "default"
+	}
+	if err := shairport.WriteConfig(shairportConfigPath, name, alsa); err != nil {
+		return err
+	}
+	return restartService("shairport-sync.service")
+}
+
+func startShairportOutputGuardian(configPath string) {
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		lastName := ""
+		lastDevice := ""
+
+		applyIfChanged := func() {
+			cfg, err := loadConfig(configPath)
+			if err != nil {
+				return
+			}
+			name := strings.TrimSpace(cfg.AudioOutput.AirPlayName)
+			if name == "" {
+				name = "Oceano"
+			}
+			device := resolveAirplayOutputDevice(cfg.AudioOutput)
+			if device == "" {
+				device = "default"
+			}
+			if name == lastName && device == lastDevice {
+				return
+			}
+			if err := applyShairportALSAOutput(name, device); err != nil {
+				log.Printf("shairport guardian: apply output failed: %v", err)
+				return
+			}
+			if device == shairportSilentFallbackDevice {
+				log.Printf("shairport guardian: DAC not found, using silent ALSA fallback=%q", device)
+			} else {
+				log.Printf("shairport guardian: output set to %q", device)
+			}
+			lastName = name
+			lastDevice = device
+		}
+
+		applyIfChanged()
+		for range ticker.C {
+			applyIfChanged()
+		}
+	}()
+}
 
 // migrateShairportPAToAlsaOnStartup rewrites a legacy "pa" shairport config. The
 // shairport-sync system user cannot connect to the session PipeWire at /run/user/…/pulse
@@ -60,20 +144,13 @@ func migrateShairportPAToAlsaOnStartup(configPath string) {
 		log.Printf("shairport migration: read config: %v", err)
 		return
 	}
-	alsa := strings.TrimSpace(cfg.AudioOutput.Device)
-	if alsa == "" {
-		alsa = "default"
-	}
+	alsa := resolveAirplayOutputDevice(cfg.AudioOutput)
 	name := strings.TrimSpace(cfg.AudioOutput.AirPlayName)
 	if name == "" {
 		name = "Oceano"
 	}
-	if err := shairport.WriteConfig(shairportConfigPath, name, alsa); err != nil {
+	if err := applyShairportALSAOutput(name, alsa); err != nil {
 		log.Printf("shairport pa→alsa migration: %v", err)
-		return
-	}
-	if err := exec.Command("systemctl", "restart", "shairport-sync.service").Run(); err != nil {
-		log.Printf("shairport migration restart: %v", err)
 		return
 	}
 	log.Println("shairport: migrated PA backend to ALSA (restarted service)")
@@ -89,6 +166,7 @@ func main() {
 
 	_ = os.MkdirAll("/etc/oceano", 0o755)
 	migrateShairportPAToAlsaOnStartup(*configPath)
+	startShairportOutputGuardian(*configPath)
 
 	mux := http.NewServeMux()
 
@@ -288,22 +366,20 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	// Rewrite shairport when AirPlay name or DAC (ALSA) changes — use ALSA output so
 	// the system shairport-sync user does not need the user's PipeWire-Pulse socket.
 	if old.AudioOutput != cfg.AudioOutput {
-		alsa := strings.TrimSpace(cfg.AudioOutput.Device)
-		if alsa == "" {
-			alsa = "default"
-		}
+		alsa := resolveAirplayOutputDevice(cfg.AudioOutput)
 		name := strings.TrimSpace(cfg.AudioOutput.AirPlayName)
 		if name == "" {
 			name = "Oceano"
 		}
-		if err := shairport.WriteConfig(shairportConfigPath, name, alsa); err != nil {
+		if err := applyShairportALSAOutput(name, alsa); err != nil {
 			results = append(results, "shairport-sync config: "+err.Error())
 			hadError = true
-		} else if err := restartService("shairport-sync.service"); err != nil {
-			results = append(results, "shairport-sync restart: "+err.Error())
-			hadError = true
 		} else {
-			results = append(results, "shairport-sync: ALSA output updated and service restarted")
+			if alsa == shairportSilentFallbackDevice {
+				results = append(results, "shairport-sync: DAC unavailable, using silent fallback (auto-return enabled)")
+			} else {
+				results = append(results, "shairport-sync: ALSA output updated and service restarted")
+			}
 		}
 	}
 
