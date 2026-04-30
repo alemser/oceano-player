@@ -186,6 +186,43 @@ func TestAmplifierPrevInput_OK(t *testing.T) {
 	}
 }
 
+func TestAmplifierNextInput_CycleModeWhileActive_UsesSingleStep(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp)
+	s.waitFn = func(context.Context, time.Duration) error { return nil }
+	s.lastInputNavPressAt = time.Now()
+
+	w := do(t, s.handleAmplifierNextInput, http.MethodPost, "/api/amplifier/next-input", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if len(mock.Sent) != 1 || mock.Sent[0] != "IR_NEXT" {
+		t.Errorf("expected [IR_NEXT], got %v", mock.Sent)
+	}
+}
+
+func TestAmplifierPrevInput_DirectMode_UsesSingleStep(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp)
+
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cfg.Amplifier.InputMode = "direct"
+	if err := saveConfig(s.configPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	w := do(t, s.handleAmplifierPrevInput, http.MethodPost, "/api/amplifier/prev-input", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if len(mock.Sent) != 1 || mock.Sent[0] != "IR_PREV" {
+		t.Errorf("expected [IR_PREV], got %v", mock.Sent)
+	}
+}
+
 func TestAmplifierSelectInput_CycleMode_ArmsThenAdvancesRequestedSteps(t *testing.T) {
 	amp, mock := newTestAmp(t)
 	s := newTestServer(t, amp)
@@ -197,6 +234,72 @@ func TestAmplifierSelectInput_CycleMode_ArmsThenAdvancesRequestedSteps(t *testin
 	}
 	if len(mock.Sent) != 3 || mock.Sent[0] != "IR_NEXT" || mock.Sent[1] != "IR_NEXT" || mock.Sent[2] != "IR_NEXT" {
 		t.Fatalf("expected [IR_NEXT IR_NEXT IR_NEXT], got %v", mock.Sent)
+	}
+}
+
+func TestAmplifierSelectInput_CycleMode_MR780_UsesLongArmingAndFastStepWait(t *testing.T) {
+	amp, _ := newTestAmp(t)
+	s := newTestServer(t, amp)
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cfg.Amplifier.Maker = "Magnat"
+	cfg.Amplifier.Model = "MR 780"
+	if err := saveConfig(s.configPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+	waits := make([]time.Duration, 0, 4)
+	s.waitFn = func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		return nil
+	}
+
+	w := do(t, s.handleAmplifierSelectInput, http.MethodPost, "/api/amplifier/select-input", `{"steps":2}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if len(waits) != 2 {
+		t.Fatalf("wait count = %d, want 2", len(waits))
+	}
+	if waits[0] != 900*time.Millisecond {
+		t.Fatalf("arming wait = %s, want 900ms", waits[0])
+	}
+	if waits[1] != 250*time.Millisecond {
+		t.Fatalf("step wait = %s, want 250ms", waits[1])
+	}
+}
+
+func TestAmplifierSelectInput_CycleMode_MR780_PrevUsesLongerStepWait(t *testing.T) {
+	amp, _ := newTestAmp(t)
+	s := newTestServer(t, amp)
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cfg.Amplifier.Maker = "Magnat"
+	cfg.Amplifier.Model = "MR 780"
+	if err := saveConfig(s.configPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+	waits := make([]time.Duration, 0, 4)
+	s.waitFn = func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		return nil
+	}
+
+	w := do(t, s.handleAmplifierSelectInput, http.MethodPost, "/api/amplifier/select-input", `{"steps":2,"direction":"prev"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if len(waits) != 2 {
+		t.Fatalf("wait count = %d, want 2", len(waits))
+	}
+	if waits[0] != 900*time.Millisecond {
+		t.Fatalf("arming wait = %s, want 900ms", waits[0])
+	}
+	if waits[1] != 325*time.Millisecond {
+		t.Fatalf("step wait = %s, want 325ms", waits[1])
 	}
 }
 
@@ -235,6 +338,100 @@ func TestAmplifierSelectInput_DirectMode_UsesRequestedPressCount(t *testing.T) {
 	}
 	if len(mock.Sent) != 2 || mock.Sent[0] != "IR_NEXT" || mock.Sent[1] != "IR_NEXT" {
 		t.Fatalf("expected [IR_NEXT IR_NEXT], got %v", mock.Sent)
+	}
+}
+
+func TestAmplifierSelectInput_TargetIDs_ChoosesShortestDirectionInCycleMode(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp)
+	s.waitFn = func(context.Context, time.Duration) error { return nil }
+
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cfg.Amplifier.InputMode = "cycle"
+	cfg.Amplifier.Inputs = []AmplifierInputConfig{
+		{ID: AmplifierInputID("40"), LogicalName: "USB Audio", Visible: true},
+		{ID: AmplifierInputID("10"), LogicalName: "Bluetooth", Visible: false},
+		{ID: AmplifierInputID("20"), LogicalName: "Phono", Visible: true},
+		{ID: AmplifierInputID("30"), LogicalName: "CD", Visible: true},
+	}
+	if err := saveConfig(s.configPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	w := do(t, s.handleAmplifierSelectInput, http.MethodPost, "/api/amplifier/select-input", `{"current_input_id":"30","target_input_id":"20"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if len(mock.Sent) != 2 || mock.Sent[0] != "IR_PREV" || mock.Sent[1] != "IR_PREV" {
+		t.Fatalf("expected [IR_PREV IR_PREV], got %v", mock.Sent)
+	}
+}
+
+func TestAmplifierSelectInput_TargetIDs_FallsBackToRuntimeLastKnown(t *testing.T) {
+	amp, mock := newTestAmp(t)
+	s := newTestServer(t, amp)
+	s.waitFn = func(context.Context, time.Duration) error { return nil }
+
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cfg.Amplifier.InputMode = "cycle"
+	cfg.Amplifier.Inputs = []AmplifierInputConfig{
+		{ID: AmplifierInputID("40"), LogicalName: "USB Audio", Visible: true},
+		{ID: AmplifierInputID("10"), LogicalName: "Bluetooth", Visible: false},
+		{ID: AmplifierInputID("20"), LogicalName: "Phono", Visible: true},
+		{ID: AmplifierInputID("30"), LogicalName: "CD", Visible: true},
+	}
+	cfg.AmplifierRuntime.LastKnownInputID = AmplifierInputID("30")
+	if err := saveConfig(s.configPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	w := do(t, s.handleAmplifierSelectInput, http.MethodPost, "/api/amplifier/select-input", `{"target_input_id":"20"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if len(mock.Sent) != 2 || mock.Sent[0] != "IR_PREV" || mock.Sent[1] != "IR_PREV" {
+		t.Fatalf("expected [IR_PREV IR_PREV], got %v", mock.Sent)
+	}
+}
+
+func TestAmplifierSelectInput_TargetIDs_PersistsLastKnownInput(t *testing.T) {
+	amp, _ := newTestAmp(t)
+	s := newTestServer(t, amp)
+	s.waitFn = func(context.Context, time.Duration) error { return nil }
+
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cfg.Amplifier.InputMode = "cycle"
+	cfg.Amplifier.Inputs = []AmplifierInputConfig{
+		{ID: AmplifierInputID("40"), LogicalName: "USB Audio", Visible: true},
+		{ID: AmplifierInputID("10"), LogicalName: "Bluetooth", Visible: false},
+		{ID: AmplifierInputID("20"), LogicalName: "Phono", Visible: true},
+		{ID: AmplifierInputID("30"), LogicalName: "CD", Visible: true},
+	}
+	cfg.AmplifierRuntime.LastKnownInputID = AmplifierInputID("30")
+	if err := saveConfig(s.configPath, cfg); err != nil {
+		t.Fatalf("saveConfig: %v", err)
+	}
+
+	w := do(t, s.handleAmplifierSelectInput, http.MethodPost, "/api/amplifier/select-input", `{"target_input_id":"20"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+
+	loaded, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if loaded.AmplifierRuntime.LastKnownInputID != AmplifierInputID("20") {
+		t.Fatalf("last_known_input_id = %q, want 20", loaded.AmplifierRuntime.LastKnownInputID)
 	}
 }
 
