@@ -179,10 +179,6 @@ type Config struct {
 	// ConfirmationBypassScore skips the second confirmation call when the initial
 	// provider score is already very high. Set to 0 to always require confirmation.
 	ConfirmationBypassScore int
-	// MinTrackChangeScore is the minimum confidence score required to promote a
-	// new track candidate immediately. Lower-scoring candidates are treated as
-	// provisional and must be re-seen on a later attempt.
-	MinTrackChangeScore int
 	// ContinuityCalibrationGrace is the duration to wait before the Shazam continuity
 	// monitor starts checking for track changes. During this grace period after a
 	// successful recognition, the monitor is in "learning" mode. Lower values = faster
@@ -211,10 +207,6 @@ type Config struct {
 	// the last boundary is < DurationPessimism * KnownTrackDuration, the boundary is
 	// suppressed. Default: 0.75 (suppress if < 75% of known duration elapsed).
 	DurationPessimism float64
-	// NoMatchBoundaryBypassWindow relaxes duration-based VU boundary suppression
-	// after a no-match result so a real track change can retrigger recognition
-	// quickly instead of waiting for periodic fallback only.
-	NoMatchBoundaryBypassWindow time.Duration
 	// BoundaryRestoreMinSeek is the minimum pre-boundary seek position required
 	// before the coordinator is allowed to restore a pre-boundary recognition
 	// result after a same-track re-confirmation. Lower values favor continuity;
@@ -242,7 +234,6 @@ func defaultConfig() Config {
 		ConfirmationDelay:                       0,
 		ConfirmationCaptureDuration:             4 * time.Second,
 		ConfirmationBypassScore:                 95,
-		MinTrackChangeScore:                     55,
 		ShazamPythonBin:                         "/opt/shazam-env/bin/python",
 		ShazamContinuityInterval:                8 * time.Second,
 		ShazamContinuityCaptureDuration:         4 * time.Second,
@@ -255,7 +246,6 @@ func defaultConfig() Config {
 		EarlyCheckMargin:                        20 * time.Second,
 		DurationGuardBypassWindow:               20 * time.Second,
 		DurationPessimism:                       0.75,
-		NoMatchBoundaryBypassWindow:             3 * time.Minute,
 	}
 }
 

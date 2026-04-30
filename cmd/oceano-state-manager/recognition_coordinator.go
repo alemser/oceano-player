@@ -63,29 +63,6 @@ func shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth bool) bool 
 	return !isPhysical || isAirPlay || isBluetooth
 }
 
-func shouldDelayLowScoreTrackChange(minTrackChangeScore int, result, current, preBoundary *RecognitionResult) bool {
-	if minTrackChangeScore <= 0 || result == nil {
-		return false
-	}
-	compare := current
-	if compare == nil {
-		compare = preBoundary
-	}
-	currentACRID, currentShazamID := "", ""
-	if compare != nil {
-		currentACRID = compare.ACRID
-		currentShazamID = compare.ShazamID
-	}
-	if !isNewTrackCandidate(result, currentACRID, currentShazamID) {
-		return false
-	}
-	// Score is only meaningful for ACRCloud in our pipeline.
-	if result.ACRID == "" || result.Score <= 0 {
-		return false
-	}
-	return result.Score < minTrackChangeScore
-}
-
 func recognitionLogFields(result *RecognitionResult) (string, string) {
 	source := "unknown"
 	score := fmt.Sprintf("score=%d", result.Score)
@@ -199,7 +176,6 @@ func (c *recognitionCoordinator) handleNoMatch(isBoundaryTrigger bool, isHardBou
 
 	c.mgr.mu.Lock()
 	c.mgr.recognitionPhase = "no_match"
-	c.mgr.lastNoMatchAt = time.Now()
 	c.mgr.mu.Unlock()
 	c.mgr.markDirty()
 
@@ -765,16 +741,19 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			if compareResult == nil && isBoundaryTrigger {
 				compareResult = preBoundaryResult
 			}
-			if shouldDelayLowScoreTrackChange(c.mgr.cfg.MinTrackChangeScore, result, currentResult, preBoundaryResult) {
-				log.Printf("recognizer [%s]: low-score new-track candidate (score=%d < min=%d) — delaying promotion (%s — %s)",
-					c.rec.Name(), result.Score, c.mgr.cfg.MinTrackChangeScore, result.Artist, result.Title)
-				c.handleNoMatch(isBoundaryTrigger, isHardBoundaryTrigger, &backoffUntil, &backoffRateLimited)
-				c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
-					Outcome: internallibrary.FollowupOutcomeNoMatch,
-				})
-				continue
-			}
 			if compareResult != nil && sameTrackForStateContinuity(compareResult, result) {
+				if isBoundaryTrigger && isHardBoundaryTrigger {
+					recheckDelay := 5 * time.Second
+					log.Printf("recognizer [%s]: hard-boundary same-track candidate (%s — %s) — scheduling recheck in %s before restoring previous track",
+						c.rec.Name(), result.Artist, result.Title, recheckDelay)
+					backoffUntil = time.Now().Add(recheckDelay)
+					backoffRateLimited = false
+					select {
+					case c.mgr.recognizeTrigger <- triggerPeriodicRecognition():
+					default:
+					}
+					continue
+				}
 				minSeekForRestore := c.mgr.cfg.BoundaryRestoreMinSeek
 				preBoundaryElapsedMS := recoverSeekMSFromSnapshot(preBoundarySeekMS, preBoundarySeekUpdatedAt, time.Now())
 				knownDurationMS := 0
@@ -864,7 +843,6 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 
 			var collID, phID int64
 			c.mgr.mu.Lock()
-			c.mgr.lastNoMatchAt = time.Time{}
 			collID = c.mgr.physicalLibraryEntryID
 			phID = c.mgr.currentPlayHistoryID
 			c.mgr.mu.Unlock()
