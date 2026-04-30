@@ -182,25 +182,30 @@ async function ampPrevInput() {
 }
 
 // Navigate to a visible input identified by its index in the full _ampInputsModel.
-// Always navigates forward (ascending index order), wrapping around if needed.
-// Uses all inputs (including hidden) to count the IR presses correctly.
-// In cycle mode, the backend handles the first IR press as selector activation,
-// then performs one additional press per requested forward step.
+// Uses all inputs (including hidden) so backend can compute cycle distances correctly.
+// In cycle mode, backend chooses the shortest path (next/prev) and still handles
+// selector arming and timing windows.
 async function ampSelectInputByFullIdx(targetFullIdx) {
   if (_ampProcessingCount > 0) return;
   const total = _ampInputsModel.length;
   if (total === 0 || targetFullIdx < 0) return;
 
-  // If current position is unknown, reset tracking to 0 before computing distance
+  // Keep legacy forward-step payload for compatibility with older backends.
   const current = _ampCurrentInputIdx < 0 ? 0 : _ampCurrentInputIdx;
   const steps = (targetFullIdx - current + total) % total;
+  const targetInput = _ampInputsModel[targetFullIdx];
+  const currentInput = _ampCurrentInputIdx >= 0 ? _ampInputsModel[_ampCurrentInputIdx] : null;
 
   setAmpProcessing(true);
   try {
     const r = await fetch('/api/amplifier/select-input', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ steps }),
+      body: JSON.stringify({
+        steps,
+        target_input_id: targetInput?.id || '',
+        current_input_id: currentInput?.id || '',
+      }),
     });
     if (!r.ok) {
       let msg = 'Failed to change input.';

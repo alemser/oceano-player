@@ -127,6 +127,10 @@ type mgr struct {
 	// "matched" is derived from recognitionResult != nil; "identifying" is derived
 	// from recognizerBusyUntil; this field only needs to carry "no_match" and "off".
 	recognitionPhase string
+	// lastNoMatchAt tracks when the latest no-match outcome occurred. The VU
+	// monitor uses this to temporarily relax duration suppression so a genuine
+	// track change can retrigger recognition quickly.
+	lastNoMatchAt time.Time
 	// Continuity mismatch confirmation: a mismatch must be observed twice within
 	// continuityMismatchConfirmWindow before a re-recognition trigger fires.
 	// This prevents a single Shazam mis-identification (common when running
@@ -430,6 +434,7 @@ func main() {
 	flag.DurationVar(&cfg.ConfirmationDelay, "confirmation-delay", cfg.ConfirmationDelay, "wait before second recognition call to confirm a track change (0 = disabled)")
 	flag.DurationVar(&cfg.ConfirmationCaptureDuration, "confirmation-capture-duration", cfg.ConfirmationCaptureDuration, "audio capture duration for confirmation call")
 	flag.IntVar(&cfg.ConfirmationBypassScore, "confirmation-bypass-score", cfg.ConfirmationBypassScore, "skip confirmation when initial provider score is >= this value (0 = always confirm)")
+	flag.IntVar(&cfg.MinTrackChangeScore, "recognizer-min-track-change-score", cfg.MinTrackChangeScore, "minimum score required to immediately promote a new-track match (0 = disabled)")
 	flag.StringVar(&cfg.ShazamPythonBin, "shazam-python", cfg.ShazamPythonBin, "path to Python binary with shazamio installed (empty to disable Shazam fallback)")
 	flag.DurationVar(&cfg.ShazamContinuityInterval, "shazam-continuity-interval", cfg.ShazamContinuityInterval, "how often to run Shazam continuity checks for the current track")
 	flag.DurationVar(&cfg.ShazamContinuityCaptureDuration, "shazam-continuity-capture-duration", cfg.ShazamContinuityCaptureDuration, "audio capture duration per periodic Shazam continuity check")
@@ -440,6 +445,7 @@ func main() {
 	flag.DurationVar(&cfg.EarlyCheckMargin, "early-check-margin", cfg.EarlyCheckMargin, "how close to track end the continuity monitor becomes more sensitive")
 	flag.DurationVar(&cfg.DurationGuardBypassWindow, "duration-guard-bypass-window", cfg.DurationGuardBypassWindow, "time window after potential false boundary during which duration suppression guard is armed")
 	flag.Float64Var(&cfg.DurationPessimism, "duration-pessimism", cfg.DurationPessimism, "temporal threshold (0.0–1.0): below threshold VU boundaries are guarded, at/above threshold VU boundaries are ignored")
+	flag.DurationVar(&cfg.NoMatchBoundaryBypassWindow, "recognizer-no-match-boundary-bypass-window", cfg.NoMatchBoundaryBypassWindow, "duration after no-match during which VU duration guards are relaxed to allow faster retrigger")
 	flag.DurationVar(&cfg.BoundaryRestoreMinSeek, "boundary-restore-min-seek", cfg.BoundaryRestoreMinSeek, "minimum pre-boundary seek required before restoring pre-boundary track metadata after same-track re-confirmation")
 	flag.StringVar(&cfg.RecognizerChain, "recognizer-chain", cfg.RecognizerChain, "recognition chain order: acrcloud_first | shazam_first | acrcloud_only | shazam_only (continuity always uses Shazam when available)")
 	flag.Parse()

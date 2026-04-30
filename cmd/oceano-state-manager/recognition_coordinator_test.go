@@ -42,6 +42,22 @@ func TestShouldSkipRecognitionAttempt(t *testing.T) {
 	}
 }
 
+func TestShouldDelayLowScoreTrackChange(t *testing.T) {
+	current := &RecognitionResult{ACRID: "acr-old", Title: "Old", Artist: "Artist"}
+	low := &RecognitionResult{ACRID: "acr-new", Title: "New", Artist: "Artist", Score: 31}
+	high := &RecognitionResult{ACRID: "acr-new", Title: "New", Artist: "Artist", Score: 88}
+
+	if !shouldDelayLowScoreTrackChange(55, low, current, nil) {
+		t.Fatal("expected low-score new ACR track to be delayed")
+	}
+	if shouldDelayLowScoreTrackChange(55, high, current, nil) {
+		t.Fatal("expected high-score new ACR track not to be delayed")
+	}
+	if shouldDelayLowScoreTrackChange(0, low, current, nil) {
+		t.Fatal("expected disabled threshold not to delay")
+	}
+}
+
 func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 	m := newTestMgr()
 	m.mu.Lock()

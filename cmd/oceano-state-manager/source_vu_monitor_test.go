@@ -53,6 +53,13 @@ func TestShouldSuppressBoundary_BypassWindowPreventsSuppression(t *testing.T) {
 	}
 }
 
+func TestNoMatchBypassWindowDefaultIsNonZero(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.NoMatchBoundaryBypassWindow <= 0 {
+		t.Fatalf("NoMatchBoundaryBypassWindow = %s, want > 0", cfg.NoMatchBoundaryBypassWindow)
+	}
+}
+
 func TestShouldSuppressBoundary_BypassWindowIgnoredAfterEarlyWindow(t *testing.T) {
 	now := time.Now()
 	recognizedAt := now.Add(-20 * time.Second)

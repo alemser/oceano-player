@@ -392,7 +392,10 @@ func (s *amplifierServer) handleAmplifierSelectInput(w http.ResponseWriter, r *h
 		return
 	}
 	var req struct {
-		Steps int `json:"steps"`
+		Steps          int             `json:"steps"`
+		Direction      string          `json:"direction"`
+		TargetInputID  AmplifierInputID `json:"target_input_id"`
+		CurrentInputID AmplifierInputID `json:"current_input_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -402,7 +405,22 @@ func (s *amplifierServer) handleAmplifierSelectInput(w http.ResponseWriter, r *h
 		jsonError(w, "steps must be >= 0", http.StatusBadRequest)
 		return
 	}
-	if err := s.navigateInput(r.Context(), req.Steps, "next"); err != nil {
+	steps := req.Steps
+	direction := "next"
+	if strings.TrimSpace(req.Direction) != "" {
+		direction = strings.TrimSpace(req.Direction)
+	}
+	if strings.TrimSpace(string(req.TargetInputID)) != "" {
+		resolvedDirection, resolvedSteps, err := s.resolveSelectInputNavigation(req.TargetInputID, req.CurrentInputID)
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		direction = resolvedDirection
+		steps = resolvedSteps
+	}
+
+	if err := s.navigateInput(r.Context(), steps, direction); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			jsonError(w, "request canceled", http.StatusRequestTimeout)
 			return
@@ -814,6 +832,60 @@ func chooseUSBResetDirection(cfg Config) (string, bool) {
 		return "next", true
 	default:
 		return "prev", false
+	}
+}
+
+func (s *amplifierServer) resolveSelectInputNavigation(targetInputID, currentInputID AmplifierInputID) (string, int, error) {
+	if s.configPath == "" {
+		return "", 0, fmt.Errorf("input target resolution requires configured inputs")
+	}
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		return "", 0, err
+	}
+	ampCfg := resolveAmplifierConfig(cfg.Amplifier)
+	inputs := ampCfg.Inputs
+	if len(inputs) == 0 {
+		return "", 0, fmt.Errorf("no amplifier inputs configured")
+	}
+
+	targetIdx := findInputIndexByID(inputs, targetInputID)
+	if targetIdx < 0 {
+		return "", 0, fmt.Errorf("target_input_id %q not registered", targetInputID)
+	}
+
+	resolvedCurrent := currentInputID
+	if strings.TrimSpace(string(resolvedCurrent)) == "" {
+		resolvedCurrent = cfg.AmplifierRuntime.LastKnownInputID
+	}
+	currentIdx := findInputIndexByID(inputs, resolvedCurrent)
+	if currentIdx < 0 {
+		return "next", (targetIdx - 0 + len(inputs)) % len(inputs), nil
+	}
+
+	total := len(inputs)
+	nextSteps := (targetIdx - currentIdx + total) % total
+	prevSteps := (currentIdx - targetIdx + total) % total
+
+	hasExplicitDirectionCodes := ampCfg.IRCodes != nil
+	hasNext := strings.TrimSpace(ampCfg.IRCodes["next_input"]) != ""
+	hasPrev := strings.TrimSpace(ampCfg.IRCodes["prev_input"]) != ""
+	if !hasExplicitDirectionCodes {
+		hasNext = true
+		hasPrev = true
+	}
+
+	switch {
+	case nextSteps == 0:
+		return "next", 0, nil
+	case hasPrev && (!hasNext || prevSteps < nextSteps):
+		return "prev", prevSteps, nil
+	case hasNext:
+		return "next", nextSteps, nil
+	case hasPrev:
+		return "prev", prevSteps, nil
+	default:
+		return "", 0, fmt.Errorf("neither next_input nor prev_input IR codes are configured")
 	}
 }
 
