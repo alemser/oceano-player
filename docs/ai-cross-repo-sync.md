@@ -72,3 +72,26 @@ Run this checklist for any change touching:
 ## Rule of thumb for agents
 
 If you changed backend behavior and did not explicitly evaluate iOS impact, the task is incomplete.
+
+---
+
+## Log: 2026-04-30 — amplifier cycle navigation + config
+
+**Backend (`main`, merge of `fix/unify-amplifier-cycle-navigation`)**
+
+| Item | Type | Notes |
+|------|------|--------|
+| `POST /api/amplifier/next-input`, `POST /api/amplifier/prev-input` | **Semantic** | Single IR pulse per request (arming model); client must mirror “active selection window” before advancing local input index. |
+| `POST /api/amplifier/select-input` body | **Additive** | Optional `target_input_id`, `current_input_id` (with `steps`) for shortest-path + server-side `last_known_input_id` persistence. |
+| `amplifier.cycle_arming_settle_ms`, `cycle_step_next_wait_ms`, `cycle_step_prev_wait_ms` | **Additive** | Cycle-mode pacing; defaults in code + MR780 built-in profile values. |
+| VU hard boundary duration guard bypass | **Semantic** | Physical recognition only; iOS consumes `/api/stream` state as before. |
+
+**iOS (`oceano-player-ios`) — done in repo**
+
+- [x] `AmplifierClient`: `nextInput` / `prevInput` only update index + `last-known-input` when selection was already active (1200 ms window, same as web `runtime.js`).
+- [x] `AmplifierClient`: `selectInput` sends `target_input_id` + `current_input_id` with `steps`.
+
+**iOS follow-up (optional)**
+
+- [ ] Config UI: expose cycle timing fields next to amplifier profile (parity with future web editor).
+- [ ] Now Playing: clearer UX when recognition is skipped (e.g. input policy `off`) — separate UX task.
