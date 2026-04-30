@@ -742,18 +742,6 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				compareResult = preBoundaryResult
 			}
 			if compareResult != nil && sameTrackForStateContinuity(compareResult, result) {
-				if isBoundaryTrigger && isHardBoundaryTrigger {
-					recheckDelay := 5 * time.Second
-					log.Printf("recognizer [%s]: hard-boundary same-track candidate (%s — %s) — scheduling recheck in %s before restoring previous track",
-						c.rec.Name(), result.Artist, result.Title, recheckDelay)
-					backoffUntil = time.Now().Add(recheckDelay)
-					backoffRateLimited = false
-					select {
-					case c.mgr.recognizeTrigger <- triggerPeriodicRecognition():
-					default:
-					}
-					continue
-				}
 				minSeekForRestore := c.mgr.cfg.BoundaryRestoreMinSeek
 				preBoundaryElapsedMS := recoverSeekMSFromSnapshot(preBoundarySeekMS, preBoundarySeekUpdatedAt, time.Now())
 				knownDurationMS := 0

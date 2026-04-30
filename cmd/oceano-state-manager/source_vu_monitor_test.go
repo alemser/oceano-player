@@ -53,6 +53,18 @@ func TestShouldSuppressBoundary_BypassWindowPreventsSuppression(t *testing.T) {
 	}
 }
 
+func TestShouldBypassDurationGuardsForBoundary(t *testing.T) {
+	if !shouldBypassDurationGuardsForBoundary("silence->audio", true) {
+		t.Fatal("hard silence->audio boundary should bypass duration guards")
+	}
+	if shouldBypassDurationGuardsForBoundary("energy-change", true) {
+		t.Fatal("hard non-silence boundary should not bypass duration guards")
+	}
+	if shouldBypassDurationGuardsForBoundary("silence->audio", false) {
+		t.Fatal("soft silence->audio boundary should not bypass duration guards")
+	}
+}
+
 func TestShouldSuppressBoundary_BypassWindowIgnoredAfterEarlyWindow(t *testing.T) {
 	now := time.Now()
 	recognizedAt := now.Add(-20 * time.Second)

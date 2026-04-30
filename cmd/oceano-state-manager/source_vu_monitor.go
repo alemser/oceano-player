@@ -119,6 +119,10 @@ func shouldSuppressBoundarySensitiveBoundary(durationMs int, seekMS int64, seekU
 	return elapsed < trackDuration
 }
 
+func shouldBypassDurationGuardsForBoundary(reason string, isHardBoundary bool) bool {
+	return isHardBoundary && reason == "silence->audio"
+}
+
 func (m *mgr) clearStalePhysicalRecognitionOnSilence(reason string, silenceElapsed time.Duration) bool {
 	m.mu.Lock()
 	if m.physicalSource != "Physical" || m.recognitionResult == nil {
@@ -442,9 +446,10 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		seekUpdatedAt = m.physicalSeekUpdatedAt
 		m.mu.Unlock()
 		now := time.Now()
+		bypassDurationGuards := shouldBypassDurationGuardsForBoundary(reason, isHardBoundary)
 
 		effPess := effectiveDurationPessimism(durationPessimism, boundarySensitive)
-		if shouldSuppressBoundarySensitiveBoundary(durationMs, seekMS, seekUpdatedAt, now, boundarySensitive, reason) {
+		if !bypassDurationGuards && shouldSuppressBoundarySensitiveBoundary(durationMs, seekMS, seekUpdatedAt, now, boundarySensitive, reason) {
 			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
 			log.Printf("VU monitor: boundary suppressed (%s) — boundary-sensitive lock active (%s < %s)",
@@ -452,7 +457,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeSuppressedDurationGuard, reason, isHardBoundary)
 			return
 		}
-		if shouldSuppressBoundary(durationMs, seekMS, seekUpdatedAt, durationGuardBypassUntil, now, effPess) {
+		if !bypassDurationGuards && shouldSuppressBoundary(durationMs, seekMS, seekUpdatedAt, durationGuardBypassUntil, now, effPess) {
 			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
 			suppressUntil := time.Duration(float64(trackDuration) * effPess)
@@ -461,7 +466,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeSuppressedDurationGuard, reason, isHardBoundary)
 			return
 		}
-		if shouldIgnoreBoundaryAtMatureProgress(durationMs, seekMS, seekUpdatedAt, now, effPess) {
+		if !bypassDurationGuards && shouldIgnoreBoundaryAtMatureProgress(durationMs, seekMS, seekUpdatedAt, now, effPess) {
 			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
 			suppressUntil := time.Duration(float64(trackDuration) * normalizedDurationPessimism(effPess))
@@ -474,6 +479,9 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 			}
 			m.recordBoundaryTelemetry(internallibrary.BoundaryOutcomeIgnoredMatureProgress, reason, isHardBoundary)
 			return
+		}
+		if bypassDurationGuards && (durationMs > 0 || seekMS > 0) {
+			log.Printf("VU monitor: hard silence boundary bypasses duration guards (%s)", reason)
 		}
 		durationGuardBypassUntil = time.Time{}
 
