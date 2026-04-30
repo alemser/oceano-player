@@ -725,6 +725,14 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 	}
 
 	_, firstStepSettle, _ := s.usbResetSettings()
+	if isMagnatMR780(ampCfg.Maker, ampCfg.Model) {
+		// Magnat MR 780 requires a longer arming settle in cycle mode; shorter
+		// waits can make the next press select/highlight only.
+		minCycleArmingSettle := 1200 * time.Millisecond
+		if firstStepSettle < minCycleArmingSettle {
+			firstStepSettle = minCycleArmingSettle
+		}
+	}
 	selectionActiveWindow := 1200 * time.Millisecond
 	if !s.inputSelectionIsActive(selectionActiveWindow) {
 		if err := press(); err != nil {
@@ -737,8 +745,11 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 	}
 
 	stepAdvanceWait := firstStepSettle
-	if stepAdvanceWait <= 0 {
-		stepAdvanceWait = 150 * time.Millisecond
+	if isMagnatMR780(ampCfg.Maker, ampCfg.Model) {
+		minCycleStepWait := 250 * time.Millisecond
+		if stepAdvanceWait < minCycleStepWait {
+			stepAdvanceWait = minCycleStepWait
+		}
 	}
 	for i := 0; i < steps; i++ {
 		if err := press(); err != nil {
@@ -752,6 +763,12 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 		}
 	}
 	return nil
+}
+
+func isMagnatMR780(maker, model string) bool {
+	m := strings.ToLower(strings.TrimSpace(maker))
+	mo := strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(m, "magnat") && strings.Contains(mo, "mr 780")
 }
 
 func (s *amplifierServer) pressInputOnce(direction string) error {
