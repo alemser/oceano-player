@@ -746,13 +746,9 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 
 	stepAdvanceWait := stepWait
 	if isMagnatMR780(ampCfg.Maker, ampCfg.Model) {
-		// Keep MR 780 responsive while giving reverse navigation extra settle;
-		// the selector often misses rapid consecutive prev pulses.
-		if strings.EqualFold(strings.TrimSpace(direction), "prev") {
-			stepAdvanceWait = 350 * time.Millisecond
-		} else {
-			stepAdvanceWait = 250 * time.Millisecond
-		}
+		// Keep MR 780 responsive while preventing missed cycle steps on both
+		// directions observed in hardware tests (e.g. FM -> CD stopping at DVD).
+		stepAdvanceWait = 350 * time.Millisecond
 	} else if stepAdvanceWait <= 0 {
 		stepAdvanceWait = firstStepSettle
 	}
