@@ -351,11 +351,7 @@ func (s *amplifierServer) handleAmplifierNextInput(w http.ResponseWriter, r *htt
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
 		return
 	}
-	if err := s.navigateInput(r.Context(), 1, "next"); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			jsonError(w, "request canceled", http.StatusRequestTimeout)
-			return
-		}
+	if err := s.pressInputOnce("next"); err != nil {
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -371,11 +367,7 @@ func (s *amplifierServer) handleAmplifierPrevInput(w http.ResponseWriter, r *htt
 		jsonError(w, "amplifier not configured", http.StatusNotFound)
 		return
 	}
-	if err := s.navigateInput(r.Context(), 1, "prev"); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			jsonError(w, "request canceled", http.StatusRequestTimeout)
-			return
-		}
+	if err := s.pressInputOnce("prev"); err != nil {
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -427,6 +419,15 @@ func (s *amplifierServer) handleAmplifierSelectInput(w http.ResponseWriter, r *h
 		}
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 		return
+	}
+	// Keep backend runtime state aligned with the actual target selected by this
+	// endpoint. This avoids future shortest-path calculations drifting when a
+	// client fails to call /last-known-input after a successful select.
+	if strings.TrimSpace(string(req.TargetInputID)) != "" {
+		if err := s.persistLastKnownInputID(req.TargetInputID); err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusOK)
 }
@@ -750,6 +751,26 @@ func (s *amplifierServer) navigateInput(ctx context.Context, steps int, directio
 			}
 		}
 	}
+	return nil
+}
+
+func (s *amplifierServer) pressInputOnce(direction string) error {
+	if s.amp == nil {
+		return fmt.Errorf("amplifier not configured")
+	}
+	switch strings.ToLower(strings.TrimSpace(direction)) {
+	case "next":
+		if err := s.amp.NextInput(); err != nil {
+			return err
+		}
+	case "prev":
+		if err := s.amp.PrevInput(); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("invalid input direction %q", direction)
+	}
+	s.markInputNavPress()
 	return nil
 }
 

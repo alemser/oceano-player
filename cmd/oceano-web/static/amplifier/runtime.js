@@ -57,6 +57,13 @@ const _powerStateLabels = {
 };
 
 let _ampProcessingCount = 0;
+const AMP_SELECTION_ACTIVE_WINDOW_MS = 1200;
+let _ampLastNavPressAtMs = 0;
+
+function _ampSelectionIsActive() {
+  if (_ampLastNavPressAtMs <= 0) return false;
+  return (Date.now() - _ampLastNavPressAtMs) <= AMP_SELECTION_ACTIVE_WINDOW_MS;
+}
 
 function setAmpProcessing(active) {
   if (active) {
@@ -160,8 +167,12 @@ async function ampVolume(direction) {
 // ── Input navigation buttons ──────────────────────────────────────────────────
 
 async function ampNextInput() {
+  const wasActive = _ampSelectionIsActive();
   const r = await fetch('/api/amplifier/next-input', { method: 'POST' });
   if (!r.ok) return;
+  _ampLastNavPressAtMs = Date.now();
+  // In cycle mode, first click after inactivity only selects/highlights current input.
+  if (!wasActive) return;
   const total = _ampInputsModel.length;
   if (total > 0) {
     _ampCurrentInputIdx = (_ampCurrentInputIdx + 1 + total) % total;
@@ -171,8 +182,12 @@ async function ampNextInput() {
 }
 
 async function ampPrevInput() {
+  const wasActive = _ampSelectionIsActive();
   const r = await fetch('/api/amplifier/prev-input', { method: 'POST' });
   if (!r.ok) return;
+  _ampLastNavPressAtMs = Date.now();
+  // In cycle mode, first click after inactivity only selects/highlights current input.
+  if (!wasActive) return;
   const total = _ampInputsModel.length;
   if (total > 0) {
     _ampCurrentInputIdx = (_ampCurrentInputIdx - 1 + total) % total;
