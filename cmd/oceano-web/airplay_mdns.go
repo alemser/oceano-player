@@ -64,7 +64,7 @@ func (r *airplayDACPServiceResolver) Resolve(ctx context.Context, dacpID, fallba
 			if entry == nil {
 				continue
 			}
-			if !strings.HasPrefix(strings.ToLower(entry.Instance), dacpID) {
+			if !strings.Contains(strings.ToLower(entry.Instance), dacpID) {
 				continue
 			}
 			host := chooseDACPHost(entry, fallbackIP)
@@ -146,7 +146,7 @@ func (r *airplayDACPServiceResolver) WarmUp(dacpID, fallbackIP string) {
 			if entry == nil {
 				continue
 			}
-			if !strings.HasPrefix(strings.ToLower(entry.Instance), dacpID) {
+			if !strings.Contains(strings.ToLower(entry.Instance), dacpID) {
 				continue
 			}
 			host := chooseDACPHost(entry, fallbackIP)
