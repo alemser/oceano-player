@@ -2,13 +2,19 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -83,6 +89,342 @@ func handleStream(configPath string) http.HandlerFunc {
 			}
 		}
 	}
+}
+
+var airplayTransportHTTPClient = &http.Client{Timeout: 2 * time.Second}
+var airplayTransportAmpPowerStateFn = func() string { return "" }
+var airplayTransportServiceResolver airplayTransportResolver = newAirplayDACPServiceResolver()
+
+func handleAirPlayTransportCapabilities(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		resp, ctx, statusCode, err := resolveAirPlayTransportStatus(configPath)
+		if err != nil {
+			http.Error(w, err.Error(), statusCode)
+			return
+		}
+		// Warm up mDNS cache proactively while the session is ready so the
+		// cache is hot by the time a command arrives. iOS polls every ~4s.
+		if resp.Available && ctx.DACPID != "" {
+			go airplayTransportServiceResolver.WarmUp(ctx.DACPID, ctx.ClientIP)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func handleAirPlayTransport(configPath string, limiter *airplayTransportRateLimiter) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		resp, ctx, statusCode, err := resolveAirPlayTransportStatus(configPath)
+		if err != nil {
+			http.Error(w, err.Error(), statusCode)
+			return
+		}
+		// missing_dacp_context is transient: shairport briefly clears the DACP
+		// fields after pause/resume before rehydrating them. Wait and retry once.
+		if !resp.Available && resp.SessionState == "missing_dacp_context" {
+			log.Printf("airplay_transport event=context_retry reason=missing_dacp_context")
+			select {
+			case <-r.Context().Done():
+				http.Error(w, "request cancelled", http.StatusServiceUnavailable)
+				return
+			case <-time.After(900 * time.Millisecond):
+			}
+			resp, ctx, statusCode, err = resolveAirPlayTransportStatus(configPath)
+			if err != nil {
+				http.Error(w, err.Error(), statusCode)
+				return
+			}
+		}
+		if !resp.Available {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":            false,
+				"reason":        fallbackReason(resp.Reason, resp.SessionState),
+				"session_state": resp.SessionState,
+			})
+			return
+		}
+
+		var req struct {
+			Action string `json:"action"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+			return
+		}
+		action := strings.TrimSpace(strings.ToLower(req.Action))
+		cmdPath, ok := mapAirPlayActionToDACPPath(action)
+		if !ok {
+			log.Printf("airplay_transport event=command action=%s result=rejected reason=invalid_action", action)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     false,
+				"reason": "invalid_action",
+			})
+			return
+		}
+		if limiter != nil && !limiter.Allow(action) {
+			log.Printf("airplay_transport event=command action=%s result=rejected reason=rate_limited", action)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     false,
+				"reason": "rate_limited",
+			})
+			return
+		}
+
+		targetHost, targetPort, targetSource, resolveErr := airplayTransportServiceResolver.Resolve(r.Context(), ctx.DACPID, ctx.ClientIP)
+		if resolveErr != nil {
+			log.Printf("airplay_transport event=command action=%s result=failed reason=dacp_discovery_failed dacp_id=%s", action, ctx.DACPID)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     false,
+				"reason": "network_unreachable",
+			})
+			return
+		}
+		targetURL := buildDACPURL(targetHost, targetPort, cmdPath)
+		httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
+		if err != nil {
+			http.Error(w, `{"error":"failed to build dacp request"}`, http.StatusInternalServerError)
+			return
+		}
+		httpReq.Header.Set("Active-Remote", ctx.ActiveRemote)
+
+		httpResp, err := doDACPRequestWithRetry(httpReq, 2)
+		if err != nil {
+			log.Printf("airplay_transport event=command action=%s result=failed reason=network_unreachable target_ip=%s target_port=%d target_source=%s", action, targetHost, targetPort, targetSource)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     false,
+				"reason": "network_unreachable",
+			})
+			return
+		}
+		defer httpResp.Body.Close()
+		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 1024))
+
+		if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+			log.Printf("airplay_transport event=command action=%s result=failed reason=dacp_error status_code=%d target_ip=%s target_port=%d target_source=%s", action, httpResp.StatusCode, targetHost, targetPort, targetSource)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":            false,
+				"reason":        "dacp_error",
+				"status_code":   httpResp.StatusCode,
+				"session_state": resp.SessionState,
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		log.Printf("airplay_transport event=command action=%s result=ok target=%s target_ip=%s target_port=%d target_source=%s", action, cmdPath, targetHost, targetPort, targetSource)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":            true,
+			"action":        action,
+			"target":        cmdPath,
+			"session_state": resp.SessionState,
+		})
+	}
+}
+
+type airplayTransportRateLimiter struct {
+	minInterval time.Duration
+	mu          sync.Mutex
+	lastByKey   map[string]time.Time
+}
+
+func newAirplayTransportRateLimiter(minInterval time.Duration) *airplayTransportRateLimiter {
+	return &airplayTransportRateLimiter{
+		minInterval: minInterval,
+		lastByKey:   map[string]time.Time{},
+	}
+}
+
+func (l *airplayTransportRateLimiter) Allow(key string) bool {
+	if l == nil {
+		return true
+	}
+	key = strings.TrimSpace(strings.ToLower(key))
+	if key == "" {
+		key = "unknown"
+	}
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	last, ok := l.lastByKey[key]
+	if ok && now.Sub(last) < l.minInterval {
+		return false
+	}
+	l.lastByKey[key] = now
+	return true
+}
+
+func doDACPRequestWithRetry(req *http.Request, maxAttempts int) (*http.Response, error) {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		resp, err := airplayTransportHTTPClient.Do(req)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if !isRetryableNetworkError(err) || attempt == maxAttempts {
+			break
+		}
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return nil, lastErr
+}
+
+func isRetryableNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout() || netErr.Temporary()
+	}
+	return false
+}
+
+type airplayTransportCapabilitiesResponse struct {
+	Available        bool     `json:"available"`
+	SessionState     string   `json:"session_state"`
+	SupportedActions []string `json:"supported_actions"`
+	Reason           string   `json:"reason,omitempty"`
+}
+
+type airplayTransportCommandContext struct {
+	ActiveRemote string
+	DACPID       string
+	ClientIP     string
+}
+
+func resolveAirPlayTransportStatus(configPath string) (airplayTransportCapabilitiesResponse, airplayTransportCommandContext, int, error) {
+	resp := airplayTransportCapabilitiesResponse{
+		Available:        false,
+		SessionState:     "no_airplay_session",
+		SupportedActions: []string{"play", "pause", "next", "previous"},
+		Reason:           "no_airplay_session",
+	}
+	cfg, _ := loadConfig(configPath)
+	data, err := os.ReadFile(cfg.Advanced.StateFile)
+	if err != nil {
+		return resp, airplayTransportCommandContext{}, http.StatusServiceUnavailable, fmt.Errorf(`{"error":"state file not found"}`)
+	}
+	var state struct {
+		Source           string `json:"source"`
+		AirPlayTransport *struct {
+			Available    bool   `json:"available"`
+			SessionState string `json:"session_state"`
+			Reason       string `json:"reason,omitempty"`
+			ActiveRemote string `json:"active_remote,omitempty"`
+			DACPID       string `json:"dacp_id,omitempty"`
+			ClientIP     string `json:"client_ip,omitempty"`
+		} `json:"airplay_transport"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&state); err != nil {
+		return resp, airplayTransportCommandContext{}, http.StatusInternalServerError, fmt.Errorf(`{"error":"invalid state file"}`)
+	}
+	if state.Source != "AirPlay" {
+		return resp, airplayTransportCommandContext{}, http.StatusOK, nil
+	}
+	if isAmplifierOffForAirPlay(airplayTransportAmpPowerStateFn()) {
+		resp.SessionState = "amp_off"
+		resp.Reason = "amp_off"
+		return resp, airplayTransportCommandContext{}, http.StatusOK, nil
+	}
+	if state.AirPlayTransport != nil {
+		resp.Available = state.AirPlayTransport.Available
+		if strings.TrimSpace(state.AirPlayTransport.SessionState) != "" {
+			resp.SessionState = strings.TrimSpace(state.AirPlayTransport.SessionState)
+		}
+		resp.Reason = strings.TrimSpace(state.AirPlayTransport.Reason)
+		if !resp.Available && resp.Reason == "" {
+			resp.Reason = resp.SessionState
+		}
+		cmd := airplayTransportCommandContext{
+			ActiveRemote: strings.TrimSpace(state.AirPlayTransport.ActiveRemote),
+			DACPID:       strings.TrimSpace(state.AirPlayTransport.DACPID),
+			ClientIP:     strings.TrimSpace(state.AirPlayTransport.ClientIP),
+		}
+		return resp, cmd, http.StatusOK, nil
+	}
+	resp.SessionState = "missing_dacp_context"
+	resp.Reason = "missing_dacp_context"
+	return resp, airplayTransportCommandContext{}, http.StatusOK, nil
+}
+
+func isAmplifierOffForAirPlay(powerState string) bool {
+	switch strings.TrimSpace(strings.ToLower(powerState)) {
+	case "off", "standby":
+		return true
+	default:
+		return false
+	}
+}
+
+func mapAirPlayActionToDACPPath(action string) (string, bool) {
+	switch action {
+	case "play":
+		return "/ctrl-int/1/play", true
+	case "pause":
+		return "/ctrl-int/1/pause", true
+	case "next":
+		return "/ctrl-int/1/nextitem", true
+	case "previous":
+		return "/ctrl-int/1/previtem", true
+	default:
+		return "", false
+	}
+}
+
+func fallbackReason(reason, sessionState string) string {
+	if strings.TrimSpace(reason) != "" {
+		return reason
+	}
+	return strings.TrimSpace(sessionState)
+}
+
+func buildDACPURL(host string, port int, commandPath string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	if port <= 0 {
+		port = 3689
+	}
+	commandPath = strings.TrimSpace(commandPath)
+	if commandPath == "" {
+		commandPath = "/"
+	}
+	if !strings.HasPrefix(commandPath, "/") {
+		commandPath = "/" + commandPath
+	}
+	return "http://" + net.JoinHostPort(host, fmt.Sprintf("%d", port)) + commandPath
 }
 
 func handleArtwork(configPath string) http.HandlerFunc {

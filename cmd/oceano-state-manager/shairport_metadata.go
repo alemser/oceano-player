@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -153,6 +154,16 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		case "asal": // album
 			changed = m.album != strVal
 			m.album = strVal
+		case "clip": // sender/client IP for DACP transport control
+			normalized := normalizeClientIP(strVal)
+			if normalized != "" {
+				changed = m.airplayDACPClientIP != normalized
+				m.airplayDACPClientIP = normalized
+				m.airplayDACPUpdatedAt = time.Now()
+				if changed {
+					log.Printf("AirPlay DACP: clip received client_ip=%s", normalized)
+				}
+			}
 		}
 		m.mu.Unlock()
 		if changed {
@@ -192,11 +203,26 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 			m.markDirty()
 		}
 
-	case "pend", "pfls", "stop": // play end / flush / stop
+	case "pfls": // play flush — buffer reset during track change; DACP session remains valid
 		m.mu.Lock()
 		wasPlaying := m.airplayPlaying
 		m.airplayPlaying = false
-		m.artworkPath = "" // clear artwork when stopping
+		m.artworkPath = ""
+		m.mu.Unlock()
+		if wasPlaying {
+			m.markDirty()
+			log.Printf("AirPlay: stopped (%s)", code)
+		}
+
+	case "pend", "stop": // play end / stop — actual session end, clear DACP context
+		m.mu.Lock()
+		wasPlaying := m.airplayPlaying
+		m.airplayPlaying = false
+		m.artworkPath = ""
+		m.airplayDACPActiveRemote = ""
+		m.airplayDACPID = ""
+		m.airplayDACPClientIP = ""
+		m.airplayDACPUpdatedAt = time.Time{}
 		m.mu.Unlock()
 		if wasPlaying {
 			m.markDirty()
@@ -239,6 +265,52 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		m.mu.Unlock()
 		m.markDirty()
 		log.Printf("AirPlay: artwork saved → %s", path)
+
+	case "acre": // Active-Remote token for DACP transport control
+		if strVal == "" {
+			return
+		}
+		m.mu.Lock()
+		changed := m.airplayDACPActiveRemote != strVal
+		m.airplayDACPActiveRemote = strVal
+		m.airplayDACPUpdatedAt = time.Now()
+		m.mu.Unlock()
+		if changed {
+			log.Printf("AirPlay DACP: acre received active_remote=%s", redactToken(strVal))
+			m.markDirty()
+		}
+
+	case "daid": // DACP-ID for remote transport control
+		if strVal == "" {
+			return
+		}
+		m.mu.Lock()
+		changed := m.airplayDACPID != strVal
+		m.airplayDACPID = strVal
+		m.airplayDACPUpdatedAt = time.Now()
+		m.mu.Unlock()
+		if changed {
+			log.Printf("AirPlay DACP: daid received dacp_id=%s", redactToken(strVal))
+			m.markDirty()
+		}
+
+	case "clip": // sender/client IP (observed on some shairport builds as ssnc)
+		if strVal == "" {
+			return
+		}
+		normalized := normalizeClientIP(strVal)
+		if normalized == "" {
+			return
+		}
+		m.mu.Lock()
+		changed := m.airplayDACPClientIP != normalized
+		m.airplayDACPClientIP = normalized
+		m.airplayDACPUpdatedAt = time.Now()
+		m.mu.Unlock()
+		if changed {
+			log.Printf("AirPlay DACP: clip received client_ip=%s", normalized)
+			m.markDirty()
+		}
 	}
 }
 
@@ -315,4 +387,30 @@ func decodeTag(hexStr string) string {
 		return ""
 	}
 	return string(b)
+}
+
+func normalizeClientIP(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	if strings.HasPrefix(s, "::ffff:") {
+		s = strings.TrimPrefix(s, "::ffff:")
+	}
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
+}
+
+func redactToken(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if len(s) <= 8 {
+		return s
+	}
+	return s[:4] + "..." + s[len(s)-4:]
 }

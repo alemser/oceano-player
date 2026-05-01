@@ -98,3 +98,26 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 - [ ] Config UI: expose cycle timing fields next to amplifier profile (parity with future web editor).
 - [ ] Now Playing: clearer UX when recognition is skipped (e.g. input policy `off`) — separate UX task.
+
+---
+
+## Log: 2026-05-01 — AirPlay DACP transport backend (phase 2 backend)
+
+**Backend (`feat/airplay-dacp-transport-phase1`)**
+
+| Item | Type | Notes |
+|------|------|--------|
+| `GET /api/airplay/transport-capabilities` | **Semantic** | Now reads DACP context projected by `oceano-state-manager` into `state.json` (`active_remote`, `dacp_id`, `client_ip`) so `oceano-web` does not consume shairport metadata directly. Returns deterministic readiness (`ready`, `no_airplay_session`, `missing_dacp_context`, `session_stale`, `amp_off`). |
+| `POST /api/airplay/transport` | **Additive** | New endpoint with `{ "action": "play|pause|next|previous" }`; validates action and sends DACP request to AirPlay sender (`/ctrl-int/1/...`, `Active-Remote` header). |
+| DACP command reliability | **Semantic** | 2-second timeout + bounded retry for transient network/timeout failures + per-action rate limiting (HTTP 429). Machine-readable failure reasons: `invalid_action`, `missing_dacp_context`, `session_stale`, `network_unreachable`, `dacp_error`, `rate_limited`. |
+| AirPlay readiness observability | **Additive** | `oceano-web` now emits structured readiness transition logs (`event=readiness_transition`, `from`, `to`, `reason`, `available`) to simplify live diagnosis on Pi logs. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] Add transport controls in Now Playing when `source == AirPlay`.
+- [ ] Gate enabled state by `GET /api/airplay/transport-capabilities`.
+- [ ] Call `POST /api/airplay/transport` and surface failures non-blocking.
+
+**Risk**
+
+- [x] medium

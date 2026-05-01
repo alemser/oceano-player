@@ -222,6 +222,11 @@ Behavior:
 - On backend `ok=false`, show non-blocking toast/snackbar with mapped reason.
 - Do not optimistically mutate playback state; rely on stream/state updates.
 
+Companion action:
+- Show a subtle "Open Apple Music" action only when `source == AirPlay`.
+- Tapping it should deep-link to Apple Music app (`music://`) with safe fallback to Apple Music web if the app cannot be opened.
+- This action is a convenience shortcut only; it does not select or target a specific track.
+
 ## B) AirPlay -> amplifier input alignment prompt
 
 Goal:
@@ -294,11 +299,11 @@ Use this as the implementation tracker.
 ## P1 — Backend readiness (capabilities only)
 
 **Backend (`oceano-player`)**
-- [ ] Add DACP session cache module (in-memory, TTL, freshness state).
-- [ ] Parse and store DACP session context from shairport metadata/session events.
-- [ ] Add `GET /api/airplay/transport-capabilities` endpoint.
-- [ ] Return stable `session_state` (`ready`, `no_airplay_session`, `missing_dacp_context`, `session_stale`, `network_unreachable`).
-- [ ] Add structured logs for session readiness transitions.
+- [x] Add DACP session cache module (in-memory, TTL, freshness state).
+- [x] Parse and store DACP session context from shairport metadata/session events.
+- [x] Add `GET /api/airplay/transport-capabilities` endpoint.
+- [x] Return stable `session_state` (`ready`, `no_airplay_session`, `missing_dacp_context`, `session_stale`, `amp_off`; network errors are returned by command endpoint as `network_unreachable`).
+- [x] Add structured logs for session readiness transitions.
 
 **Tests**
 - [ ] Unit tests: valid DACP context parsing.
@@ -315,10 +320,11 @@ Use this as the implementation tracker.
 ## P2 — Backend transport commands + iOS controls
 
 **Backend (`oceano-player`)**
-- [ ] Implement DACP client (play/pause/next/previous mappings).
-- [ ] Add `POST /api/airplay/transport` with action validation.
-- [ ] Return machine-readable `reason` on failure (`session_stale`, `missing_dacp_context`, etc.).
-- [ ] Add timeout + bounded retry policy (safe defaults).
+- [x] Implement DACP client (play/pause/next/previous mappings).
+- [x] Add `POST /api/airplay/transport` with action validation.
+- [x] Return machine-readable `reason` on failure (`session_stale`, `missing_dacp_context`, etc.).
+- [x] Add timeout + bounded retry policy (safe defaults).
+- [x] Add command rate limiting to prevent request bursts.
 
 **iOS (`oceano-player-ios`)**
 - [ ] Add AirPlay transport section in Now Playing.
@@ -326,6 +332,7 @@ Use this as the implementation tracker.
 - [ ] Enable controls only when capabilities endpoint says `available=true`.
 - [ ] Show passive helper text when controls are unavailable.
 - [ ] Handle backend errors with non-blocking feedback (toast/banner).
+- [ ] Add "Open Apple Music" shortcut in Now Playing (visible only in AirPlay; no track targeting).
 
 **Tests**
 - [ ] Backend endpoint tests for valid/invalid actions.

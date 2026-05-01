@@ -26,11 +26,11 @@ const (
 	managerBinary  = "/usr/local/bin/oceano-state-manager"
 	detectorUnit   = "oceano-source-detector.service"
 	managerUnit    = "oceano-state-manager.service"
-	displayUnit       = "oceano-display.service"
-	spiDisplayUnit    = "oceano-now-playing.service"
-	detectorSvc       = "/etc/systemd/system/" + detectorUnit
-	managerSvc        = "/etc/systemd/system/" + managerUnit
-	displayEnvPath    = "/etc/oceano/display.env"
+	displayUnit    = "oceano-display.service"
+	spiDisplayUnit = "oceano-now-playing.service"
+	detectorSvc    = "/etc/systemd/system/" + detectorUnit
+	managerSvc     = "/etc/systemd/system/" + managerUnit
+	displayEnvPath = "/etc/oceano/display.env"
 )
 
 // ALSADevice is a detected ALSA sound card.
@@ -195,6 +195,9 @@ func main() {
 
 	// API: physical media collection (library) and backup/restore.
 	cfg, _ := loadConfig(*configPath)
+	airplayLimiter := newAirplayTransportRateLimiter(250 * time.Millisecond)
+	mux.HandleFunc("/api/airplay/transport-capabilities", handleAirPlayTransportCapabilities(*configPath))
+	mux.HandleFunc("/api/airplay/transport", handleAirPlayTransport(*configPath, airplayLimiter))
 	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir, *configPath)
 	registerBackupRoutes(mux, *libraryDB, cfg.Advanced.ArtworkDir, *configPath)
 	registerHistoryRoutes(mux, *libraryDB)
@@ -212,6 +215,10 @@ func main() {
 	if amp != nil {
 		monitor = amplifier.NewPowerStateMonitor(amp, 30*time.Second, monitorConfigFromAmplifierConfig(cfg.Amplifier))
 		go monitor.Start(context.Background())
+		airplayTransportAmpPowerStateFn = func() string {
+			ps, _ := monitor.Current()
+			return string(ps)
+		}
 	}
 	registerAmplifierRoutes(mux, amp, monitor, *configPath)
 
@@ -577,4 +584,3 @@ func unitContainsExecStart(unitPath, desiredExecStart string) (bool, error) {
 	expectedLine := "ExecStart=" + desiredExecStart
 	return strings.Contains(string(unitBytes), expectedLine), nil
 }
-

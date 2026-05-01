@@ -48,6 +48,18 @@ type RecognitionStatus struct {
 	ActiveInputName string `json:"active_input_name,omitempty"`
 }
 
+// AirPlayTransportStatus reports DACP transport readiness for the current AirPlay
+// session. This allows clients to render transport controls only when the backend
+// has a fresh and complete remote-control context.
+type AirPlayTransportStatus struct {
+	Available    bool   `json:"available"`
+	SessionState string `json:"session_state"`    // ready | no_airplay_session | missing_dacp_context | session_stale
+	Reason       string `json:"reason,omitempty"` // machine-readable explanation when unavailable
+	ActiveRemote string `json:"active_remote,omitempty"`
+	DACPID       string `json:"dacp_id,omitempty"`
+	ClientIP     string `json:"client_ip,omitempty"`
+}
+
 // PlayerState is the unified state written to /tmp/oceano-state.json.
 type PlayerState struct {
 	Source string     `json:"source"`           // AirPlay | Vinyl | CD | Physical | None
@@ -62,8 +74,11 @@ type PlayerState struct {
 	// Physical. False during the post-Physical idle-delay tail when source is
 	// still promoted to CD/Vinyl for UI grace — lets the display avoid "Identifying…"
 	// from REC noise after the amp left the physical path.
-	PhysicalDetectorActive bool   `json:"physical_detector_active"`
-	UpdatedAt              string `json:"updated_at"`
+	PhysicalDetectorActive bool `json:"physical_detector_active"`
+	// AirPlayTransport reports whether DACP transport commands are currently
+	// possible for the active AirPlay session.
+	AirPlayTransport *AirPlayTransportStatus `json:"airplay_transport,omitempty"`
+	UpdatedAt        string                  `json:"updated_at"`
 }
 
 // TrackInfo holds per-track metadata. SeekMS + SeekUpdatedAt allow the UI to

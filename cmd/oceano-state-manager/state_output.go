@@ -66,8 +66,12 @@ func (m *mgr) buildState() PlayerState {
 
 	var track *TrackInfo
 	var recognition *RecognitionStatus
+	var airplayTransport *AirPlayTransportStatus
 	displaySource := source
 	physFmt := "" // populated when Physical source format is known
+	if source == "AirPlay" {
+		airplayTransport = m.buildAirPlayTransportStatusLocked()
+	}
 	if source == "Physical" {
 		// physicalFormat persists across track boundaries so source stays
 		// "CD"/"Vinyl" even when recognitionResult is nil between tracks.
@@ -151,7 +155,39 @@ func (m *mgr) buildState() PlayerState {
 		Track:                  track,
 		Recognition:            recognition,
 		PhysicalDetectorActive: m.physicalSource == "Physical",
+		AirPlayTransport:       airplayTransport,
 		UpdatedAt:              time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func (m *mgr) buildAirPlayTransportStatusLocked() *AirPlayTransportStatus {
+	if !m.airplayPlaying {
+		return &AirPlayTransportStatus{
+			Available:    false,
+			SessionState: "no_airplay_session",
+			Reason:       "no_airplay_session",
+		}
+	}
+	if strings.TrimSpace(m.airplayDACPID) == "" || strings.TrimSpace(m.airplayDACPActiveRemote) == "" || strings.TrimSpace(m.airplayDACPClientIP) == "" {
+		return &AirPlayTransportStatus{
+			Available:    false,
+			SessionState: "missing_dacp_context",
+			Reason:       "missing_dacp_context",
+		}
+	}
+	if m.airplayDACPUpdatedAt.IsZero() || time.Since(m.airplayDACPUpdatedAt) > 5*time.Minute {
+		return &AirPlayTransportStatus{
+			Available:    false,
+			SessionState: "session_stale",
+			Reason:       "session_stale",
+		}
+	}
+	return &AirPlayTransportStatus{
+		Available:    true,
+		SessionState: "ready",
+		ActiveRemote: m.airplayDACPActiveRemote,
+		DACPID:       m.airplayDACPID,
+		ClientIP:     m.airplayDACPClientIP,
 	}
 }
 
@@ -185,35 +221,35 @@ func (m *mgr) buildRecognitionStatusLocked() *RecognitionStatus {
 	// attempts (for example per-input recognition policy "off").
 	if m.recognitionPhase == "no_match" {
 		return &RecognitionStatus{
-			Phase:             "no_match",
-			Detail:            "no_match",
-			ActiveInputID:     inID,
-			ActiveInputName:   inName,
+			Phase:           "no_match",
+			Detail:          "no_match",
+			ActiveInputID:   inID,
+			ActiveInputName: inName,
 		}
 	}
 	if m.recognitionPhase == "off" {
 		return &RecognitionStatus{
-			Phase:             "off",
-			Detail:            "input_policy_off",
-			ActiveInputID:     inID,
-			ActiveInputName:   inName,
+			Phase:           "off",
+			Detail:          "input_policy_off",
+			ActiveInputID:   inID,
+			ActiveInputName: inName,
 		}
 	}
 
 	if time.Now().Before(m.recognizerBusyUntil) {
 		return &RecognitionStatus{
-			Phase:             "identifying",
-			Detail:            "capturing",
-			ActiveInputID:     inID,
-			ActiveInputName:   inName,
+			Phase:           "identifying",
+			Detail:          "capturing",
+			ActiveInputID:   inID,
+			ActiveInputName: inName,
 		}
 	}
 
 	return &RecognitionStatus{
-		Phase:             "identifying",
-		Detail:            "waiting_trigger",
-		ActiveInputID:     inID,
-		ActiveInputName:   inName,
+		Phase:           "identifying",
+		Detail:          "waiting_trigger",
+		ActiveInputID:   inID,
+		ActiveInputName: inName,
 	}
 }
 

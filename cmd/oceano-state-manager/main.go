@@ -30,6 +30,12 @@ type mgr struct {
 	seekMS         int64
 	seekUpdatedAt  time.Time
 	artworkPath    string
+	// AirPlay DACP context extracted from shairport metadata (ssnc acre/daid).
+	// Used for transport capability readiness only (Phase 1).
+	airplayDACPActiveRemote string
+	airplayDACPID           string
+	airplayDACPClientIP     string
+	airplayDACPUpdatedAt    time.Time
 
 	// Bluetooth state (updated by runBluetoothMonitor goroutine)
 	bluetoothConnected     bool // true while a device is Connected=true via Device1
