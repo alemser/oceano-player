@@ -36,6 +36,7 @@ const $streamElapsed = document.getElementById('stream-elapsed');
 const $streamTotal = document.getElementById('stream-total');
 const $identifying = document.getElementById('identifying-label');
 const $recognitionInputPill = document.getElementById('recognition-input-pill');
+const $idleNowSource = document.getElementById('idle-now-source');
 
 function openPowerDialog() {
   document.getElementById('power-dialog')?.classList.add('open');
@@ -248,6 +249,7 @@ function applyState(state) {
   const stateFormat = String(state.format || '').trim();
   const playing = state.state === 'playing';
   const track   = state.track   || null;
+  const recognition = state.recognition || null;
   // True only while the source-detector file says Physical. False during the
   // idle-delay tail (amp already off physical) — avoids stuck "Identifying…"
   // when state.state is still "playing" from VU noise on an inactive REC line.
@@ -269,11 +271,33 @@ function applyState(state) {
     schedulePhysicalGapHoldRepaint(_physicalGapHoldUntilMs - nowMs + 16);
   }
 
+  const recognitionPhase = recognition && recognition.phase
+    ? String(recognition.phase).toLowerCase()
+    : '';
+  const forceIdleForRecognitionOff =
+    playing &&
+    physicalDetectorOn &&
+    isPhysicalPlaybackSource(source) &&
+    recognitionPhase === 'off';
+
   const effectivePlaying = holdActive ? true : playing;
   const effectiveTrack = holdActive && !track ? (_lastState?.track || null) : track;
-  const isIdle = (!effectivePlaying || source === 'None');
+  const isIdle = forceIdleForRecognitionOff || (!effectivePlaying || source === 'None');
   _isIdle = isIdle;
   $idle.classList.toggle('visible', isIdle);
+  if ($idleNowSource) {
+    if (forceIdleForRecognitionOff) {
+      const inputName = recognition && recognition.active_input_name
+        ? String(recognition.active_input_name).trim()
+        : '';
+      const sourceLabel = SOURCE_LABELS[source] || source;
+      $idleNowSource.textContent = inputName ? `Now: ${inputName}` : `Now: ${sourceLabel}`;
+      $idleNowSource.style.display = 'block';
+    } else {
+      $idleNowSource.textContent = '';
+      $idleNowSource.style.display = 'none';
+    }
+  }
   const $ampInd = document.getElementById('amp-indicator');
   if ($ampInd && isIdle) $ampInd.style.display = 'none';
 
@@ -295,7 +319,6 @@ function applyState(state) {
 
   // Track metadata
   const hasTrack = isRecognizedTrack(effectiveTrack);
-  const recognition = state.recognition || null;
   $identifying.className = '';
   $identifying.textContent = '';
   if ($recognitionInputPill) {

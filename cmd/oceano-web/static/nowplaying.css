@@ -563,6 +563,7 @@ body:has(#idle-screen.visible) #amp-indicator {
 #idle-location-label { color: #6070a0; font-weight: 500; }
 .idle-sep { color: #2e3a52; }
 #idle-weather-cond { color: #485878; }
+#idle-now-source { margin-top: 4px; font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: #4f5f82; }
 
 /* Right: stats */
 #idle-meta-stats { display: flex; align-items: center; gap: clamp(18px, 3.5vw, 40px); }
