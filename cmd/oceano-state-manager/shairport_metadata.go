@@ -31,12 +31,7 @@ func (m *mgr) runShairportReader(ctx context.Context) {
 				return
 			}
 			log.Printf("shairport pipe error: %v — retrying in 2s", err)
-
-			m.mu.Lock()
-			wasPlaying := m.airplayPlaying
-			m.airplayPlaying = false
-			m.mu.Unlock()
-			if wasPlaying {
+			if m.resetAirPlaySession("pipe_error") {
 				m.markDirty()
 			}
 
@@ -45,8 +40,52 @@ func (m *mgr) runShairportReader(ctx context.Context) {
 				return
 			case <-time.After(2 * time.Second):
 			}
+			continue
+		}
+
+		// EOF from the FIFO means shairport closed the writer side (service restart,
+		// crash, or session teardown). If we keep the previous AirPlay flags here,
+		// state_output can stay pinned to AirPlay indefinitely.
+		if m.resetAirPlaySession("pipe_closed") {
+			m.markDirty()
 		}
 	}
+}
+
+func (m *mgr) resetAirPlaySession(reason string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	changed := m.airplayPlaying ||
+		m.title != "" ||
+		m.artist != "" ||
+		m.album != "" ||
+		m.durationMS != 0 ||
+		m.seekMS != 0 ||
+		!m.seekUpdatedAt.IsZero() ||
+		m.artworkPath != "" ||
+		m.airplayDACPActiveRemote != "" ||
+		m.airplayDACPID != "" ||
+		m.airplayDACPClientIP != "" ||
+		!m.airplayDACPUpdatedAt.IsZero()
+
+	m.airplayPlaying = false
+	m.title = ""
+	m.artist = ""
+	m.album = ""
+	m.durationMS = 0
+	m.seekMS = 0
+	m.seekUpdatedAt = time.Time{}
+	m.artworkPath = ""
+	m.airplayDACPActiveRemote = ""
+	m.airplayDACPID = ""
+	m.airplayDACPClientIP = ""
+	m.airplayDACPUpdatedAt = time.Time{}
+
+	if changed {
+		log.Printf("AirPlay: session reset (%s)", reason)
+	}
+	return changed
 }
 
 // readPipe opens the FIFO (may block until shairport-sync is running), reads items,
