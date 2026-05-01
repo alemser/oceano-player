@@ -69,7 +69,9 @@ func (m *mgr) buildState() PlayerState {
 	var airplayTransport *AirPlayTransportStatus
 	displaySource := source
 	physFmt := "" // populated when Physical source format is known
-	if source == "AirPlay" {
+	// Build transport status when actively playing OR when DACP context is still
+	// intact after a pause (pfls keeps context; pend/stop clears it).
+	if source == "AirPlay" || strings.TrimSpace(m.airplayDACPID) != "" {
 		airplayTransport = m.buildAirPlayTransportStatusLocked()
 	}
 	if source == "Physical" {
@@ -161,18 +163,16 @@ func (m *mgr) buildState() PlayerState {
 }
 
 func (m *mgr) buildAirPlayTransportStatusLocked() *AirPlayTransportStatus {
-	if !m.airplayPlaying {
+	// DACP context is cleared on pend/stop (session end) but preserved on pfls (pause).
+	// Check context presence first so a paused session stays controllable.
+	dacpPresent := strings.TrimSpace(m.airplayDACPID) != "" &&
+		strings.TrimSpace(m.airplayDACPActiveRemote) != "" &&
+		strings.TrimSpace(m.airplayDACPClientIP) != ""
+	if !dacpPresent {
 		return &AirPlayTransportStatus{
 			Available:    false,
 			SessionState: "no_airplay_session",
 			Reason:       "no_airplay_session",
-		}
-	}
-	if strings.TrimSpace(m.airplayDACPID) == "" || strings.TrimSpace(m.airplayDACPActiveRemote) == "" || strings.TrimSpace(m.airplayDACPClientIP) == "" {
-		return &AirPlayTransportStatus{
-			Available:    false,
-			SessionState: "missing_dacp_context",
-			Reason:       "missing_dacp_context",
 		}
 	}
 	if m.airplayDACPUpdatedAt.IsZero() || time.Since(m.airplayDACPUpdatedAt) > 5*time.Minute {
@@ -182,9 +182,13 @@ func (m *mgr) buildAirPlayTransportStatusLocked() *AirPlayTransportStatus {
 			Reason:       "session_stale",
 		}
 	}
+	sessionState := "ready"
+	if !m.airplayPlaying {
+		sessionState = "paused"
+	}
 	return &AirPlayTransportStatus{
 		Available:    true,
-		SessionState: "ready",
+		SessionState: sessionState,
 		ActiveRemote: m.airplayDACPActiveRemote,
 		DACPID:       m.airplayDACPID,
 		ClientIP:     m.airplayDACPClientIP,

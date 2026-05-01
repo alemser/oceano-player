@@ -350,7 +350,11 @@ func resolveAirPlayTransportStatus(configPath string) (airplayTransportCapabilit
 		return resp, airplayTransportCommandContext{}, http.StatusInternalServerError, fmt.Errorf(`{"error":"invalid state file"}`)
 	}
 	if state.Source != "AirPlay" {
-		return resp, airplayTransportCommandContext{}, http.StatusOK, nil
+		// Source drops to "None" during a pause while DACP context remains valid.
+		// Fall through only when the transport section explicitly signals available.
+		if state.AirPlayTransport == nil || !state.AirPlayTransport.Available {
+			return resp, airplayTransportCommandContext{}, http.StatusOK, nil
+		}
 	}
 	if isAmplifierOffForAirPlay(airplayTransportAmpPowerStateFn()) {
 		resp.SessionState = "amp_off"
