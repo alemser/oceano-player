@@ -124,7 +124,7 @@ func TestApplyItem_AirPlayDACPContext(t *testing.T) {
 	m := newTestMgr()
 	m.applyItem("ssnc", "acre", []byte("123456789"))
 	m.applyItem("ssnc", "daid", []byte("ABCDEF0123456789"))
-	m.applyItem("core", "clip", []byte("192.168.1.44"))
+	m.applyItem("ssnc", "clip", []byte("192.168.1.44"))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.airplayDACPActiveRemote != "123456789" {

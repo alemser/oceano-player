@@ -282,6 +282,24 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 			log.Printf("AirPlay DACP: daid received dacp_id=%s", redactToken(strVal))
 			m.markDirty()
 		}
+
+	case "clip": // sender/client IP (observed on some shairport builds as ssnc)
+		if strVal == "" {
+			return
+		}
+		normalized := normalizeClientIP(strVal)
+		if normalized == "" {
+			return
+		}
+		m.mu.Lock()
+		changed := m.airplayDACPClientIP != normalized
+		m.airplayDACPClientIP = normalized
+		m.airplayDACPUpdatedAt = time.Now()
+		m.mu.Unlock()
+		if changed {
+			log.Printf("AirPlay DACP: clip received client_ip=%s", normalized)
+			m.markDirty()
+		}
 	}
 }
 
