@@ -114,7 +114,27 @@ func TestApplyItem_PlaybackEvents(t *testing.T) {
 	if m.airplayPlaying {
 		t.Error("pend: airplayPlaying should be false")
 	}
+	if m.airplayDACPActiveRemote != "" || m.airplayDACPID != "" {
+		t.Error("pend: DACP context should be cleared")
+	}
 	m.mu.Unlock()
+}
+
+func TestApplyItem_AirPlayDACPContext(t *testing.T) {
+	m := newTestMgr()
+	m.applyItem("ssnc", "acre", []byte("123456789"))
+	m.applyItem("ssnc", "daid", []byte("ABCDEF0123456789"))
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.airplayDACPActiveRemote != "123456789" {
+		t.Fatalf("activeRemote = %q, want 123456789", m.airplayDACPActiveRemote)
+	}
+	if m.airplayDACPID != "ABCDEF0123456789" {
+		t.Fatalf("dacpID = %q, want ABCDEF0123456789", m.airplayDACPID)
+	}
+	if m.airplayDACPUpdatedAt.IsZero() {
+		t.Fatal("airplayDACPUpdatedAt should be set")
+	}
 }
 
 func TestApplyItem_Progress(t *testing.T) {
@@ -161,6 +181,9 @@ func TestApplyItem_ProgressWraparound(t *testing.T) {
 func TestBuildState_AirPlayTakesPriority(t *testing.T) {
 	m := newTestMgr()
 	m.airplayPlaying = true
+	m.airplayDACPActiveRemote = "123"
+	m.airplayDACPID = "ABC"
+	m.airplayDACPUpdatedAt = time.Now()
 	m.physicalSource = "Physical"
 	m.title = "Test"
 	m.seekUpdatedAt = time.Now()
@@ -175,6 +198,27 @@ func TestBuildState_AirPlayTakesPriority(t *testing.T) {
 	}
 	if s.Track == nil {
 		t.Error("track should not be nil when AirPlay is playing")
+	}
+	if s.AirPlayTransport == nil || !s.AirPlayTransport.Available || s.AirPlayTransport.SessionState != "ready" {
+		t.Fatalf("airplay transport = %+v, want ready/available", s.AirPlayTransport)
+	}
+}
+
+func TestBuildState_AirPlayTransportMissingContext(t *testing.T) {
+	m := newTestMgr()
+	m.airplayPlaying = true
+	m.title = "Track"
+	m.seekUpdatedAt = time.Now()
+
+	s := m.buildState()
+	if s.AirPlayTransport == nil {
+		t.Fatal("airplay transport is nil")
+	}
+	if s.AirPlayTransport.Available {
+		t.Fatal("airplay transport should be unavailable without DACP context")
+	}
+	if s.AirPlayTransport.SessionState != "missing_dacp_context" {
+		t.Fatalf("session_state = %q, want missing_dacp_context", s.AirPlayTransport.SessionState)
 	}
 }
 

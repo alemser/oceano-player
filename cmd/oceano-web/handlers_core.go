@@ -85,6 +85,57 @@ func handleStream(configPath string) http.HandlerFunc {
 	}
 }
 
+func handleAirPlayTransportCapabilities(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		cfg, _ := loadConfig(configPath)
+		data, err := os.ReadFile(cfg.Advanced.StateFile)
+		if err != nil {
+			http.Error(w, `{"error":"state file not found"}`, http.StatusServiceUnavailable)
+			return
+		}
+		var state struct {
+			Source           string `json:"source"`
+			AirPlayTransport *struct {
+				Available    bool   `json:"available"`
+				SessionState string `json:"session_state"`
+				Reason       string `json:"reason,omitempty"`
+			} `json:"airplay_transport"`
+		}
+		if err := json.Unmarshal(data, &state); err != nil {
+			http.Error(w, `{"error":"invalid state file"}`, http.StatusInternalServerError)
+			return
+		}
+
+		resp := struct {
+			Available        bool     `json:"available"`
+			SessionState     string   `json:"session_state"`
+			SupportedActions []string `json:"supported_actions"`
+			Reason           string   `json:"reason,omitempty"`
+		}{
+			Available:        false,
+			SessionState:     "no_airplay_session",
+			SupportedActions: []string{"play", "pause", "next", "previous"},
+			Reason:           "no_airplay_session",
+		}
+		if state.Source == "AirPlay" && state.AirPlayTransport != nil {
+			resp.Available = state.AirPlayTransport.Available
+			if strings.TrimSpace(state.AirPlayTransport.SessionState) != "" {
+				resp.SessionState = state.AirPlayTransport.SessionState
+			}
+			resp.Reason = state.AirPlayTransport.Reason
+			if !resp.Available && strings.TrimSpace(resp.Reason) == "" {
+				resp.Reason = resp.SessionState
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
 func handleArtwork(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg, _ := loadConfig(configPath)

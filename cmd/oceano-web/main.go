@@ -190,6 +190,7 @@ func main() {
 	mux.HandleFunc("/api/config", handleConfig(*configPath))
 	mux.HandleFunc("/api/status", handleStatus(*configPath))
 	mux.HandleFunc("/api/stream", handleStream(*configPath))
+	mux.HandleFunc("/api/airplay/transport-capabilities", handleAirPlayTransportCapabilities(*configPath))
 	mux.HandleFunc("/api/artwork", handleArtwork(*configPath))
 	mux.HandleFunc("/api/setup-status", handleSetupStatus(*configPath, *libraryDB))
 

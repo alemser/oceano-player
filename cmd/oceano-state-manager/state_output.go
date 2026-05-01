@@ -66,8 +66,12 @@ func (m *mgr) buildState() PlayerState {
 
 	var track *TrackInfo
 	var recognition *RecognitionStatus
+	var airplayTransport *AirPlayTransportStatus
 	displaySource := source
 	physFmt := "" // populated when Physical source format is known
+	if source == "AirPlay" {
+		airplayTransport = m.buildAirPlayTransportStatusLocked()
+	}
 	if source == "Physical" {
 		// physicalFormat persists across track boundaries so source stays
 		// "CD"/"Vinyl" even when recognitionResult is nil between tracks.
@@ -151,7 +155,36 @@ func (m *mgr) buildState() PlayerState {
 		Track:                  track,
 		Recognition:            recognition,
 		PhysicalDetectorActive: m.physicalSource == "Physical",
+		AirPlayTransport:       airplayTransport,
 		UpdatedAt:              time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func (m *mgr) buildAirPlayTransportStatusLocked() *AirPlayTransportStatus {
+	if !m.airplayPlaying {
+		return &AirPlayTransportStatus{
+			Available:    false,
+			SessionState: "no_airplay_session",
+			Reason:       "no_airplay_session",
+		}
+	}
+	if strings.TrimSpace(m.airplayDACPID) == "" || strings.TrimSpace(m.airplayDACPActiveRemote) == "" {
+		return &AirPlayTransportStatus{
+			Available:    false,
+			SessionState: "missing_dacp_context",
+			Reason:       "missing_dacp_context",
+		}
+	}
+	if m.airplayDACPUpdatedAt.IsZero() || time.Since(m.airplayDACPUpdatedAt) > 5*time.Minute {
+		return &AirPlayTransportStatus{
+			Available:    false,
+			SessionState: "session_stale",
+			Reason:       "session_stale",
+		}
+	}
+	return &AirPlayTransportStatus{
+		Available:    true,
+		SessionState: "ready",
 	}
 }
 

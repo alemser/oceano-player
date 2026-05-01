@@ -197,6 +197,9 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		wasPlaying := m.airplayPlaying
 		m.airplayPlaying = false
 		m.artworkPath = "" // clear artwork when stopping
+		m.airplayDACPActiveRemote = ""
+		m.airplayDACPID = ""
+		m.airplayDACPUpdatedAt = time.Time{}
 		m.mu.Unlock()
 		if wasPlaying {
 			m.markDirty()
@@ -239,6 +242,38 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		m.mu.Unlock()
 		m.markDirty()
 		log.Printf("AirPlay: artwork saved → %s", path)
+
+	case "acre": // Active-Remote token for DACP transport control
+		if strVal == "" {
+			return
+		}
+		m.mu.Lock()
+		changed := m.airplayDACPActiveRemote != strVal
+		m.airplayDACPActiveRemote = strVal
+		m.airplayDACPUpdatedAt = time.Now()
+		m.mu.Unlock()
+		if changed {
+			if m.cfg.Verbose {
+				log.Printf("AirPlay: DACP active-remote context updated")
+			}
+			m.markDirty()
+		}
+
+	case "daid": // DACP-ID for remote transport control
+		if strVal == "" {
+			return
+		}
+		m.mu.Lock()
+		changed := m.airplayDACPID != strVal
+		m.airplayDACPID = strVal
+		m.airplayDACPUpdatedAt = time.Now()
+		m.mu.Unlock()
+		if changed {
+			if m.cfg.Verbose {
+				log.Printf("AirPlay: DACP session id context updated")
+			}
+			m.markDirty()
+		}
 	}
 }
 
