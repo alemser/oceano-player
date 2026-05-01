@@ -246,3 +246,5 @@ func (s staticAirplayTransportResolver) Resolve(_ context.Context, _ string, _ s
 	}
 	return s.host, s.port, s.source, nil
 }
+
+func (s staticAirplayTransportResolver) WarmUp(_ string, _ string) {}

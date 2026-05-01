@@ -18,6 +18,7 @@ type airplayDACPServiceResolver struct {
 
 type airplayTransportResolver interface {
 	Resolve(ctx context.Context, dacpID, fallbackIP string) (string, int, string, error)
+	WarmUp(dacpID, fallbackIP string)
 }
 
 type airplayDACPServiceCacheEntry struct {
@@ -101,17 +102,9 @@ func (r *airplayDACPServiceResolver) setCache(dacpID, host string, port int) {
 	}
 }
 
-func chooseDACPHost(entry *zeroconf.ServiceEntry, fallbackIP string) string {
-	fallbackIP = strings.TrimSpace(fallbackIP)
-	if fallbackIP != "" {
-		preferV4 := strings.Contains(fallbackIP, ".")
-		if preferV4 && len(entry.AddrIPv4) > 0 {
-			return entry.AddrIPv4[0].String()
-		}
-		if !preferV4 && len(entry.AddrIPv6) > 0 {
-			return entry.AddrIPv6[0].String()
-		}
-	}
+// chooseDACPHost always prefers IPv4 — DACP on modern iOS only accepts
+// connections on IPv4 regardless of the client IP family reported by shairport.
+func chooseDACPHost(entry *zeroconf.ServiceEntry, _ string) string {
 	if len(entry.AddrIPv4) > 0 {
 		return entry.AddrIPv4[0].String()
 	}
@@ -123,4 +116,49 @@ func chooseDACPHost(entry *zeroconf.ServiceEntry, fallbackIP string) string {
 		return ip.String()
 	}
 	return ""
+}
+
+// WarmUp runs a background mDNS browse so the cache is hot before a command
+// arrives. Called from the capabilities endpoint which iOS polls every ~4s.
+func (r *airplayDACPServiceResolver) WarmUp(dacpID, fallbackIP string) {
+	dacpID = strings.TrimSpace(strings.ToLower(dacpID))
+	if dacpID == "" {
+		return
+	}
+	if _, _, ok := r.getCache(dacpID); ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	resolver, err := zeroconf.NewResolver(nil)
+	if err != nil {
+		return
+	}
+	entries := make(chan *zeroconf.ServiceEntry, 32)
+	if err := resolver.Browse(ctx, "_dacp._tcp", "local.", entries); err != nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case entry := <-entries:
+			if entry == nil {
+				continue
+			}
+			if !strings.HasPrefix(strings.ToLower(entry.Instance), dacpID) {
+				continue
+			}
+			host := chooseDACPHost(entry, fallbackIP)
+			if host == "" {
+				continue
+			}
+			port := entry.Port
+			if port <= 0 {
+				port = 3689
+			}
+			r.setCache(dacpID, host, port)
+			return
+		}
+	}
 }

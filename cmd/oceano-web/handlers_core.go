@@ -101,10 +101,15 @@ func handleAirPlayTransportCapabilities(configPath string) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		resp, _, statusCode, err := resolveAirPlayTransportStatus(configPath)
+		resp, ctx, statusCode, err := resolveAirPlayTransportStatus(configPath)
 		if err != nil {
 			http.Error(w, err.Error(), statusCode)
 			return
+		}
+		// Warm up mDNS cache proactively while the session is ready so the
+		// cache is hot by the time a command arrives. iOS polls every ~4s.
+		if resp.Available && ctx.DACPID != "" {
+			go airplayTransportServiceResolver.WarmUp(ctx.DACPID, ctx.ClientIP)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
