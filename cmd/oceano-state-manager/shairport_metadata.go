@@ -160,6 +160,9 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 				changed = m.airplayDACPClientIP != normalized
 				m.airplayDACPClientIP = normalized
 				m.airplayDACPUpdatedAt = time.Now()
+				if changed {
+					log.Printf("AirPlay DACP: clip received client_ip=%s", normalized)
+				}
 			}
 		}
 		m.mu.Unlock()
@@ -262,9 +265,7 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		m.airplayDACPUpdatedAt = time.Now()
 		m.mu.Unlock()
 		if changed {
-			if m.cfg.Verbose {
-				log.Printf("AirPlay: DACP active-remote context updated")
-			}
+			log.Printf("AirPlay DACP: acre received active_remote=%s", redactToken(strVal))
 			m.markDirty()
 		}
 
@@ -278,9 +279,7 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		m.airplayDACPUpdatedAt = time.Now()
 		m.mu.Unlock()
 		if changed {
-			if m.cfg.Verbose {
-				log.Printf("AirPlay: DACP session id context updated")
-			}
+			log.Printf("AirPlay DACP: daid received dacp_id=%s", redactToken(strVal))
 			m.markDirty()
 		}
 	}
@@ -374,4 +373,15 @@ func normalizeClientIP(raw string) string {
 		return ""
 	}
 	return ip.String()
+}
+
+func redactToken(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if len(s) <= 8 {
+		return s
+	}
+	return s[:4] + "..." + s[len(s)-4:]
 }
