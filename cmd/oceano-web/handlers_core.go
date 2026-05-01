@@ -92,6 +92,7 @@ func handleStream(configPath string) http.HandlerFunc {
 }
 
 var airplayTransportHTTPClient = &http.Client{Timeout: 2 * time.Second}
+var airplayTransportAmpPowerStateFn = func() string { return "" }
 
 func handleAirPlayTransportCapabilities(configPath string, dacpReader airplayDACPContextReader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -304,6 +305,11 @@ func resolveAirPlayTransportStatus(configPath string, dacpReader airplayDACPCont
 	if state.Source != "AirPlay" {
 		return resp, airplayDACPContext{}, http.StatusOK, nil
 	}
+	if isAmplifierOffForAirPlay(airplayTransportAmpPowerStateFn()) {
+		resp.SessionState = "amp_off"
+		resp.Reason = "amp_off"
+		return resp, airplayDACPContext{}, http.StatusOK, nil
+	}
 
 	resp.Reason = "missing_dacp_context"
 	resp.SessionState = "missing_dacp_context"
@@ -323,6 +329,15 @@ func resolveAirPlayTransportStatus(configPath string, dacpReader airplayDACPCont
 	resp.SessionState = "ready"
 	resp.Reason = ""
 	return resp, snapshot, http.StatusOK, nil
+}
+
+func isAmplifierOffForAirPlay(powerState string) bool {
+	switch strings.TrimSpace(strings.ToLower(powerState)) {
+	case "off", "standby":
+		return true
+	default:
+		return false
+	}
 }
 
 func mapAirPlayActionToDACPPath(action string) (string, bool) {

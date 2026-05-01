@@ -85,6 +85,38 @@ func TestAirPlayTransportCapabilities_NoSession(t *testing.T) {
 	}
 }
 
+func TestAirPlayTransportCapabilities_AmpOff(t *testing.T) {
+	origAmpStateFn := airplayTransportAmpPowerStateFn
+	airplayTransportAmpPowerStateFn = func() string { return "standby" }
+	t.Cleanup(func() { airplayTransportAmpPowerStateFn = origAmpStateFn })
+
+	tmp := t.TempDir()
+	statePath := filepath.Join(tmp, "state.json")
+	stateJSON := `{"source":"AirPlay","state":"playing"}`
+	if err := os.WriteFile(statePath, []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+	configPath := writeTestConfigWithStateFile(t, statePath)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/airplay/transport-capabilities", nil)
+	rr := httptest.NewRecorder()
+	handleAirPlayTransportCapabilities(configPath, staticDACPContextReader{}).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Available    bool   `json:"available"`
+		SessionState string `json:"session_state"`
+		Reason       string `json:"reason"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Available || resp.SessionState != "amp_off" || resp.Reason != "amp_off" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+}
+
 func TestAirPlayTransport_ActionInvalid(t *testing.T) {
 	tmp := t.TempDir()
 	statePath := filepath.Join(tmp, "state.json")

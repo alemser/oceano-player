@@ -302,7 +302,7 @@ Use this as the implementation tracker.
 - [x] Add DACP session cache module (in-memory, TTL, freshness state).
 - [x] Parse and store DACP session context from shairport metadata/session events.
 - [x] Add `GET /api/airplay/transport-capabilities` endpoint.
-- [x] Return stable `session_state` (`ready`, `no_airplay_session`, `missing_dacp_context`, `session_stale`; network errors are returned by command endpoint as `network_unreachable`).
+- [x] Return stable `session_state` (`ready`, `no_airplay_session`, `missing_dacp_context`, `session_stale`, `amp_off`; network errors are returned by command endpoint as `network_unreachable`).
 - [x] Add structured logs for session readiness transitions.
 
 **Tests**

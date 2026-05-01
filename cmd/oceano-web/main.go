@@ -219,6 +219,10 @@ func main() {
 	if amp != nil {
 		monitor = amplifier.NewPowerStateMonitor(amp, 30*time.Second, monitorConfigFromAmplifierConfig(cfg.Amplifier))
 		go monitor.Start(context.Background())
+		airplayTransportAmpPowerStateFn = func() string {
+			ps, _ := monitor.Current()
+			return string(ps)
+		}
 	}
 	registerAmplifierRoutes(mux, amp, monitor, *configPath)
 
