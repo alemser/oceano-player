@@ -60,7 +60,9 @@ func shouldBypassBackoff(isBoundaryTrigger, backoffRateLimited bool) bool {
 }
 
 func shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth bool) bool {
-	return !isPhysical || isAirPlay || isBluetooth
+	_ = isAirPlay
+	_ = isBluetooth
+	return !isPhysical
 }
 
 func recognitionLogFields(result *RecognitionResult) (string, string) {
@@ -506,10 +508,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			isPhysical := c.mgr.physicalSource == "Physical"
 			hasRecognition := c.mgr.recognitionResult != nil
 			lastRecogAt := c.mgr.lastRecognizedAt
-			fallbackBluetooth := c.mgr.bluetoothPlaying
-			fallbackAirPlay := c.mgr.airplayPlaying
 			c.mgr.mu.Unlock()
-			if !isPhysical || fallbackAirPlay || fallbackBluetooth {
+			if !isPhysical {
 				fallbackTimer.Reset(c.mgr.cfg.RecognizerMaxInterval)
 				continue
 			}
@@ -545,12 +545,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		c.mgr.mu.Unlock()
 		if shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth) {
 			if c.mgr.cfg.Verbose {
-				switch {
-				case isAirPlay:
-					log.Printf("recognizer [%s]: skipping — AirPlay is active", c.rec.Name())
-				case isBluetooth:
-					log.Printf("recognizer [%s]: skipping — Bluetooth is active", c.rec.Name())
-				}
+				log.Printf("recognizer [%s]: skipping — physical source is not active", c.rec.Name())
 			}
 			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
 				Outcome: internallibrary.FollowupOutcomeSkippedCoordinator,
@@ -622,7 +617,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		isAirPlayNow := c.mgr.airplayPlaying
 		isBluetoothNow := c.mgr.bluetoothPlaying
 		c.mgr.mu.Unlock()
-		if !isPhysicalNow || isAirPlayNow || isBluetoothNow {
+		if !isPhysicalNow {
 			log.Printf("recognizer [%s]: ABORTING recognition — source changed: isPhysical=%v isAirPlay=%v isBluetooth=%v", c.rec.Name(), isPhysicalNow, isAirPlayNow, isBluetoothNow)
 			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{
 				Outcome: internallibrary.FollowupOutcomeSkippedCoordinator,
@@ -717,7 +712,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 		isAirPlayFinal := c.mgr.airplayPlaying
 		isBluetoothFinal := c.mgr.bluetoothPlaying
 		c.mgr.mu.Unlock()
-		if !isPhysicalFinal || isAirPlayFinal || isBluetoothFinal {
+		if !isPhysicalFinal {
 			log.Printf("recognizer [%s]: discarding result — source changed during capture/recognition (isPhysical=%v isAirPlay=%v isBluetooth=%v)",
 				c.rec.Name(), isPhysicalFinal, isAirPlayFinal, isBluetoothFinal)
 			c.linkBoundaryFollowup(isBoundaryTrigger, boundaryEventID, internallibrary.BoundaryRecognitionFollowup{

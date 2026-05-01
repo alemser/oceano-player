@@ -12,7 +12,7 @@ import (
 )
 
 // buildState merges AirPlay and physical source state into the output schema.
-// Source priority: AirPlay (active session) > physical detector (Vinyl/CD) > None.
+// Source priority: physical detector (Vinyl/CD) > AirPlay (active session) > Bluetooth > None.
 //
 // Idle delay: when physical audio stops, the last track is kept visible for
 // IdleDelay seconds before switching to the idle screen. This covers the normal
@@ -42,12 +42,6 @@ func (m *mgr) buildState() PlayerState {
 		(!m.lastPhysicalAt.IsZero() && time.Since(m.lastPhysicalAt) < m.cfg.IdleDelay)
 
 	switch {
-	case m.airplayPlaying:
-		source = "AirPlay"
-		state = "playing"
-	case m.bluetoothPlaying:
-		source = "Bluetooth"
-		state = "playing"
 	case physicalActive:
 		source = "Physical"
 		if m.physicalSource != "Physical" {
@@ -62,6 +56,12 @@ func (m *mgr) buildState() PlayerState {
 		} else {
 			state = "idle"
 		}
+	case m.airplayPlaying:
+		source = "AirPlay"
+		state = "playing"
+	case m.bluetoothPlaying:
+		source = "Bluetooth"
+		state = "playing"
 	}
 
 	var track *TrackInfo

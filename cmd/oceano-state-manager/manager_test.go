@@ -182,7 +182,7 @@ func TestApplyItem_ProgressWraparound(t *testing.T) {
 
 // --- buildState priority ---
 
-func TestBuildState_AirPlayTakesPriority(t *testing.T) {
+func TestBuildState_PhysicalTakesPriorityOverAirPlay(t *testing.T) {
 	m := newTestMgr()
 	m.airplayPlaying = true
 	m.airplayDACPActiveRemote = "123"
@@ -195,17 +195,17 @@ func TestBuildState_AirPlayTakesPriority(t *testing.T) {
 
 	s := m.buildState()
 
-	if s.Source != "AirPlay" {
-		t.Errorf("source = %q, want AirPlay (streaming must take priority over physical)", s.Source)
+	if s.Source != "Physical" {
+		t.Errorf("source = %q, want Physical (physical detector must take priority over streaming)", s.Source)
 	}
 	if s.State != "playing" {
 		t.Errorf("state = %q, want playing", s.State)
 	}
-	if s.Track == nil {
-		t.Error("track should not be nil when AirPlay is playing")
+	if s.Track != nil {
+		t.Error("track should be nil when physical source has no recognition result yet")
 	}
 	if s.AirPlayTransport == nil || !s.AirPlayTransport.Available || s.AirPlayTransport.SessionState != "ready" {
-		t.Fatalf("airplay transport = %+v, want ready/available", s.AirPlayTransport)
+		t.Fatalf("airplay transport = %+v, want ready/available (transport stays exposed even when Physical wins)", s.AirPlayTransport)
 	}
 }
 

@@ -28,9 +28,9 @@ func TestShouldSkipRecognitionAttempt(t *testing.T) {
 	}{
 		{name: "physical no streaming", isPhysical: true, isAirPlay: false, isBluetooth: false, want: false},
 		{name: "none source", isPhysical: false, isAirPlay: false, isBluetooth: false, want: true},
-		{name: "airplay active", isPhysical: true, isAirPlay: true, isBluetooth: false, want: true},
-		{name: "bluetooth active", isPhysical: true, isAirPlay: false, isBluetooth: true, want: true},
-		{name: "both streaming", isPhysical: true, isAirPlay: true, isBluetooth: true, want: true},
+		{name: "airplay active still allows physical", isPhysical: true, isAirPlay: true, isBluetooth: false, want: false},
+		{name: "bluetooth active still allows physical", isPhysical: true, isAirPlay: false, isBluetooth: true, want: false},
+		{name: "both streaming still allow physical", isPhysical: true, isAirPlay: true, isBluetooth: true, want: false},
 	}
 
 	for _, tt := range tests {
