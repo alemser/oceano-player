@@ -101,7 +101,7 @@ func TestAirPlayTransport_ActionInvalid(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/airplay/transport", bytes.NewBufferString(`{"action":"skip"}`))
 	rr := httptest.NewRecorder()
-	handleAirPlayTransport(configPath, reader).ServeHTTP(rr, req)
+	handleAirPlayTransport(configPath, reader, nil).ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -116,7 +116,7 @@ func TestAirPlayTransport_NoSession(t *testing.T) {
 	configPath := writeTestConfigWithStateFile(t, statePath)
 	req := httptest.NewRequest(http.MethodPost, "/api/airplay/transport", bytes.NewBufferString(`{"action":"pause"}`))
 	rr := httptest.NewRecorder()
-	handleAirPlayTransport(configPath, staticDACPContextReader{}).ServeHTTP(rr, req)
+	handleAirPlayTransport(configPath, staticDACPContextReader{}, nil).ServeHTTP(rr, req)
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("want 409, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -162,7 +162,7 @@ func TestAirPlayTransport_ExecutesCommand(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/airplay/transport", bytes.NewBufferString(`{"action":"next"}`))
 	rr := httptest.NewRecorder()
-	handleAirPlayTransport(configPath, reader).ServeHTTP(rr, req)
+	handleAirPlayTransport(configPath, reader, nil).ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -171,6 +171,34 @@ func TestAirPlayTransport_ExecutesCommand(t *testing.T) {
 	}
 	if gotActiveRemote != "9999" {
 		t.Fatalf("unexpected Active-Remote header: %q", gotActiveRemote)
+	}
+}
+
+func TestAirPlayTransport_RateLimited(t *testing.T) {
+	tmp := t.TempDir()
+	statePath := filepath.Join(tmp, "state.json")
+	if err := os.WriteFile(statePath, []byte(`{"source":"AirPlay"}`), 0o644); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+	configPath := writeTestConfigWithStateFile(t, statePath)
+	reader := staticDACPContextReader{ctx: airplayDACPContext{
+		ActiveRemote: "9999",
+		DACPID:       "aa",
+		ClientIP:     "127.0.0.1",
+		UpdatedAt:    time.Now(),
+	}}
+	limiter := newAirplayTransportRateLimiter(30 * time.Second)
+
+	req1 := httptest.NewRequest(http.MethodPost, "/api/airplay/transport", bytes.NewBufferString(`{"action":"next"}`))
+	rr1 := httptest.NewRecorder()
+	handleAirPlayTransport(configPath, reader, limiter).ServeHTTP(rr1, req1)
+
+	req2 := httptest.NewRequest(http.MethodPost, "/api/airplay/transport", bytes.NewBufferString(`{"action":"next"}`))
+	rr2 := httptest.NewRecorder()
+	handleAirPlayTransport(configPath, reader, limiter).ServeHTTP(rr2, req2)
+
+	if rr2.Code != http.StatusTooManyRequests {
+		t.Fatalf("want 429, got %d: %s", rr2.Code, rr2.Body.String())
 	}
 }
 

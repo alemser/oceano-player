@@ -298,7 +298,7 @@ Use this as the implementation tracker.
 - [x] Parse and store DACP session context from shairport metadata/session events.
 - [x] Add `GET /api/airplay/transport-capabilities` endpoint.
 - [x] Return stable `session_state` (`ready`, `no_airplay_session`, `missing_dacp_context`, `session_stale`; network errors are returned by command endpoint as `network_unreachable`).
-- [ ] Add structured logs for session readiness transitions.
+- [x] Add structured logs for session readiness transitions.
 
 **Tests**
 - [ ] Unit tests: valid DACP context parsing.
@@ -319,6 +319,7 @@ Use this as the implementation tracker.
 - [x] Add `POST /api/airplay/transport` with action validation.
 - [x] Return machine-readable `reason` on failure (`session_stale`, `missing_dacp_context`, etc.).
 - [x] Add timeout + bounded retry policy (safe defaults).
+- [x] Add command rate limiting to prevent request bursts.
 
 **iOS (`oceano-player-ios`)**
 - [ ] Add AirPlay transport section in Now Playing.

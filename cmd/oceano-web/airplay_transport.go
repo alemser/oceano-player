@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"log"
 	"net"
 	"os"
 	"regexp"
@@ -211,4 +212,39 @@ func decodeTag(hexStr string) string {
 		return strings.ToLower(hexStr)
 	}
 	return strings.ToLower(string(b))
+}
+
+func startAirplayReadinessLogger(ctx context.Context, configPath string, dacpReader airplayDACPContextReader, interval time.Duration) {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		last := ""
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				resp, _, _, err := resolveAirPlayTransportStatus(configPath, dacpReader)
+				if err != nil {
+					continue
+				}
+				sig := resp.SessionState + "|" + fallbackReason(resp.Reason, resp.SessionState)
+				if sig == last {
+					continue
+				}
+				if last == "" {
+					log.Printf("airplay_transport event=readiness_transition from=unknown to=%s reason=%s available=%t", resp.SessionState, fallbackReason(resp.Reason, resp.SessionState), resp.Available)
+				} else {
+					parts := strings.SplitN(last, "|", 2)
+					from := parts[0]
+					log.Printf("airplay_transport event=readiness_transition from=%s to=%s reason=%s available=%t", from, resp.SessionState, fallbackReason(resp.Reason, resp.SessionState), resp.Available)
+				}
+				last = sig
+			}
+		}
+	}()
 }

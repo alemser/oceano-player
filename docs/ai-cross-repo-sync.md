@@ -109,7 +109,8 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 |------|------|--------|
 | `GET /api/airplay/transport-capabilities` | **Semantic** | Now uses live DACP context from shairport metadata pipe (`acre`, `daid`, `clip`) in `oceano-web`; returns deterministic readiness (`ready`, `no_airplay_session`, `missing_dacp_context`, `session_stale`). |
 | `POST /api/airplay/transport` | **Additive** | New endpoint with `{ "action": "play|pause|next|previous" }`; validates action and sends DACP request to AirPlay sender (`/ctrl-int/1/...`, `Active-Remote` header). |
-| DACP command reliability | **Semantic** | 2-second timeout + bounded retry for transient network/timeout failures. Machine-readable failure reasons: `invalid_action`, `missing_dacp_context`, `session_stale`, `network_unreachable`, `dacp_error`. |
+| DACP command reliability | **Semantic** | 2-second timeout + bounded retry for transient network/timeout failures + per-action rate limiting (HTTP 429). Machine-readable failure reasons: `invalid_action`, `missing_dacp_context`, `session_stale`, `network_unreachable`, `dacp_error`, `rate_limited`. |
+| AirPlay readiness observability | **Additive** | `oceano-web` now emits structured readiness transition logs (`event=readiness_transition`, `from`, `to`, `reason`, `available`) to simplify live diagnosis on Pi logs. |
 
 **iOS follow-up (`oceano-player-ios`)**
 

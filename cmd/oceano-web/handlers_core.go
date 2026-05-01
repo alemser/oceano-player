@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -107,7 +109,7 @@ func handleAirPlayTransportCapabilities(configPath string, dacpReader airplayDAC
 	}
 }
 
-func handleAirPlayTransport(configPath string, dacpReader airplayDACPContextReader) http.HandlerFunc {
+func handleAirPlayTransport(configPath string, dacpReader airplayDACPContextReader, limiter *airplayTransportRateLimiter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -139,11 +141,22 @@ func handleAirPlayTransport(configPath string, dacpReader airplayDACPContextRead
 		action := strings.TrimSpace(strings.ToLower(req.Action))
 		cmdPath, ok := mapAirPlayActionToDACPPath(action)
 		if !ok {
+			log.Printf("airplay_transport event=command action=%s result=rejected reason=invalid_action", action)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":     false,
 				"reason": "invalid_action",
+			})
+			return
+		}
+		if limiter != nil && !limiter.Allow(action) {
+			log.Printf("airplay_transport event=command action=%s result=rejected reason=rate_limited", action)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     false,
+				"reason": "rate_limited",
 			})
 			return
 		}
@@ -158,6 +171,7 @@ func handleAirPlayTransport(configPath string, dacpReader airplayDACPContextRead
 
 		httpResp, err := doDACPRequestWithRetry(httpReq, 2)
 		if err != nil {
+			log.Printf("airplay_transport event=command action=%s result=failed reason=network_unreachable target_ip=%s", action, ctx.ClientIP)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -170,6 +184,7 @@ func handleAirPlayTransport(configPath string, dacpReader airplayDACPContextRead
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 1024))
 
 		if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+			log.Printf("airplay_transport event=command action=%s result=failed reason=dacp_error status_code=%d target_ip=%s", action, httpResp.StatusCode, ctx.ClientIP)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadGateway)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -182,6 +197,7 @@ func handleAirPlayTransport(configPath string, dacpReader airplayDACPContextRead
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		log.Printf("airplay_transport event=command action=%s result=ok target=%s target_ip=%s", action, cmdPath, ctx.ClientIP)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":            true,
 			"action":        action,
@@ -189,6 +205,38 @@ func handleAirPlayTransport(configPath string, dacpReader airplayDACPContextRead
 			"session_state": resp.SessionState,
 		})
 	}
+}
+
+type airplayTransportRateLimiter struct {
+	minInterval time.Duration
+	mu          sync.Mutex
+	lastByKey   map[string]time.Time
+}
+
+func newAirplayTransportRateLimiter(minInterval time.Duration) *airplayTransportRateLimiter {
+	return &airplayTransportRateLimiter{
+		minInterval: minInterval,
+		lastByKey:   map[string]time.Time{},
+	}
+}
+
+func (l *airplayTransportRateLimiter) Allow(key string) bool {
+	if l == nil {
+		return true
+	}
+	key = strings.TrimSpace(strings.ToLower(key))
+	if key == "" {
+		key = "unknown"
+	}
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	last, ok := l.lastByKey[key]
+	if ok && now.Sub(last) < l.minInterval {
+		return false
+	}
+	l.lastByKey[key] = now
+	return true
 }
 
 func doDACPRequestWithRetry(req *http.Request, maxAttempts int) (*http.Response, error) {
