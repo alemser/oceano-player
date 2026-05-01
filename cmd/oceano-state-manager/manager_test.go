@@ -114,7 +114,7 @@ func TestApplyItem_PlaybackEvents(t *testing.T) {
 	if m.airplayPlaying {
 		t.Error("pend: airplayPlaying should be false")
 	}
-	if m.airplayDACPActiveRemote != "" || m.airplayDACPID != "" {
+	if m.airplayDACPActiveRemote != "" || m.airplayDACPID != "" || m.airplayDACPClientIP != "" {
 		t.Error("pend: DACP context should be cleared")
 	}
 	m.mu.Unlock()
@@ -124,6 +124,7 @@ func TestApplyItem_AirPlayDACPContext(t *testing.T) {
 	m := newTestMgr()
 	m.applyItem("ssnc", "acre", []byte("123456789"))
 	m.applyItem("ssnc", "daid", []byte("ABCDEF0123456789"))
+	m.applyItem("core", "clip", []byte("192.168.1.44"))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.airplayDACPActiveRemote != "123456789" {
@@ -131,6 +132,9 @@ func TestApplyItem_AirPlayDACPContext(t *testing.T) {
 	}
 	if m.airplayDACPID != "ABCDEF0123456789" {
 		t.Fatalf("dacpID = %q, want ABCDEF0123456789", m.airplayDACPID)
+	}
+	if m.airplayDACPClientIP != "192.168.1.44" {
+		t.Fatalf("clientIP = %q, want 192.168.1.44", m.airplayDACPClientIP)
 	}
 	if m.airplayDACPUpdatedAt.IsZero() {
 		t.Fatal("airplayDACPUpdatedAt should be set")
@@ -183,6 +187,7 @@ func TestBuildState_AirPlayTakesPriority(t *testing.T) {
 	m.airplayPlaying = true
 	m.airplayDACPActiveRemote = "123"
 	m.airplayDACPID = "ABC"
+	m.airplayDACPClientIP = "127.0.0.1"
 	m.airplayDACPUpdatedAt = time.Now()
 	m.physicalSource = "Physical"
 	m.title = "Test"

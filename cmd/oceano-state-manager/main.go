@@ -34,6 +34,7 @@ type mgr struct {
 	// Used for transport capability readiness only (Phase 1).
 	airplayDACPActiveRemote string
 	airplayDACPID           string
+	airplayDACPClientIP     string
 	airplayDACPUpdatedAt    time.Time
 
 	// Bluetooth state (updated by runBluetoothMonitor goroutine)

@@ -94,13 +94,13 @@ func handleStream(configPath string) http.HandlerFunc {
 var airplayTransportHTTPClient = &http.Client{Timeout: 2 * time.Second}
 var airplayTransportAmpPowerStateFn = func() string { return "" }
 
-func handleAirPlayTransportCapabilities(configPath string, dacpReader airplayDACPContextReader) http.HandlerFunc {
+func handleAirPlayTransportCapabilities(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		resp, _, statusCode, err := resolveAirPlayTransportStatus(configPath, dacpReader)
+		resp, _, statusCode, err := resolveAirPlayTransportStatus(configPath)
 		if err != nil {
 			http.Error(w, err.Error(), statusCode)
 			return
@@ -110,13 +110,13 @@ func handleAirPlayTransportCapabilities(configPath string, dacpReader airplayDAC
 	}
 }
 
-func handleAirPlayTransport(configPath string, dacpReader airplayDACPContextReader, limiter *airplayTransportRateLimiter) http.HandlerFunc {
+func handleAirPlayTransport(configPath string, limiter *airplayTransportRateLimiter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		resp, ctx, statusCode, err := resolveAirPlayTransportStatus(configPath, dacpReader)
+		resp, ctx, statusCode, err := resolveAirPlayTransportStatus(configPath)
 		if err != nil {
 			http.Error(w, err.Error(), statusCode)
 			return
@@ -284,7 +284,13 @@ type airplayTransportCapabilitiesResponse struct {
 	Reason           string   `json:"reason,omitempty"`
 }
 
-func resolveAirPlayTransportStatus(configPath string, dacpReader airplayDACPContextReader) (airplayTransportCapabilitiesResponse, airplayDACPContext, int, error) {
+type airplayTransportCommandContext struct {
+	ActiveRemote string
+	DACPID       string
+	ClientIP     string
+}
+
+func resolveAirPlayTransportStatus(configPath string) (airplayTransportCapabilitiesResponse, airplayTransportCommandContext, int, error) {
 	resp := airplayTransportCapabilitiesResponse{
 		Available:        false,
 		SessionState:     "no_airplay_session",
@@ -294,41 +300,49 @@ func resolveAirPlayTransportStatus(configPath string, dacpReader airplayDACPCont
 	cfg, _ := loadConfig(configPath)
 	data, err := os.ReadFile(cfg.Advanced.StateFile)
 	if err != nil {
-		return resp, airplayDACPContext{}, http.StatusServiceUnavailable, fmt.Errorf(`{"error":"state file not found"}`)
+		return resp, airplayTransportCommandContext{}, http.StatusServiceUnavailable, fmt.Errorf(`{"error":"state file not found"}`)
 	}
 	var state struct {
-		Source string `json:"source"`
+		Source           string `json:"source"`
+		AirPlayTransport *struct {
+			Available    bool   `json:"available"`
+			SessionState string `json:"session_state"`
+			Reason       string `json:"reason,omitempty"`
+			ActiveRemote string `json:"active_remote,omitempty"`
+			DACPID       string `json:"dacp_id,omitempty"`
+			ClientIP     string `json:"client_ip,omitempty"`
+		} `json:"airplay_transport"`
 	}
 	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&state); err != nil {
-		return resp, airplayDACPContext{}, http.StatusInternalServerError, fmt.Errorf(`{"error":"invalid state file"}`)
+		return resp, airplayTransportCommandContext{}, http.StatusInternalServerError, fmt.Errorf(`{"error":"invalid state file"}`)
 	}
 	if state.Source != "AirPlay" {
-		return resp, airplayDACPContext{}, http.StatusOK, nil
+		return resp, airplayTransportCommandContext{}, http.StatusOK, nil
 	}
 	if isAmplifierOffForAirPlay(airplayTransportAmpPowerStateFn()) {
 		resp.SessionState = "amp_off"
 		resp.Reason = "amp_off"
-		return resp, airplayDACPContext{}, http.StatusOK, nil
+		return resp, airplayTransportCommandContext{}, http.StatusOK, nil
 	}
-
-	resp.Reason = "missing_dacp_context"
+	if state.AirPlayTransport != nil {
+		resp.Available = state.AirPlayTransport.Available
+		if strings.TrimSpace(state.AirPlayTransport.SessionState) != "" {
+			resp.SessionState = strings.TrimSpace(state.AirPlayTransport.SessionState)
+		}
+		resp.Reason = strings.TrimSpace(state.AirPlayTransport.Reason)
+		if !resp.Available && resp.Reason == "" {
+			resp.Reason = resp.SessionState
+		}
+		cmd := airplayTransportCommandContext{
+			ActiveRemote: strings.TrimSpace(state.AirPlayTransport.ActiveRemote),
+			DACPID:       strings.TrimSpace(state.AirPlayTransport.DACPID),
+			ClientIP:     strings.TrimSpace(state.AirPlayTransport.ClientIP),
+		}
+		return resp, cmd, http.StatusOK, nil
+	}
 	resp.SessionState = "missing_dacp_context"
-	var snapshot airplayDACPContext
-	if dacpReader != nil {
-		snapshot = dacpReader.Snapshot()
-	}
-	if strings.TrimSpace(snapshot.ActiveRemote) == "" || strings.TrimSpace(snapshot.DACPID) == "" || strings.TrimSpace(snapshot.ClientIP) == "" {
-		return resp, snapshot, http.StatusOK, nil
-	}
-	if snapshot.UpdatedAt.IsZero() || time.Since(snapshot.UpdatedAt) > 5*time.Minute {
-		resp.SessionState = "session_stale"
-		resp.Reason = "session_stale"
-		return resp, snapshot, http.StatusOK, nil
-	}
-	resp.Available = true
-	resp.SessionState = "ready"
-	resp.Reason = ""
-	return resp, snapshot, http.StatusOK, nil
+	resp.Reason = "missing_dacp_context"
+	return resp, airplayTransportCommandContext{}, http.StatusOK, nil
 }
 
 func isAmplifierOffForAirPlay(powerState string) bool {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -153,6 +154,13 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		case "asal": // album
 			changed = m.album != strVal
 			m.album = strVal
+		case "clip": // sender/client IP for DACP transport control
+			normalized := normalizeClientIP(strVal)
+			if normalized != "" {
+				changed = m.airplayDACPClientIP != normalized
+				m.airplayDACPClientIP = normalized
+				m.airplayDACPUpdatedAt = time.Now()
+			}
 		}
 		m.mu.Unlock()
 		if changed {
@@ -199,6 +207,7 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 		m.artworkPath = "" // clear artwork when stopping
 		m.airplayDACPActiveRemote = ""
 		m.airplayDACPID = ""
+		m.airplayDACPClientIP = ""
 		m.airplayDACPUpdatedAt = time.Time{}
 		m.mu.Unlock()
 		if wasPlaying {
@@ -350,4 +359,19 @@ func decodeTag(hexStr string) string {
 		return ""
 	}
 	return string(b)
+}
+
+func normalizeClientIP(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	if strings.HasPrefix(s, "::ffff:") {
+		s = strings.TrimPrefix(s, "::ffff:")
+	}
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
 }

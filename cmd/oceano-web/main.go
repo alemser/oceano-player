@@ -195,13 +195,9 @@ func main() {
 
 	// API: physical media collection (library) and backup/restore.
 	cfg, _ := loadConfig(*configPath)
-	airplayDACPMonitor := newAirplayDACPMonitor(cfg.Advanced.MetadataPipe)
-	bgCtx := context.Background()
-	airplayDACPMonitor.Start(bgCtx)
-	startAirplayReadinessLogger(bgCtx, *configPath, airplayDACPMonitor, 2*time.Second)
 	airplayLimiter := newAirplayTransportRateLimiter(250 * time.Millisecond)
-	mux.HandleFunc("/api/airplay/transport-capabilities", handleAirPlayTransportCapabilities(*configPath, airplayDACPMonitor))
-	mux.HandleFunc("/api/airplay/transport", handleAirPlayTransport(*configPath, airplayDACPMonitor, airplayLimiter))
+	mux.HandleFunc("/api/airplay/transport-capabilities", handleAirPlayTransportCapabilities(*configPath))
+	mux.HandleFunc("/api/airplay/transport", handleAirPlayTransport(*configPath, airplayLimiter))
 	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir, *configPath)
 	registerBackupRoutes(mux, *libraryDB, cfg.Advanced.ArtworkDir, *configPath)
 	registerHistoryRoutes(mux, *libraryDB)

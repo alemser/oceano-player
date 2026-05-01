@@ -168,7 +168,7 @@ func (m *mgr) buildAirPlayTransportStatusLocked() *AirPlayTransportStatus {
 			Reason:       "no_airplay_session",
 		}
 	}
-	if strings.TrimSpace(m.airplayDACPID) == "" || strings.TrimSpace(m.airplayDACPActiveRemote) == "" {
+	if strings.TrimSpace(m.airplayDACPID) == "" || strings.TrimSpace(m.airplayDACPActiveRemote) == "" || strings.TrimSpace(m.airplayDACPClientIP) == "" {
 		return &AirPlayTransportStatus{
 			Available:    false,
 			SessionState: "missing_dacp_context",
@@ -185,6 +185,9 @@ func (m *mgr) buildAirPlayTransportStatusLocked() *AirPlayTransportStatus {
 	return &AirPlayTransportStatus{
 		Available:    true,
 		SessionState: "ready",
+		ActiveRemote: m.airplayDACPActiveRemote,
+		DACPID:       m.airplayDACPID,
+		ClientIP:     m.airplayDACPClientIP,
 	}
 }
 
@@ -218,35 +221,35 @@ func (m *mgr) buildRecognitionStatusLocked() *RecognitionStatus {
 	// attempts (for example per-input recognition policy "off").
 	if m.recognitionPhase == "no_match" {
 		return &RecognitionStatus{
-			Phase:             "no_match",
-			Detail:            "no_match",
-			ActiveInputID:     inID,
-			ActiveInputName:   inName,
+			Phase:           "no_match",
+			Detail:          "no_match",
+			ActiveInputID:   inID,
+			ActiveInputName: inName,
 		}
 	}
 	if m.recognitionPhase == "off" {
 		return &RecognitionStatus{
-			Phase:             "off",
-			Detail:            "input_policy_off",
-			ActiveInputID:     inID,
-			ActiveInputName:   inName,
+			Phase:           "off",
+			Detail:          "input_policy_off",
+			ActiveInputID:   inID,
+			ActiveInputName: inName,
 		}
 	}
 
 	if time.Now().Before(m.recognizerBusyUntil) {
 		return &RecognitionStatus{
-			Phase:             "identifying",
-			Detail:            "capturing",
-			ActiveInputID:     inID,
-			ActiveInputName:   inName,
+			Phase:           "identifying",
+			Detail:          "capturing",
+			ActiveInputID:   inID,
+			ActiveInputName: inName,
 		}
 	}
 
 	return &RecognitionStatus{
-		Phase:             "identifying",
-		Detail:            "waiting_trigger",
-		ActiveInputID:     inID,
-		ActiveInputName:   inName,
+		Phase:           "identifying",
+		Detail:          "waiting_trigger",
+		ActiveInputID:   inID,
+		ActiveInputName: inName,
 	}
 }
 
