@@ -222,6 +222,11 @@ Behavior:
 - On backend `ok=false`, show non-blocking toast/snackbar with mapped reason.
 - Do not optimistically mutate playback state; rely on stream/state updates.
 
+Companion action:
+- Show a subtle "Open Apple Music" action only when `source == AirPlay`.
+- Tapping it should deep-link to Apple Music app (`music://`) with safe fallback to Apple Music web if the app cannot be opened.
+- This action is a convenience shortcut only; it does not select or target a specific track.
+
 ## B) AirPlay -> amplifier input alignment prompt
 
 Goal:
@@ -327,6 +332,7 @@ Use this as the implementation tracker.
 - [ ] Enable controls only when capabilities endpoint says `available=true`.
 - [ ] Show passive helper text when controls are unavailable.
 - [ ] Handle backend errors with non-blocking feedback (toast/banner).
+- [ ] Add "Open Apple Music" shortcut in Now Playing (visible only in AirPlay; no track targeting).
 
 **Tests**
 - [ ] Backend endpoint tests for valid/invalid actions.
