@@ -93,6 +93,7 @@ func handleStream(configPath string) http.HandlerFunc {
 
 var airplayTransportHTTPClient = &http.Client{Timeout: 2 * time.Second}
 var airplayTransportAmpPowerStateFn = func() string { return "" }
+var airplayTransportServiceResolver airplayTransportResolver = newAirplayDACPServiceResolver()
 
 func handleAirPlayTransportCapabilities(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +163,18 @@ func handleAirPlayTransport(configPath string, limiter *airplayTransportRateLimi
 			return
 		}
 
-		targetURL := buildDACPURL(ctx.ClientIP, cmdPath)
+		targetHost, targetPort, targetSource, resolveErr := airplayTransportServiceResolver.Resolve(r.Context(), ctx.DACPID, ctx.ClientIP)
+		if resolveErr != nil {
+			log.Printf("airplay_transport event=command action=%s result=failed reason=dacp_discovery_failed dacp_id=%s", action, ctx.DACPID)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     false,
+				"reason": "network_unreachable",
+			})
+			return
+		}
+		targetURL := buildDACPURL(targetHost, targetPort, cmdPath)
 		httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
 		if err != nil {
 			http.Error(w, `{"error":"failed to build dacp request"}`, http.StatusInternalServerError)
@@ -172,7 +184,7 @@ func handleAirPlayTransport(configPath string, limiter *airplayTransportRateLimi
 
 		httpResp, err := doDACPRequestWithRetry(httpReq, 2)
 		if err != nil {
-			log.Printf("airplay_transport event=command action=%s result=failed reason=network_unreachable target_ip=%s", action, ctx.ClientIP)
+			log.Printf("airplay_transport event=command action=%s result=failed reason=network_unreachable target_ip=%s target_port=%d target_source=%s", action, targetHost, targetPort, targetSource)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -185,7 +197,7 @@ func handleAirPlayTransport(configPath string, limiter *airplayTransportRateLimi
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 1024))
 
 		if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-			log.Printf("airplay_transport event=command action=%s result=failed reason=dacp_error status_code=%d target_ip=%s", action, httpResp.StatusCode, ctx.ClientIP)
+			log.Printf("airplay_transport event=command action=%s result=failed reason=dacp_error status_code=%d target_ip=%s target_port=%d target_source=%s", action, httpResp.StatusCode, targetHost, targetPort, targetSource)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadGateway)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -198,7 +210,7 @@ func handleAirPlayTransport(configPath string, limiter *airplayTransportRateLimi
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		log.Printf("airplay_transport event=command action=%s result=ok target=%s target_ip=%s", action, cmdPath, ctx.ClientIP)
+		log.Printf("airplay_transport event=command action=%s result=ok target=%s target_ip=%s target_port=%d target_source=%s", action, cmdPath, targetHost, targetPort, targetSource)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":            true,
 			"action":        action,
@@ -376,10 +388,13 @@ func fallbackReason(reason, sessionState string) string {
 	return strings.TrimSpace(sessionState)
 }
 
-func buildDACPURL(clientIP, commandPath string) string {
-	host := strings.TrimSpace(clientIP)
+func buildDACPURL(host string, port int, commandPath string) string {
+	host = strings.TrimSpace(host)
 	if host == "" {
 		return ""
+	}
+	if port <= 0 {
+		port = 3689
 	}
 	commandPath = strings.TrimSpace(commandPath)
 	if commandPath == "" {
@@ -388,7 +403,7 @@ func buildDACPURL(clientIP, commandPath string) string {
 	if !strings.HasPrefix(commandPath, "/") {
 		commandPath = "/" + commandPath
 	}
-	return "http://" + net.JoinHostPort(host, "3689") + commandPath
+	return "http://" + net.JoinHostPort(host, fmt.Sprintf("%d", port)) + commandPath
 }
 
 func handleArtwork(configPath string) http.HandlerFunc {

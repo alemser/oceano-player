@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -153,6 +154,7 @@ func TestAirPlayTransport_ExecutesCommand(t *testing.T) {
 	defer srv.Close()
 
 	orig := airplayTransportHTTPClient
+	origResolver := airplayTransportServiceResolver
 	transport := srv.Client().Transport
 	airplayTransportHTTPClient = &http.Client{
 		Timeout: 2 * time.Second,
@@ -165,7 +167,15 @@ func TestAirPlayTransport_ExecutesCommand(t *testing.T) {
 			return transport.RoundTrip(clone)
 		}),
 	}
-	defer func() { airplayTransportHTTPClient = orig }()
+	airplayTransportServiceResolver = staticAirplayTransportResolver{
+		host:   "127.0.0.1",
+		port:   3689,
+		source: "test",
+	}
+	defer func() {
+		airplayTransportHTTPClient = orig
+		airplayTransportServiceResolver = origResolver
+	}()
 
 	tmp := t.TempDir()
 	statePath := filepath.Join(tmp, "state.json")
@@ -196,6 +206,13 @@ func TestAirPlayTransport_RateLimited(t *testing.T) {
 	}
 	configPath := writeTestConfigWithStateFile(t, statePath)
 	limiter := newAirplayTransportRateLimiter(30 * time.Second)
+	origResolver := airplayTransportServiceResolver
+	airplayTransportServiceResolver = staticAirplayTransportResolver{
+		host:   "127.0.0.1",
+		port:   3689,
+		source: "test",
+	}
+	defer func() { airplayTransportServiceResolver = origResolver }()
 
 	req1 := httptest.NewRequest(http.MethodPost, "/api/airplay/transport", bytes.NewBufferString(`{"action":"next"}`))
 	rr1 := httptest.NewRecorder()
@@ -214,4 +231,18 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+type staticAirplayTransportResolver struct {
+	host   string
+	port   int
+	source string
+	err    error
+}
+
+func (s staticAirplayTransportResolver) Resolve(_ context.Context, _ string, _ string) (string, int, string, error) {
+	if s.err != nil {
+		return "", 0, "", s.err
+	}
+	return s.host, s.port, s.source, nil
 }
