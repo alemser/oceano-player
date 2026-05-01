@@ -2,9 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -85,55 +89,214 @@ func handleStream(configPath string) http.HandlerFunc {
 	}
 }
 
-func handleAirPlayTransportCapabilities(configPath string) http.HandlerFunc {
+var airplayTransportHTTPClient = &http.Client{Timeout: 2 * time.Second}
+
+func handleAirPlayTransportCapabilities(configPath string, dacpReader airplayDACPContextReader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		cfg, _ := loadConfig(configPath)
-		data, err := os.ReadFile(cfg.Advanced.StateFile)
+		resp, _, statusCode, err := resolveAirPlayTransportStatus(configPath, dacpReader)
 		if err != nil {
-			http.Error(w, `{"error":"state file not found"}`, http.StatusServiceUnavailable)
+			http.Error(w, err.Error(), statusCode)
 			return
-		}
-		var state struct {
-			Source           string `json:"source"`
-			AirPlayTransport *struct {
-				Available    bool   `json:"available"`
-				SessionState string `json:"session_state"`
-				Reason       string `json:"reason,omitempty"`
-			} `json:"airplay_transport"`
-		}
-		if err := json.Unmarshal(data, &state); err != nil {
-			http.Error(w, `{"error":"invalid state file"}`, http.StatusInternalServerError)
-			return
-		}
-
-		resp := struct {
-			Available        bool     `json:"available"`
-			SessionState     string   `json:"session_state"`
-			SupportedActions []string `json:"supported_actions"`
-			Reason           string   `json:"reason,omitempty"`
-		}{
-			Available:        false,
-			SessionState:     "no_airplay_session",
-			SupportedActions: []string{"play", "pause", "next", "previous"},
-			Reason:           "no_airplay_session",
-		}
-		if state.Source == "AirPlay" && state.AirPlayTransport != nil {
-			resp.Available = state.AirPlayTransport.Available
-			if strings.TrimSpace(state.AirPlayTransport.SessionState) != "" {
-				resp.SessionState = state.AirPlayTransport.SessionState
-			}
-			resp.Reason = state.AirPlayTransport.Reason
-			if !resp.Available && strings.TrimSpace(resp.Reason) == "" {
-				resp.Reason = resp.SessionState
-			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	}
+}
+
+func handleAirPlayTransport(configPath string, dacpReader airplayDACPContextReader) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		resp, ctx, statusCode, err := resolveAirPlayTransportStatus(configPath, dacpReader)
+		if err != nil {
+			http.Error(w, err.Error(), statusCode)
+			return
+		}
+		if !resp.Available {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":            false,
+				"reason":        fallbackReason(resp.Reason, resp.SessionState),
+				"session_state": resp.SessionState,
+			})
+			return
+		}
+
+		var req struct {
+			Action string `json:"action"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+			return
+		}
+		action := strings.TrimSpace(strings.ToLower(req.Action))
+		cmdPath, ok := mapAirPlayActionToDACPPath(action)
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     false,
+				"reason": "invalid_action",
+			})
+			return
+		}
+
+		targetURL := fmt.Sprintf("http://%s:3689%s", ctx.ClientIP, cmdPath)
+		httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
+		if err != nil {
+			http.Error(w, `{"error":"failed to build dacp request"}`, http.StatusInternalServerError)
+			return
+		}
+		httpReq.Header.Set("Active-Remote", ctx.ActiveRemote)
+
+		httpResp, err := doDACPRequestWithRetry(httpReq, 2)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     false,
+				"reason": "network_unreachable",
+			})
+			return
+		}
+		defer httpResp.Body.Close()
+		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 1024))
+
+		if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":            false,
+				"reason":        "dacp_error",
+				"status_code":   httpResp.StatusCode,
+				"session_state": resp.SessionState,
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":            true,
+			"action":        action,
+			"target":        cmdPath,
+			"session_state": resp.SessionState,
+		})
+	}
+}
+
+func doDACPRequestWithRetry(req *http.Request, maxAttempts int) (*http.Response, error) {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		resp, err := airplayTransportHTTPClient.Do(req)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if !isRetryableNetworkError(err) || attempt == maxAttempts {
+			break
+		}
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return nil, lastErr
+}
+
+func isRetryableNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout() || netErr.Temporary()
+	}
+	return false
+}
+
+type airplayTransportCapabilitiesResponse struct {
+	Available        bool     `json:"available"`
+	SessionState     string   `json:"session_state"`
+	SupportedActions []string `json:"supported_actions"`
+	Reason           string   `json:"reason,omitempty"`
+}
+
+func resolveAirPlayTransportStatus(configPath string, dacpReader airplayDACPContextReader) (airplayTransportCapabilitiesResponse, airplayDACPContext, int, error) {
+	resp := airplayTransportCapabilitiesResponse{
+		Available:        false,
+		SessionState:     "no_airplay_session",
+		SupportedActions: []string{"play", "pause", "next", "previous"},
+		Reason:           "no_airplay_session",
+	}
+	cfg, _ := loadConfig(configPath)
+	data, err := os.ReadFile(cfg.Advanced.StateFile)
+	if err != nil {
+		return resp, airplayDACPContext{}, http.StatusServiceUnavailable, fmt.Errorf(`{"error":"state file not found"}`)
+	}
+	var state struct {
+		Source string `json:"source"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&state); err != nil {
+		return resp, airplayDACPContext{}, http.StatusInternalServerError, fmt.Errorf(`{"error":"invalid state file"}`)
+	}
+	if state.Source != "AirPlay" {
+		return resp, airplayDACPContext{}, http.StatusOK, nil
+	}
+
+	resp.Reason = "missing_dacp_context"
+	resp.SessionState = "missing_dacp_context"
+	var snapshot airplayDACPContext
+	if dacpReader != nil {
+		snapshot = dacpReader.Snapshot()
+	}
+	if strings.TrimSpace(snapshot.ActiveRemote) == "" || strings.TrimSpace(snapshot.DACPID) == "" || strings.TrimSpace(snapshot.ClientIP) == "" {
+		return resp, snapshot, http.StatusOK, nil
+	}
+	if snapshot.UpdatedAt.IsZero() || time.Since(snapshot.UpdatedAt) > 5*time.Minute {
+		resp.SessionState = "session_stale"
+		resp.Reason = "session_stale"
+		return resp, snapshot, http.StatusOK, nil
+	}
+	resp.Available = true
+	resp.SessionState = "ready"
+	resp.Reason = ""
+	return resp, snapshot, http.StatusOK, nil
+}
+
+func mapAirPlayActionToDACPPath(action string) (string, bool) {
+	switch action {
+	case "play":
+		return "/ctrl-int/1/play", true
+	case "pause":
+		return "/ctrl-int/1/pause", true
+	case "next":
+		return "/ctrl-int/1/nextitem", true
+	case "previous":
+		return "/ctrl-int/1/previtem", true
+	default:
+		return "", false
+	}
+}
+
+func fallbackReason(reason, sessionState string) string {
+	if strings.TrimSpace(reason) != "" {
+		return reason
+	}
+	return strings.TrimSpace(sessionState)
 }
 
 func handleArtwork(configPath string) http.HandlerFunc {

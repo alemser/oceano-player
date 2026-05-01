@@ -98,3 +98,25 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 - [ ] Config UI: expose cycle timing fields next to amplifier profile (parity with future web editor).
 - [ ] Now Playing: clearer UX when recognition is skipped (e.g. input policy `off`) — separate UX task.
+
+---
+
+## Log: 2026-05-01 — AirPlay DACP transport backend (phase 2 backend)
+
+**Backend (`feat/airplay-dacp-transport-phase1`)**
+
+| Item | Type | Notes |
+|------|------|--------|
+| `GET /api/airplay/transport-capabilities` | **Semantic** | Now uses live DACP context from shairport metadata pipe (`acre`, `daid`, `clip`) in `oceano-web`; returns deterministic readiness (`ready`, `no_airplay_session`, `missing_dacp_context`, `session_stale`). |
+| `POST /api/airplay/transport` | **Additive** | New endpoint with `{ "action": "play|pause|next|previous" }`; validates action and sends DACP request to AirPlay sender (`/ctrl-int/1/...`, `Active-Remote` header). |
+| DACP command reliability | **Semantic** | 2-second timeout + bounded retry for transient network/timeout failures. Machine-readable failure reasons: `invalid_action`, `missing_dacp_context`, `session_stale`, `network_unreachable`, `dacp_error`. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] Add transport controls in Now Playing when `source == AirPlay`.
+- [ ] Gate enabled state by `GET /api/airplay/transport-capabilities`.
+- [ ] Call `POST /api/airplay/transport` and surface failures non-blocking.
+
+**Risk**
+
+- [x] medium

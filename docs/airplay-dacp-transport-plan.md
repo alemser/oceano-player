@@ -294,10 +294,10 @@ Use this as the implementation tracker.
 ## P1 — Backend readiness (capabilities only)
 
 **Backend (`oceano-player`)**
-- [ ] Add DACP session cache module (in-memory, TTL, freshness state).
-- [ ] Parse and store DACP session context from shairport metadata/session events.
-- [ ] Add `GET /api/airplay/transport-capabilities` endpoint.
-- [ ] Return stable `session_state` (`ready`, `no_airplay_session`, `missing_dacp_context`, `session_stale`, `network_unreachable`).
+- [x] Add DACP session cache module (in-memory, TTL, freshness state).
+- [x] Parse and store DACP session context from shairport metadata/session events.
+- [x] Add `GET /api/airplay/transport-capabilities` endpoint.
+- [x] Return stable `session_state` (`ready`, `no_airplay_session`, `missing_dacp_context`, `session_stale`; network errors are returned by command endpoint as `network_unreachable`).
 - [ ] Add structured logs for session readiness transitions.
 
 **Tests**
@@ -315,10 +315,10 @@ Use this as the implementation tracker.
 ## P2 — Backend transport commands + iOS controls
 
 **Backend (`oceano-player`)**
-- [ ] Implement DACP client (play/pause/next/previous mappings).
-- [ ] Add `POST /api/airplay/transport` with action validation.
-- [ ] Return machine-readable `reason` on failure (`session_stale`, `missing_dacp_context`, etc.).
-- [ ] Add timeout + bounded retry policy (safe defaults).
+- [x] Implement DACP client (play/pause/next/previous mappings).
+- [x] Add `POST /api/airplay/transport` with action validation.
+- [x] Return machine-readable `reason` on failure (`session_stale`, `missing_dacp_context`, etc.).
+- [x] Add timeout + bounded retry policy (safe defaults).
 
 **iOS (`oceano-player-ios`)**
 - [ ] Add AirPlay transport section in Now Playing.

@@ -26,11 +26,11 @@ const (
 	managerBinary  = "/usr/local/bin/oceano-state-manager"
 	detectorUnit   = "oceano-source-detector.service"
 	managerUnit    = "oceano-state-manager.service"
-	displayUnit       = "oceano-display.service"
-	spiDisplayUnit    = "oceano-now-playing.service"
-	detectorSvc       = "/etc/systemd/system/" + detectorUnit
-	managerSvc        = "/etc/systemd/system/" + managerUnit
-	displayEnvPath    = "/etc/oceano/display.env"
+	displayUnit    = "oceano-display.service"
+	spiDisplayUnit = "oceano-now-playing.service"
+	detectorSvc    = "/etc/systemd/system/" + detectorUnit
+	managerSvc     = "/etc/systemd/system/" + managerUnit
+	displayEnvPath = "/etc/oceano/display.env"
 )
 
 // ALSADevice is a detected ALSA sound card.
@@ -190,12 +190,15 @@ func main() {
 	mux.HandleFunc("/api/config", handleConfig(*configPath))
 	mux.HandleFunc("/api/status", handleStatus(*configPath))
 	mux.HandleFunc("/api/stream", handleStream(*configPath))
-	mux.HandleFunc("/api/airplay/transport-capabilities", handleAirPlayTransportCapabilities(*configPath))
 	mux.HandleFunc("/api/artwork", handleArtwork(*configPath))
 	mux.HandleFunc("/api/setup-status", handleSetupStatus(*configPath, *libraryDB))
 
 	// API: physical media collection (library) and backup/restore.
 	cfg, _ := loadConfig(*configPath)
+	airplayDACPMonitor := newAirplayDACPMonitor(cfg.Advanced.MetadataPipe)
+	airplayDACPMonitor.Start(context.Background())
+	mux.HandleFunc("/api/airplay/transport-capabilities", handleAirPlayTransportCapabilities(*configPath, airplayDACPMonitor))
+	mux.HandleFunc("/api/airplay/transport", handleAirPlayTransport(*configPath, airplayDACPMonitor))
 	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir, *configPath)
 	registerBackupRoutes(mux, *libraryDB, cfg.Advanced.ArtworkDir, *configPath)
 	registerHistoryRoutes(mux, *libraryDB)
@@ -578,4 +581,3 @@ func unitContainsExecStart(unitPath, desiredExecStart string) (bool, error) {
 	expectedLine := "ExecStart=" + desiredExecStart
 	return strings.Contains(string(unitBytes), expectedLine), nil
 }
-
