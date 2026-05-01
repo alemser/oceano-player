@@ -203,11 +203,22 @@ func (m *mgr) applyItem(itemType, code string, data []byte) {
 			m.markDirty()
 		}
 
-	case "pend", "pfls", "stop": // play end / flush / stop
+	case "pfls": // play flush — buffer reset during track change; DACP session remains valid
 		m.mu.Lock()
 		wasPlaying := m.airplayPlaying
 		m.airplayPlaying = false
-		m.artworkPath = "" // clear artwork when stopping
+		m.artworkPath = ""
+		m.mu.Unlock()
+		if wasPlaying {
+			m.markDirty()
+			log.Printf("AirPlay: stopped (%s)", code)
+		}
+
+	case "pend", "stop": // play end / stop — actual session end, clear DACP context
+		m.mu.Lock()
+		wasPlaying := m.airplayPlaying
+		m.airplayPlaying = false
+		m.artworkPath = ""
 		m.airplayDACPActiveRemote = ""
 		m.airplayDACPID = ""
 		m.airplayDACPClientIP = ""
