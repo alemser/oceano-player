@@ -127,6 +127,22 @@ func handleAirPlayTransport(configPath string, limiter *airplayTransportRateLimi
 			http.Error(w, err.Error(), statusCode)
 			return
 		}
+		// missing_dacp_context is transient: shairport briefly clears the DACP
+		// fields after pause/resume before rehydrating them. Wait and retry once.
+		if !resp.Available && resp.SessionState == "missing_dacp_context" {
+			log.Printf("airplay_transport event=context_retry reason=missing_dacp_context")
+			select {
+			case <-r.Context().Done():
+				http.Error(w, "request cancelled", http.StatusServiceUnavailable)
+				return
+			case <-time.After(900 * time.Millisecond):
+			}
+			resp, ctx, statusCode, err = resolveAirPlayTransportStatus(configPath)
+			if err != nil {
+				http.Error(w, err.Error(), statusCode)
+				return
+			}
+		}
 		if !resp.Available {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
