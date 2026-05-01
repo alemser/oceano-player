@@ -438,6 +438,7 @@ func TestAmplifierSelectInput_TargetIDs_PersistsLastKnownInput(t *testing.T) {
 func TestAmplifierSetLastKnownInput_OK(t *testing.T) {
 	amp, _ := newTestAmp(t)
 	s := newTestServer(t, amp)
+	s.markInputNavPress()
 
 	// Seed a registered input so the handler can validate the ID.
 	cfg, _ := loadConfig(s.configPath)
@@ -455,6 +456,47 @@ func TestAmplifierSetLastKnownInput_OK(t *testing.T) {
 	}
 	if loaded.AmplifierRuntime.LastKnownInputID != AmplifierInputID("20") {
 		t.Fatalf("last_known_input_id = %q, want 20", loaded.AmplifierRuntime.LastKnownInputID)
+	}
+	if s.inputSelectionIsActive(2 * time.Second) {
+		t.Fatalf("selection window should be cleared after resync")
+	}
+}
+
+func TestAmplifierResyncInput_OK(t *testing.T) {
+	amp, _ := newTestAmp(t)
+	s := newTestServer(t, amp)
+	s.markInputNavPress()
+
+	cfg, _ := loadConfig(s.configPath)
+	cfg.Amplifier.Inputs = []AmplifierInputConfig{
+		{ID: AmplifierInputID("10"), LogicalName: "FM", Visible: true},
+		{ID: AmplifierInputID("20"), LogicalName: "CD", Visible: true},
+	}
+	_ = saveConfig(s.configPath, cfg)
+
+	w := do(t, s.handleAmplifierResyncInput, http.MethodPost, "/api/amplifier/resync-input", `{"input_id":"10"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	var resp struct {
+		InputID    string `json:"input_id"`
+		InputLabel string `json:"input_label"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.InputID != "10" || resp.InputLabel != "FM" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	loaded, err := loadConfig(s.configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if loaded.AmplifierRuntime.LastKnownInputID != AmplifierInputID("10") {
+		t.Fatalf("last_known_input_id = %q, want 10", loaded.AmplifierRuntime.LastKnownInputID)
+	}
+	if s.inputSelectionIsActive(2 * time.Second) {
+		t.Fatalf("selection window should be cleared after resync")
 	}
 }
 
