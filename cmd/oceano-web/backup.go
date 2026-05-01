@@ -409,8 +409,7 @@ func restoreFromBackup(backupPath, scope, libraryDBPath, artworkDir, configPath 
 //	POST /api/backups/run          — trigger an immediate backup
 //	POST /api/backups/restore      — restore from a backup (body: {file, scope})
 //	GET  /api/library/export/backup — legacy redirect to latest backup download
-func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configPath string) {
-	backupDir := filepath.Dir(libraryDBPath)
+func registerBackupRoutes(mux *http.ServeMux, configPath string, fallbackLibraryDB string) {
 
 	// GET /api/backups — list available backups.
 	mux.HandleFunc("/api/backups", func(w http.ResponseWriter, r *http.Request) {
@@ -418,7 +417,8 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		infos, err := listBackups(backupDir)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		infos, err := listBackups(filepath.Dir(paths.LibraryDB))
 		if err != nil {
 			http.Error(w, "list backups: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -441,7 +441,8 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 			http.Error(w, "invalid file parameter", http.StatusBadRequest)
 			return
 		}
-		path := filepath.Join(backupDir, name)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		path := filepath.Join(filepath.Dir(paths.LibraryDB), name)
 		bf, err := os.Open(path)
 		if err != nil {
 			http.NotFound(w, r)
@@ -467,15 +468,17 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		lib, err := openLibraryDB(libraryDBPath)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		lib, err := openLibraryDB(paths.LibraryDB)
 		if err != nil || lib == nil {
 			http.Error(w, "library not available", http.StatusServiceUnavailable)
 			return
 		}
 		defer lib.close()
 
+		backupDir := filepath.Dir(paths.LibraryDB)
 		destPath := filepath.Join(backupDir, backupFileName())
-		if err := lib.generateBackup(destPath, artworkDir, configPath); err != nil {
+		if err := lib.generateBackup(destPath, paths.ArtworkDir, configPath); err != nil {
 			http.Error(w, "backup failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -514,13 +517,14 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 			return
 		}
 
-		backupPath := filepath.Join(backupDir, req.File)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		backupPath := filepath.Join(filepath.Dir(paths.LibraryDB), req.File)
 		if _, err := os.Stat(backupPath); err != nil {
 			http.NotFound(w, r)
 			return
 		}
 
-		msgs, err := restoreFromBackup(backupPath, req.Scope, libraryDBPath, artworkDir, configPath)
+		msgs, err := restoreFromBackup(backupPath, req.Scope, paths.LibraryDB, paths.ArtworkDir, configPath)
 		if err != nil {
 			http.Error(w, "restore failed: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -598,7 +602,8 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 		}
 		tmp.Close()
 
-		msgs, err := restoreFromBackup(tmpPath, scope, libraryDBPath, artworkDir, configPath)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		msgs, err := restoreFromBackup(tmpPath, scope, paths.LibraryDB, paths.ArtworkDir, configPath)
 		if err != nil {
 			http.Error(w, "restore failed: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -640,13 +645,14 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		infos, err := listBackups(backupDir)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		infos, err := listBackups(filepath.Dir(paths.LibraryDB))
 		if err == nil && len(infos) > 0 {
 			http.Redirect(w, r, "/api/backups/download?file="+infos[0].File, http.StatusFound)
 			return
 		}
 		// No history yet — generate on-demand for the first time.
-		lib, err := openLibraryDB(libraryDBPath)
+		lib, err := openLibraryDB(paths.LibraryDB)
 		if err != nil || lib == nil {
 			http.Error(w, "library not initialised", http.StatusServiceUnavailable)
 			return
@@ -662,7 +668,7 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 		tmp.Close()
 		defer os.Remove(tmpPath)
 
-		if err := lib.generateBackup(tmpPath, artworkDir, configPath); err != nil {
+		if err := lib.generateBackup(tmpPath, paths.ArtworkDir, configPath); err != nil {
 			http.Error(w, "backup failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

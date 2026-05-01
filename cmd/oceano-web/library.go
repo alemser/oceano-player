@@ -15,6 +15,53 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func validateManagedArtworkPath(rawPath, artworkDir string) (string, error) {
+	p := strings.TrimSpace(rawPath)
+	if p == "" {
+		return "", nil
+	}
+	root := strings.TrimSpace(artworkDir)
+	if root == "" {
+		return "", fmt.Errorf("artwork directory is not configured")
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("invalid artwork directory: %w", err)
+	}
+	if resolvedRoot, err := filepath.EvalSymlinks(rootAbs); err == nil {
+		rootAbs = resolvedRoot
+	}
+
+	pathAbs, err := filepath.Abs(p)
+	if err != nil {
+		return "", fmt.Errorf("invalid artwork path: %w", err)
+	}
+	info, err := os.Lstat(pathAbs)
+	if err != nil {
+		return "", fmt.Errorf("artwork path is not accessible")
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("symlink artwork paths are not allowed")
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("artwork path must point to a regular file")
+	}
+	resolvedPath, err := filepath.EvalSymlinks(pathAbs)
+	if err != nil {
+		return "", fmt.Errorf("artwork path cannot be resolved")
+	}
+	rel, err := filepath.Rel(rootAbs, resolvedPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("artwork path must stay inside managed artwork directory")
+	}
+	switch strings.ToLower(filepath.Ext(resolvedPath)) {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif":
+	default:
+		return "", fmt.Errorf("artwork path extension is not allowed")
+	}
+	return resolvedPath, nil
+}
+
 // LibraryEntry is the JSON representation of a collection row.
 type LibraryEntry struct {
 	ID            int64  `json:"id"`
@@ -783,7 +830,7 @@ func (l *LibraryDB) deleteEntry(id int64) error {
 // registerLibraryRoutes wires all /api/library/* endpoints into mux.
 // libraryDBPath is read from the running state-manager service file so the web
 // UI always talks to the same database without extra configuration.
-func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string, artworkDir string, configPath string) {
+func registerLibraryRoutes(mux *http.ServeMux, configPath string, fallbackLibraryDB string) {
 	// GET  /api/library        → list all entries
 	// GET  /api/library/search?q=...&limit=20 → search confirmed tracks
 	// PUT  /api/library/{id}   → update entry metadata
@@ -796,7 +843,8 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		lib, err := openLibraryDB(libraryDBPath)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		lib, err := openLibraryDB(paths.LibraryDB)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -825,7 +873,8 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		lib, err := openLibraryDB(libraryDBPath)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		lib, err := openLibraryDB(paths.LibraryDB)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -858,7 +907,8 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		lib, err := openLibraryDB(libraryDBPath)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		lib, err := openLibraryDB(paths.LibraryDB)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -885,7 +935,8 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		lib, err := openLibraryDB(libraryDBPath)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		lib, err := openLibraryDB(paths.LibraryDB)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -938,7 +989,8 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			}
 			autoApply = cfgSnap.Advanced.RMSPercentileLearning.AutonomousApply
 		}
-		lib, err := openLibraryDB(libraryDBPath)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		lib, err := openLibraryDB(paths.LibraryDB)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -977,23 +1029,24 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		var req importRMSBaselineRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
-		lib, err := openLibraryDB(libraryDBPath)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		lib, err := openLibraryDB(paths.LibraryDB)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		if lib == nil {
-			if err := os.MkdirAll(filepath.Dir(libraryDBPath), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(paths.LibraryDB), 0o755); err != nil {
 				jsonError(w, "failed to create library directory", http.StatusInternalServerError)
 				return
 			}
-			f, err := os.OpenFile(libraryDBPath, os.O_CREATE, 0o644)
+			f, err := os.OpenFile(paths.LibraryDB, os.O_CREATE, 0o644)
 			if err != nil {
 				jsonError(w, "failed to create library database", http.StatusInternalServerError)
 				return
 			}
 			_ = f.Close()
-			lib, err = openLibraryDB(libraryDBPath)
+			lib, err = openLibraryDB(paths.LibraryDB)
 			if err != nil {
 				jsonError(w, "failed to open library database", http.StatusInternalServerError)
 				return
@@ -1028,7 +1081,8 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		lib, err := openLibraryDB(libraryDBPath)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		lib, err := openLibraryDB(paths.LibraryDB)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1066,7 +1120,8 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			sub = parts[1]
 		}
 
-		lib, err := openLibraryDB(libraryDBPath)
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		lib, err := openLibraryDB(paths.LibraryDB)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1079,11 +1134,11 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 
 		switch {
 		case sub == "artwork" && r.Method == http.MethodGet:
-			handleGetArtwork(w, r, lib, id)
+			handleGetArtwork(w, r, lib, id, paths.ArtworkDir)
 		case sub == "artwork" && r.Method == http.MethodPost:
-			handleUploadArtwork(w, r, lib, id, artworkDir)
+			handleUploadArtwork(w, r, lib, id, paths.ArtworkDir)
 		case sub == "" && r.Method == http.MethodPut:
-			handleUpdateEntry(w, r, lib, id, stateFilePath)
+			handleUpdateEntry(w, r, lib, id, paths.StateFile, paths.ArtworkDir)
 		case sub == "" && r.Method == http.MethodDelete:
 			handleDeleteEntry(w, lib, id)
 		case sub == "resolve" && r.Method == http.MethodPost:
@@ -1093,7 +1148,7 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		}
 	})
 }
-func handleGetArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64) {
+func handleGetArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, artworkDir string) {
 	var artworkPath string
 	err := lib.db.QueryRow(`SELECT COALESCE(artwork_path,'') FROM collection WHERE id=?`, id).Scan(&artworkPath)
 	if err == sql.ErrNoRows {
@@ -1104,7 +1159,12 @@ func handleGetArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id
 		http.NotFound(w, r)
 		return
 	}
-	http.ServeFile(w, r, artworkPath)
+	validPath, err := validateManagedArtworkPath(artworkPath, artworkDir)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, validPath)
 }
 
 func handleUploadArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, artworkDir string) {
@@ -1153,7 +1213,7 @@ func handleUploadArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB,
 	json.NewEncoder(w).Encode(map[string]string{"artwork_path": destPath})
 }
 
-func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, stateFilePath string) {
+func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, stateFilePath string, artworkDir string) {
 	var body struct {
 		Title             string `json:"title"`
 		Artist            string `json:"artist"`
@@ -1185,6 +1245,14 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 	}
 	if body.Format == "" {
 		body.Format = "Unknown"
+	}
+	if strings.TrimSpace(body.ArtworkPath) != "" {
+		safeArtworkPath, err := validateManagedArtworkPath(body.ArtworkPath, artworkDir)
+		if err != nil {
+			http.Error(w, "invalid artwork_path: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		body.ArtworkPath = safeArtworkPath
 	}
 
 	if err := lib.update(id, body.Title, body.Artist, body.Album, body.Label, body.Released, body.Format, body.TrackNumber, body.ArtworkPath, body.DurationMs, body.BoundarySensitive); err != nil {

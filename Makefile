@@ -36,6 +36,7 @@ release: package
 
 test:
 	go test ./...
+	node --test cmd/oceano-web/static/nowplaying/helpers.test.js
 
 clean:
 	rm -rf $(DIST)

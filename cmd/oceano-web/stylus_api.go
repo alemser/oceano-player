@@ -146,19 +146,29 @@ var stylusSeedCatalog = []stylusSeedItem{
 	{Brand: "Grado", Model: "Prestige Blue3", StylusProfile: "Elliptical", MinHours: intPtr(300), MaxHours: intPtr(700), RecommendedHours: 600, SourceName: "Profile baseline", SourceURL: "https://www.lpgear.com/product/ATN95EX.html", SourceNote: "Conservative profile-based seed value.", Confidence: "low"},
 }
 
-func registerStylusRoutes(mux *http.ServeMux, dbPath string) {
-	srv, err := openStylusServer(dbPath)
-	if err != nil {
-		log.Printf("stylus: disabled (%v)", err)
-		return
+func registerStylusRoutes(mux *http.ServeMux, configPath string, fallbackLibraryDB string) {
+	withStylusServer := func(w http.ResponseWriter, fn func(*stylusServer)) {
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		srv, err := openStylusServer(paths.LibraryDB)
+		if err != nil {
+			log.Printf("stylus: disabled (%v)", err)
+			jsonError(w, "stylus unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		defer srv.db.Close()
+		fn(srv)
 	}
 
 	mux.HandleFunc("/api/stylus", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			srv.handleGetStylus(w)
+			withStylusServer(w, func(srv *stylusServer) {
+				srv.handleGetStylus(w)
+			})
 		case http.MethodPut:
-			srv.handlePutStylus(w, r)
+			withStylusServer(w, func(srv *stylusServer) {
+				srv.handlePutStylus(w, r)
+			})
 		default:
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -169,7 +179,9 @@ func registerStylusRoutes(mux *http.ServeMux, dbPath string) {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		srv.handleReplaceStylus(w, r)
+		withStylusServer(w, func(srv *stylusServer) {
+			srv.handleReplaceStylus(w, r)
+		})
 	})
 
 	mux.HandleFunc("/api/stylus/catalog", func(w http.ResponseWriter, r *http.Request) {
@@ -177,7 +189,9 @@ func registerStylusRoutes(mux *http.ServeMux, dbPath string) {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		srv.handleGetCatalog(w)
+		withStylusServer(w, func(srv *stylusServer) {
+			srv.handleGetCatalog(w)
+		})
 	})
 }
 

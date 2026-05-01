@@ -76,17 +76,19 @@ type playHistoryAlbumStat struct {
 	Plays  int    `json:"plays"`
 }
 
-func registerHistoryRoutes(mux *http.ServeMux, dbPath string) {
-	h, err := openHistoryDB(dbPath)
-	if err != nil || h == nil {
-		return
-	}
-
+func registerHistoryRoutes(mux *http.ServeMux, configPath string, fallbackLibraryDB string) {
 	mux.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		h, err := openHistoryDB(paths.LibraryDB)
+		if err != nil || h == nil {
+			jsonError(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		defer h.db.Close()
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 		if limit <= 0 || limit > 200 {
@@ -106,6 +108,13 @@ func registerHistoryRoutes(mux *http.ServeMux, dbPath string) {
 	})
 
 	mux.HandleFunc("/api/history/artwork/", func(w http.ResponseWriter, r *http.Request) {
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		h, err := openHistoryDB(paths.LibraryDB)
+		if err != nil || h == nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer h.db.Close()
 		idStr := r.URL.Path[len("/api/history/artwork/"):]
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil || id <= 0 {
@@ -117,7 +126,12 @@ func registerHistoryRoutes(mux *http.ServeMux, dbPath string) {
 			http.NotFound(w, r)
 			return
 		}
-		http.ServeFile(w, r, artworkPath)
+		validPath, err := validateManagedArtworkPath(artworkPath, paths.ArtworkDir)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, validPath)
 	})
 
 	mux.HandleFunc("/api/history/stats", func(w http.ResponseWriter, r *http.Request) {
@@ -125,6 +139,13 @@ func registerHistoryRoutes(mux *http.ServeMux, dbPath string) {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		h, err := openHistoryDB(paths.LibraryDB)
+		if err != nil || h == nil {
+			jsonError(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		defer h.db.Close()
 		days := 30
 		if dStr := r.URL.Query().Get("days"); dStr != "" {
 			if d, err := strconv.Atoi(dStr); err == nil && d >= 0 {

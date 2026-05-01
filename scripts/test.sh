@@ -5,3 +5,4 @@ ROOT_DIR="$(git rev-parse --show-toplevel)"
 
 cd "${ROOT_DIR}"
 go test ./...
+node --test cmd/oceano-web/static/nowplaying/helpers.test.js

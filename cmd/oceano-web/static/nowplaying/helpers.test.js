@@ -5,7 +5,7 @@ const {
   parseVinylTrackRef,
   formatMS,
   computeElapsedMS,
-} = require('./nowplaying_helpers.js');
+} = require('./helpers.js');
 
 test('parseVinylTrackRef accepts letter-number forms', () => {
   assert.deepEqual(parseVinylTrackRef('A1'), { side: 'A', track: '1' });

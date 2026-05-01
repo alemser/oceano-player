@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -357,7 +358,12 @@ func TestShellQuote(t *testing.T) {
 
 func TestBackupHandler_MethodNotAllowed(t *testing.T) {
 	mux := http.NewServeMux()
-	registerBackupRoutes(mux, "/nonexistent/library.db", "/tmp", "")
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := defaultConfig()
+	if b, err := json.Marshal(cfg); err == nil {
+		_ = os.WriteFile(cfgPath, b, 0o644)
+	}
+	registerBackupRoutes(mux, cfgPath, "/nonexistent/library.db")
 
 	r := httptest.NewRequest(http.MethodPost, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()
@@ -370,7 +376,12 @@ func TestBackupHandler_MethodNotAllowed(t *testing.T) {
 
 func TestBackupHandler_LibraryNotInitialised(t *testing.T) {
 	mux := http.NewServeMux()
-	registerBackupRoutes(mux, "/nonexistent/library.db", "/tmp", "")
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := defaultConfig()
+	if b, err := json.Marshal(cfg); err == nil {
+		_ = os.WriteFile(cfgPath, b, 0o644)
+	}
+	registerBackupRoutes(mux, cfgPath, "/nonexistent/library.db")
 
 	r := httptest.NewRequest(http.MethodGet, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()
@@ -384,9 +395,16 @@ func TestBackupHandler_LibraryNotInitialised(t *testing.T) {
 func TestBackupHandler_ReturnsGzipArchive(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := createTestDB(t, dir, nil)
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := defaultConfig()
+	cfg.Advanced.LibraryDB = dbPath
+	cfg.Advanced.ArtworkDir = filepath.Join(dir, "artwork")
+	if b, err := json.Marshal(cfg); err == nil {
+		_ = os.WriteFile(cfgPath, b, 0o644)
+	}
 
 	mux := http.NewServeMux()
-	registerBackupRoutes(mux, dbPath, filepath.Join(dir, "artwork"), "")
+	registerBackupRoutes(mux, cfgPath, dbPath)
 
 	r := httptest.NewRequest(http.MethodGet, "/api/library/export/backup", nil)
 	w := httptest.NewRecorder()

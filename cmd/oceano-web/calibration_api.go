@@ -32,13 +32,14 @@ type vuSequenceResponse struct {
 	RMS          []float64 `json:"rms"`
 }
 
-func registerCalibrationRoutes(mux *http.ServeMux, vuSocket string) {
+func registerCalibrationRoutes(mux *http.ServeMux, configPath string, fallbackLibraryDB string) {
 	mux.HandleFunc("/api/calibration/vu-sample", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if vuSocket == "" {
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		if paths.VUSocket == "" {
 			jsonError(w, "VU socket not configured", http.StatusBadRequest)
 			return
 		}
@@ -49,7 +50,7 @@ func registerCalibrationRoutes(mux *http.ServeMux, vuSocket string) {
 		}
 		req.Seconds = clampSeconds(req.Seconds, 6, 2, 20)
 
-		avg, minVal, maxVal, samples, err := sampleVU(vuSocket, time.Duration(req.Seconds)*time.Second)
+		avg, minVal, maxVal, samples, err := sampleVU(paths.VUSocket, time.Duration(req.Seconds)*time.Second)
 		if err != nil {
 			jsonError(w, "failed to sample VU socket", http.StatusBadGateway)
 			return
@@ -68,7 +69,8 @@ func registerCalibrationRoutes(mux *http.ServeMux, vuSocket string) {
 			jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if vuSocket == "" {
+		paths := resolveRuntimePaths(configPath, fallbackLibraryDB)
+		if paths.VUSocket == "" {
 			jsonError(w, "VU socket not configured", http.StatusBadRequest)
 			return
 		}
@@ -79,7 +81,7 @@ func registerCalibrationRoutes(mux *http.ServeMux, vuSocket string) {
 		}
 		req.Seconds = clampSeconds(req.Seconds, 18, 6, 30)
 
-		rms, avg, minVal, maxVal, samples, err := sampleVUSequence(vuSocket, time.Duration(req.Seconds)*time.Second)
+		rms, avg, minVal, maxVal, samples, err := sampleVUSequence(paths.VUSocket, time.Duration(req.Seconds)*time.Second)
 		if err != nil {
 			jsonError(w, "failed to sample VU socket", http.StatusBadGateway)
 			return

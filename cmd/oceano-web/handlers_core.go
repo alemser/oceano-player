@@ -399,7 +399,7 @@ func mapAirPlayActionToDACPPath(action string) (string, bool) {
 		return "/ctrl-int/1/pause", true
 	case "next":
 		return "/ctrl-int/1/nextitem", true
-	case "previous":
+	case "prev", "previous":
 		return "/ctrl-int/1/previtem", true
 	default:
 		return "", false

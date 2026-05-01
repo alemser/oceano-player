@@ -198,11 +198,11 @@ func main() {
 	airplayLimiter := newAirplayTransportRateLimiter(250 * time.Millisecond)
 	mux.HandleFunc("/api/airplay/transport-capabilities", handleAirPlayTransportCapabilities(*configPath))
 	mux.HandleFunc("/api/airplay/transport", handleAirPlayTransport(*configPath, airplayLimiter))
-	registerLibraryRoutes(mux, *libraryDB, cfg.Advanced.StateFile, cfg.Advanced.ArtworkDir, *configPath)
-	registerBackupRoutes(mux, *libraryDB, cfg.Advanced.ArtworkDir, *configPath)
-	registerHistoryRoutes(mux, *libraryDB)
-	registerStylusRoutes(mux, *libraryDB)
-	registerCalibrationRoutes(mux, cfg.Advanced.VUSocket)
+	registerLibraryRoutes(mux, *configPath, *libraryDB)
+	registerBackupRoutes(mux, *configPath, *libraryDB)
+	registerHistoryRoutes(mux, *configPath, *libraryDB)
+	registerStylusRoutes(mux, *configPath, *libraryDB)
+	registerCalibrationRoutes(mux, *configPath, *libraryDB)
 	registerMicGainRoutes(mux, *configPath)
 
 	// API: amplifier IR control.
@@ -227,14 +227,15 @@ func main() {
 	// At most backupMaxHistory (7) are kept; older ones are pruned automatically.
 	// The first backup runs shortly after startup; subsequent ones every 24 h.
 	go func() {
-		backupDir := filepath.Dir(*libraryDB)
 		for {
-			lib, err := openLibraryDB(*libraryDB)
+			paths := resolveRuntimePaths(*configPath, *libraryDB)
+			backupDir := filepath.Dir(paths.LibraryDB)
+			lib, err := openLibraryDB(paths.LibraryDB)
 			if err != nil || lib == nil {
 				log.Printf("scheduled backup: library not available: %v", err)
 			} else {
 				destPath := filepath.Join(backupDir, backupFileName())
-				if err := lib.generateBackup(destPath, cfg.Advanced.ArtworkDir, *configPath); err != nil {
+				if err := lib.generateBackup(destPath, paths.ArtworkDir, *configPath); err != nil {
 					log.Printf("scheduled backup failed: %v", err)
 				} else {
 					log.Printf("scheduled backup written to %s", destPath)
@@ -256,7 +257,16 @@ func main() {
 	mux.HandleFunc("/api/bluetooth/devices", handleBluetoothDevices())
 
 	log.Printf("oceano-web listening on %s", *addr)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
+	server := &http.Server{
+		Addr:              *addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		// Keep write timeout disabled because /api/stream is a long-lived SSE endpoint.
+		WriteTimeout: 0,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }

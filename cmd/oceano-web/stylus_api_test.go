@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,8 +15,18 @@ import (
 
 func newStylusMux(t *testing.T, dbPath string) *http.ServeMux {
 	t.Helper()
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := defaultConfig()
+	cfg.Advanced.LibraryDB = dbPath
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 	mux := http.NewServeMux()
-	registerStylusRoutes(mux, dbPath)
+	registerStylusRoutes(mux, cfgPath, dbPath)
 	return mux
 }
 
