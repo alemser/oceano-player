@@ -35,9 +35,10 @@ type recognitionInputPolicySnapshot struct {
 }
 
 type resolvedRecognitionPolicy struct {
-	Policy            inputRecognitionPolicy
-	LastKnownInputID  string
-	DerivedBy         string
+	Policy             inputRecognitionPolicy
+	LastKnownInputID   string
+	DerivedBy          string
+	InputLogicalName   string
 }
 
 var recognitionPolicyConfigCache struct {
@@ -108,18 +109,20 @@ func resolveRecognitionPolicyFromSnapshot(snap recognitionInputPolicySnapshot) r
 		}
 		foundInput = true
 		inputPolicy = normalizeInputRecognitionPolicy(in.RecognitionPolicy)
-		inputLabel = in.LogicalName
+		inputLabel = strings.TrimSpace(in.LogicalName)
 		break
 	}
 	if inputPolicy == inputRecognitionPolicyLibrary || inputPolicy == inputRecognitionPolicyDisplayOnly || inputPolicy == inputRecognitionPolicyOff {
 		out.Policy = inputPolicy
 		out.DerivedBy = "explicit_input_policy"
+		out.InputLogicalName = inputLabel
 		return out
 	}
 
 	if labelLooksPhysicalMedia(inputLabel) {
 		out.Policy = inputRecognitionPolicyLibrary
 		out.DerivedBy = "auto_physical_label"
+		out.InputLogicalName = inputLabel
 		return out
 	}
 
@@ -131,17 +134,20 @@ func resolveRecognitionPolicyFromSnapshot(snap recognitionInputPolicySnapshot) r
 			if strings.TrimSpace(id) == lastID {
 				out.Policy = inputRecognitionPolicyLibrary
 				out.DerivedBy = "auto_physical_device_role"
+				out.InputLogicalName = inputLabel
 				return out
 			}
 		}
 	}
 	if foundInput {
 		return resolvedRecognitionPolicy{
-			Policy:           inputRecognitionPolicyOff,
-			LastKnownInputID: lastID,
-			DerivedBy:        "default_off",
+			Policy:             inputRecognitionPolicyOff,
+			LastKnownInputID:   lastID,
+			DerivedBy:          "default_off",
+			InputLogicalName:   inputLabel,
 		}
 	}
+	out.InputLogicalName = inputLabel
 	return out
 }
 

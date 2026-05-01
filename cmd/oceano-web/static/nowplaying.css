@@ -563,6 +563,7 @@ body:has(#idle-screen.visible) #amp-indicator {
 #idle-location-label { color: #6070a0; font-weight: 500; }
 .idle-sep { color: #2e3a52; }
 #idle-weather-cond { color: #485878; }
+#idle-now-source { margin-top: 4px; font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: #4f5f82; }
 
 /* Right: stats */
 #idle-meta-stats { display: flex; align-items: center; gap: clamp(18px, 3.5vw, 40px); }
@@ -710,7 +711,40 @@ body:has(#idle-screen.visible) #amp-indicator {
 .btn-power-restart { background: #162649; color: #bfd0ff; border-color: #2d4477; }
 .btn-power-cancel { background: #1a1f2d; color: #b8c4e6; border-color: rgba(90, 108, 148, 0.42); }
 
-#identifying-label { font-size: 0.76rem; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint); margin-top: 20px; transition: opacity 0.4s; }
+.recognition-hint-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin-top: 20px;
+  min-height: 1.2em;
+}
+.recognition-input-pill {
+  display: none;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--chip-text);
+  border: 1px solid rgba(90, 108, 148, 0.45);
+  border-radius: 999px;
+  padding: 4px 11px;
+  background: rgba(21, 29, 48, 0.55);
+  max-width: min(240px, 70vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#identifying-label {
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  flex: 1 1 140px;
+  transition: opacity 0.4s;
+}
 
 
 @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.9; } }

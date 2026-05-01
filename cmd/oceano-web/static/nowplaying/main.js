@@ -34,7 +34,9 @@ const $streamProgress = document.getElementById('stream-progress');
 const $streamFill = document.getElementById('stream-progress-fill');
 const $streamElapsed = document.getElementById('stream-elapsed');
 const $streamTotal = document.getElementById('stream-total');
-const $identifying= document.getElementById('identifying-label');
+const $identifying = document.getElementById('identifying-label');
+const $recognitionInputPill = document.getElementById('recognition-input-pill');
+const $idleNowSource = document.getElementById('idle-now-source');
 
 function openPowerDialog() {
   document.getElementById('power-dialog')?.classList.add('open');
@@ -247,6 +249,7 @@ function applyState(state) {
   const stateFormat = String(state.format || '').trim();
   const playing = state.state === 'playing';
   const track   = state.track   || null;
+  const recognition = state.recognition || null;
   // True only while the source-detector file says Physical. False during the
   // idle-delay tail (amp already off physical) — avoids stuck "Identifying…"
   // when state.state is still "playing" from VU noise on an inactive REC line.
@@ -268,11 +271,33 @@ function applyState(state) {
     schedulePhysicalGapHoldRepaint(_physicalGapHoldUntilMs - nowMs + 16);
   }
 
+  const recognitionPhase = recognition && recognition.phase
+    ? String(recognition.phase).toLowerCase()
+    : '';
+  const forceIdleForRecognitionOff =
+    playing &&
+    physicalDetectorOn &&
+    isPhysicalPlaybackSource(source) &&
+    recognitionPhase === 'off';
+
   const effectivePlaying = holdActive ? true : playing;
   const effectiveTrack = holdActive && !track ? (_lastState?.track || null) : track;
-  const isIdle = (!effectivePlaying || source === 'None');
+  const isIdle = forceIdleForRecognitionOff || (!effectivePlaying || source === 'None');
   _isIdle = isIdle;
   $idle.classList.toggle('visible', isIdle);
+  if ($idleNowSource) {
+    if (forceIdleForRecognitionOff) {
+      const inputName = recognition && recognition.active_input_name
+        ? String(recognition.active_input_name).trim()
+        : '';
+      const sourceLabel = SOURCE_LABELS[source] || source;
+      $idleNowSource.textContent = inputName ? `Now: ${inputName}` : `Now: ${sourceLabel}`;
+      $idleNowSource.style.display = 'block';
+    } else {
+      $idleNowSource.textContent = '';
+      $idleNowSource.style.display = 'none';
+    }
+  }
   const $ampInd = document.getElementById('amp-indicator');
   if ($ampInd && isIdle) $ampInd.style.display = 'none';
 
@@ -294,9 +319,12 @@ function applyState(state) {
 
   // Track metadata
   const hasTrack = isRecognizedTrack(effectiveTrack);
-  const recognition = state.recognition || null;
   $identifying.className = '';
   $identifying.textContent = '';
+  if ($recognitionInputPill) {
+    $recognitionInputPill.textContent = '';
+    $recognitionInputPill.style.display = 'none';
+  }
 
   if (hasTrack) {
     $title.textContent  = effectiveTrack.title  || '—';
@@ -314,18 +342,55 @@ function applyState(state) {
       // Keep previous artwork during short inter-track/identification transitions.
       showDefaultArtwork();
     } else {
-      $title.textContent  = 'Identifying…';
-      $artist.textContent = '';
-      $album.textContent  = '';
-      $identifying.className = 'pulsing';
-      if (recognition && recognition.phase === 'off') {
-        $identifying.className = '';
-        $identifying.textContent = 'Recognition disabled for this input';
-      } else if (recognition && recognition.phase === 'no_match') {
-        $identifying.textContent = 'Listening for the next match';
-      } else {
-        $identifying.textContent = 'Listening for a match';
+      const inputName = recognition && recognition.active_input_name
+        ? String(recognition.active_input_name).trim()
+        : '';
+      const phase = recognition && recognition.phase
+        ? String(recognition.phase).toLowerCase()
+        : '';
+      const detail = recognition && recognition.detail
+        ? String(recognition.detail).toLowerCase()
+        : '';
+
+      if ($recognitionInputPill && inputName) {
+        $recognitionInputPill.textContent = inputName;
+        $recognitionInputPill.style.display = 'inline-flex';
       }
+
+      let mainTitle = 'Identifying…';
+      let subText = 'Listening for a match';
+      let pulseSub = true;
+
+      if (phase === 'off') {
+        mainTitle = 'Recognition off';
+        subText = inputName
+          ? `${inputName} — recognition disabled for this input`
+          : 'Recognition disabled for this input';
+        pulseSub = false;
+      } else if (phase === 'no_match') {
+        mainTitle = 'No match yet';
+        subText = inputName
+          ? `${inputName} — listening for the next match`
+          : 'Listening for the next match';
+        pulseSub = false;
+      } else if (phase === 'identifying') {
+        mainTitle = 'Identifying…';
+        if (detail === 'capturing') {
+          subText = inputName
+            ? `Listening on ${inputName}…`
+            : 'Listening for a match…';
+        } else {
+          subText = inputName
+            ? `${inputName} — waiting for track boundary`
+            : 'Listening for a match';
+        }
+      }
+
+      $title.textContent = mainTitle;
+      $artist.textContent = '';
+      $album.textContent = '';
+      $identifying.className = pulseSub ? 'pulsing' : '';
+      $identifying.textContent = subText;
       showDefaultArtwork();
     }
   } else if (effectivePlaying && source !== 'None') {
@@ -433,7 +498,10 @@ function isRecognizedTrack(track) {
   if (!track) return false;
   const title = String(track.title || '').trim().toLowerCase();
   const artist = String(track.artist || '').trim().toLowerCase();
-  const invalidTitles = new Set(['unrecognized', 'unknown', 'identifying…', 'identifying...']);
+  const invalidTitles = new Set([
+    'unrecognized', 'unknown', 'identifying…', 'identifying...',
+    'recognition off', 'no match yet',
+  ]);
   if (invalidTitles.has(title)) return false;
   return Boolean(title || artist);
 }

@@ -176,15 +176,45 @@ func (m *mgr) buildRecognitionStatusLocked() *RecognitionStatus {
 		}
 	}
 
+	pol := resolveRecognitionPolicyFromConfigPathCached(m.cfg.CalibrationConfigPath)
+	inID := strings.TrimSpace(pol.LastKnownInputID)
+	inName := strings.TrimSpace(pol.InputLogicalName)
+
+	// Terminal phases must win over recognizerBusyUntil. Otherwise a prior capture
+	// window can keep the UI in "identifying" while the coordinator is skipping
+	// attempts (for example per-input recognition policy "off").
+	if m.recognitionPhase == "no_match" {
+		return &RecognitionStatus{
+			Phase:             "no_match",
+			Detail:            "no_match",
+			ActiveInputID:     inID,
+			ActiveInputName:   inName,
+		}
+	}
+	if m.recognitionPhase == "off" {
+		return &RecognitionStatus{
+			Phase:             "off",
+			Detail:            "input_policy_off",
+			ActiveInputID:     inID,
+			ActiveInputName:   inName,
+		}
+	}
+
 	if time.Now().Before(m.recognizerBusyUntil) {
-		return &RecognitionStatus{Phase: "identifying"}
+		return &RecognitionStatus{
+			Phase:             "identifying",
+			Detail:            "capturing",
+			ActiveInputID:     inID,
+			ActiveInputName:   inName,
+		}
 	}
 
-	if m.recognitionPhase == "no_match" || m.recognitionPhase == "off" {
-		return &RecognitionStatus{Phase: m.recognitionPhase}
+	return &RecognitionStatus{
+		Phase:             "identifying",
+		Detail:            "waiting_trigger",
+		ActiveInputID:     inID,
+		ActiveInputName:   inName,
 	}
-
-	return &RecognitionStatus{Phase: "identifying"}
 }
 
 // runLibrarySync periodically refreshes the in-memory physical track metadata
