@@ -222,8 +222,8 @@ func TestBuildState_AirPlayTransportMissingContext(t *testing.T) {
 	if s.AirPlayTransport.Available {
 		t.Fatal("airplay transport should be unavailable without DACP context")
 	}
-	if s.AirPlayTransport.SessionState != "missing_dacp_context" {
-		t.Fatalf("session_state = %q, want missing_dacp_context", s.AirPlayTransport.SessionState)
+	if s.AirPlayTransport.SessionState != "no_airplay_session" {
+		t.Fatalf("session_state = %q, want no_airplay_session", s.AirPlayTransport.SessionState)
 	}
 }
 
