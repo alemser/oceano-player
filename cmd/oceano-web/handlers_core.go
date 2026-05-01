@@ -162,7 +162,7 @@ func handleAirPlayTransport(configPath string, limiter *airplayTransportRateLimi
 			return
 		}
 
-		targetURL := fmt.Sprintf("http://%s:3689%s", ctx.ClientIP, cmdPath)
+		targetURL := buildDACPURL(ctx.ClientIP, cmdPath)
 		httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
 		if err != nil {
 			http.Error(w, `{"error":"failed to build dacp request"}`, http.StatusInternalServerError)
@@ -374,6 +374,21 @@ func fallbackReason(reason, sessionState string) string {
 		return reason
 	}
 	return strings.TrimSpace(sessionState)
+}
+
+func buildDACPURL(clientIP, commandPath string) string {
+	host := strings.TrimSpace(clientIP)
+	if host == "" {
+		return ""
+	}
+	commandPath = strings.TrimSpace(commandPath)
+	if commandPath == "" {
+		commandPath = "/"
+	}
+	if !strings.HasPrefix(commandPath, "/") {
+		commandPath = "/" + commandPath
+	}
+	return "http://" + net.JoinHostPort(host, "3689") + commandPath
 }
 
 func handleArtwork(configPath string) http.HandlerFunc {
