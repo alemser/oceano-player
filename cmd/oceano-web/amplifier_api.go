@@ -78,6 +78,7 @@ func registerAmplifierRoutes(mux *http.ServeMux, amp *amplifier.BroadlinkAmplifi
 	mux.HandleFunc("/api/amplifier/prev-input", s.handleAmplifierPrevInput)
 	mux.HandleFunc("/api/amplifier/select-input", s.handleAmplifierSelectInput)
 	mux.HandleFunc("/api/amplifier/last-known-input", s.handleAmplifierSetLastKnownInput)
+	mux.HandleFunc("/api/amplifier/resync-input", s.handleAmplifierResyncInput)
 	mux.HandleFunc("/api/amplifier/device-action", s.handleAmplifierDeviceAction)
 	mux.HandleFunc("/api/amplifier/reset-usb-input", s.handleAmplifierResetUSBInput)
 	mux.HandleFunc("/api/amplifier/pair-start", s.handlePairStart)
@@ -448,11 +449,53 @@ func (s *amplifierServer) handleAmplifierSetLastKnownInput(w http.ResponseWriter
 		jsonError(w, "input_id is required", http.StatusBadRequest)
 		return
 	}
-	if err := s.persistLastKnownInputID(req.InputID); err != nil {
+	if err := s.resyncRuntimeInput(req.InputID); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *amplifierServer) handleAmplifierResyncInput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		InputID AmplifierInputID `json:"input_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(string(req.InputID)) == "" {
+		jsonError(w, "input_id is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.resyncRuntimeInput(req.InputID); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	cfg, err := loadConfig(s.configPath)
+	if err != nil {
+		jsonError(w, "failed to load config", http.StatusInternalServerError)
+		return
+	}
+	label := ""
+	for _, in := range cfg.Amplifier.Inputs {
+		if in.ID == req.InputID {
+			label = strings.TrimSpace(in.LogicalName)
+			break
+		}
+	}
+	jsonOK(w, struct {
+		InputID    AmplifierInputID `json:"input_id"`
+		InputLabel string           `json:"input_label,omitempty"`
+	}{
+		InputID:    req.InputID,
+		InputLabel: label,
+	})
 }
 
 func (s *amplifierServer) handleAmplifierDeviceAction(w http.ResponseWriter, r *http.Request) {
@@ -788,6 +831,12 @@ func (s *amplifierServer) markInputNavPress() {
 	s.inputNavMu.Unlock()
 }
 
+func (s *amplifierServer) clearInputNavPress() {
+	s.inputNavMu.Lock()
+	s.lastInputNavPressAt = time.Time{}
+	s.inputNavMu.Unlock()
+}
+
 func (s *amplifierServer) inputSelectionIsActive(window time.Duration) bool {
 	s.inputNavMu.Lock()
 	last := s.lastInputNavPressAt
@@ -814,6 +863,16 @@ func (s *amplifierServer) persistLastKnownInputID(inputID AmplifierInputID) erro
 	}
 	cfg.AmplifierRuntime.LastKnownInputID = inputID
 	return saveConfig(s.configPath, cfg)
+}
+
+func (s *amplifierServer) resyncRuntimeInput(inputID AmplifierInputID) error {
+	if err := s.persistLastKnownInputID(inputID); err != nil {
+		return err
+	}
+	// A resync should not inherit a stale active-selection window from previous
+	// next/prev presses; after anchoring runtime state, the first nav press arms.
+	s.clearInputNavPress()
+	return nil
 }
 
 func findInputIndexByID(inputs []AmplifierInputConfig, inputID AmplifierInputID) int {
