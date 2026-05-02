@@ -142,6 +142,8 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 **Amendment (same day):** AcoustID removed from the recognition roadmap; prefer **ACRCloud**, **AudD**, optional **`shazamio`**, and enrichment (MusicBrainz / TheAudioDB / Cover Art Archive).
 
+**Removal (later):** `recognition.acoustid_client_key`, web UI field, `--acoustid-client-key`, and state-manager config field **deleted**. Existing JSON may still contain the key until the user saves config from the web UI (or edits JSON); it is ignored.
+
 ---
 
 ## Log: 2026-05-02 — Documentation: `shazamio` vs official Shazam API
@@ -176,6 +178,26 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 - [ ] Config: read/write `audd_api_token`; chain options `audd_first` / `audd_only`.
 - [ ] UI: accept `recognition.provider === "audd"` if branching on provider.
+
+**Risk**
+
+- [x] low
+
+---
+
+## Log: 2026-05-02 — `recognition.providers[]` + `merge_policy` (B0, additive)
+
+**Backend**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `recognition.providers` | **Additive** | Optional JSON array of `{ "id", "enabled", "roles", "credential_ref"? }`. Known `id` values: `acrcloud`, `audd`, `shazam`. Empty `roles` ⇒ entry skipped (per plan). When **non-empty**, `oceano-state-manager` reads ordering from **`--calibration-config`** (default `/etc/oceano/config.json`) and **does not use `--recognizer-chain`** for primary/confirmer construction. When **omitted** or empty: legacy **`recognizer_chain`** behaviour unchanged. |
+| `recognition.merge_policy` | **Additive** | Optional string; default `first_success` when `providers` is used. Other values are logged and treated as `first_success` until coordinator work (B1b). |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] Optional: send `recognition.providers` + `merge_policy` in `POST /api/config` when moving beyond MVP `recognizer_chain` mapping; preserve round-trip with backend.
+- [ ] Validate at least one enabled **primary** with available credentials before save when using `providers`.
 
 **Risk**
 

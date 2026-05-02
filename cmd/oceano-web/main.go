@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -310,7 +311,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		old.Advanced.VUSocket != cfg.Advanced.VUSocket ||
 		old.Advanced.PCMSocket != cfg.Advanced.PCMSocket
 
-	managerChanged := old.Recognition != cfg.Recognition ||
+	managerChanged := !reflect.DeepEqual(old.Recognition, cfg.Recognition) ||
 		old.Advanced.MetadataPipe != cfg.Advanced.MetadataPipe ||
 		old.Advanced.SourceFile != cfg.Advanced.SourceFile ||
 		old.Advanced.StateFile != cfg.Advanced.StateFile ||

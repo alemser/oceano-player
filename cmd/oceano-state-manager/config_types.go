@@ -116,6 +116,15 @@ type detectorOutput struct {
 	Source string `json:"source"`
 }
 
+// RecognitionProviderSpec mirrors one entry in recognition.providers[] in config.json (B0).
+// CredentialRef is parsed for forward compatibility (iOS relay / secrets); ignored at runtime for now.
+type RecognitionProviderSpec struct {
+	ID            string   `json:"id"`
+	Enabled       bool     `json:"enabled"`
+	Roles         []string `json:"roles"`
+	CredentialRef string   `json:"credential_ref,omitempty"`
+}
+
 // --- Config ---
 
 type Config struct {
@@ -133,9 +142,6 @@ type Config struct {
 	// AudDAPIToken is the AudD API token (BYOK, https://docs.audd.io/). When non-empty,
 	// AudD is available for chain policies that include it.
 	AudDAPIToken string
-	// AcoustIDClientKey is a legacy config field; AcoustID is not implemented (short-capture mismatch).
-	// If non-empty, state-manager logs once that the value is ignored.
-	AcoustIDClientKey string
 	// ShazamPythonBin is the path to the Python binary in the shazam-env virtualenv.
 	// When set and shazamio is importable, Shazam is used as a fallback after ACRCloud.
 	ShazamPythonBin string
@@ -242,6 +248,13 @@ type Config struct {
 	// result after a same-track re-confirmation. Lower values favor continuity;
 	// higher values reduce false positives after manual needle repositioning.
 	BoundaryRestoreMinSeek time.Duration
+
+	// RecognitionProviders is loaded from recognition.providers in CalibrationConfigPath when
+	// that array is non-empty (B0). It overrides RecognizerChain for ordering and confirmer selection.
+	RecognitionProviders []RecognitionProviderSpec
+	// RecognitionMergePolicy is recognition.merge_policy from config (default first_success).
+	// Only first_success is implemented; other values are logged and treated as first_success until B1b.
+	RecognitionMergePolicy string
 }
 
 func defaultConfig() Config {

@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -424,7 +423,6 @@ func main() {
 	flag.StringVar(&cfg.ACRCloudAccessKey, "acrcloud-access-key", cfg.ACRCloudAccessKey, "ACRCloud access key")
 	flag.StringVar(&cfg.ACRCloudSecretKey, "acrcloud-secret-key", cfg.ACRCloudSecretKey, "ACRCloud secret key")
 	flag.StringVar(&cfg.AudDAPIToken, "audd-api-token", cfg.AudDAPIToken, "AudD API token (optional; https://api.audd.io BYOK)")
-	flag.StringVar(&cfg.AcoustIDClientKey, "acoustid-client-key", cfg.AcoustIDClientKey, "Legacy: stored AcoustID key (ignored; AcoustID not supported for short captures)")
 	flag.StringVar(&cfg.PCMSocket, "pcm-socket", cfg.PCMSocket, "Unix socket for raw PCM from oceano-source-detector")
 	flag.StringVar(&cfg.VUSocket, "vu-socket", cfg.VUSocket, "Unix socket for VU frames from oceano-source-detector")
 	flag.Float64Var(&cfg.VUSilenceThreshold, "vu-silence-threshold", cfg.VUSilenceThreshold, "RMS threshold for VU monitor silence detection (track-boundary detection)")
@@ -453,10 +451,9 @@ func main() {
 	flag.StringVar(&cfg.RecognizerChain, "recognizer-chain", cfg.RecognizerChain, "recognition chain: acrcloud_first | shazam_first | acrcloud_only | shazam_only | audd_first | audd_only (optional AudD token inserts AudD into mixed chains; continuity uses shazamio when available)")
 	flag.Parse()
 
+	applyRecognitionProvidersFromConfigFile(&cfg)
+
 	log.Printf("oceano-state-manager starting")
-	if strings.TrimSpace(cfg.AcoustIDClientKey) != "" {
-		log.Printf("recognizer: acoustid_client_key is set but ignored — AcoustID is not a supported provider for short captures (see docs/plans/recognition-flexible-providers-and-secrets.md)")
-	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

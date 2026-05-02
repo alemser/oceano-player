@@ -10,6 +10,12 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 
 ---
 
+## Client apps vs oceano-web (product direction)
+
+**`oceano-web` is transitional.** The target experience is **native apps**: **`oceano-player-ios` first**, then **Android**. User-facing configuration, discovery, and recognition settings should converge on the **HTTP/SSE contract** (`GET/POST /api/config`, `/api/stream`, and related routes) that **mobile clients** implement—not on an ever-growing bespoke web UI. Treat **`oceano-web`** as **bootstrap**, **LAN admin**, and **ops** (service restarts, device pickers during setup) until native parity exists; **avoid new web-only product features** that would duplicate or fight iOS/Android.
+
+---
+
 ## Current state (codebase snapshot)
 
 | Area | Today |
@@ -17,7 +23,7 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 | Capture | `captureFromPCMSocket` writes **S16_LE stereo 44100 Hz** WAV (`cmd/oceano-state-manager/recognizer.go`). |
 | Chain | `RecognizerChain` string enum: `acrcloud_first`, `shazam_first`, `acrcloud_only`, `shazam_only` (`recognition_setup.go`). |
 | Interface | `internal/recognition.Recognizer`: `Name()`, `Recognize(ctx, wavPath)` (`types.go`). |
-| AcoustID | **Not implemented** as a `Recognizer`. `acoustid_client_key` may exist in config for historical/additive reasons but **does not enable** any in-process provider. |
+| AcoustID | **Not implemented**; `acoustid_client_key` was **removed** from the config schema and services (historical POC only under `scripts/poc_acoustid.py`). |
 | Credentials | ACRCloud host/key/secret live in **`/etc/oceano/config.json`** (today also editable via bundled web UI; **product converges to iOS-only** for user-facing config). The optional **shazamio** path uses a **Python venv + `shazamio`** (no Shazam API key in config). |
 | **Continuity monitor** | **`runShazamContinuityMonitor`** (`main.go`) periodically captures short audio and runs the **`shazamio`** subprocess path only, independent of `RecognizerChain`. It detects **gapless** or **soft** track changes (weak VU boundaries), calibrates against the current result, and can **suppress** VU-driven boundaries when “continuity is ready”. Tuning lives under `ShazamContinuity*` and `Continuity*` in `config_types.go` / `oceano-web/config.go`. |
 
@@ -27,10 +33,45 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 
 1. **Default identification path**: **ACRCloud** when configured (today’s primary **documented** API path), with **AudD** (or similar) as optional **snippet-friendly** REST providers, and **`shazamio`** only as an **optional, unofficial** integration (see below).
 2. **Bundled optional providers**: **ACRCloud** is **off until configured** (BYOK keys). **`shazamio`** is **optional** via `install-shazam.sh` + venv path—**not** the same as a first-party **Shazam** developer API. **AudD** (or peers) as optional BYOK additions with public docs.
-3. **User-defined order**: Replace fixed enums with an **ordered list** of enabled providers. New installs may default to **ACRCloud-first** when credentials exist, otherwise explicit user choice in **iOS**.
+3. **User-defined order**: Replace fixed enums with an **ordered list** of providers. **iOS** should present this as a **modern card list**: **drag-and-drop** defines sequence; **toggles** enable one or more; the Pi runs the chain in **that order** for **`first_success`** (and similar policies). Collapsed cards keep the screen simple; expanding (chevron) reveals credentials, limits, and advanced options (see **iOS settings UX: provider cards**).
 4. **Per-provider roles**: Each enabled provider can participate as **`primary`**, **`confirmer`**, and/or **`arbitration`** (same semantics as before; coordinator defines call order).
 5. **Security**: For paid or sensitive keys, prefer **storage on the phone** so the **Pi backend never holds plaintext secrets**—with explicit tradeoffs (see below).
 6. **Multi-provider outcomes**: User-controlled **merge** behaviour (`first_success`, `best_score`, `require_agreement`, `arbitrate`, optional `user_picks_on_conflict` later)—not only “first non-empty wins” as in `ChainRecognizer` today.
+7. **Per-provider usage limits**: Optional **daily / monthly / rolling** caps and **warn thresholds** so BYOK users do not exceed paid API plans; continuity calls metered separately where configured (see **Per-provider usage limits** below). Include an explicit **reset** control so users can clear local counters and **unblock** recognition after a mistaken cap or after upgrading a vendor plan (does not change vendor-side quota).
+
+---
+
+## Minimum executable install (from zero)
+
+**Intent:** Define what “Oceano works” means on a **fresh install** before any flexible-provider or iOS-heavy work lands. This keeps scope honest for a **single-operator** or **early-adopter** setup: recognition config evolution (**B0+**) is **not** a prerequisite for a usable appliance.
+
+### What must run
+
+| Requirement | Notes |
+|-------------|--------|
+| **`oceano-source-detector`** + **`oceano-state-manager`** | Core path: capture → source classification, VU, unified state. |
+| **Unified state output** | `/tmp/oceano-state.json` with `source`, `vu`, `state`; `track` may be empty or streaming-derived. |
+| **Optional but practical: `oceano-web`** | Easiest way to tune devices, thresholds, and service restarts without hand-editing JSON today; **transitional**—see **Client apps vs oceano-web**. |
+
+### What is explicitly optional at first boot
+
+| Optional | Notes |
+|----------|--------|
+| **Track recognition (physical)** | No ACRCloud / AudD / `shazamio` keys → chain resolves to **no providers**; state manager logs recognition disabled; **Physical / None** and AirPlay/BT metadata paths still behave as configured. |
+| **`recognition.providers[]` / B0** | Legacy **`recognizer_chain` + credential fields** remain sufficient until the new config shape ships; see **B0**. |
+| **iOS companion** | Not required for a bare-minimum Pi; becomes the **primary** operator UI over time. Until then: web UI or static `config.json` + systemd. |
+
+### Green-path checklist (documentation target)
+
+Use this as the **README / first-boot** bar; mirror in `README.md` when user-visible install docs are updated:
+
+1. Install `.deb` or `install.sh` stack as documented; enable core systemd units.
+2. Confirm `oceano-source-detector` and `oceano-state-manager` are **active** (`journalctl` clean of fatal errors).
+3. Confirm `/tmp/oceano-state.json` updates (source + VU) during playback or silence as expected.
+4. **If** recognition is desired: add at least one provider’s credentials (or install `shazamio` path); until then, expect **no** ACR/AudD/Shazam calls.
+5. **If** using the web UI: open `:8080`, save once to align generated unit args with `config.json`.
+
+**Planning implication:** **B0** (parse `providers[]` with legacy fallback) improves **config expressiveness** and **iOS contract** alignment; it does **not** block a minimal green-path install. Prioritize B0 when multi-provider order/roles need to round-trip in JSON; otherwise a lone maintainer can stay on **`recognizer_chain`** until then.
 
 ---
 
@@ -157,6 +198,24 @@ Move from a single `recognizer_chain` enum to something like:
 - **`credential_ref`**: indirection for where secrets live (`config` vs `ios` vs future `keychain` service).
 - **Backward compatibility**: map legacy `acrcloud_first` / `shazam_only` / … to the new list for one or two releases; log deprecation. Map `shazam_continuity_interval_secs` > 0 and Shazam available → `continuity.enabled: true`, `continuity.provider: shazam` until users migrate.
 
+### iOS settings UX: provider cards (target design)
+
+**Intent:** A single, discoverable screen that matches how the backend thinks: **ordered providers**, **enabled flags**, and **detail on demand**—no separate “chain enum” picker.
+
+| Element | Behaviour |
+|---------|-----------|
+| **Card list** | One card per known provider type (`acrcloud`, `audd`, `shazam`, …). Cards are shown in **list order** = **`providers[]` order** in `POST /api/config`. |
+| **Drag and drop** | User reorders cards; on save, the app writes the **same order** to JSON. The Pi’s primary chain follows this sequence (for each enabled entry with a **`primary`** role, or simplified model: **enabled** ⇒ participates in order—product can map “enabled + order” to roles in one step). |
+| **Toggle** | Per-card **On/Off**. Off ⇒ `enabled: false` for that entry; it is **skipped** at runtime but **stays in the list** so the user does not lose ordering or credentials. At least one enabled primary (or enabled card, per final rules) required before save. |
+| **Chevron / disclosure** | Collapsed by default: logo, short label, toggle, drag handle. Expanded: **credentials** (masked fields, Keychain-backed where applicable), **usage limits** (caps, warn threshold, **reset counters**), optional **roles** or **continuity** sub-sections if not moved to a global row. |
+| **Visual polish** | Rounded cards, spacing, optional subtle reorder affordance (handle icon); **SF Symbols** chevron rotation; light haptics on drop (optional). Follow **Human Interface Guidelines** for edit mode vs always-on drag per platform version. |
+
+**Why it is simpler:** One mental model—**“top to bottom is try order; toggles are who is in the race”**—instead of cross-referencing a chain preset with a separate provider list. Advanced users still get limits and keys without cluttering the collapsed state.
+
+**Implementation notes (`oceano-player-ios`):** Use **`SwiftUI`** `List` + `.onMove` / drag delegates, or **`UICollectionView`** with compositional layout if richer card chrome is needed. Persist order as array indices only; avoid parallel “sort priority” integers that can drift. Document screenshots and behaviour in **`docs/cross-repo-sync.md`** when the settings contract ships.
+
+**Web (`oceano-web`):** Optional parity later (sortable list + expando); not required for the product story if **iOS** is the primary editor.
+
 ### Code structure
 
 - Add optional providers under `internal/recognition/` (e.g. **`audd.go`**) matching `Recognize(ctx, wavPath)`.
@@ -208,13 +267,14 @@ Secrets in `config.json` with **filesystem permissions** (`root` / `oceano` user
 |-----------|--------|
 | **Debian package** | No **chromaprint-tools** requirement for recognition (AcoustID not shipped). |
 | **Optional providers** | ACRCloud: HTTP client only (already). **`shazamio`**: keep Python venv path optional; disclose unofficial nature in product copy. AudD: token + multipart WAV when implemented. |
-| **iOS (`oceano-player-ios`)** | Primary UX: per-provider **enable**, **roles** (primary / confirmer / arbitration), **reorder** primaries, ACRCloud / AudD / **`shazamio`** (venv) fields; **mask** secrets; optional **connection test**; validate “at least one primary” before save. |
+| **`oceano-web`** | Ships in the `.deb` for setup/admin; **not** the long-term primary client—see **Client apps vs oceano-web**. |
+| **iOS (`oceano-player-ios`)** | **First** native consumer of config/state APIs; primary UX: per-provider **enable**, **roles** (primary / confirmer / arbitration), **reorder** primaries, ACRCloud / AudD / **`shazamio`** (venv) fields; **mask** secrets; optional **connection test**; validate “at least one primary” before save. **Android** follows the same backend contract when introduced. |
 
 ---
 
 ## Execution order: backend first, then iOS (incremental testing)
 
-**Principle:** Land **additive, testable** backend slices first. **iOS** follows once the **config contract** and (where needed) **HTTP APIs** are stable. Avoid breaking `oceano-player-ios` consumers of `GET/POST /api/config` or state JSON.
+**Principle:** Land **additive, testable** backend slices first. **iOS** follows once the **config contract** and (where needed) **HTTP APIs** are stable. Avoid breaking `oceano-player-ios` consumers of `GET/POST /api/config` or state JSON. A **fresh Pi** can satisfy **Minimum executable install (from zero)** with **no** `providers[]` and **no** recognition keys until the operator opts in.
 
 ### How to interleave work
 
@@ -296,6 +356,110 @@ This supports **GDPR-style transparency**, consumer trust, and **App Store**-sty
 
 ---
 
+## Per-provider usage limits (BYOK billing protection)
+
+**Goal:** Let users align Oceano’s call volume with **each vendor’s plan** (credits, daily/monthly caps, burst limits) so the Pi does not **silently overspend** API quota after noisy vinyl sessions, aggressive refresh intervals, or continuity polling.
+
+This complements `docs/plans/recognition-provider-chain-improvement.md` (quotas at coordinator level); here the emphasis is **per-provider, user-configurable ceilings** surfaced in **config + UI + optional state hints**.
+
+### What counts as “one use”
+
+| Call path | Should count toward provider limits? | Notes |
+|-----------|--------------------------------------|--------|
+| **Primary chain** `Recognize` (boundary / timer / manual trigger) | **Yes** — one increment **per successful HTTP attempt** to that provider (or per subprocess invocation for **`shazamio`**). | If the chain tries ACR then AudD on the same WAV, **each** provider that is actually called increments **its** counter. |
+| **Confirmer / arbitration** second pass | **Yes** for the provider that runs the confirmation call. | Same boundary can therefore consume **two** units for one provider if design is “ACR then ACR confirm” (rare); document behaviour. |
+| **Retries** after transport error | **Product choice:** default **do not** count failed network attempts; **do** count HTTP **4xx/5xx** where the vendor may still bill (configurable `count_failed_requests`). | Avoid punishing users for flaky Wi-Fi while still respecting provider billing docs. |
+| **Continuity / periodic monitor** | **Yes**, against a **separate budget** (recommended) or the **same** counter with a lower cap — user choice. | Continuity can dominate volume if interval is short; default UX should warn when enabling continuity without a continuity-specific cap. |
+| **Delegated recognition (Option A, iOS relay)** | Count on **Pi** when the job is **dispatched** (or when iOS acknowledges receipt) so local metering matches user expectation even if HTTP executes on the phone. | iOS may additionally show vendor dashboards; Pi remains source of truth for “stop firing jobs.” |
+
+### Limit dimensions (configurable per provider)
+
+| Dimension | Purpose |
+|-----------|---------|
+| **`max_calls_per_calendar_day`** (optional) | Hard ceiling in **UTC calendar day** (simple to explain and reset); good for vendors that bill “per day.” |
+| **`max_calls_per_rolling_24h`** (optional) | Sliding window; better for burst-heavy plans. **Either** calendar **or** rolling per counter family — avoid double-counting the same calls in two windows unless product explicitly supports “whichever is stricter wins.” |
+| **`max_calls_per_calendar_month`** (optional) | Protects monthly credit packs (AudD-style credits, ACR tier caps). |
+| **`warn_threshold_ratio`** (e.g. `0.8`) | When **used ≥ ratio × limit** for the active window, emit **log + machine-readable state** so **iOS / web** can show “approaching limit.” |
+| **`on_limit`** | **`block`** (skip calls, recognition may fall through to next provider or show “quota exhausted”) vs **`allow_overrun`** (log only; **not** default for commercial UX). |
+
+**Default policy for new installs:** limits **unset** = **no local cap** (current behaviour), preserving backward compatibility. Power users and commercial SKUs opt in explicitly.
+
+### Config shape (conceptual extension)
+
+Extend each entry in `recognition.providers[]` (or a parallel map keyed by provider `id`) with optional **`usage_limits`**:
+
+```json
+{
+  "id": "audd",
+  "enabled": true,
+  "roles": ["primary"],
+  "credential_ref": "config:audd",
+  "usage_limits": {
+    "max_calls_per_calendar_day": 500,
+    "max_calls_per_calendar_month": 10000,
+    "warn_threshold_ratio": 0.85,
+    "on_limit": "block",
+    "count_failed_requests": false,
+    "continuity_budget": {
+      "max_calls_per_calendar_day": 200,
+      "share_main_counter": false
+    }
+  }
+}
+```
+
+- **`continuity_budget`**: when `share_main_counter` is `true`, periodic continuity uses the **same** counters as the main chain (simplest mental model, easiest to exhaust accidentally).
+- **Global fallback** (optional): `recognition.usage_limits_defaults` applied when a provider omits `usage_limits`, so iOS can ship presets (“AudD hobby tier template”).
+
+### Enforcement architecture
+
+1. **Single choke-point** before every `Recognizer.Recognize` (and before enqueueing **Option A** jobs): `UsageLimiter.Allow(ctx, providerID, callKind)` where `callKind` is `primary | confirmer | arbitration | continuity`.
+2. **Persistence:** durable counters in **`library.db`** (or a small sidecar SQLite table `recognition_usage`) with **atomic increment + window key** (`audd:2026-05-02`, `audd:2026-05`) to survive restarts; avoid `/tmp`-only state.
+3. **On block:** coordinator skips that provider for this attempt; logs `recognition: provider=audd limit=day reason=max_calls_per_calendar_day`; optional **`recognition`** subtree in `oceano-state.json` with `phase: "limit_reached"` and `provider` so **iOS** can toast without scraping logs.
+4. **Clock skew:** document that limits use **Pi system clock**; NTP recommended on the appliance.
+
+### UX and cross-repo
+
+| Surface | Behaviour |
+|---------|-----------|
+| **`oceano-player-ios`** | Per-provider settings: show **used / limit** per window, **warn** banner, link to vendor billing page; validate save when limits are logically impossible (e.g. continuity cap > main cap with shared counter). **Reset counters** action (see below). |
+| **`oceano-web`** (if retained) | Same fields for Pi-local admins; `GET /api/recognition/usage` (read usage); **`POST /api/recognition/usage/reset`** (or equivalent) for admin reset; optional **Recognition** page control: “Reset usage counters” with confirmation. |
+| **Docs** | README: “Usage limits are enforced **on-device** to protect your API plan; they are **not** a substitute for vendor-side dashboards.” Explain that **reset** only clears **local** bookkeeping on the Pi. |
+
+### Counter reset (unblock after local limit)
+
+Users who hit **`on_limit: block`** need a **deliberate way to clear enforcement** without waiting for the next calendar window or editing SQLite by hand.
+
+| Topic | Specification |
+|--------|----------------|
+| **Semantics** | Reset **only** Oceano’s **persisted counters** (SQLite). It does **not** increase vendor API quota, refund credits, or undo HTTP **429** throttling on the provider side. Copy in UI: short disclaimer before confirm. |
+| **Scopes** | At minimum: **`provider_id`** (e.g. `audd`, `acrcloud`) + optional **`call_kind`** (`primary \| continuity \| all`). Optional **`windows`**: `["day","month","rolling"]` or **`all`** to wipe every stored bucket for that provider (simplest “unblock me now” button). |
+| **API** | e.g. `POST /api/recognition/usage/reset` with JSON body `{ "provider": "audd", "scope": "all" }` (exact shape in `docs/cross-repo-sync.md`). Same **auth / CSRF** posture as `POST /api/config` (local-trust LAN model today). |
+| **State** | After reset, coordinator clears **`limit_reached`** (or equivalent) on the next successful `Allow`; optionally bump a **`usage_counters_reset_at`** timestamp in state for debugging. |
+| **Audit** | Log: `recognition: usage counters reset provider=audd scope=all requested_by=web` (or session id); helps support without silent circumvention. |
+| **CLI / support** | Optional: `oceano-state-manager` or small `oceano-usage-reset` helper invoking the same library function — only if product wants headless SSH recovery without the web UI. |
+
+**UX pattern:** On the recognition / metrics screen, per provider show **Used: N / limit** with a secondary control **“Reset local counters”** → confirm dialog → success toast. A single **global** “Reset all providers” remains **secondary** (dangerous) or hidden under **Advanced**.
+
+Record contract changes in `docs/cross-repo-sync.md` when `oceano-state.json`, `POST /api/config`, or **`POST /api/recognition/usage/reset`** gains fields or behaviour.
+
+### Testing and telemetry
+
+- **Unit tests:** boundary at 23:59:59 → 00:00:00 reset; rolling window eviction; `block` vs `allow_overrun`.
+- **Integration:** dry-run mode or `OCEANO_USAGE_LIMIT_DRY_RUN` env (optional) logs **would-block** without incrementing — for support only, not default in production.
+
+### Phasing (relative to other plan items)
+
+| Phase | Scope |
+|-------|--------|
+| **B1c** | Introduce **`UsageLimiter`** + SQLite counters + wiring in coordinator; **no default limits** until JSON present; **`POST /api/recognition/usage/reset`** (or shared library entrypoint) + **Counter reset** UX on web/iOS. |
+| **B2+** | When **AudD** / multi-provider is default, ship **example presets** in docs (not in image) for common vendor tiers. |
+| **I1+** | iOS editors for `usage_limits` + usage readback + **Reset local counters** per provider (same contract as web reset API). |
+
+Align with **`recognition-provider-chain-improvement.md`** so global “parallel mode” quotas and per-provider limits compose predictably (e.g. **stricter of local limit vs global coordinator cap** wins).
+
+---
+
 ## Community provider evaluation (shortlist for assessment)
 
 This table lists **widely discussed** services in maker / self-host / media-server communities. It separates **acoustic identification** (upload or fingerprint audio → track) from **metadata enrichment** (you already know artist/title or a MusicBrainz id).
@@ -345,9 +509,10 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 
 | Phase | Scope |
 |-------|--------|
-| **B0** | **Config model**: `recognition.providers[]` + `merge_policy` (default `first_success`) + migration from `recognizer_chain`; **runtime parity** with current enum-based chain when `providers` omitted. |
+| **B0** | **Config model**: `recognition.providers[]` + `merge_policy` (default `first_success`) + migration from `recognizer_chain`; **runtime parity** with current enum-based chain when `providers` omitted. **Not required** for a **minimum executable install** (see **Minimum executable install (from zero)**)—legacy chain + keys remain valid. |
 | **B1** | **`buildRecognitionComponents`** data-driven from `providers` + **roles**; confirmer / arbitration wiring; logs + validation hints for invalid configs. |
 | **B1b** | Extend **`merge_policy`** (`best_score`, `require_agreement`, `arbitrate`) without changing default behavior until explicitly set. |
+| **B1c** | **Per-provider usage limits** — `UsageLimiter`, SQLite-backed counters, coordinator choke-point; optional `usage_limits` on each provider; defaults **off**; **reset** API + UI to clear local counters and unblock (see **Counter reset**). |
 | **B2** | **AudD** — **shipped** in `internal/recognition/audd.go`; config `audd_api_token` + chain modes `audd_first` / `audd_only` + insertion into `acrcloud_first` / `shazam_first` when token set. Further REST providers reuse the same pattern. |
 | **B3** | **Continuity refactor**: `continuity.enabled`, `continuity.provider`; migrate Shazam-prefixed keys; hardware validation. |
 | **B4** | **RMS-aware** capture skip / LP run-in tuning. |
@@ -357,15 +522,21 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 
 | Phase | Scope |
 |-------|--------|
-| **I1** | **Recognition settings**: edit `recognition` in `POST /api/config` — provider list, order, roles, ACRCloud / AudD / **`shazamio`** path; masking; validation; copy that **`shazamio`** is unofficial if exposed to end users. |
+| **I1** ✅ **(MVP shipped)** | **Recognition settings** ( **`oceano-player-ios`** ): **provider card** screen — **drag-and-drop order**, per-card **toggle**, **chevron expand** for credentials + **`usage_limits`** + reset; `POST /api/config` sends ordered `providers[]`; masking; validation; copy that **`shazamio`** is unofficial if exposed to end users. **MVP** uses legacy `recognizer_chain` + fields (see **iOS I1 — completion status** below). |
 | **I2** | **Option A** client: subscribe to Pi job channel, run provider calls with Keychain secrets, return results. |
 | **I3** | Optional: **`user_picks_on_conflict`** UI when state exposes `track_candidates[]`. |
+
+#### iOS I1 — completion status (2026-05-02)
+
+**Marked complete (MVP)** in `oceano-player-ios`: Physical Media settings use **provider cards** with **drag-and-drop order**, per-card **toggle**, and **disclosure** for credentials (ACRCloud, AudD API token, shazamio Python path); save goes through existing **`POST /api/config`** with `recognizer_chain` + credential fields derived from slot order/toggles via `RecognitionProviderCatalog` (client-side); **`acoustid_client_key`** is stripped on load/save. `PhysicalMediaConfigView.swift` carries the UI; networking in `PhysicalMediaConfigClient.swift`.
+
+**Still open vs full I1 scope above:** `recognition.providers[]` in the JSON body (awaits backend **B0** + contract), per-provider **`usage_limits`** editors and **usage reset** actions, and additional end-user copy for BYOK / unofficial **`shazamio`** beyond subtitles.
 
 ### Deferred / parallel research
 
 | Phase | Scope |
 |-------|--------|
-| **P*** | Parallel recognition, per-provider timeouts, quotas — see `recognition-provider-chain-improvement.md`. |
+| **P*** | Parallel recognition, per-provider timeouts; compose with **per-provider usage limits** (`B1c`) and `recognition-provider-chain-improvement.md` coordinator quotas. |
 
 ---
 
@@ -385,6 +556,8 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 2. **Delegated recognition (Option A)**: acceptable **latency** for vinyl (10–20 s capture + phone round-trip)?
 3. **Offline**: should the Pi **fall back** to a Pi-stored provider when iOS is unreachable and ACRCloud is configured as `ios:` only?
 4. **Continuity default after migration**: is **`continuity.enabled: false`** acceptable out of the box when **`shazamio`** is not installed, or do we require an explicit opt-in?
+5. **Usage limits:** should vendor **429 / quota** responses automatically **tighten** local counters or only rely on pre-configured caps?
+6. **Usage limits:** do we ship **vendor-named presets** (risky if pricing changes) vs **generic numeric templates** only in docs?
 
 ---
 

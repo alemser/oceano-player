@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 
 	internallibrary "github.com/alemser/oceano-player/internal/library"
 )
@@ -37,6 +38,13 @@ type RecognitionPlan struct {
 	Continuity Recognizer
 }
 
+type recognitionInstances struct {
+	acr              Recognizer
+	audd             Recognizer
+	shazam           Recognizer
+	shazamContinuity Recognizer
+}
+
 type recognitionComponents struct {
 	chain      Recognizer
 	confirmer  Recognizer
@@ -51,7 +59,7 @@ func newRecognitionComponents(plan RecognitionPlan) recognitionComponents {
 	}
 }
 
-func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recognitionComponents {
+func buildRecognitionInstances(cfg Config, lib *internallibrary.Library) recognitionInstances {
 	var acrRec Recognizer
 	if cfg.ACRCloudHost != "" && cfg.ACRCloudAccessKey != "" && cfg.ACRCloudSecretKey != "" {
 		acrRec = wrapWithStats(NewACRCloudRecognizer(ACRCloudConfig{
@@ -68,8 +76,8 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 		log.Printf("recognizer: AudD enabled (documented API)")
 	}
 
-	var shazamRec Recognizer          // used in the chain
-	var shazamContinuityRec Recognizer // used by the continuity monitor
+	var shazamRec Recognizer
+	var shazamContinuityRec Recognizer
 	if cfg.ShazamPythonBin != "" {
 		if s, err := NewShazamRecognizer(cfg.ShazamPythonBin); err != nil {
 			log.Printf("recognizer: Shazam unavailable — %v", err)
@@ -80,23 +88,111 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 		}
 	}
 
-	chain := normalizeRecognizerChain(cfg.RecognizerChain)
-	log.Printf("recognizer: chain policy=%s", chain)
+	return recognitionInstances{
+		acr:              acrRec,
+		audd:             auddRec,
+		shazam:           shazamRec,
+		shazamContinuity: shazamContinuityRec,
+	}
+}
 
+func knownRecognitionProviderID(id string) bool {
+	switch strings.ToLower(strings.TrimSpace(id)) {
+	case "acrcloud", "audd", "shazam":
+		return true
+	default:
+		return false
+	}
+}
+
+func recognizerForProviderID(id string, inst recognitionInstances) Recognizer {
+	switch strings.ToLower(strings.TrimSpace(id)) {
+	case "acrcloud":
+		return inst.acr
+	case "audd":
+		return inst.audd
+	case "shazam":
+		return inst.shazam
+	default:
+		return nil
+	}
+}
+
+func specHasRole(spec RecognitionProviderSpec, want string) bool {
+	want = strings.ToLower(strings.TrimSpace(want))
+	for _, r := range spec.Roles {
+		if strings.ToLower(strings.TrimSpace(r)) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func buildRecognitionPlanFromProviders(specs []RecognitionProviderSpec, inst recognitionInstances) RecognitionPlan {
+	var ordered []Recognizer
+	for _, spec := range specs {
+		if !spec.Enabled || len(spec.Roles) == 0 {
+			continue
+		}
+		if !specHasRole(spec, "primary") {
+			continue
+		}
+		rec := recognizerForProviderID(spec.ID, inst)
+		if rec == nil {
+			if !knownRecognitionProviderID(spec.ID) {
+				log.Printf("recognizer: unknown provider id=%q in recognition.providers — skipped", spec.ID)
+			} else {
+				log.Printf("recognizer: provider id=%q has primary role but is not available (credentials / install) — skipped", spec.ID)
+			}
+			continue
+		}
+		ordered = append(ordered, rec)
+	}
+
+	var confirmer Recognizer
+	for _, spec := range specs {
+		if !spec.Enabled || len(spec.Roles) == 0 {
+			continue
+		}
+		if !specHasRole(spec, "confirmer") {
+			continue
+		}
+		rec := recognizerForProviderID(spec.ID, inst)
+		if rec != nil {
+			confirmer = rec
+			break
+		}
+	}
+	if confirmer == nil && len(ordered) == 2 {
+		confirmer = ordered[1]
+	}
+
+	if len(ordered) == 0 {
+		log.Printf("recognizer: recognition.providers resolved to no available primary providers — recognition disabled")
+	}
+
+	return RecognitionPlan{
+		Ordered:    ordered,
+		Confirmer:  confirmer,
+		Continuity: inst.shazamContinuity,
+	}
+}
+
+func buildRecognitionPlanFromChain(chain string, inst recognitionInstances) RecognitionPlan {
 	var ordered []Recognizer
 	switch chain {
 	case "shazam_first":
-		ordered = appendRecognizers(ordered, shazamRec, acrRec, auddRec)
+		ordered = appendRecognizers(ordered, inst.shazam, inst.acr, inst.audd)
 	case "acrcloud_only":
-		ordered = appendRecognizers(ordered, acrRec)
+		ordered = appendRecognizers(ordered, inst.acr)
 	case "shazam_only":
-		ordered = appendRecognizers(ordered, shazamRec)
+		ordered = appendRecognizers(ordered, inst.shazam)
 	case "audd_only":
-		ordered = appendRecognizers(ordered, auddRec)
+		ordered = appendRecognizers(ordered, inst.audd)
 	case "audd_first":
-		ordered = appendRecognizers(ordered, auddRec, acrRec, shazamRec)
+		ordered = appendRecognizers(ordered, inst.audd, inst.acr, inst.shazam)
 	default: // "acrcloud_first"
-		ordered = appendRecognizers(ordered, acrRec, auddRec, shazamRec)
+		ordered = appendRecognizers(ordered, inst.acr, inst.audd, inst.shazam)
 	}
 
 	if len(ordered) == 0 {
@@ -108,11 +204,29 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 		confirmer = ordered[1]
 	}
 
-	plan := RecognitionPlan{
+	return RecognitionPlan{
 		Ordered:    ordered,
 		Confirmer:  confirmer,
-		Continuity: shazamContinuityRec,
+		Continuity: inst.shazamContinuity,
+	}
+}
+
+func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recognitionComponents {
+	inst := buildRecognitionInstances(cfg, lib)
+
+	if len(cfg.RecognitionProviders) > 0 {
+		mp := strings.ToLower(strings.TrimSpace(cfg.RecognitionMergePolicy))
+		if mp != "" && mp != "first_success" {
+			log.Printf("recognizer: merge_policy=%q not implemented yet — using first_success", cfg.RecognitionMergePolicy)
+		}
+		log.Printf("recognizer: using recognition.providers from %s (%d entries, merge_policy=%s)",
+			cfg.CalibrationConfigPath, len(cfg.RecognitionProviders), strings.TrimSpace(cfg.RecognitionMergePolicy))
+		plan := buildRecognitionPlanFromProviders(cfg.RecognitionProviders, inst)
+		return newRecognitionComponents(plan)
 	}
 
+	chain := normalizeRecognizerChain(cfg.RecognizerChain)
+	log.Printf("recognizer: chain policy=%s", chain)
+	plan := buildRecognitionPlanFromChain(chain, inst)
 	return newRecognitionComponents(plan)
 }
