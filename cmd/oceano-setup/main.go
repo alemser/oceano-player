@@ -1101,6 +1101,6 @@ func main() {
 		fmt.Printf("Then open %shttp://%s:8080/config%s to continue the web checklist (physical media first).\n",
 			cyan, fields[0], reset)
 	}
-	fmt.Println("Next recommended web steps: Capture → ACRCloud → Amplifier topology (optional IR) → Calibration → Stylus.")
+	fmt.Println("Next recommended web steps: Capture → Track Recognition (third-party APIs are bring-your-own-account; typically ACRCloud today) → Amplifier topology (optional IR) → Calibration → Stylus.")
 	printDisplayResolutionHints()
 }

@@ -56,8 +56,10 @@ Services are enabled and started automatically.
    `install-oceano-display.sh` in this repo. On Raspberry Pi OS the wizard and script also
    adjust **`/etc/lightdm/lightdm.conf`** so `rpd-labwc` in the main file does not override the
    `oceano-kiosk` session; reboot after the display step if the panel is connected.
-2. Open **`http://<pi-ip>:8080`** — ACRCloud credentials, **Audio Input** (device,
-   silence threshold) if you need to fine-tune beyond the wizard.
+2. Open **`http://<pi-ip>:8080`** — **Track Recognition** using **your own** API
+   accounts with each provider you enable ([BYOK](#third-party-recognition-byok);
+   current default path is **ACRCloud**), plus **Audio Input** (device, silence
+   threshold) if you need to fine-tune beyond the wizard.
 3. Calibrate **USB capture gain** (RMS in logs) for reliable recognition — see
    [§1 Audio capture level](#1-audio-capture-level-required-for-track-recognition)
    below.
@@ -159,11 +161,23 @@ amixer -c N sset 'Mic' 50%   # start here; adjust until RMS ≈ 0.15–0.20
 alsactl store                  # persist across reboots
 ```
 
+### Third-party recognition (BYOK)
+
+Optional track identification calls **external** recognition services using
+**credentials you obtain** from each provider (bring your own key / account).
+You are responsible for **their** developer terms, **pricing**, quotas, and
+acceptable use. **Oceano Player only ships client integration**—it does not
+resell API access, bundle unlimited third-party quota, or act as your contractual
+counterparty with those services. For product positioning and compliance notes,
+see [`docs/plans/recognition-flexible-providers-and-secrets.md`](docs/plans/recognition-flexible-providers-and-secrets.md)
+(*Commercial product fit*).
+
 ### 2. ACRCloud credentials (required for track recognition)
 
 Track identification (artist, title, album) for physical media (vinyl, CD) is
-powered by [ACRCloud](https://www.acrcloud.com). Without credentials, `track`
-will always be `null` for physical sources.
+powered by [ACRCloud](https://www.acrcloud.com) when you enable it under **Track
+Recognition**. Without ACRCloud credentials (and no other configured provider),
+`track` will stay `null` for physical sources in current releases.
 
 In the web UI at `http://<pi-ip>:8080`, go to **Track Recognition** and fill in:
 - **ACRCloud Host** — e.g. `identify-eu-west-1.acrcloud.com`
