@@ -239,14 +239,14 @@
     <div class="field">
       <label><span>Recognition chain</span></label>
       <select id="rec-chain">
-        <option value="acrcloud_first">ACRCloud → AudD → Shazam (AudD middle only if token set)</option>
-        <option value="shazam_first">Shazam → ACRCloud → AudD (AudD last only if token set)</option>
+        <option value="acrcloud_first">ACRCloud → AudD → Shazamio (AudD middle only if token set)</option>
+        <option value="shazam_first">Shazamio → ACRCloud → AudD (AudD last only if token set)</option>
         <option value="acrcloud_only">ACRCloud only</option>
-        <option value="shazam_only">Shazam only (shazamio)</option>
-        <option value="audd_first">AudD → ACRCloud → Shazam</option>
+        <option value="shazam_only">Shazamio only</option>
+        <option value="audd_first">AudD → ACRCloud → Shazamio</option>
         <option value="audd_only">AudD only</option>
       </select>
-      <div class="hint">ACRCloud and AudD use documented APIs (BYOK). Shazam column uses optional community <code>shazamio</code> — see README. AudD appears in mixed chains only when an API token is saved below.</div>
+      <div class="hint">ACRCloud and AudD use documented APIs (BYOK). <strong>Shazamio</strong> is the optional community Python client — not an official Shazam product; see README. A separate official Shazam API provider may be added later. AudD appears in mixed chains only when an API token is saved below.</div>
     </div>
 
     <div id="acrcloud-config-group">
@@ -274,12 +274,12 @@
     <div class="field" style="margin-top:14px">
       <label class="modal-check" for="rec-shazam-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <input type="checkbox" id="rec-shazam-enabled" style="width:auto">
-        <span>Enable Shazam (shazamio) in chain and continuity monitor</span>
+        <span>Enable Shazamio (community client) in chain and continuity monitor</span>
       </label>
-      <div class="hint" style="margin-top:6px">Interpreter is fixed at <code>/opt/shazam-env/bin/python</code> (<code>install-shazam.sh</code>). Turn off to disable all Shazam roles.</div>
+      <div class="hint" style="margin-top:6px">Interpreter is fixed at <code>/opt/shazam-env/bin/python</code> (<code>install-shazam.sh</code>). Turn off to disable all Shazamio roles.</div>
     </div>
 
-    <div class="hint" style="margin-top:12px">When enabled, continuity monitoring uses the same bundled Shazam path.</div>
+    <div class="hint" style="margin-top:12px">When enabled, continuity monitoring uses the same bundled Shazamio environment.</div>
   </div>
   
   <!-- ── Calibration ──────────────────────────────────────────────────────── -->
@@ -462,7 +462,7 @@
     <div class="field">
       <label><span>Refresh interval (seconds)</span></label>
       <input type="number" id="rec-refresh-interval" step="10" min="0" placeholder="120">
-      <div class="hint">How soon to re-check after a successful recognition to catch gapless track changes. 0 = rely on Shazam continuity.</div>
+      <div class="hint">How soon to re-check after a successful recognition to catch gapless track changes. 0 = rely on Shazamio continuity.</div>
     </div>
     <div class="field">
       <label><span>No-match retry delay (seconds)</span></label>
@@ -486,27 +486,27 @@
     </div>
   </div>
 
-  <!-- ── Shazam Continuity ──────────────────────────────────────────────── -->
+  <!-- ── Shazamio continuity ──────────────────────────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
-    <div class="section-title">Shazam Continuity</div>
-    <p class="hint" style="margin-bottom:14px">Periodic Shazam checks that detect track changes missed by the silence/energy detector (e.g. gapless albums, very short inter-track silence).</p>
+    <div class="section-title">Shazamio continuity</div>
+    <p class="hint" style="margin-bottom:14px">Periodic Shazamio checks that detect track changes missed by the silence/energy detector (e.g. gapless albums, very short inter-track silence).</p>
 
     <div class="field">
       <label><span>Check interval (seconds)</span></label>
       <input type="number" id="rec-continuity-interval" step="1" min="4" max="60" placeholder="8">
-      <div class="hint">How often Shazam polls the current physical track. Lower values detect changes faster at the cost of more API calls.</div>
+      <div class="hint">How often Shazamio polls the current physical track. Lower values detect changes faster at the cost of more calls.</div>
     </div>
     <div class="field">
       <label><span>Capture duration (seconds)</span></label>
       <input type="number" id="rec-continuity-capture" step="1" min="2" max="10" placeholder="4">
-      <div class="hint">Audio captured per continuity check. 4 s is usually enough for a confident Shazam match.</div>
+      <div class="hint">Audio captured per continuity check. 4 s is usually enough for a confident Shazamio match.</div>
     </div>
   </div>
 
   <!-- ── Gapless & Continuity Tuning — Advanced ────────────────────────── -->
   <div class="section" style="margin-bottom:24px">
     <div class="section-title">Gapless &amp; Continuity Tuning — Advanced</div>
-    <p class="hint" style="margin-bottom:14px">Fine-tune the Shazam continuity monitor and boundary detection guard. These affect how the system detects track changes in gapless albums and quiet passages.</p>
+    <p class="hint" style="margin-bottom:14px">Fine-tune the Shazamio continuity monitor and boundary detection guard. These affect how the system detects track changes in gapless albums and quiet passages.</p>
 
     <div class="field">
       <label><span>Tuning preset</span></label>
@@ -538,7 +538,7 @@
     <div class="field">
       <label><span>Required sightings (calibrated)</span></label>
       <input type="number" id="rec-continuity-sightings-cal" step="1" min="1" max="5" placeholder="2">
-      <div class="hint">Number of repeated Shazam observations of the same track change before re-recognition triggers (when calibrated/learning complete). Typical: 2.</div>
+      <div class="hint">Number of repeated Shazamio observations of the same track change before re-recognition triggers (when calibrated/learning complete). Typical: 2.</div>
     </div>
 
     <div class="field">

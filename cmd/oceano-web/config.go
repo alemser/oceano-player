@@ -366,11 +366,11 @@ type RecognitionConfig struct {
 	// ConfirmationBypassScore skips confirmation when initial score >= value.
 	// Set 0 to always require confirmation.
 	ConfirmationBypassScore int `json:"confirmation_bypass_score"`
-	// ShazamContinuityIntervalSecs controls how often Shazam checks whether the
-	// currently playing physical track is still the same.
+	// ShazamContinuityIntervalSecs controls how often the Shazamio continuity loop
+	// checks whether the currently playing physical track is still the same.
 	ShazamContinuityIntervalSecs int `json:"shazam_continuity_interval_secs"`
-	// ShazamContinuityCaptureDurationSecs controls the capture duration for each
-	// periodic Shazam continuity check.
+	// ShazamContinuityCaptureDurationSecs is capture duration for each periodic
+	// Shazamio continuity check.
 	ShazamContinuityCaptureDurationSecs int `json:"shazam_continuity_capture_duration_secs"`
 	// RecognizerChain controls which API providers are active and their order.
 	// Valid values: "acrcloud_first" (default), "shazam_first", "acrcloud_only", "shazam_only",
@@ -383,15 +383,16 @@ type RecognitionConfig struct {
 	// MergePolicy selects how multiple primary results combine (default first_success).
 	// Additional values are reserved for future coordinator work.
 	MergePolicy string `json:"merge_policy,omitempty"`
-	// ShazamRecognizerEnabled turns Shazam (shazamio) on for the recognition chain and
-	// continuity monitor. The interpreter path is fixed (recognition.BundledShazamPythonBin).
+	// ShazamRecognizerEnabled turns Shazamio (community Python client) on for the
+	// recognition chain and continuity monitor. The interpreter path is fixed
+	// (recognition.BundledShazamPythonBin). Not the official Shazam API.
 	ShazamRecognizerEnabled bool `json:"shazam_recognizer_enabled"`
 	// ShazamPythonBin is deprecated (ignored at runtime). It may appear in old JSON until
 	// the next save; loadConfig migrates from it when shazam_recognizer_enabled is absent.
 	ShazamPythonBin string `json:"shazam_python_bin,omitempty"`
 
 	// --- Gapless / Continuity Tuning (Advanced) ---
-	// ContinuityCalibrationGraceSecs is how long to wait before the Shazam
+	// ContinuityCalibrationGraceSecs is how long to wait before the Shazamio
 	// continuity monitor starts checking for track changes. During this grace
 	// period after recognition, the monitor is in "learning" mode.
 	// Lower = faster gapless detection (but more false positives).
@@ -415,7 +416,7 @@ type RecognitionConfig struct {
 	ContinuityRequiredSightingsUncalibrated int `json:"continuity_required_sightings_uncalibrated"`
 	// EarlyCheckMarginSecs is how close to the end of the track the continuity
 	// monitor begins to anticipate a track change. When within this margin of
-	// the known duration, the next Shazam poll becomes more sensitive.
+	// the known duration, the next Shazamio poll becomes more sensitive.
 	// Typical: 20s before end of track.
 	EarlyCheckMarginSecs int `json:"early_check_margin_secs"`
 	// DurationGuardBypassWindowSecs is the time window (after a potential false

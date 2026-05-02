@@ -94,7 +94,7 @@ fi
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo "━━━ Done ━━━"
-echo "[OK]    Shazam fallback ready."
+echo "[OK]    Shazamio (community client) fallback ready."
 echo "        Python: $PYTHON_BIN"
 echo ""
 echo "Restart the state manager to activate:"
