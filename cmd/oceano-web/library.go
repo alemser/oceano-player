@@ -144,6 +144,19 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		_ = l.db.Close()
 		return nil, fmt.Errorf("library: ensure shazam_id index: %w", err)
 	}
+	// Idempotent: merge legacy recognition_summary rows (provider key "Shazam" → "Shazamio").
+	// Keep in sync with internal/library migrations after rms_learning.
+	for _, stmt := range []string{
+		`INSERT INTO recognition_summary (provider, event, count)
+			SELECT 'Shazamio', event, count FROM recognition_summary WHERE provider = 'Shazam'
+			ON CONFLICT(provider, event) DO UPDATE SET count = count + excluded.count`,
+		`DELETE FROM recognition_summary WHERE provider = 'Shazam'`,
+	} {
+		if _, err := l.db.Exec(stmt); err != nil {
+			_ = l.db.Close()
+			return nil, fmt.Errorf("library: merge legacy shazam recognition summary: %w", err)
+		}
+	}
 	return l, nil
 }
 

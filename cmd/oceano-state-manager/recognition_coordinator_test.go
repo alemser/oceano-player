@@ -251,7 +251,7 @@ func TestIsNewTrackCandidate(t *testing.T) {
 
 func TestRecognitionCoordinator_PrimaryRecognizerUsesChainPrimary(t *testing.T) {
 	primary := &stubRecognizer{name: "ACRCloud"}
-	fallback := &stubRecognizer{name: "Shazam"}
+	fallback := &stubRecognizer{name: "Shazamio"}
 	coordinator := newRecognitionCoordinator(newTestMgr(), NewChainRecognizer(primary, fallback), nil, nil, nil)
 
 	if got := coordinator.primaryRecognizer(); got != primary {

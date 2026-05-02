@@ -107,7 +107,7 @@ func TestChainRecognizer_LogsShazamFallbackMatch(t *testing.T) {
 	defer log.SetFlags(prevFlags)
 
 	a := &stubRecognizer{name: "ACRCloud", result: nil}
-	b := &stubRecognizer{name: "Shazam", result: &RecognitionResult{Title: "Exodus", Artist: "Bob Marley"}}
+	b := &stubRecognizer{name: "Shazamio", result: &RecognitionResult{Title: "Exodus", Artist: "Bob Marley"}}
 	chain := NewChainRecognizer(a, b)
 
 	result, err := chain.Recognize(context.Background(), "test.wav")
@@ -115,12 +115,12 @@ func TestChainRecognizer_LogsShazamFallbackMatch(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result == nil {
-		t.Fatal("expected Shazam fallback result")
+		t.Fatal("expected Shazamio fallback result")
 	}
 
 	got := buf.String()
-	if !strings.Contains(got, "recognizer chain: Shazam: fallback match Bob Marley — Exodus") {
-		t.Fatalf("expected Shazam fallback match log, got %q", got)
+	if !strings.Contains(got, "recognizer chain: Shazamio: fallback match Bob Marley — Exodus") {
+		t.Fatalf("expected Shazamio fallback match log, got %q", got)
 	}
 }
 
@@ -140,7 +140,7 @@ func TestChainRecognizer_FallsThrough_OnError(t *testing.T) {
 
 func TestChainRecognizer_FallsThrough_OnRateLimit(t *testing.T) {
 	a := &stubRecognizer{name: "ACRCloud", err: ErrRateLimit}
-	b := &stubRecognizer{name: "Shazam", result: &RecognitionResult{Title: "Track B", Artist: "Artist B"}}
+	b := &stubRecognizer{name: "Shazamio", result: &RecognitionResult{Title: "Track B", Artist: "Artist B"}}
 	chain := NewChainRecognizer(a, b)
 
 	result, err := chain.Recognize(context.Background(), "test.wav")
@@ -148,7 +148,7 @@ func TestChainRecognizer_FallsThrough_OnRateLimit(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result == nil || result.Title != "Track B" {
-		t.Fatalf("expected Shazam fallback match after ACRCloud rate limit, got %v", result)
+		t.Fatalf("expected Shazamio fallback match after ACRCloud rate limit, got %v", result)
 	}
 	if a.calls != 1 || b.calls != 1 {
 		t.Fatalf("expected one call per provider (a=%d b=%d)", a.calls, b.calls)
@@ -159,7 +159,7 @@ func TestChainRecognizer_ErrorThenNoMatch_ReturnsError(t *testing.T) {
 	// This outcome drives runRecognizer's error path after both configured
 	// providers have been exhausted.
 	a := &stubRecognizer{name: "ACRCloud", err: errors.New("network error")}
-	b := &stubRecognizer{name: "Shazam", result: nil}
+	b := &stubRecognizer{name: "Shazamio", result: nil}
 	chain := NewChainRecognizer(a, b)
 
 	result, err := chain.Recognize(context.Background(), "test.wav")
@@ -175,7 +175,7 @@ func TestChainRecognizer_NoMatchThenNoMatch_ReturnsNilNil(t *testing.T) {
 	// This outcome drives runRecognizer's no-match path when neither configured
 	// provider identifies the capture.
 	a := &stubRecognizer{name: "ACRCloud", result: nil}
-	b := &stubRecognizer{name: "Shazam", result: nil}
+	b := &stubRecognizer{name: "Shazamio", result: nil}
 	chain := NewChainRecognizer(a, b)
 
 	result, err := chain.Recognize(context.Background(), "test.wav")
@@ -328,7 +328,7 @@ func TestChooseConfirmationResult_PrefersConfirmerMatch(t *testing.T) {
 
 	res, err, provider := chooseConfirmationResult(
 		"ACRCloud", primary, nil,
-		"Shazam", confirm, nil,
+		"Shazamio", confirm, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -336,8 +336,8 @@ func TestChooseConfirmationResult_PrefersConfirmerMatch(t *testing.T) {
 	if res != confirm {
 		t.Fatalf("expected confirmer result, got %#v", res)
 	}
-	if provider != "Shazam" {
-		t.Fatalf("expected provider Shazam, got %q", provider)
+	if provider != "Shazamio" {
+		t.Fatalf("expected provider Shazamio, got %q", provider)
 	}
 }
 
@@ -346,7 +346,7 @@ func TestChooseConfirmationResult_FallsBackToPrimaryWithoutClaimingShazam(t *tes
 
 	res, err, provider := chooseConfirmationResult(
 		"ACRCloud", primary, nil,
-		"Shazam", nil, nil,
+		"Shazamio", nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -365,7 +365,7 @@ func TestChooseConfirmationResult_ReturnsConfirmerErrorBeforePrimaryError(t *tes
 
 	res, err, provider := chooseConfirmationResult(
 		"ACRCloud", nil, primaryErr,
-		"Shazam", nil, confirmErr,
+		"Shazamio", nil, confirmErr,
 	)
 	if res != nil {
 		t.Fatalf("expected nil result, got %#v", res)
@@ -373,8 +373,8 @@ func TestChooseConfirmationResult_ReturnsConfirmerErrorBeforePrimaryError(t *tes
 	if !errors.Is(err, confirmErr) {
 		t.Fatalf("expected confirmer error, got %v", err)
 	}
-	if provider != "Shazam" {
-		t.Fatalf("expected provider Shazam, got %q", provider)
+	if provider != "Shazamio" {
+		t.Fatalf("expected provider Shazamio, got %q", provider)
 	}
 }
 

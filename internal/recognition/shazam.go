@@ -121,7 +121,7 @@ func NewShazamRecognizer(pythonBin string) (*ShazamRecognizer, error) {
 	return s, nil
 }
 
-func (s *ShazamRecognizer) Name() string { return "Shazam" }
+func (s *ShazamRecognizer) Name() string { return "Shazamio" }
 
 // Recognize sends wavPath to the persistent daemon and returns the result.
 // It enforces a hard 45 s subprocess timeout independent of ctx, and

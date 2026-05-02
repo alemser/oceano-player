@@ -193,8 +193,6 @@ In the web UI at `http://<pi-ip>:8080`, open **Recognition Configuration** (`/re
 - **Access Key**
 - **Secret Key**
 
-(Optional legacy field `acoustid_client_key` may appear in config; it is **not used** by the current recognition chain—AcoustID is **not** a supported path for Oceano’s short-capture model; see `docs/plans/recognition-flexible-providers-and-secrets.md`.)
-
 Click **Save & Restart Services**. Confirm recognition is active:
 ```bash
 journalctl -u oceano-state-manager.service -f | grep recognizer

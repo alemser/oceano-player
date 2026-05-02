@@ -24,7 +24,7 @@ type PlayHistoryEntry struct {
 	ArtworkPath          string
 	ArtworkSource        string // "recognized" | "none"
 	RecognitionScore     int
-	RecognitionProvider  string // "acrcloud" | "shazam" | "local" | ""
+	RecognitionProvider  string // "acrcloud" | "shazam" | "audd" | "local" | ""
 	RecognitionConfirmed bool
 	MatchedLibrary       bool
 	StartedAt            string // RFC3339

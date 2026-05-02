@@ -89,13 +89,13 @@ type mgr struct {
 	// Used by the fallback timer to allow periodic re-checks when no VU boundary
 	// trigger fires (e.g. gapless albums with no audible silence between tracks).
 	lastRecognizedAt time.Time
-	// shazamContinuityReady becomes true when the current track is a Shazam
-	// fallback match, or when Shazam has confirmed the current ACR track.
+	// shazamContinuityReady becomes true when the current track is a Shazamio
+	// fallback match, or when Shazamio has confirmed the current ACR track.
 	shazamContinuityReady bool
 	// shazamContinuityAbandoned is set after the calibration deadline passes
-	// without Shazam ever agreeing with ACRCloud on the current track. When true,
+	// without Shazamio ever agreeing with ACRCloud on the current track. When true,
 	// the continuity monitor is skipped for the rest of the track's lifetime so
-	// that systematic Shazam mis-identification cannot fire spurious triggers.
+	// that systematic Shazamio mis-identification cannot fire spurious triggers.
 	// Reset to false whenever shazamContinuityReady is reset (new track / boundary).
 	shazamContinuityAbandoned bool
 	// physicalStartedAt records approximately when the current track began
@@ -135,7 +135,7 @@ type mgr struct {
 	recognitionPhase string
 	// Continuity mismatch confirmation: a mismatch must be observed twice within
 	// continuityMismatchConfirmWindow before a re-recognition trigger fires.
-	// This prevents a single Shazam mis-identification (common when running
+	// This prevents a single Shazamio mis-identification (common when running
 	// without prior alignment confirmation) from causing a spurious track change.
 	// While not calibrated, the monitor requires 3 sightings of the same pair.
 	// lastContinuityMismatchAt records when the *first* sighting of the current
@@ -180,7 +180,7 @@ func (m *mgr) markDirty() {
 // from periodic timer fires. On a periodic no-match, the existing result is kept.
 //
 // confirmRec is used to cross-validate a new-track candidate before updating the
-// display. When confirmRec differs from rec (e.g. Shazam confirming an ACRCloud
+// display. When confirmRec differs from rec (e.g. Shazamio confirming an ACRCloud
 // result), agreement from two independent services is required. When confirmRec
 // is nil, rec itself is used for the second call (same-provider confirmation).
 func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, lib *internallibrary.Library) {
@@ -231,7 +231,7 @@ func (m *mgr) tryEnableShazamContinuity(ctx context.Context, shazamRec Recognize
 	if m.recognitionResult.ShazamID == "" && shRes.ShazamID != "" {
 		m.recognitionResult.ShazamID = shRes.ShazamID
 	}
-	log.Printf("shazam continuity: alignment confirmed for current ACR track (%s — %s)", current.Artist, current.Title)
+	log.Printf("shazamio continuity: alignment confirmed for current ACR track (%s — %s)", current.Artist, current.Title)
 }
 
 func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recognizer) {
@@ -299,7 +299,7 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 
 		// Duration-based skip: when the provider returned a track duration and
 		// we are still comfortably within the expected track window, there is no
-		// need to poll Shazam — we are certain the same track is still playing.
+		// need to poll Shazamio — we are certain the same track is still playing.
 		// Only activate this optimisation once the monitor is calibrated (ready),
 		// so the calibration phase still runs at the normal cadence.
 		if ready && current.DurationMs > 0 {
@@ -344,7 +344,7 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 				if m.recognitionResult.ShazamID == "" && shRes.ShazamID != "" {
 					m.recognitionResult.ShazamID = shRes.ShazamID
 				}
-				// Opportunistically confirm alignment: Shazam agrees with the current
+				// Opportunistically confirm alignment: Shazamio agrees with the current
 				// track, so the continuity monitor is now calibrated even if
 				// tryEnableShazamContinuity previously failed.
 				m.shazamContinuityReady = true
@@ -367,7 +367,7 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 		// uncalibrated we require more sightings to reduce false positives. On the
 		// first sighting we record the pair and wait; subsequent sightings within
 		// the confirm window increment the confirmation count. This prevents a
-		// single Shazam mis-identification — especially likely when running without
+		// single Shazamio mis-identification — especially likely when running without
 		// prior alignment confirmation (grace period) — from causing a spurious
 		// track-change event.
 		requiredSightings := requiredSightingsCal
@@ -386,7 +386,7 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 		}
 		if m.lastContinuityMismatchCount < requiredSightings {
 			m.mu.Unlock()
-			log.Printf("shazam continuity: mismatch candidate (%s — %s vs %s — %s) — awaiting confirmation (%d/%d)",
+			log.Printf("shazamio continuity: mismatch candidate (%s — %s vs %s — %s) — awaiting confirmation (%d/%d)",
 				current.Artist, current.Title, shRes.Artist, shRes.Title, m.lastContinuityMismatchCount, requiredSightings)
 			continue
 		}
@@ -401,7 +401,7 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 		m.lastContinuityMismatchCount = 0
 		m.mu.Unlock()
 
-		log.Printf("shazam continuity: mismatch confirmed (%s — %s vs %s — %s) — triggering immediate re-recognition",
+		log.Printf("shazamio continuity: mismatch confirmed (%s — %s vs %s — %s) — triggering immediate re-recognition",
 			current.Artist, current.Title, shRes.Artist, shRes.Title)
 		select {
 		case m.recognizeTrigger <- recognizeTrigger{isBoundary: true, detectedAt: firstDetectedAt}:

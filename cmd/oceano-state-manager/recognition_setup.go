@@ -80,11 +80,11 @@ func buildRecognitionInstances(cfg Config, lib *internallibrary.Library) recogni
 	var shazamContinuityRec Recognizer
 	if cfg.ShazamPythonBin != "" {
 		if s, err := NewShazamRecognizer(cfg.ShazamPythonBin); err != nil {
-			log.Printf("recognizer: Shazam unavailable — %v", err)
+			log.Printf("recognizer: Shazamio unavailable — %v", err)
 		} else {
 			shazamRec = wrapWithStats(s, lib)
 			shazamContinuityRec = wrapWithStatsAs(s, lib, "ShazamContinuity")
-			log.Printf("recognizer: Shazam enabled (python=%s)", cfg.ShazamPythonBin)
+			log.Printf("recognizer: Shazamio enabled (python=%s)", cfg.ShazamPythonBin)
 		}
 	}
 

@@ -136,6 +136,11 @@ var migrations = []string{
 		derived_enter REAL,
 		derived_exit REAL
 	)`,
+	// Merge legacy recognition_summary provider key "Shazam" into "Shazamio" (Recognizer.Name).
+	`INSERT INTO recognition_summary (provider, event, count)
+		SELECT 'Shazamio', event, count FROM recognition_summary WHERE provider = 'Shazam'
+		ON CONFLICT(provider, event) DO UPDATE SET count = count + excluded.count`,
+	`DELETE FROM recognition_summary WHERE provider = 'Shazam'`,
 }
 
 var currentSchemaVersion = len(migrations)

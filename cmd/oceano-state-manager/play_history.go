@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	internallibrary "github.com/alemser/oceano-player/internal/library"
@@ -126,6 +127,8 @@ func (m *mgr) snapshotForHistory() *internallibrary.PlayHistoryEntry {
 			provider = "acrcloud"
 		} else if r.ShazamID != "" {
 			provider = "shazam"
+		} else if ms := strings.TrimSpace(r.MatchSource); ms != "" {
+			provider = strings.ToLower(ms)
 		}
 		entry := &internallibrary.PlayHistoryEntry{
 			CollectionID:        m.physicalLibraryEntryID,

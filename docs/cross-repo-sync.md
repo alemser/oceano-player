@@ -219,7 +219,7 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 **iOS follow-up (`oceano-player-ios`)**
 
-- [ ] Send `shazam_recognizer_enabled` (bool); remove user-facing Shazam Python path.
+- [x] Send `shazam_recognizer_enabled` (bool) on save; remove `shazam_python_bin` from POST; infer bool on GET when absent (aligned with web migration). No Python path field in Physical Media UI; user-facing **Shazamio** naming; JSON `id` / state `shazam` unchanged.
 
 **Risk**
 

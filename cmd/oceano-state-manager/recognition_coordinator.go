@@ -73,6 +73,8 @@ func recognitionLogFields(result *RecognitionResult) (string, string) {
 		if result.Score == 0 {
 			score = "score=n/a"
 		}
+	} else if strings.EqualFold(result.MatchSource, "audd") {
+		source = "audd"
 	}
 	return source, score
 }
