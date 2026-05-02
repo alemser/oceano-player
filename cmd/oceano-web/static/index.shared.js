@@ -32,7 +32,8 @@ async function loadConfig() {
   set('rec-access-key',       cfg.recognition?.acrcloud_access_key ?? '');
   set('rec-secret-key',       cfg.recognition?.acrcloud_secret_key ?? '');
   set('rec-chain',            cfg.recognition?.recognizer_chain ?? 'acrcloud_first');
-  set('rec-shazam-python',    cfg.recognition?.shazam_python_bin ?? '');
+  const shazamEnIdx = document.getElementById('rec-shazam-enabled');
+  if (shazamEnIdx) shazamEnIdx.checked = (cfg.recognition?.shazam_recognizer_enabled !== false);
   set('rec-duration',         cfg.recognition?.capture_duration_secs ?? 7);
   set('rec-interval',         cfg.recognition?.max_interval_secs ?? 300);
   set('rec-refresh-interval', cfg.recognition?.refresh_interval_secs ?? 120);
@@ -540,7 +541,12 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       enabled: document.getElementById('bt-enabled')?.checked ?? false,
       name:    val('bt-name'),
     },
-    recognition: { ..._recognitionConfig },
+    recognition: {
+      ..._recognitionConfig,
+      ...(document.getElementById('rec-shazam-enabled')
+        ? { shazam_recognizer_enabled: document.getElementById('rec-shazam-enabled').checked }
+        : {}),
+    },
     display: {
       ui_preset:                val('disp-preset'),
       cycle_time:               parseInt(val('disp-cycle-time')) || 30,

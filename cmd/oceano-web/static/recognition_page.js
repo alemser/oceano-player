@@ -269,8 +269,8 @@ async function loadRecognitionPage() {
   _rset('rec-access-key',       cfg.recognition?.acrcloud_access_key     ?? '');
   _rset('rec-secret-key',       cfg.recognition?.acrcloud_secret_key     ?? '');
   _rset('rec-audd-token',       cfg.recognition?.audd_api_token          ?? '');
-  _rset('rec-acoustid-key',     cfg.recognition?.acoustid_client_key    ?? '');
-  _rset('rec-shazam-python',    cfg.recognition?.shazam_python_bin       ?? '');
+  const shazamEn = document.getElementById('rec-shazam-enabled');
+  if (shazamEn) shazamEn.checked = (cfg.recognition?.shazam_recognizer_enabled !== false);
   _rset('rec-duration',         cfg.recognition?.capture_duration_secs);
   _rset('rec-interval',         cfg.recognition?.max_interval_secs);
   _rset('rec-refresh-interval', cfg.recognition?.refresh_interval_secs);
@@ -400,8 +400,7 @@ async function saveRecognitionPage() {
     acrcloud_access_key:                          _rval('rec-access-key'),
     acrcloud_secret_key:                          _rval('rec-secret-key'),
     audd_api_token:                               _rval('rec-audd-token'),
-    acoustid_client_key:                          _rval('rec-acoustid-key'),
-    shazam_python_bin:                            _rval('rec-shazam-python'),
+    shazam_recognizer_enabled:                    document.getElementById('rec-shazam-enabled')?.checked ?? (recCurrent.shazam_recognizer_enabled !== false),
     capture_duration_secs:                        _rint('rec-duration', _cfgInt(recCurrent.capture_duration_secs, 7)),
     max_interval_secs:                            _rint('rec-interval', _cfgInt(recCurrent.max_interval_secs, 300)),
     refresh_interval_secs:                        _rint('rec-refresh-interval', _cfgInt(recCurrent.refresh_interval_secs, 120)),

@@ -79,13 +79,16 @@ import sys, json
 path, python_bin, out = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path) as f:
     cfg = json.load(f)
-cfg['shazam_python'] = python_bin
-with open(out, 'w') as f:
+rec = cfg.setdefault("recognition", {})
+rec["shazam_recognizer_enabled"] = True
+rec.pop("shazam_python_bin", None)
+cfg.pop("shazam_python", None)
+with open(out, "w") as f:
     json.dump(cfg, f, indent=2)
-    f.write('\n')
+    f.write("\n")
 PYEOF
     mv "$TMPCONFIG" "$CONFIG"
-    echo "[OK]    Set shazam_python=$PYTHON_BIN in $CONFIG"
+    echo "[OK]    Set recognition.shazam_recognizer_enabled=true in $CONFIG (bundled path: $PYTHON_BIN)"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────

@@ -196,8 +196,30 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 **iOS follow-up (`oceano-player-ios`)**
 
-- [ ] Optional: send `recognition.providers` + `merge_policy` in `POST /api/config` when moving beyond MVP `recognizer_chain` mapping; preserve round-trip with backend.
-- [ ] Validate at least one enabled **primary** with available credentials before save when using `providers`.
+- [x] Send and preserve `recognition.providers` + `merge_policy` on `POST /api/config` when the loaded config had a non-empty `providers` array (B0); otherwise omit those keys and keep legacy `recognizer_chain` + credential fields only. Cards still drive order/toggles; each enabled provider with credentials is saved as `roles: ["primary"]` (unknown provider ids in the snapshot are appended unchanged; `credential_ref` is preserved per id).
+- [x] Validate at least one enabled primary with credentials before save (same rules as legacy card validation); footer copy when B0 is active.
+- **Deferred (not iOS now):** Option A delegated recognition (phone-mediated API calls / **I2**) — only after `providers` + config contract are stable end-to-end.
+
+**Risk**
+
+- [x] low
+
+---
+
+## Log: 2026-05-02 — Shazam: bundled Python path + `shazam_recognizer_enabled`
+
+**Backend**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `recognition.shazam_recognizer_enabled` | **Additive** | Boolean; when `true`, `oceano-web` passes `--shazam-python` with fixed path `recognition.BundledShazamPythonBin` (`/opt/shazam-env/bin/python`). When `false`, passes an empty flag value → Shazam disabled. |
+| `recognition.shazam_python_bin` | **Deprecated** | Ignored at runtime; cleared on save. `loadConfig` migrates to `shazam_recognizer_enabled` when that key is absent (legacy: explicit empty `shazam_python_bin` → off; key omitted → on; root `shazam_python` from older `install-shazam.sh` → on). |
+| `internal/recognition.BundledShazamPythonBin` | **Additive** | Constant matching the venv from `install-shazam.sh`. |
+| `oceano-state-manager` default `--shazam-python` | **Compatible** | Default empty so the systemd `ExecStart` from the web UI is authoritative. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] Send `shazam_recognizer_enabled` (bool); remove user-facing Shazam Python path.
 
 **Risk**
 

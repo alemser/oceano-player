@@ -277,7 +277,7 @@ func defaultConfig() Config {
 		ConfirmationDelay:                       0,
 		ConfirmationCaptureDuration:             4 * time.Second,
 		ConfirmationBypassScore:                 95,
-		ShazamPythonBin:                         "/opt/shazam-env/bin/python",
+		ShazamPythonBin:                         "",
 		ShazamContinuityInterval:                8 * time.Second,
 		ShazamContinuityCaptureDuration:         4 * time.Second,
 		BoundaryRestoreMinSeek:                  60 * time.Second,

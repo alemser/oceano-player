@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/alemser/oceano-player/internal/recognition"
 )
 
 // SPIDisplayConfig controls the current oceano-now-playing SPI display service.
@@ -381,9 +383,12 @@ type RecognitionConfig struct {
 	// MergePolicy selects how multiple primary results combine (default first_success).
 	// Additional values are reserved for future coordinator work.
 	MergePolicy string `json:"merge_policy,omitempty"`
-	// ShazamPythonBin is the path to the Python binary with shazamio installed.
-	// Empty string disables Shazam in the recognition chain and continuity monitor.
-	ShazamPythonBin string `json:"shazam_python_bin"`
+	// ShazamRecognizerEnabled turns Shazam (shazamio) on for the recognition chain and
+	// continuity monitor. The interpreter path is fixed (recognition.BundledShazamPythonBin).
+	ShazamRecognizerEnabled bool `json:"shazam_recognizer_enabled"`
+	// ShazamPythonBin is deprecated (ignored at runtime). It may appear in old JSON until
+	// the next save; loadConfig migrates from it when shazam_recognizer_enabled is absent.
+	ShazamPythonBin string `json:"shazam_python_bin,omitempty"`
 
 	// --- Gapless / Continuity Tuning (Advanced) ---
 	// ContinuityCalibrationGraceSecs is how long to wait before the Shazam
@@ -564,8 +569,8 @@ func defaultConfig() Config {
 			ConfirmationBypassScore:                 95,
 			ShazamContinuityIntervalSecs:            8,
 			ShazamContinuityCaptureDurationSecs:     4,
-			RecognizerChain:                         "acrcloud_first",
-			ShazamPythonBin:                         "/opt/shazam-env/bin/python",
+			RecognizerChain:            "acrcloud_first",
+			ShazamRecognizerEnabled:    true,
 			ContinuityCalibrationGraceSecs:          45,
 			ContinuityMismatchConfirmWindowSecs:     180,
 			ContinuityRequiredSightingsCalibrated:   2,
@@ -638,7 +643,48 @@ func loadConfig(path string) (Config, error) {
 		return cfg, fmt.Errorf("parse %s: %w", path, err)
 	}
 	migrateLegacyCDPlayer(&cfg)
+	migrateRecognitionShazam(&cfg, data)
 	return cfg, nil
+}
+
+// migrateRecognitionShazam maps deprecated shazam_python_bin (and legacy root shazam_python)
+// into ShazamRecognizerEnabled when shazam_recognizer_enabled was not stored yet.
+func migrateRecognitionShazam(cfg *Config, raw []byte) {
+	if cfg == nil {
+		return
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return
+	}
+	rawRec, ok := root["recognition"]
+	if !ok {
+		return
+	}
+	var recMap map[string]json.RawMessage
+	if err := json.Unmarshal(rawRec, &recMap); err != nil {
+		return
+	}
+	_, hasEnabledKey := recMap["shazam_recognizer_enabled"]
+	_, hasPathKey := recMap["shazam_python_bin"]
+	if !hasEnabledKey {
+		if hasPathKey {
+			cfg.Recognition.ShazamRecognizerEnabled = strings.TrimSpace(cfg.Recognition.ShazamPythonBin) != ""
+		} else {
+			// Legacy: omitted path meant bundled venv from install-shazam / defaults.
+			cfg.Recognition.ShazamRecognizerEnabled = true
+		}
+		// Erroneous root key written by older install-shazam.sh versions.
+		var rootObj map[string]interface{}
+		if json.Unmarshal(raw, &rootObj) == nil {
+			if v, ok := rootObj["shazam_python"]; ok {
+				if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+					cfg.Recognition.ShazamRecognizerEnabled = true
+				}
+			}
+		}
+	}
+	cfg.Recognition.ShazamPythonBin = ""
 }
 
 func migrateLegacyCDPlayer(cfg *Config) {
@@ -693,6 +739,8 @@ func migrateLegacyCDPlayer(cfg *Config) {
 }
 
 func saveConfig(path string, cfg Config) error {
+	// Deprecated field: path is bundled; do not persist user/path strings.
+	cfg.Recognition.ShazamPythonBin = ""
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
@@ -778,9 +826,11 @@ func managerArgs(cfg Config, configPath string) []string {
 	if strings.TrimSpace(rec.AudDAPIToken) != "" {
 		args = append(args, "--audd-api-token", strings.TrimSpace(rec.AudDAPIToken))
 	}
-	// Always pass --shazam-python so an empty JSON value disables Shazam. If we omit
-	// the flag, oceano-state-manager falls back to its CLI default and Shazam stays on.
-	args = append(args, "--shazam-python", strings.TrimSpace(rec.ShazamPythonBin))
+	shazamPath := ""
+	if rec.ShazamRecognizerEnabled {
+		shazamPath = recognition.BundledShazamPythonBin
+	}
+	args = append(args, "--shazam-python", shazamPath)
 	// Boolean flags and --verbose must be last (no paired value).
 	args = append(args, "--verbose")
 	return args

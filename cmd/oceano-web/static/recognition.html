@@ -272,18 +272,14 @@
     </div>
 
     <div class="field" style="margin-top:14px">
-      <label><span>AcoustID client API key (legacy, unused)</span></label>
-      <input type="text" id="rec-acoustid-key" autocomplete="off" spellcheck="false" placeholder="not used — see plan doc">
-      <div class="hint">AcoustID is <strong>not</strong> integrated: it targets full-file fingerprints, not Oceano’s short WAV captures. This field is kept only for config compatibility; you can leave it empty. See <code>docs/plans/recognition-flexible-providers-and-secrets.md</code>.</div>
+      <label class="modal-check" for="rec-shazam-enabled" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="rec-shazam-enabled" style="width:auto">
+        <span>Enable Shazam (shazamio) in chain and continuity monitor</span>
+      </label>
+      <div class="hint" style="margin-top:6px">Interpreter is fixed at <code>/opt/shazam-env/bin/python</code> (<code>install-shazam.sh</code>). Turn off to disable all Shazam roles.</div>
     </div>
 
-    <div class="field" style="margin-top:14px">
-      <label><span>Shazam Python binary</span></label>
-      <input type="text" id="rec-shazam-python" placeholder="/opt/shazam-env/bin/python">
-      <div class="hint">Path to Python binary with shazamio installed. Leave empty to disable Shazam in all roles (chain and continuity monitor).</div>
-    </div>
-
-    <div class="hint" style="margin-top:12px">Continuity monitoring always uses Shazam when available, independent of the selected chain.</div>
+    <div class="hint" style="margin-top:12px">When enabled, continuity monitoring uses the same bundled Shazam path.</div>
   </div>
   
   <!-- ── Calibration ──────────────────────────────────────────────────────── -->
