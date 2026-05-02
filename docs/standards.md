@@ -19,7 +19,7 @@ Use it as a practical policy when implementing backend changes.
 
 - This repo is the backend contract owner.
 - Assume downstream impact on `oceano-player-ios` for API/config/state changes.
-- For any contract change, run `docs/ai-cross-repo-sync.md` checklist.
+- For any contract change, run `docs/cross-repo-sync.md` checklist.
 
 ## 4) Cohesion and loose coupling
 

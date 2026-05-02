@@ -21,7 +21,7 @@ When backend behavior changes here, the iOS app will often require updates in lo
 - amplifier/topology/IR payload shape
 
 Before shipping backend changes, run the short checklist in
-[`docs/ai-cross-repo-sync.md`](docs/ai-cross-repo-sync.md).
+[`docs/cross-repo-sync.md`](docs/cross-repo-sync.md).
 
 ---
 
