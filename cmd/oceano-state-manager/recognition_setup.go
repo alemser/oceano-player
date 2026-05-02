@@ -8,7 +8,8 @@ import (
 
 func normalizeRecognizerChain(raw string) string {
 	switch raw {
-	case "acrcloud_first", "shazam_first", "acrcloud_only", "shazam_only":
+	case "acrcloud_first", "shazam_first", "acrcloud_only", "shazam_only",
+		"audd_first", "audd_only":
 		return raw
 	case "":
 		return "acrcloud_first"
@@ -16,6 +17,15 @@ func normalizeRecognizerChain(raw string) string {
 		log.Printf("recognizer: unknown recognizer chain %q — falling back to acrcloud_first", raw)
 		return "acrcloud_first"
 	}
+}
+
+func appendRecognizers(dst []Recognizer, parts ...Recognizer) []Recognizer {
+	for _, r := range parts {
+		if r != nil {
+			dst = append(dst, r)
+		}
+	}
+	return dst
 }
 
 // RecognitionPlan defines provider order and provider roles independently.
@@ -42,8 +52,6 @@ func newRecognitionComponents(plan RecognitionPlan) recognitionComponents {
 }
 
 func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recognitionComponents {
-	// Always try to create both recognizers so continuity can always use Shazam
-	// regardless of which providers are in the identification chain.
 	var acrRec Recognizer
 	if cfg.ACRCloudHost != "" && cfg.ACRCloudAccessKey != "" && cfg.ACRCloudSecretKey != "" {
 		acrRec = wrapWithStats(NewACRCloudRecognizer(ACRCloudConfig{
@@ -54,9 +62,12 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 		log.Printf("recognizer: ACRCloud enabled (host=%s)", cfg.ACRCloudHost)
 	}
 
-	// shazamRaw is the unwrapped recognizer shared by both the chain and continuity wrappers.
-	// Each wrapper gets its own stats name so chain calls ("Shazam") and continuity polling
-	// ("ShazamContinuity") are tracked separately.
+	var auddRec Recognizer
+	if r := NewAudDRecognizer(AudDConfig{APIToken: cfg.AudDAPIToken}); r != nil {
+		auddRec = wrapWithStats(r, lib)
+		log.Printf("recognizer: AudD enabled (documented API)")
+	}
+
 	var shazamRec Recognizer          // used in the chain
 	var shazamContinuityRec Recognizer // used by the continuity monitor
 	if cfg.ShazamPythonBin != "" {
@@ -72,40 +83,26 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 	chain := normalizeRecognizerChain(cfg.RecognizerChain)
 	log.Printf("recognizer: chain policy=%s", chain)
 
-	// Build chain order from the configured policy.
 	var ordered []Recognizer
 	switch chain {
 	case "shazam_first":
-		if shazamRec != nil {
-			ordered = append(ordered, shazamRec)
-		}
-		if acrRec != nil {
-			ordered = append(ordered, acrRec)
-		}
+		ordered = appendRecognizers(ordered, shazamRec, acrRec, auddRec)
 	case "acrcloud_only":
-		if acrRec != nil {
-			ordered = append(ordered, acrRec)
-		}
+		ordered = appendRecognizers(ordered, acrRec)
 	case "shazam_only":
-		if shazamRec != nil {
-			ordered = append(ordered, shazamRec)
-		}
-	default: // "acrcloud_first" or unset
-		if acrRec != nil {
-			ordered = append(ordered, acrRec)
-		}
-		if shazamRec != nil {
-			ordered = append(ordered, shazamRec)
-		}
+		ordered = appendRecognizers(ordered, shazamRec)
+	case "audd_only":
+		ordered = appendRecognizers(ordered, auddRec)
+	case "audd_first":
+		ordered = appendRecognizers(ordered, auddRec, acrRec, shazamRec)
+	default: // "acrcloud_first"
+		ordered = appendRecognizers(ordered, acrRec, auddRec, shazamRec)
 	}
 
 	if len(ordered) == 0 {
 		log.Printf("recognizer: chain policy=%s resolved to no available providers — recognition disabled", chain)
 	}
 
-	// Confirmer is the secondary provider in the chain — used for cross-provider
-	// confirmation when ConfirmationDelay > 0. Single-provider chains fall back
-	// to same-provider second call.
 	var confirmer Recognizer
 	if len(ordered) == 2 {
 		confirmer = ordered[1]
@@ -114,7 +111,7 @@ func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recogn
 	plan := RecognitionPlan{
 		Ordered:    ordered,
 		Confirmer:  confirmer,
-		Continuity: shazamContinuityRec, // always Shazam for continuity — tracked separately from chain calls
+		Continuity: shazamContinuityRec,
 	}
 
 	return newRecognitionComponents(plan)

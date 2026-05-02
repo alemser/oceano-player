@@ -121,3 +121,62 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 **Risk**
 
 - [x] medium
+
+---
+
+## Log: 2026-05-02 — `recognition.acoustid_client_key` (additive config)
+
+**Backend**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `recognition.acoustid_client_key` in `/etc/oceano/config.json` | **Additive / legacy** | Optional string; round-tripped through web UI and `oceano-state-manager` CLI. **AcoustID is not a product provider** (short-capture model); if non-empty, state-manager logs that the key is **ignored**. See `docs/plans/recognition-flexible-providers-and-secrets.md`. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] If the app mirrors full config JSON: **ignore** or hide `acoustid_client_key` in UX (optional strip on save is OK); no AcoustID feature work.
+
+**Risk**
+
+- [x] low
+
+**Amendment (same day):** AcoustID removed from the recognition roadmap; prefer **ACRCloud**, **AudD**, optional **`shazamio`**, and enrichment (MusicBrainz / TheAudioDB / Cover Art Archive).
+
+---
+
+## Log: 2026-05-02 — Documentation: `shazamio` vs official Shazam API
+
+**Backend**
+
+| Item | Type | Notes |
+|------|------|-------|
+| Recognition docs / README | **Compatible** | Clarifies optional Python **`shazamio`** path is **not** a first-party Shazam developer API; **commercial / ToS** implications called out. No `config.json` or API shape change. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] If the app exposes recognition provider copy: use **`shazamio`** (or “optional community client”) wording where appropriate; avoid implying an official **Shazam API** partnership; align App Store / privacy disclosures with unofficial third-party access if applicable.
+
+**Risk**
+
+- [x] low
+
+---
+
+## Log: 2026-05-02 — AudD recognition (additive config + state)
+
+**Backend**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `recognition.audd_api_token` | **Additive** | Optional BYOK string; Recognition Configuration page + `--audd-api-token` on `oceano-state-manager`. |
+| `recognition.recognizer_chain` | **Additive** | New values: `audd_first`, `audd_only`. Existing values unchanged; `acrcloud_first` / `shazam_first` insert **AudD** between other providers when `audd_api_token` is non-empty. |
+| `recognition.provider` (physical `RecognitionStatus`) | **Additive** | May be `"audd"` when the match came from AudD; treat unknown provider strings as generic “matched” if needed. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] Config: read/write `audd_api_token`; chain options `audd_first` / `audd_only`.
+- [ ] UI: accept `recognition.provider === "audd"` if branching on provider.
+
+**Risk**
+
+- [x] low

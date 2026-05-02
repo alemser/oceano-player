@@ -172,6 +172,15 @@ counterparty with those services. For product positioning and compliance notes,
 see [`docs/plans/recognition-flexible-providers-and-secrets.md`](docs/plans/recognition-flexible-providers-and-secrets.md)
 (*Commercial product fit*).
 
+**Optional `shazamio` path:** the installer sets up a Python venv with the community
+**[`shazamio`](https://pypi.org/project/shazamio/)** package. That is **not** a
+first-party **Shazam** developer API integration. It can break without notice and
+carries **extra commercial / ToS risk** for sold products—prefer **documented**
+providers (e.g. ACRCloud) for a default retail story. See the plan section
+*Third-party clarity: shazamio*.
+
+**Optional AudD:** [AudD](https://docs.audd.io/) is a **documented** REST API (BYOK token from [dashboard.audd.io](https://dashboard.audd.io/)). Configure `recognition.audd_api_token` and a chain that includes AudD (e.g. **AudD only** or **ACRCloud → AudD → Shazam** when the token is set). Short captures (~7–20 s WAV) are within their standard endpoint limits.
+
 ### 2. ACRCloud credentials (required for track recognition)
 
 Track identification (artist, title, album) for physical media (vinyl, CD) is
@@ -179,10 +188,12 @@ powered by [ACRCloud](https://www.acrcloud.com) when you enable it under **Track
 Recognition**. Without ACRCloud credentials (and no other configured provider),
 `track` will stay `null` for physical sources in current releases.
 
-In the web UI at `http://<pi-ip>:8080`, go to **Track Recognition** and fill in:
+In the web UI at `http://<pi-ip>:8080`, open **Recognition Configuration** (`/recognition.html`) or the hub and fill in:
 - **ACRCloud Host** — e.g. `identify-eu-west-1.acrcloud.com`
 - **Access Key**
 - **Secret Key**
+
+(Optional legacy field `acoustid_client_key` may appear in config; it is **not used** by the current recognition chain—AcoustID is **not** a supported path for Oceano’s short-capture model; see `docs/plans/recognition-flexible-providers-and-secrets.md`.)
 
 Click **Save & Restart Services**. Confirm recognition is active:
 ```bash
@@ -405,7 +416,7 @@ Expected: `DPMS is Disabled` and `timeout: 0`.
    curl -4 https://identify-eu-west-1.acrcloud.com
    ```
 
-5. **Library reuse by provider ID** — once a physical track is recognized, oceano-state-manager reuses saved metadata/artwork from the local library by either **ACRCloud ACRID** or **Shazam track ID**. This keeps user-edited metadata and artwork stable even when one provider misses and the other one matches.
+5. **Library reuse by provider ID** — once a physical track is recognized, oceano-state-manager reuses saved metadata/artwork from the local library by either **ACRCloud ACRID** or the **track id** returned by the optional **`shazamio`** integration (stored as `shazam_id` in the library). This keeps user-edited metadata and artwork stable even when one provider misses and the other one matches.
 
 ---
 
@@ -441,7 +452,7 @@ Expected when playing a compilation or "Best Of". ACRCloud returns the best-know
 All service parameters are managed through the web UI at `http://<pi-ip>:8080`.
 The underlying config is stored at `/etc/oceano/config.json`.
 
-**Recognition capture length:** `recognition.capture_duration_secs` is the seconds of audio written to each WAV for ACRCloud/Shazam (one capture per attempt). Saving the web UI regenerates `oceano-state-manager.service` with a matching `--recognizer-capture-duration` flag. The Go binary’s built-in default is the same value (7s) so ad-hoc runs without systemd flags match fresh `config.json` installs.
+**Recognition capture length:** `recognition.capture_duration_secs` is the seconds of audio written to each WAV for ACRCloud and the optional **`shazamio`** path (one capture per attempt). Saving the web UI regenerates `oceano-state-manager.service` with a matching `--recognizer-capture-duration` flag. The Go binary’s built-in default is the same value (7s) so ad-hoc runs without systemd flags match fresh `config.json` installs.
 
 ### `install.sh` options
 

@@ -239,12 +239,14 @@
     <div class="field">
       <label><span>Recognition chain</span></label>
       <select id="rec-chain">
-        <option value="acrcloud_first">ACRCloud → Shazam (ACRCloud first, Shazam fallback)</option>
-        <option value="shazam_first">Shazam → ACRCloud (Shazam first, ACRCloud fallback)</option>
+        <option value="acrcloud_first">ACRCloud → AudD → Shazam (AudD middle only if token set)</option>
+        <option value="shazam_first">Shazam → ACRCloud → AudD (AudD last only if token set)</option>
         <option value="acrcloud_only">ACRCloud only</option>
-        <option value="shazam_only">Shazam only</option>
+        <option value="shazam_only">Shazam only (shazamio)</option>
+        <option value="audd_first">AudD → ACRCloud → Shazam</option>
+        <option value="audd_only">AudD only</option>
       </select>
-      <div class="hint">Choose which online providers are active and in which order they run.</div>
+      <div class="hint">ACRCloud and AudD use documented APIs (BYOK). Shazam column uses optional community <code>shazamio</code> — see README. AudD appears in mixed chains only when an API token is saved below.</div>
     </div>
 
     <div id="acrcloud-config-group">
@@ -261,6 +263,18 @@
         <input type="password" id="rec-secret-key" autocomplete="new-password" placeholder="••••••••">
       </div>
       <div class="hint" id="acrcloud-config-hint">Stored and used whenever the selected chain includes ACRCloud.</div>
+    </div>
+
+    <div class="field" id="audd-config-group" style="margin-top:14px">
+      <label><span>AudD API token</span></label>
+      <input type="password" id="rec-audd-token" autocomplete="new-password" spellcheck="false" placeholder="from dashboard.audd.io">
+      <div class="hint" id="audd-config-hint">Optional. Official music recognition API — <a href="https://docs.audd.io/" target="_blank" rel="noopener">docs.audd.io</a>. Included in the chain when non-empty and the selected order allows AudD.</div>
+    </div>
+
+    <div class="field" style="margin-top:14px">
+      <label><span>AcoustID client API key (legacy, unused)</span></label>
+      <input type="text" id="rec-acoustid-key" autocomplete="off" spellcheck="false" placeholder="not used — see plan doc">
+      <div class="hint">AcoustID is <strong>not</strong> integrated: it targets full-file fingerprints, not Oceano’s short WAV captures. This field is kept only for config compatibility; you can leave it empty. See <code>docs/plans/recognition-flexible-providers-and-secrets.md</code>.</div>
     </div>
 
     <div class="field" style="margin-top:14px">

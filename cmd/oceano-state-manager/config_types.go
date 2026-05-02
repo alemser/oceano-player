@@ -37,7 +37,7 @@ type RecognitionStatus struct {
 	// "matched" (recognition succeeded), "no_match" (last attempt returned no result),
 	// "off" (recognition disabled for the active input).
 	Phase    string `json:"phase"`
-	Provider string `json:"provider,omitempty"` // "acrcloud" | "shazam" — set when phase is "matched"
+	Provider string `json:"provider,omitempty"` // "acrcloud" | "shazam" | "audd" — set when phase is "matched"
 	Score    int    `json:"score,omitempty"`    // provider confidence score; 0 when unavailable
 	// Detail is a stable machine-readable reason for the current phase, for example:
 	// "input_policy_off", "no_match", "capturing", "waiting_trigger".
@@ -125,15 +125,23 @@ type Config struct {
 	ArtworkDir   string
 	Verbose      bool
 
-	// Recognition — all optional; recognition is disabled when ACRCloudHost is empty.
+	// Recognition — providers optional; disabled when no chain member is configured
+	// (e.g. AudD-only needs audd_api_token; ACRCloud needs host + keys).
 	ACRCloudHost      string
 	ACRCloudAccessKey string
 	ACRCloudSecretKey string
+	// AudDAPIToken is the AudD API token (BYOK, https://docs.audd.io/). When non-empty,
+	// AudD is available for chain policies that include it.
+	AudDAPIToken string
+	// AcoustIDClientKey is a legacy config field; AcoustID is not implemented (short-capture mismatch).
+	// If non-empty, state-manager logs once that the value is ignored.
+	AcoustIDClientKey string
 	// ShazamPythonBin is the path to the Python binary in the shazam-env virtualenv.
 	// When set and shazamio is importable, Shazam is used as a fallback after ACRCloud.
 	ShazamPythonBin string
 	// RecognizerChain controls which API providers are included and their order.
-	// Valid values: "acrcloud_first" | "shazam_first" | "acrcloud_only" | "shazam_only".
+	// Valid values: "acrcloud_first" | "shazam_first" | "acrcloud_only" | "shazam_only" |
+	// "audd_first" | "audd_only".
 	// If the selected policy resolves to no available API provider, recognition
 	// is disabled until a provider becomes available again.
 	// Continuity monitoring always uses Shazam when available, independent of this setting.

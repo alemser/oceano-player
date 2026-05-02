@@ -208,6 +208,8 @@ func (m *mgr) buildRecognitionStatusLocked() *RecognitionStatus {
 			provider = "acrcloud"
 		case r.ShazamID != "":
 			provider = "shazam"
+		case strings.EqualFold(r.MatchSource, "audd"):
+			provider = "audd"
 		}
 		return &RecognitionStatus{
 			Phase:    "matched",

@@ -133,15 +133,16 @@ func resultFromACRMusic(m acrMusic) *Result {
 		artist = m.Artists[0].Name
 	}
 	return &Result{
-		ACRID:      m.ACRID,
-		ISRC:       m.ExternalIDs.ISRC,
-		Title:      m.Title,
-		Artist:     artist,
-		Album:      m.Album.Name,
-		Label:      m.Label,
-		Released:   m.ReleaseDate,
-		Score:      m.Score,
-		DurationMs: m.DurationMs,
+		ACRID:       m.ACRID,
+		ISRC:        m.ExternalIDs.ISRC,
+		Title:       m.Title,
+		Artist:      artist,
+		Album:       m.Album.Name,
+		Label:       m.Label,
+		Released:    m.ReleaseDate,
+		Score:       m.Score,
+		DurationMs:  m.DurationMs,
+		MatchSource: "acrcloud",
 	}
 }
 

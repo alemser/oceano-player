@@ -28,6 +28,7 @@ async function loadConfig() {
   loadBluetoothDevices();
 
   set('rec-host',             cfg.recognition?.acrcloud_host ?? '');
+  set('rec-audd-token',       cfg.recognition?.audd_api_token ?? '');
   set('rec-access-key',       cfg.recognition?.acrcloud_access_key ?? '');
   set('rec-secret-key',       cfg.recognition?.acrcloud_secret_key ?? '');
   set('rec-chain',            cfg.recognition?.recognizer_chain ?? 'acrcloud_first');
@@ -390,7 +391,7 @@ function set(id, val) {
 
 function updateRecognitionUI() {
   const chain = val('rec-chain') || 'acrcloud_first';
-  const usesACRCloud = chain === 'acrcloud_first' || chain === 'shazam_first' || chain === 'acrcloud_only';
+  const usesACRCloud = chain !== 'shazam_only' && chain !== 'audd_only';
   const group = document.getElementById('acrcloud-config-group');
   const hint = document.getElementById('acrcloud-config-hint');
   const ids = ['rec-host', 'rec-access-key', 'rec-secret-key'];

@@ -339,6 +339,13 @@ type RecognitionConfig struct {
 	// ACRCloudAccessKey and ACRCloudSecretKey are the API credentials.
 	ACRCloudAccessKey string `json:"acrcloud_access_key"`
 	ACRCloudSecretKey string `json:"acrcloud_secret_key"`
+	// AudDAPIToken is the AudD API token (BYOK, https://docs.audd.io/).
+	AudDAPIToken string `json:"audd_api_token"`
+	// AcoustIDClientKey is legacy; AcoustID is not a supported provider (see recognition plan doc).
+	// Value is passed through to state-manager for config round-trip; state-manager ignores it for recognition.
+	// Legacy comment was: application API key from https://acoustid.org/register (BYOK). Previously intended if
+	// an in-process AcoustID recognizer were enabled; that path was not pursued.
+	AcoustIDClientKey string `json:"acoustid_client_key"`
 	// CaptureDurationSecs is how many seconds of audio are sent per recognition
 	// attempt (one WAV for the recognizer chain). Default matches
 	// defaultConfig().RecognizerCaptureDuration in cmd/oceano-state-manager/config_types.go;
@@ -369,7 +376,8 @@ type RecognitionConfig struct {
 	// periodic Shazam continuity check.
 	ShazamContinuityCaptureDurationSecs int `json:"shazam_continuity_capture_duration_secs"`
 	// RecognizerChain controls which API providers are active and their order.
-	// Valid values: "acrcloud_first" (default), "shazam_first", "acrcloud_only", "shazam_only".
+	// Valid values: "acrcloud_first" (default), "shazam_first", "acrcloud_only", "shazam_only",
+	// "audd_first", "audd_only".
 	RecognizerChain string `json:"recognizer_chain"`
 	// ShazamPythonBin is the path to the Python binary with shazamio installed.
 	// Empty string disables Shazam in the recognition chain and continuity monitor.
@@ -756,6 +764,12 @@ func managerArgs(cfg Config, configPath string) []string {
 			"--acrcloud-access-key", rec.ACRCloudAccessKey,
 			"--acrcloud-secret-key", rec.ACRCloudSecretKey,
 		)
+	}
+	if strings.TrimSpace(rec.AcoustIDClientKey) != "" {
+		args = append(args, "--acoustid-client-key", strings.TrimSpace(rec.AcoustIDClientKey))
+	}
+	if strings.TrimSpace(rec.AudDAPIToken) != "" {
+		args = append(args, "--audd-api-token", strings.TrimSpace(rec.AudDAPIToken))
 	}
 	if rec.ShazamPythonBin != "" {
 		args = append(args, "--shazam-python", rec.ShazamPythonBin)

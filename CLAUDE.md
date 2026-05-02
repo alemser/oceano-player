@@ -136,7 +136,7 @@ sudo ./install-oceano-web.sh
 - Artwork with graceful placeholder for unidentified or artwork-less tracks
 - Large track title, artist, album text
 - Format chips: sample rate + bit depth (AirPlay/streaming), codec + sample rate + bit depth (Bluetooth, detected via PipeWire within ~6s of playback start), CD track number, vinyl side + track
-- Identifying animation while ACRCloud/Shazam recognises a new track
+- Identifying animation while ACRCloud / optional `shazamio` recognises a new track
 - Idle clock screen when no source is active
 - Reconnecting SSE client with exponential back-off
 
@@ -192,7 +192,7 @@ install-source-detector.sh  # Installer: builds and installs the Go detector
 install-source-manager.sh   # Installer: builds and installs the Go state manager
 install-oceano-web.sh       # Installer: builds and installs the web UI
 install-oceano-display.sh   # Installer: kiosk Chromium service for HDMI/DSI display
-install-shazam.sh           # Installer: optional Shazam Python recognizer dependency
+install-shazam.sh           # Installer: optional shazamio (Python) recognizer dependency
 ```
 
 ## Source detector

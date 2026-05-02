@@ -103,11 +103,24 @@ function renderCalibrationSummary() {
 
 function updateRecognitionUI() {
   const chain = _rval('rec-chain') || 'acrcloud_first';
-  const usesACR = chain !== 'shazam_only';
+  const usesACR = chain !== 'shazam_only' && chain !== 'audd_only';
+  const usesAudD = chain === 'acrcloud_first' || chain === 'shazam_first' ||
+    chain === 'audd_first' || chain === 'audd_only';
   const group = document.getElementById('acrcloud-config-group');
   const hint  = document.getElementById('acrcloud-config-hint');
   if (group) group.style.display = usesACR ? '' : 'none';
   if (hint)  hint.style.display  = usesACR ? '' : 'none';
+
+  const auddG = document.getElementById('audd-config-group');
+  const auddInp = document.getElementById('rec-audd-token');
+  const auddHint = document.getElementById('audd-config-hint');
+  if (auddG) auddG.style.display = usesAudD ? '' : 'none';
+  if (auddInp) auddInp.disabled = !usesAudD;
+  if (auddHint) {
+    auddHint.textContent = usesAudD
+      ? 'Optional. Official music recognition API — docs.audd.io. Included in the chain when non-empty and the selected order allows AudD.'
+      : 'AudD is not used with the selected chain.';
+  }
 }
 
 function _tuningPresetValues(preset) {
@@ -255,6 +268,8 @@ async function loadRecognitionPage() {
   _rset('rec-host',             cfg.recognition?.acrcloud_host           ?? '');
   _rset('rec-access-key',       cfg.recognition?.acrcloud_access_key     ?? '');
   _rset('rec-secret-key',       cfg.recognition?.acrcloud_secret_key     ?? '');
+  _rset('rec-audd-token',       cfg.recognition?.audd_api_token          ?? '');
+  _rset('rec-acoustid-key',     cfg.recognition?.acoustid_client_key    ?? '');
   _rset('rec-shazam-python',    cfg.recognition?.shazam_python_bin       ?? '');
   _rset('rec-duration',         cfg.recognition?.capture_duration_secs);
   _rset('rec-interval',         cfg.recognition?.max_interval_secs);
@@ -384,6 +399,8 @@ async function saveRecognitionPage() {
     acrcloud_host:                                _rval('rec-host'),
     acrcloud_access_key:                          _rval('rec-access-key'),
     acrcloud_secret_key:                          _rval('rec-secret-key'),
+    audd_api_token:                               _rval('rec-audd-token'),
+    acoustid_client_key:                          _rval('rec-acoustid-key'),
     shazam_python_bin:                            _rval('rec-shazam-python'),
     capture_duration_secs:                        _rint('rec-duration', _cfgInt(recCurrent.capture_duration_secs, 7)),
     max_interval_secs:                            _rint('rec-interval', _cfgInt(recCurrent.max_interval_secs, 300)),

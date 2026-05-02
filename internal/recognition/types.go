@@ -30,6 +30,10 @@ type Result struct {
 	// track 3, "A2" for vinyl side A track 2). Populated from the library DB;
 	// not currently returned by recognition providers.
 	TrackNumber string
+	// MatchSource is a stable lowercase id for the API that produced this result
+	// (e.g. "acrcloud", "shazam", "audd"). Used for UI state when ACRID/ShazamID
+	// are empty. Not serialized on track payloads today.
+	MatchSource string `json:"-"`
 }
 
 // Recognizer identifies a track from a WAV audio file.

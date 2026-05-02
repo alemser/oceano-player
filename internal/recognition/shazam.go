@@ -253,11 +253,12 @@ func parseShazamOutput(data []byte) (*Result, error) {
 		return nil, nil
 	}
 	return &Result{
-		ShazamID:   payload.ShazamID,
-		Title:      payload.Title,
-		Artist:     payload.Artist,
-		Album:      payload.Album,
-		Score:      payload.Score,
-		DurationMs: payload.DurationMs,
+		ShazamID:    payload.ShazamID,
+		Title:       payload.Title,
+		Artist:      payload.Artist,
+		Album:       payload.Album,
+		Score:       payload.Score,
+		DurationMs:  payload.DurationMs,
+		MatchSource: "shazam",
 	}, nil
 }

@@ -2,6 +2,10 @@
 # install-shazam.sh — sets up the shazamio Python virtualenv used by
 # oceano-state-manager as a fallback recognizer when ACRCloud returns no match.
 #
+# shazamio is a community library, not an official Shazam/Apple API product.
+# Commercial deployments: see docs/plans/recognition-flexible-providers-and-secrets.md
+# ("Third-party clarity: shazamio").
+#
 # Usage:
 #   sudo ./install-shazam.sh [--venv /opt/shazam-env]
 #
