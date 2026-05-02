@@ -778,9 +778,9 @@ func managerArgs(cfg Config, configPath string) []string {
 	if strings.TrimSpace(rec.AudDAPIToken) != "" {
 		args = append(args, "--audd-api-token", strings.TrimSpace(rec.AudDAPIToken))
 	}
-	if rec.ShazamPythonBin != "" {
-		args = append(args, "--shazam-python", rec.ShazamPythonBin)
-	}
+	// Always pass --shazam-python so an empty JSON value disables Shazam. If we omit
+	// the flag, oceano-state-manager falls back to its CLI default and Shazam stays on.
+	args = append(args, "--shazam-python", strings.TrimSpace(rec.ShazamPythonBin))
 	// Boolean flags and --verbose must be last (no paired value).
 	args = append(args, "--verbose")
 	return args
