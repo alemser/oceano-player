@@ -167,6 +167,11 @@ The timer is reset to `RecognizerMaxInterval` on every trigger received from the
 
 Guards prevent false-positive boundary triggers during quiet passages mid-track.
 
+**Known duration** for these guards is the **longer** of provider-reported `DurationMs`
+and the library row’s `duration_ms` (`pickLongerDurationMs` in `recognition_policy.go`,
+applied in `applyRecognizedResult` and library sync). That way a short ACR segment
+duration cannot shrink the pessimism window below a user-corrected or merged library value.
+
 ```
 shouldSuppressBoundary():
   suppress when elapsed < DurationPessimism × knownDuration

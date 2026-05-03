@@ -325,7 +325,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 				result.ShazamID = entry.ShazamID
 			}
 			if entry.DurationMs > 0 {
-				result.DurationMs = entry.DurationMs
+				result.DurationMs = pickLongerDurationMs(result.DurationMs, entry.DurationMs)
 			}
 			artworkPath = entry.ArtworkPath
 		}
@@ -373,7 +373,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 						result.ShazamID = finalEntry.ShazamID
 					}
 					if finalEntry.DurationMs > 0 {
-						result.DurationMs = finalEntry.DurationMs
+						result.DurationMs = pickLongerDurationMs(result.DurationMs, finalEntry.DurationMs)
 					}
 					if finalEntry.ArtworkPath != "" {
 						artworkPath = finalEntry.ArtworkPath

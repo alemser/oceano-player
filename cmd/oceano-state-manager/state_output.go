@@ -416,15 +416,18 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 				m.recognitionResult.TrackNumber = entry.TrackNumber
 				changed = true
 			}
-			if entry.DurationMs > 0 && m.recognitionResult.DurationMs != entry.DurationMs {
-				previousDuration := m.recognitionResult.DurationMs
-				m.recognitionResult.DurationMs = entry.DurationMs
-				// Duration can arrive late and differ across providers for the same
-				// track. Keep seek monotonic to avoid mid-track progress resets.
-				if previousDuration <= 0 && m.physicalSeekMS > int64(entry.DurationMs)+15000 && m.cfg.Verbose {
-					log.Printf("library sync: preserving seek despite late duration update (seek=%dms duration=%dms)", m.physicalSeekMS, entry.DurationMs)
+			if entry.DurationMs > 0 {
+				prev := m.recognitionResult.DurationMs
+				merged := pickLongerDurationMs(prev, entry.DurationMs)
+				if merged != prev {
+					m.recognitionResult.DurationMs = merged
+					// Duration can arrive late and differ across providers for the same
+					// track. Keep seek monotonic to avoid mid-track progress resets.
+					if prev <= 0 && m.physicalSeekMS > int64(merged)+15000 && m.cfg.Verbose {
+						log.Printf("library sync: preserving seek despite late duration update (seek=%dms duration=%dms)", m.physicalSeekMS, merged)
+					}
+					changed = true
 				}
-				changed = true
 			}
 			if m.physicalArtworkPath != entry.ArtworkPath {
 				m.physicalArtworkPath = entry.ArtworkPath

@@ -16,6 +16,22 @@ func recoverSeekMSFromSnapshot(previousSeekMS int64, previousSeekUpdatedAt, now 
 	return previousSeekMS + delta
 }
 
+// pickLongerDurationMs returns the longer positive duration hint. VU timeline
+// guards (suppression, hard-silence bypass) must not shrink when one source
+// carries a short wrong value (e.g. ACR segment vs full album-side duration).
+func pickLongerDurationMs(a, b int) int {
+	if a <= 0 {
+		return b
+	}
+	if b <= 0 {
+		return a
+	}
+	if b > a {
+		return b
+	}
+	return a
+}
+
 func normalizedDurationPessimism(durationPessimism float64) float64 {
 	if durationPessimism <= 0 || durationPessimism > 1 {
 		return 0.75
