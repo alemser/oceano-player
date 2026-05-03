@@ -153,7 +153,9 @@ type Config struct {
 	// recognition.providers in calibration-config JSON.
 	// Valid values: "acrcloud_first" | "shazam_first" | "acrcloud_only" | "shazam_only" |
 	// "audd_first" | "audd_only".
-	// Continuity monitoring always uses the Shazamio client when available, independent of this setting.
+	// Deprecated: Shazamio continuity follows the same rule as recognition.providers —
+	// only when the legacy chain policy would run Shazamio as a primary step
+	// (acrcloud_only / audd_only omit it).
 	RecognizerChain string
 	// ShazamioContinuityInterval controls how often the Shazamio continuity path re-checks if the
 	// current track is still playing (for soft/gapless transitions).

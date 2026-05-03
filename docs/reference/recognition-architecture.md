@@ -330,9 +330,9 @@ O coordinator nunca abre o dispositivo ALSA directamente.
 |---|---|---|
 | `chain` | `ChainRecognizer` (ACR → Shazam ou outro) | Identificação principal |
 | `confirmer` | Segundo provider da chain, ou `nil` | Segunda chamada de confirmação |
-| `continuity` | Sempre Shazam (`wrapWithStatsAs(..., "ShazamContinuity")`) | Monitor gapless |
+| `continuity` | Shazamio só quando o `shazam` está na cadeia primary activa (`wrapWithStatsAs(..., "ShazamioContinuity")`); senão `nil` | Monitor gapless |
 
-O objecto Shazam físico é criado uma vez e partilhado. Cada wrapper tem nome de stats independente (`"Shazam"` vs `"ShazamContinuity"`).
+O cliente Shazamio é criado uma vez e partilhado. Cada wrapper tem nome de stats independente (`"Shazamio"` vs `"ShazamioContinuity"`).
 
 ### Políticas configuráveis (`-recognizer-chain`)
 

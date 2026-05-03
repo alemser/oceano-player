@@ -491,8 +491,12 @@ func main() {
 	m.markDirty() // write initial stopped state immediately
 
 	if rec != nil {
+		contLog := "off"
+		if shazamioRec != nil {
+			contLog = cfg.ShazamioContinuityInterval.String()
+		}
 		log.Printf("recognizer: chain=%s pcm-socket=%s max-interval=%s refresh-interval=%s confirm-delay=%s shazam-continuity=%s",
-			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval, cfg.RecognizerRefreshInterval, cfg.ConfirmationDelay, cfg.ShazamioContinuityInterval)
+			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval, cfg.RecognizerRefreshInterval, cfg.ConfirmationDelay, contLog)
 	} else {
 		log.Printf("recognizer: disabled — add non-empty recognition.providers to %s", cfg.CalibrationConfigPath)
 	}

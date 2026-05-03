@@ -65,5 +65,5 @@ Any “custom provider” feature that touches **`POST /api/config`** or systemd
 | Topic | Now | Later |
 |-------|-----|--------|
 | Shazamio | Defer product reliance; optional install only | Decide remove/replace using stats + legal posture |
-| Continuity | Shazamio monitor when installed | User-chosen supported provider + slower cadence + quota UX |
+| Continuity | Shazamio monitor when Shazam is an enabled primary and installed | User-chosen supported provider + slower cadence + quota UX |
 | Custom providers | Do not ship arbitrary code injection | Prefer HTTP contract or fork; signed bundles only if justified |

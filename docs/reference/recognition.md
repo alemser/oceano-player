@@ -81,11 +81,15 @@ Reads `/tmp/oceano-source.json`. On `None → Physical` transitions:
 Transient `None` flickers of ≤ `transientNoneIgnoreWindow` (8 s, hardcoded) are ignored to
 absorb brief source-detector restarts without triggering a new session.
 
-### 3. Shazam continuity monitor (`runShazamContinuityMonitor`, `main.go`)
+### 3. Shazamio continuity monitor (`runShazamioContinuityMonitor`, `main.go`)
 
-Runs independently at `ShazamContinuityInterval` (8 s). Polls with a short capture
-(`ShazamContinuityCaptureDuration`, 4 s). Used only when Shazam is available and
-`shazamContinuityReady` is true (set after first successful match).
+Runs independently at `ShazamioContinuityInterval` (8 s). Polls with a short capture
+(`ShazamioContinuityCaptureDuration`, 4 s). The goroutine is started only when **Shazamio
+is part of the active primary chain** (enabled `shazam` primary in `recognition.providers`,
+or a legacy `recognizer_chain` value that includes the Shazamio primary slot — not
+`acrcloud_only` / `audd_only`) **and** `ShazamioPythonBin` resolves to a working client.
+When running, behaviour still depends on `shazamioContinuityReady` (set after alignment /
+successful match metadata).
 
 Confirmation logic:
 

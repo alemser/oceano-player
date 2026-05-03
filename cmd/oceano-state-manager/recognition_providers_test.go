@@ -182,7 +182,7 @@ func TestBuildRecognitionPlanFromProviders_NoContinuityWithoutPrimaries(t *testi
 	}
 }
 
-func TestBuildRecognitionPlanFromProviders_ContinuityWhenPrimaryRuns(t *testing.T) {
+func TestBuildRecognitionPlanFromProviders_NoContinuityWithoutShazamPrimary(t *testing.T) {
 	a := &stubRecognizer{name: "A"}
 	shz := &stubRecognizer{name: "Shazamio"}
 	inst := recognitionInstances{acr: a, shazamio: shz, shazamioContinuity: shz}
@@ -190,7 +190,44 @@ func TestBuildRecognitionPlanFromProviders_ContinuityWhenPrimaryRuns(t *testing.
 		{ID: "acrcloud", Enabled: true, Roles: []string{"primary"}},
 	}
 	plan := buildRecognitionPlanFromProviders(specs, inst)
-	if plan.Continuity == nil {
-		t.Fatal("expected continuity when at least one primary is available")
+	if plan.Continuity != nil {
+		t.Fatal("continuity should be nil when shazam is not an enabled primary")
+	}
+}
+
+func TestBuildRecognitionPlanFromProviders_ContinuityWhenShazamPrimary(t *testing.T) {
+	a := &stubRecognizer{name: "A"}
+	shz := &stubRecognizer{name: "Shazamio"}
+	cont := &stubRecognizer{name: "ShazamioCont"}
+	inst := recognitionInstances{acr: a, shazamio: shz, shazamioContinuity: cont}
+	specs := []RecognitionProviderSpec{
+		{ID: "acrcloud", Enabled: true, Roles: []string{"primary"}},
+		{ID: "shazam", Enabled: true, Roles: []string{"primary"}},
+	}
+	plan := buildRecognitionPlanFromProviders(specs, inst)
+	if plan.Continuity != cont {
+		t.Fatalf("want Shazamio continuity when shazam primary is enabled, got %v", plan.Continuity)
+	}
+}
+
+func TestBuildRecognitionPlanFromChain_NoContinuityWhenPolicyOmitsShazam(t *testing.T) {
+	acr := &stubRecognizer{name: "ACRCloud"}
+	shz := &stubRecognizer{name: "Shazamio"}
+	cont := &stubRecognizer{name: "ShazamioCont"}
+	inst := recognitionInstances{acr: acr, shazamio: shz, shazamioContinuity: cont}
+	plan := buildRecognitionPlanFromChain("acrcloud_only", inst)
+	if plan.Continuity != nil {
+		t.Fatalf("acrcloud_only must not attach Shazamio continuity, got %v", plan.Continuity)
+	}
+}
+
+func TestBuildRecognitionPlanFromChain_ContinuityWhenPolicyIncludesShazam(t *testing.T) {
+	acr := &stubRecognizer{name: "ACRCloud"}
+	shz := &stubRecognizer{name: "Shazamio"}
+	cont := &stubRecognizer{name: "ShazamioCont"}
+	inst := recognitionInstances{acr: acr, shazamio: shz, shazamioContinuity: cont}
+	plan := buildRecognitionPlanFromChain("acrcloud_first", inst)
+	if plan.Continuity != cont {
+		t.Fatalf("want continuity for acrcloud_first when Shazamio is installed, got %v", plan.Continuity)
 	}
 }

@@ -25,7 +25,7 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 | Interface | `internal/recognition.Recognizer`: `Name()`, `Recognize(ctx, wavPath)` (`types.go`). |
 | AcoustID | **Not implemented**; `acoustid_client_key` was **removed** from the config schema and services (historical POC only under `scripts/poc_acoustid.py`). |
 | Credentials | ACRCloud host/key/secret live in **`/etc/oceano/config.json`** (edited via **`oceano-player-ios`**, `POST /api/config`, or **`sudo oceano-setup`**). The optional **shazamio** path uses a **Python venv + `shazamio`** (no Shazam API key in config). |
-| **Continuity monitor** | **`runShazamContinuityMonitor`** (`main.go`) periodically captures short audio and runs the **`shazamio`** subprocess path only, independent of `RecognizerChain`. It detects **gapless** or **soft** track changes (weak VU boundaries), calibrates against the current result, and can **suppress** VU-driven boundaries when “continuity is ready”. Tuning lives under `ShazamContinuity*` and `Continuity*` in `config_types.go` / `oceano-web/config.go`. |
+| **Continuity monitor** | **`runShazamioContinuityMonitor`** (`main.go`) periodically captures short audio and runs the **`shazamio`** subprocess path **only when Shazamio participates as an enabled primary** (`recognition.providers` includes enabled `shazam` with primary role, or legacy `recognizer_chain` includes the Shazamio primary slot — not `acrcloud_only` / `audd_only`). It detects **gapless** or **soft** track changes (weak VU boundaries), calibrates against the current result, and can **suppress** VU-driven boundaries when “continuity is ready”. Tuning lives under `ShazamioContinuity*` and `Continuity*` in `config_types.go` / `oceano-web/config.go`. |
 
 ---
 
@@ -118,7 +118,7 @@ Oceano’s optional “Shazam-class” recognition uses the **Python package [`s
 
 ### Why Shazam continuity exists today
 
-Physical playback often has **gapless or low-silence** transitions. The main recognizer is driven by **VU / source boundaries** and timers; those can **miss** a side-B→side-A style change or a CD index jump with little RMS dip. The **continuity** loop is a **parallel channel**: periodic captures run **`shazamio`** and compare its answer to the **currently displayed** track and, after confirmation rules, fire a **re-recognition** when they diverge. It is **hard-wired to the `shazamio` path** (`RecognitionPlan.Continuity` is always that instance in `recognition_setup.go`).
+Physical playback often has **gapless or low-silence** transitions. The main recognizer is driven by **VU / source boundaries** and timers; those can **miss** a side-B→side-A style change or a CD index jump with little RMS dip. The **continuity** loop is a **parallel channel**: periodic captures run **`shazamio`** and compare its answer to the **currently displayed** track and, after confirmation rules, fire a **re-recognition** when they diverge. Today it is **hard-wired to the `shazamio` path** (`RecognitionPlan.Continuity` is that instance in `recognition_setup.go` **only when Shazamio is an enabled primary**; otherwise `Continuity` is nil).
 
 ### How the product may change
 
