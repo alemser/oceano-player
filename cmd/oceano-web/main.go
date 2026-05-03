@@ -187,7 +187,8 @@ func main() {
 	// API: core state and config endpoints.
 	mux.HandleFunc("/api/config", handleConfig(*configPath))
 	mux.HandleFunc("/api/status", handleStatus(*configPath))
-	mux.HandleFunc("/api/stream", handleStream(*configPath))
+	mux.HandleFunc("/api/stream", handleStream(*configPath, *libraryDB))
+	mux.HandleFunc("/api/player/summary", handlePlayerSummary(*configPath, *libraryDB))
 	mux.HandleFunc("/api/artwork", handleArtwork(*configPath))
 	mux.HandleFunc("/api/setup-status", handleSetupStatus(*configPath, *libraryDB))
 
@@ -283,8 +284,7 @@ func apiGetConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sum := sha256.Sum256(body)
-	etag := `"` + hex.EncodeToString(sum[:]) + `"`
+	etag := weakJSONETag(body)
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "private, no-cache")
 	if configETagMatches(r.Header.Get("If-None-Match"), etag) {
@@ -293,6 +293,12 @@ func apiGetConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(body)
+}
+
+// weakJSONETag returns a strong SHA-256 ETag for arbitrary JSON bytes.
+func weakJSONETag(body []byte) string {
+	sum := sha256.Sum256(body)
+	return `"` + hex.EncodeToString(sum[:]) + `"`
 }
 
 // configETagMatches reports whether If-None-Match from the client matches our ETag.

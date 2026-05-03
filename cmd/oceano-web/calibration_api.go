@@ -23,13 +23,13 @@ type vuSampleResponse struct {
 }
 
 type vuSequenceResponse struct {
-	Seconds      int       `json:"seconds"`
-	Samples      int       `json:"samples"`
-	AvgRMS       float64   `json:"avg_rms"`
-	MinRMS       float64   `json:"min_rms"`
-	MaxRMS       float64   `json:"max_rms"`
-	SamplesPerSec float64  `json:"samples_per_sec"`
-	RMS          []float64 `json:"rms"`
+	Seconds       int       `json:"seconds"`
+	Samples       int       `json:"samples"`
+	AvgRMS        float64   `json:"avg_rms"`
+	MinRMS        float64   `json:"min_rms"`
+	MaxRMS        float64   `json:"max_rms"`
+	SamplesPerSec float64   `json:"samples_per_sec"`
+	RMS           []float64 `json:"rms"`
 }
 
 func registerCalibrationRoutes(mux *http.ServeMux, vuSocket string) {

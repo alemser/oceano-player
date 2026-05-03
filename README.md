@@ -89,9 +89,11 @@ troubleshooting notes:
 | **Bluetooth discoverable** | `bluetoothctl` + `main.conf` after the Bluetooth step. |
 
 **`oceano-web`** on port **8080** exposes **HTTP APIs** (including `GET /api/config` with optional
-**`If-None-Match`** → **`304 Not Modified`**, and `POST /api/config`) and the **`/nowplaying.html`**
-local display; successful config writes still rewrite systemd units and shairport when needed.
-Deeper failure modes (RMS, ACRCloud, …) are in [Troubleshooting](#troubleshooting) below.
+**`If-None-Match`** → **`304 Not Modified`**, `GET /api/player/summary` and **`GET /api/library`** with the same pattern,
+**`GET /api/library/changes`**, `POST /api/config`, and **`/api/stream`** / **`/api/status`** where stereo **`vu`** meters are
+**omitted by default** and enabled with **`?vu=1`**) and the **`/nowplaying.html`** local display; successful config writes
+still rewrite systemd units and shairport when needed. LAN client contracts are summarized in
+[`docs/reference/http-lightweight-clients.md`](docs/reference/http-lightweight-clients.md). Deeper failure modes (RMS, ACRCloud, …) are in [Troubleshooting](#troubleshooting) below.
 
 ### AirPlay DAC auto-return (silent fallback mode)
 

@@ -39,11 +39,11 @@ func TestMaterializeRecognitionProvidersIfEmpty_setsMergePolicy(t *testing.T) {
 
 func TestBuildRecognitionProvidersFromLegacyChain_acrcloudFirst(t *testing.T) {
 	rec := &RecognitionConfig{
-		RecognizerChain:     "acrcloud_first",
-		ACRCloudHost:        "h",
-		ACRCloudAccessKey:   "k",
-		ACRCloudSecretKey:   "s",
-		AudDAPIToken:        "t",
+		RecognizerChain:           "acrcloud_first",
+		ACRCloudHost:              "h",
+		ACRCloudAccessKey:         "k",
+		ACRCloudSecretKey:         "s",
+		AudDAPIToken:              "t",
 		ShazamioRecognizerEnabled: true,
 	}
 	got := buildRecognitionProvidersFromLegacyChain("acrcloud_first", rec)

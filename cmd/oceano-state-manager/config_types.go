@@ -49,6 +49,15 @@ type RecognitionStatus struct {
 	ActiveInputName string `json:"active_input_name,omitempty"`
 }
 
+// VuLevels holds the latest stereo meter snapshot from oceano-source-detector
+// (float32 RMS-ish levels, same units as the VU socket). Written to unified state
+// for HDMI / optional clients; lightweight clients should use GET /api/stream?vu=0
+// or GET /api/player/summary to skip this payload.
+type VuLevels struct {
+	Left  float64 `json:"left"`
+	Right float64 `json:"right"`
+}
+
 // AirPlayTransportStatus reports DACP transport readiness for the current AirPlay
 // session. This allows clients to render transport controls only when the backend
 // has a fresh and complete remote-control context.
@@ -79,6 +88,7 @@ type PlayerState struct {
 	// AirPlayTransport reports whether DACP transport commands are currently
 	// possible for the active AirPlay session.
 	AirPlayTransport *AirPlayTransportStatus `json:"airplay_transport,omitempty"`
+	Vu               *VuLevels               `json:"vu,omitempty"`
 	UpdatedAt        string                  `json:"updated_at"`
 }
 

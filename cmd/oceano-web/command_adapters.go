@@ -72,6 +72,6 @@ func (m *SystemdServiceManager) SignalMain(unit string, signal string) error {
 }
 
 var (
-	commandRunner CommandRunner = OSCommandRunner{}
+	commandRunner CommandRunner  = OSCommandRunner{}
 	serviceMgr    ServiceManager = NewSystemdServiceManager(commandRunner)
 )

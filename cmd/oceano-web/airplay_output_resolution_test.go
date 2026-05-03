@@ -41,4 +41,3 @@ func TestResolveAirplayOutputDevice_DeviceMatchMissingUsesSilentFallback(t *test
 		t.Fatalf("got %q, want %q", got, shairportSilentFallbackDevice)
 	}
 }
-

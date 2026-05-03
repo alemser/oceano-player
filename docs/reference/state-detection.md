@@ -93,9 +93,9 @@ Every 500ms, the state manager runs an evaluation cycle to update the unified st
 3. If no active Bluetooth: set `state.source = "None"`, `state.track = null`, `state.state = "idle"`.
 
 ### Cycle 4: Finalize & Emit
-1. Update VU fields in state from latest `/tmp/oceano-vu.sock` frame.
+1. Update VU fields in state from latest `/tmp/oceano-vu.sock` frame (throttled writes so disk + SSE fan-out stay bounded).
 2. Write updated state atomically to `/tmp/oceano-state.json` (write to tmp file → rename to avoid partial reads).
-3. Notify oceano-web to push updated state via SSE to all connected clients (NowPlaying, iOS app).
+3. Notify oceano-web to push updated state via SSE to all connected clients (NowPlaying, iOS app). **`oceano-web`** may **strip** the top-level `vu` object from SSE and **`GET /api/status`** unless the client passes **`?vu=1`** (see [`http-lightweight-clients.md`](http-lightweight-clients.md)); **`/nowplaying.html`** requests **`/api/stream?vu=1`** for meters.
 
 ## Output Contract
 The unified state follows the UI contract defined in `AGENTS.md`, with VU data added:

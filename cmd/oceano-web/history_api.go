@@ -231,7 +231,7 @@ func (h *historyDB) getStats(days int) (*playHistoryStatsResponse, error) {
 
 	h.db.QueryRow(`
 		SELECT COUNT(*), COALESCE(SUM(listened_seconds),0) / 3600.0
-		FROM play_history ` + whereAnd("")).Scan(&stats.TotalPlays, &stats.TotalListenedHours)
+		FROM play_history `+whereAnd("")).Scan(&stats.TotalPlays, &stats.TotalListenedHours)
 
 	rows, err := h.db.Query(`
 		SELECT artist, COUNT(*) AS cnt FROM play_history

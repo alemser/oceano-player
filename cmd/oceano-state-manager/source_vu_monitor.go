@@ -596,6 +596,18 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		now := time.Now()
 		left := math.Float32frombits(binary.LittleEndian.Uint32(buf[0:4]))
 		right := math.Float32frombits(binary.LittleEndian.Uint32(buf[4:8]))
+		const vuMeterPublishInterval = 250 * time.Millisecond
+		m.mu.Lock()
+		m.lastVuLeft = float64(left)
+		m.lastVuRight = float64(right)
+		publishVU := m.vuMeterPublishAt.IsZero() || now.Sub(m.vuMeterPublishAt) >= vuMeterPublishInterval
+		if publishVU {
+			m.vuMeterPublishAt = now
+		}
+		m.mu.Unlock()
+		if publishVU {
+			m.markDirty()
+		}
 		avg := (left + right) / 2
 		out := detector.Feed(avg, now)
 		if learner != nil {

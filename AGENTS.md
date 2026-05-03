@@ -48,6 +48,8 @@ The backend must expose a single stream (WebSocket or SSE) that the UI consumes:
 }
 ```
 
+`vu` is present in `/tmp/oceano-state.json` when the VU socket is active; **`oceano-web` SSE and `GET /api/status` omit `vu` by default** and require **`?vu=1`** to include it (see `docs/reference/http-lightweight-clients.md`). HDMI Now Playing uses **`/api/stream?vu=1`**.
+
 Track metadata for physical media (Vinyl/CD) is identified via the configured online recognizer chain.
 
 ## Architecture
