@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	internallibrary "github.com/alemser/oceano-player/internal/library"
 )
@@ -26,7 +27,20 @@ func (s *statsRecognizer) Recognize(ctx context.Context, wavPath string) (*Recog
 	}
 
 	s.lib.RecordRecognitionEvent(s.Name(), "attempt")
+	start := time.Now()
 	res, err := s.inner.Recognize(ctx, wavPath)
+	latency := time.Since(start)
+	if meta := internallibrary.RecognitionAttemptContextFrom(ctx); meta != nil {
+		outcome := "success"
+		errClass := ""
+		if err != nil {
+			outcome = "error"
+			errClass = recognitionErrorClass(err)
+		} else if res == nil {
+			outcome = "no_match"
+		}
+		s.lib.InsertRecognitionAttempt(meta, s.Name(), outcome, errClass, latency)
+	}
 	if err != nil {
 		s.lib.RecordRecognitionEvent(s.Name(), "error")
 		return nil, err

@@ -127,6 +127,24 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 			derived_enter REAL,
 			derived_exit REAL
 		)`,
+		`CREATE TABLE IF NOT EXISTS recognition_attempts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			occurred_at TEXT NOT NULL,
+			provider TEXT NOT NULL,
+			trigger_source TEXT NOT NULL DEFAULT '',
+			boundary_event_id INTEGER,
+			is_hard_boundary INTEGER NOT NULL DEFAULT 0,
+			phase TEXT NOT NULL DEFAULT 'primary',
+			skip_ms INTEGER NOT NULL DEFAULT 0,
+			capture_duration_ms INTEGER NOT NULL DEFAULT 0,
+			outcome TEXT NOT NULL,
+			error_class TEXT NOT NULL DEFAULT '',
+			latency_ms INTEGER NOT NULL DEFAULT 0,
+			rms_mean REAL NOT NULL DEFAULT 0,
+			rms_peak REAL NOT NULL DEFAULT 0,
+			physical_format TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS recognition_attempts_occurred_at_idx ON recognition_attempts(occurred_at)`,
 	}
 	for _, stmt := range ensureCols {
 		if _, err := l.db.Exec(stmt); err != nil {
@@ -281,6 +299,77 @@ func (l *LibraryDB) listRMSLearningRows() ([]rmsLearningRowDTO, error) {
 	return out, nil
 }
 
+// recognitionAttemptRowDTO is one row for GET /api/recognition/attempts.
+type recognitionAttemptRowDTO struct {
+	ID                  int64   `json:"id"`
+	OccurredAt          string  `json:"occurred_at"`
+	Provider            string  `json:"provider"`
+	TriggerSource       string  `json:"trigger_source"`
+	BoundaryEventID     *int64  `json:"boundary_event_id,omitempty"`
+	IsHardBoundary      bool    `json:"is_hard_boundary"`
+	Phase               string  `json:"phase"`
+	SkipMs              int     `json:"skip_ms"`
+	CaptureDurationMs   int     `json:"capture_duration_ms"`
+	Outcome             string  `json:"outcome"`
+	ErrorClass          string  `json:"error_class,omitempty"`
+	LatencyMs           int     `json:"latency_ms"`
+	RMSMean             float64 `json:"rms_mean"`
+	RMSPeak             float64 `json:"rms_peak"`
+	PhysicalFormat      string  `json:"physical_format"`
+}
+
+type recognitionAttemptListResponse struct {
+	Rows []recognitionAttemptRowDTO `json:"rows"`
+}
+
+func (l *LibraryDB) listRecognitionAttempts(limit int) ([]recognitionAttemptRowDTO, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := l.db.Query(`
+		SELECT id, occurred_at, provider, trigger_source, boundary_event_id, is_hard_boundary,
+			phase, skip_ms, capture_duration_ms, outcome, error_class, latency_ms,
+			rms_mean, rms_peak, physical_format
+		FROM recognition_attempts
+		ORDER BY id DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "no such table") {
+			return []recognitionAttemptRowDTO{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	var out []recognitionAttemptRowDTO
+	for rows.Next() {
+		var r recognitionAttemptRowDTO
+		var boundary sql.NullInt64
+		var hard int
+		if err := rows.Scan(&r.ID, &r.OccurredAt, &r.Provider, &r.TriggerSource, &boundary, &hard,
+			&r.Phase, &r.SkipMs, &r.CaptureDurationMs, &r.Outcome, &r.ErrorClass, &r.LatencyMs,
+			&r.RMSMean, &r.RMSPeak, &r.PhysicalFormat); err != nil {
+			return nil, err
+		}
+		r.IsHardBoundary = hard != 0
+		if boundary.Valid {
+			v := boundary.Int64
+			r.BoundaryEventID = &v
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []recognitionAttemptRowDTO{}
+	}
+	return out, nil
+}
+
 // boundaryStatsResponse is JSON for GET /api/recognition/boundary-stats.
 type boundaryStatsResponse struct {
 	PeriodDays           int                           `json:"period_days"`
@@ -373,7 +462,7 @@ func buildBoundaryCalibrationReadiness(l *LibraryDB, cfg *Config) *boundaryCalib
 		EffectiveCalibrationNudgesOn: effective,
 		RmsLearningEnabled:           rmsEn,
 		RmsAutonomousApply:           rmsAp,
-		RmsCaptureNote:               "Per-event RMS is not stored in boundary_events. Optional RMS percentile learning writes aggregated histograms to table rms_learning (per format). Wizard calibration_profiles remain useful for vinyl gap (transition) metrics.",
+		RmsCaptureNote:               "Per-event RMS is not stored in boundary_events. Optional RMS percentile learning writes aggregated histograms to table rms_learning (per format_key). Table recognition_attempts stores per-provider capture WAV RMS (mean/peak, 0..1) keyed by the same normalized format for diagnostics. Wizard calibration_profiles remain useful for vinyl gap (transition) metrics.",
 	}
 }
 
@@ -1154,6 +1243,38 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		_ = json.NewEncoder(w).Encode(&rmsLearningListResponse{
 			Rows: list, MinSilenceSamples: minSil, MinMusicSamples: minMus, AutonomousApply: autoApply,
 		})
+	})
+
+	// GET /api/recognition/attempts?limit=100 — recent per-provider recognition attempts (telemetry).
+	mux.HandleFunc("/api/recognition/attempts", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		limit := 100
+		if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil {
+				limit = n
+			}
+		}
+		lib, err := openLibraryDB(libraryDBPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(&recognitionAttemptListResponse{Rows: []recognitionAttemptRowDTO{}})
+			return
+		}
+		defer lib.close()
+		rows, err := lib.listRecognitionAttempts(limit)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(&recognitionAttemptListResponse{Rows: rows})
 	})
 
 	// POST /api/recognition/rms-learning/import-default — import baseline histograms for empty setups.

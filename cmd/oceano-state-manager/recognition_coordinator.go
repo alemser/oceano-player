@@ -231,7 +231,7 @@ func shazamioConfirmationFollowup(confProviderName string, conf *RecognitionResu
 	return true
 }
 
-func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, result *RecognitionResult, isBoundaryTrigger bool) (bool, bool) {
+func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, result *RecognitionResult, isBoundaryTrigger bool, attemptTel *internallibrary.RecognitionAttemptContext) (bool, bool) {
 	if c.mgr.cfg.ConfirmationDelay <= 0 {
 		return false, false
 	}
@@ -291,6 +291,17 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 	}
 
 	confCtx2, confCancel2 := context.WithTimeout(ctx, confDur+10*time.Second)
+	confRecCtx := confCtx2
+	if attemptTel != nil {
+		confCopy := *attemptTel
+		confCopy.Phase = "confirmation"
+		confCopy.SkipMs = 0
+		confCopy.CaptureDurationMs = int(confDur.Milliseconds())
+		if m, pk, err := wavPCMLevelStats(confWav); err == nil {
+			confCopy.RMSMean, confCopy.RMSPeak = m, pk
+		}
+		confRecCtx = internallibrary.WithRecognitionAttemptContext(confCtx2, &confCopy)
+	}
 	var conf *RecognitionResult
 	var confRecErr error
 	confProviderName := confirmer.Name()
@@ -303,11 +314,11 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 		pCh := make(chan recOut, 1)
 		sCh := make(chan recOut, 1)
 		go func() {
-			r, e := primaryRec.Recognize(confCtx2, confWav)
+			r, e := primaryRec.Recognize(confRecCtx, confWav)
 			pCh <- recOut{res: r, err: e}
 		}()
 		go func() {
-			r, e := c.confirmRec.Recognize(confCtx2, confWav)
+			r, e := c.confirmRec.Recognize(confRecCtx, confWav)
 			sCh <- recOut{res: r, err: e}
 		}()
 		pOut := <-pCh
@@ -317,7 +328,7 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 			c.confirmRec.Name(), sOut.res, sOut.err,
 		)
 	} else {
-		conf, confRecErr = confirmer.Recognize(confCtx2, confWav)
+		conf, confRecErr = confirmer.Recognize(confRecCtx, confWav)
 	}
 	confCancel2()
 	os.Remove(confWav)
@@ -735,7 +746,30 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			continue
 		}
 
-		result, err := c.rec.Recognize(ctx, wavPath)
+		triggerStr := "fallback_timer"
+		if isBoundaryTrigger {
+			triggerStr = "boundary"
+		}
+		rmsMean, rmsPeak, rmsErr := wavPCMLevelStats(wavPath)
+		if rmsErr != nil && c.mgr.cfg.Verbose {
+			log.Printf("recognizer [%s]: wav RMS stats skipped: %v", c.rec.Name(), rmsErr)
+		}
+		tel := &internallibrary.RecognitionAttemptContext{
+			Trigger:           triggerStr,
+			BoundaryEventID:   boundaryEventID,
+			IsHardBoundary:    isHardBoundaryTrigger,
+			Phase:             "primary",
+			SkipMs:            int(skip.Milliseconds()),
+			CaptureDurationMs: int(c.mgr.cfg.RecognizerCaptureDuration.Milliseconds()),
+			PhysicalFormat: internallibrary.NormalizeRMSLearningFormatKey(
+				c.mgr.currentPhysicalFormatForCalibration()),
+		}
+		if rmsErr == nil {
+			tel.RMSMean, tel.RMSPeak = rmsMean, rmsPeak
+		}
+		recCtx := internallibrary.WithRecognitionAttemptContext(ctx, tel)
+
+		result, err := c.rec.Recognize(recCtx, wavPath)
 		os.Remove(wavPath)
 		if ctx.Err() != nil {
 			return
@@ -858,7 +892,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			}
 
 			stop := false
-			shazamioMatchedACR, stop = c.maybeConfirmCandidate(ctx, result, isBoundaryTrigger)
+			shazamioMatchedACR, stop = c.maybeConfirmCandidate(ctx, result, isBoundaryTrigger, tel)
 			if stop {
 				return
 			}

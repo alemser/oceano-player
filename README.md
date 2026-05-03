@@ -220,7 +220,7 @@ arecord -l
 
 ### 4. Listening metrics and boundary telemetry (optional)
 
-Use **`GET /api/history/stats`**, **`GET /api/recognition/stats`**, and related JSON APIs (or the iOS app) for **listening metrics**. The same services and recognition logic run from the first boot; there is **no separate “learning phase”** you must enable. What starts empty is **historical data**: play history, recognition counters, and **VU boundary telemetry** only appear after you have actually played physical media (and gone through track changes or silence transitions the monitor can see).
+Use **`GET /api/history/stats`**, **`GET /api/recognition/stats`**, **`GET /api/recognition/attempts`** (per-provider attempt log with capture RMS, latency, and error class), and related JSON APIs (or the iOS app) for **listening metrics**. The same services and recognition logic run from the first boot; there is **no separate “learning phase”** you must enable. What starts empty is **historical data**: play history, recognition counters, and **VU boundary telemetry** only appear after you have actually played physical media (and gone through track changes or silence transitions the monitor can see).
 
 On a **fresh install**, expect **low or zero counts** for the first hours or days. After a **service upgrade**, boundary rows are recorded from the **new process start onward** (events before the restart are not backfilled into the database). Totals become more useful after **a week or two** of normal listening if you want to compare suppression rates or tune calibration—but the system is fully operational before then.
 

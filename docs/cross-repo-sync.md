@@ -99,6 +99,25 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 ---
 
+## Log: 2026-05-03 — Recognition attempt telemetry (`recognition_attempts`)
+
+**Backend**
+
+| Item | Type | Notes |
+|------|------|--------|
+| SQLite **`recognition_attempts`** | **Additive** | Append-only rows from `oceano-state-manager` (per provider call under coordinator context): trigger, phase, skip/duration, WAV RMS mean/peak, `physical_format` key aligned with **`rms_learning.format_key`**, latency, `error_class`. |
+| **`GET /api/recognition/attempts?limit=`** | **Additive** | Optional diagnostics JSON (default 100, max 500). See `docs/reference/http-lightweight-clients.md`. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- None required. Optional developer / LAN tooling may consume the endpoint.
+
+**Risk**
+
+- [x] low (SD write volume: one row per successful provider HTTP attempt; bounded by recognition cadence).
+
+---
+
 ## Log: 2026-04-30 — amplifier cycle navigation + config
 
 **Backend (`main`, merge of `fix/unify-amplifier-cycle-navigation`)**

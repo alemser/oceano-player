@@ -180,6 +180,25 @@ var migrations = []string{
 	// Baseline changelog for existing installs (does not re-run once library_changelog has rows).
 	`INSERT INTO library_changelog(version, collection_id, op) SELECT 1, id, 'upsert' FROM collection WHERE NOT EXISTS (SELECT 1 FROM library_changelog LIMIT 1)`,
 	`UPDATE oceano_library_sync SET library_version = (SELECT COALESCE(MAX(version), 0) FROM library_changelog) WHERE id = 1`,
+	// T22: per-provider recognition attempts (trigger, RMS of capture WAV, latency, error class).
+	`CREATE TABLE IF NOT EXISTS recognition_attempts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		occurred_at TEXT NOT NULL,
+		provider TEXT NOT NULL,
+		trigger_source TEXT NOT NULL DEFAULT '',
+		boundary_event_id INTEGER,
+		is_hard_boundary INTEGER NOT NULL DEFAULT 0,
+		phase TEXT NOT NULL DEFAULT 'primary',
+		skip_ms INTEGER NOT NULL DEFAULT 0,
+		capture_duration_ms INTEGER NOT NULL DEFAULT 0,
+		outcome TEXT NOT NULL,
+		error_class TEXT NOT NULL DEFAULT '',
+		latency_ms INTEGER NOT NULL DEFAULT 0,
+		rms_mean REAL NOT NULL DEFAULT 0,
+		rms_peak REAL NOT NULL DEFAULT 0,
+		physical_format TEXT NOT NULL DEFAULT ''
+	)`,
+	`CREATE INDEX IF NOT EXISTS recognition_attempts_occurred_at_idx ON recognition_attempts(occurred_at)`,
 }
 
 var currentSchemaVersion = len(migrations)

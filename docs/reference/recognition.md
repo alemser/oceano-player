@@ -229,8 +229,22 @@ one provider if you use confirmation delay with a multi-primary chain.
 
 `ChainRecognizer` (`internal/recognition/chain.go`) tries providers in order and returns the
 first non-nil result. Each provider is wrapped in `statsRecognizer` for per-call telemetry.
-`ShazamContinuity` gets its own stats name (`"ShazamContinuity"`) so chain and continuity
-call counts are tracked separately in the library.
+`ShazamioContinuity` gets its own stats name so chain and continuity call counts are tracked
+separately in the library.
+
+### Per-attempt log (`recognition_attempts` + `GET /api/recognition/attempts`)
+
+For each provider `Recognize` call that runs under a coordinator session, the state manager
+may append one row with: **trigger** (`boundary` | `fallback_timer`), optional
+**`boundary_event_id`**, hard/soft boundary flag, **phase** (`primary` | `confirmation`),
+capture **skip** and **duration** (ms), **latency** (ms), **outcome** (`success` | `no_match` |
+`error`), **`error_class`** (`rate_limit`, `canceled`, `deadline`, `timeout`, `network`, `dns`,
+`other`), and **RMS mean/peak** computed from the WAV bytes sent to the provider (0..1).
+**`physical_format`** uses the same normalization as **`rms_learning.format_key`** (`vinyl`,
+`cd`, `physical`) so capture level can be compared to histogram-derived thresholds.
+
+Continuity / other `Recognize` calls without coordinator context do not write rows (aggregate
+`recognition_summary` counters still apply where wrapped).
 
 ---
 

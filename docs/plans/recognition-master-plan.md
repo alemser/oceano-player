@@ -8,6 +8,20 @@
 
 ---
 
+## Near-term product focus (recognition as hero)
+
+Ordered by impact on **perceived match quality** and **debuggability** before optional cost optimisations (local fingerprint / cache, P30):
+
+1. **Observability** — row-level attempt telemetry (trigger, latency, error class, capture RMS) joined with existing **`rms_learning`** keys and **`boundary_events`**; aggregate APIs remain complementary.
+2. **Capture path** — correct audio at boundaries (skip/buffer policy, T18); avoid clipping (README / setup).
+3. **Chain / metadata policy** — merge modes (P12), confirmation behaviour, library overrides; ship when telemetry proves the pain.
+4. **Recovery UX** — honest phases, backoff semantics already partially in place; surface in clients where gaps appear in data.
+5. **Local dedupe / fingerprint cache (P30, T14)** — only after (1)–(2) are stable and measured.
+
+This ordering is **intentional scope control**: fingerprinting does not fix wrong captures or provider policy mistakes.
+
+---
+
 ## Feature matrix
 
 | ID | Feature | Area | Status | Notes |
@@ -56,7 +70,8 @@
 | T10 | **`GET /api/recognition/rms-learning`** + UI cards | Telemetry | **Complete** | Advanced JSON + metrics |
 | T11 | **`boundary_sensitive`** on `collection` + VU consumption | Library | **Complete** | Energy-change duration lock; not applied to `silence→audio` (see `source_vu_monitor.go`) |
 | T12 | **R4** `LocalLibraryRecognizer` (local-first) | Providers | **Planned** | Bounded worker pool; load-shedding |
-| T13 | **R4b** local vs cloud metrics + ACR error-class breakdown | Telemetry | **Planned** | After R4 |
+| T13 | **R4b** local vs cloud metrics + ACR error-class breakdown | Telemetry | **Planned** | Rollups / dashboards; partial overlap with **T22** row data |
+| T22 | **`recognition_attempts`** (append-only) + **`GET /api/recognition/attempts`** | Telemetry | **Complete** | Per-provider rows: trigger, phase, skip/duration, RMS of WAV, `physical_format` key = `rms_learning.format_key`; `docs/reference/http-lightweight-clients.md` |
 | T14 | **R5** fingerprint cache + **cloud re-verify** (TTL / 1-in-N / low score) | Cost | **Planned** | Avoid “local trap” without re-verify |
 | T15 | **R6 / R6b** ML-lite boundary classifier + metrics | Triggers | **Planned** | Only if percentile / rules insufficient |
 | T16 | **R9** low-confidence **`recognition_alternatives`** + carousel + pick-to-confirm | UX / state | **Planned** | ACR `metadata.music[1..]`; Shazam multi-match **TBD** (investigation log § [R9 investigation](#r9-multi-candidate-investigation)) |
@@ -281,7 +296,7 @@ Any new telemetry / recogniser / trigger semantics ships with:
 
 1. **Persistence** (SQLite tables or columns).
 2. **HTTP API** under `/api/recognition/…` or extended existing stats.
-3. **UI** update to `history.html` / `history.js` (and CSS if needed).
+3. **UI** update to `history.html` / `history.js` (and CSS if needed) **when a shipped web surface exists** for that metric; otherwise document the JSON API in README / reference docs (attempt log is **API-first**).
 
 Empty states match existing recognition stats patterns.
 
@@ -303,7 +318,7 @@ Store **`format_at_event`** and backfill **`format_resolved`** when user correct
 
 ## Axis 1 — Learning (summary)
 
-- **1A shipped:** `boundary_events` + metrics APIs; richer per-event RMS remains optional.
+- **1A shipped:** `boundary_events` + metrics APIs; **T22** adds per-provider **`recognition_attempts`** (capture WAV RMS + latency + `error_class`) keyed like **`rms_learning`** for cohort analysis.
 - **1B:** Percentiles / rolling aggregates per cohort; optional offline small classifiers → **bounded threshold nudges** only.
 - **1C ML-lite:** Only if 1B insufficient; keep legacy path below confidence threshold.
 - **1D:** Stylus / groove wear — extend longitudinal stats; input to 1B, not parallel silo.
@@ -338,10 +353,11 @@ Mass library updates: chunked transactions, async job + fast HTTP response, sing
 | Milestone | Notes |
 |-----------|--------|
 | R1, R1b | `boundary_events` + Listening Metrics exposure |
+| T22 | `recognition_attempts` + `GET /api/recognition/attempts` (row-level provider telemetry) |
 | R1c | **Aborted** (T05) |
 | R2, R2b, R2c, R7, R3, R8, RMS-L, RMS-V | Calibration, follow-ups, nudges, RMS learning + UI |
 
-**Active backlog:** T12–T16, T18–T20, P12–P14, P18–P24, P27–P30.
+**Active backlog:** T12–T16, T18–T20, P12–P14, P18–P24, P27–P30 (T22 delivered).
 
 ---
 
@@ -391,3 +407,4 @@ After edits to **`recognition.providers`** / **`merge_policy`** wiring: `docs/re
 |------|--------|
 | 2026-05-03 | First consolidated matrix from four split plans. |
 | 2026-05-03 | Merged full narrative (merge modes, continuity, secrets, B4, R9, extensibility, axes, risks, open questions); removed obsolete split files; single source of truth. |
+| 2026-05-03 | Near-term product focus (recognition hero); **T22** `recognition_attempts` + `GET /api/recognition/attempts`; RMS correlation note; listening-metrics UI rule clarified. |

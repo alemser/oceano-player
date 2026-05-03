@@ -6,7 +6,8 @@ import (
 )
 
 // ensureLibrarySyncSchema applies oceano_library_sync + changelog + triggers.
-// Keep in sync with internal/library migrations after recognition_summary ShazamContinuity merge.
+// Keep in sync with internal/library migrations after recognition_summary ShazamContinuity merge
+// and recognition_attempts (T22).
 func ensureLibrarySyncSchema(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS oceano_library_sync (

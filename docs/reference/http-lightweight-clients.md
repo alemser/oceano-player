@@ -46,3 +46,17 @@ Compact JSON for **1–3 s foreground polling** (source, `state`, `format`, `phy
 ## `GET /api/config`
 
 See existing **`ETag` / `304`** behaviour (`docs/cross-repo-sync.md`).
+
+## `GET /api/recognition/attempts` (diagnostics)
+
+- **`limit`:** optional query parameter (default **100**, max **500**). Rows are newest-first.
+- **Payload:** `{ "rows": [ … ] }` with per-provider recognition attempts written by `oceano-state-manager` (trigger source, optional `boundary_event_id`, capture skip/duration, WAV **RMS mean/peak** in 0..1, `physical_format` key aligned with **`rms_learning.format_key`**, latency, `error_class` on failures).
+- **Contract:** optional LAN/admin tooling; not required for playback UIs.
+
+## `GET /api/recognition/rms-learning`
+
+Histogram totals and derived VU thresholds (`rms_learning`). Complements **`/api/recognition/attempts`** when correlating capture level with learned silence/music distributions.
+
+## `GET /api/recognition/stats` / `GET /api/recognition/boundary-stats`
+
+Aggregated counters (`recognition_summary`, `boundary_events`) — unchanged contract.

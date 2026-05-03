@@ -5,6 +5,7 @@ This directory holds **operator-local** JSON snapshots of listening / recognitio
 ## API
 
 - `GET /api/recognition/stats` — provider counters and `Trigger.boundary` / `Trigger.fallback_timer` (library SQLite `recognition_summary`).
+- `GET /api/recognition/attempts` — newest-first per-provider rows (`recognition_attempts`: trigger, latency, capture RMS, `error_class`, `physical_format` key aligned with `rms_learning`).
 
 ## Minimal `recognition.providers` after upgrade (jq example)
 

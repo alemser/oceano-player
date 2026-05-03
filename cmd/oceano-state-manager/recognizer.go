@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -111,4 +112,40 @@ func readFull(conn net.Conn, buf []byte) (int, error) {
 		}
 	}
 	return total, nil
+}
+
+// wavPCMLevelStats reads a PCM WAV (16-bit LE mono or stereo) and returns RMS
+// (sqrt of mean sample energy) and peak magnitude in 0..1 for telemetry. Best-effort:
+// returns an error only when the file cannot be read or has no usable data chunk.
+func wavPCMLevelStats(path string) (meanRMS, peak float64, err error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	idx := bytes.Index(raw, []byte("data"))
+	if idx < 0 || len(raw) < idx+8 {
+		return 0, 0, fmt.Errorf("wav: missing data chunk")
+	}
+	chunkSize := int(binary.LittleEndian.Uint32(raw[idx+4 : idx+8]))
+	pcmStart := idx + 8
+	pcmEnd := pcmStart + chunkSize
+	if pcmEnd > len(raw) {
+		pcmEnd = len(raw)
+	}
+	n := pcmEnd - pcmStart
+	if n < 2 || n%2 != 0 {
+		return 0, 0, fmt.Errorf("wav: empty or odd pcm")
+	}
+	samples := n / 2
+	var sumSq float64
+	peak = 0
+	for i := 0; i < samples; i++ {
+		v := int16(binary.LittleEndian.Uint16(raw[pcmStart+i*2 : pcmStart+i*2+2]))
+		x := float64(v) / 32768.0
+		if ax := math.Abs(x); ax > peak {
+			peak = ax
+		}
+		sumSq += x * x
+	}
+	return math.Sqrt(sumSq / float64(samples)), peak, nil
 }
