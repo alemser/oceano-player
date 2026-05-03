@@ -88,9 +88,10 @@ troubleshooting notes:
 | **Kiosk / HDMI** | No `xrandr --auto` in the launch script (avoids a **black** screen on some panels). Kiosk setup also writes anti-blanking defaults (`xset s off`, `xset -dpms`, `xset s noblank`) via `~/.xprofile` and launch-time guards. Use `/boot/firmware/config.txt` or `raspi-config` for HDMI mode if needed. |
 | **Bluetooth discoverable** | `bluetoothctl` + `main.conf` after the Bluetooth step. |
 
-**`oceano-web`** on port **8080** exposes **HTTP APIs** (including `POST /api/config`) and the
-**`/nowplaying.html`** local display; successful config writes still rewrite systemd units and
-shairport when needed. Deeper failure modes (RMS, ACRCloud, …) are in [Troubleshooting](#troubleshooting) below.
+**`oceano-web`** on port **8080** exposes **HTTP APIs** (including `GET /api/config` with optional
+**`If-None-Match`** → **`304 Not Modified`**, and `POST /api/config`) and the **`/nowplaying.html`**
+local display; successful config writes still rewrite systemd units and shairport when needed.
+Deeper failure modes (RMS, ACRCloud, …) are in [Troubleshooting](#troubleshooting) below.
 
 ### AirPlay DAC auto-return (silent fallback mode)
 

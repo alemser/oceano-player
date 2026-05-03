@@ -253,9 +253,24 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 ---
 
+## Log: 2026-05-03 — `GET /api/config` ETag; recognition POST restart dedup
+
+**Backend (`oceano-web`)**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `ETag` + `304` | **Compatible** | `GET /api/config` sets `ETag` (SHA-256 of JSON body), `Cache-Control: private, no-cache`; `If-None-Match` → `304 Not Modified` when unchanged. Documented in `docs/backend-recognition-providers-contract.md`. |
+| `POST /api/config` | **Compatible** | `oceano-state-manager` restart skipped when `recognition` differs only by materializer normalization (nil vs empty `providers`, default `merge_policy`) — same on-disk semantics as before. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] Optional: send `If-None-Match` on config refresh to use `304` (bandwidth / battery).
+
+---
+
 ## Log: 2026-05-03 — `recognition.providers` required; `recognizer_chain` deprecated for runtime
 
-**Companion contract (downstream repo):** `oceano-player-ios/docs/backend-recognition-providers-contract.md` — checklist for implementers (non-empty `providers` on POST, GET upgrade path, `not_configured`, UX copy). Item 3 there must state that the **client** merges `providers` into the POST body; **`oceano-web` does not** synthesize providers from `recognizer_chain`.
+**Companion contract (downstream repo):** `oceano-player-ios/docs/backend-recognition-providers-contract.md` — in-tree mirror: `docs/backend-recognition-providers-contract.md`. Checklist for implementers (non-empty `providers` on POST, GET upgrade path, `not_configured`, UX copy). Item 3 there must state that the **client** merges `providers` into the POST body; **`oceano-web` does not** synthesize providers from `recognizer_chain`.
 
 **Backend (`oceano-player` — shipped)**
 

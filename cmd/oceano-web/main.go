@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"time"
 
@@ -271,14 +272,48 @@ type BluetoothDevice struct {
 	Name string `json:"name"`
 }
 
-func apiGetConfig(w http.ResponseWriter, configPath string) {
+func apiGetConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	cfg, err := loadConfig(configPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sum := sha256.Sum256(body)
+	etag := `"` + hex.EncodeToString(sum[:]) + `"`
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache")
+	if configETagMatches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(cfg)
+	w.Write(body)
+}
+
+// configETagMatches reports whether If-None-Match from the client matches our ETag.
+// Accepts a single strong validator or weak (W/"...") forms with optional commas.
+func configETagMatches(ifNoneMatch, etag string) bool {
+	ifNoneMatch = strings.TrimSpace(ifNoneMatch)
+	if ifNoneMatch == "" || etag == "" {
+		return false
+	}
+	for _, part := range strings.Split(ifNoneMatch, ",") {
+		p := strings.TrimSpace(part)
+		if strings.HasPrefix(strings.ToUpper(p), "W/") {
+			p = strings.TrimSpace(p[2:])
+		}
+		p = strings.Trim(p, `"`)
+		want := strings.Trim(etag, `"`)
+		if strings.EqualFold(p, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
@@ -309,7 +344,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		old.Advanced.VUSocket != cfg.Advanced.VUSocket ||
 		old.Advanced.PCMSocket != cfg.Advanced.PCMSocket
 
-	managerChanged := !reflect.DeepEqual(old.Recognition, cfg.Recognition) ||
+	managerChanged := !recognitionRecognitionEqualForRestart(old.Recognition, cfg.Recognition) ||
 		old.Advanced.MetadataPipe != cfg.Advanced.MetadataPipe ||
 		old.Advanced.SourceFile != cfg.Advanced.SourceFile ||
 		old.Advanced.StateFile != cfg.Advanced.StateFile ||

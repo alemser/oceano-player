@@ -102,6 +102,35 @@ func TestBuildRecognitionProvidersFromLegacyChain_audOnly(t *testing.T) {
 	}
 }
 
+func TestRecognitionRecognitionEqualForRestart_materializeNormalizesNoop(t *testing.T) {
+	old := RecognitionConfig{
+		RecognizerChain: "acrcloud_first",
+		Providers:       nil,
+		MergePolicy:     "",
+		ACRCloudHost:    "identify-eu-west-1.acrcloud.com",
+	}
+	newer := old
+	materializeRecognitionProvidersIfEmpty(&newer)
+	if recognitionRecognitionEqualForRestart(old, newer) != true {
+		t.Fatalf("expected equal after materialize normalization, old=%+v new=%+v", old, newer)
+	}
+}
+
+func TestRecognitionRecognitionEqualForRestart_detectsProviderChange(t *testing.T) {
+	a := RecognitionConfig{
+		Providers: []RecognitionProviderConfig{
+			{ID: "acrcloud", Enabled: true, Roles: []string{"primary"}},
+		},
+		MergePolicy: "first_success",
+	}
+	b := a
+	b.Providers = append([]RecognitionProviderConfig(nil), a.Providers...)
+	b.Providers[0].Enabled = false
+	if recognitionRecognitionEqualForRestart(a, b) {
+		t.Fatal("expected inequality when provider enabled flag changes")
+	}
+}
+
 func TestMaterializeRecognitionProvidersIfEmpty_nilProvidersBecomesEmptySlice(t *testing.T) {
 	rec := &RecognitionConfig{
 		RecognizerChain: "audd_first",

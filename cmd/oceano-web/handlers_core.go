@@ -606,7 +606,7 @@ func handleConfig(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			apiGetConfig(w, configPath)
+			apiGetConfig(w, r, configPath)
 		case http.MethodPost:
 			apiPostConfig(w, r, configPath)
 		default:
