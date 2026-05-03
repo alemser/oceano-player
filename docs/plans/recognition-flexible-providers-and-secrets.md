@@ -29,6 +29,33 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 
 ---
 
+## Quiet program starts, live fades, and capture gain (planning only)
+
+**Field report:** Some releases—especially **live** mixes and long **fade-ins** (e.g. low-level openings before the band enters)—stay **very quiet on REC OUT** for many seconds. Operators may need to **raise USB capture gain** (`amixer`, see `README.md` troubleshooting) so that (1) the **source detector** and **VU** paths see enough RMS above the silence threshold, and (2) the **first recognition capture** contains enough **spectral energy** for ACRCloud / AudD / `shazamio` within the configured window (typically ~7 s).
+
+**This is not a provider-ordering problem.** It is a **signal-chain / trigger / capture-length** problem shared by `oceano-source-detector` (RMS, PCM relay) and `oceano-state-manager` (when to capture, how long, optional skip semantics—see **B4** below).
+
+### Constraints (why “auto gain everywhere” is not obvious)
+
+- **Fingerprinting and noise:** Aggressive **AGC**, heavy **digital gain**, or **wideband compression** on the audio sent to cloud recognizers can **raise the noise floor**, alter dynamics, and **hurt match quality**; sudden **crescendos** after a quiet intro can **clip** if gain was boosted for the intro.
+- **Split concerns:** **Source / VU** classification uses the **same** PCM tap as recognition. Boosting **only** the WAV written for providers does **not** help if **Physical** vs **None** or **VU boundaries** still see “silence” for too long—unless product explicitly separates **display gating** from **recognition branch** processing (larger architecture change).
+- **Hardware variance:** USB capture cards expose **different mixer controls**; any **ALSA-level automation** is **card-specific**, needs **caps**, **hysteresis**, and an **opt-in** policy so installs without that card do not regress.
+
+### Improvement directions (ranked by increasing product + engineering risk)
+
+1. **Operator + docs (today, strongest ROI):** Treat **quiet sides and live fades** like **RMS calibration**: set capture gain so that **typical** quiet-but-musical passages land in the documented **0.05–0.25 RMS** band; accept that **extreme** pressings may need **manual** gain or **Advanced** tuning (`silence_threshold`, debounce, capture duration). Cross-link `README.md` and **Listening Metrics** / **R3** nudges where helpful.
+2. **Trigger and capture policy (software, medium scope):** Optional **longer first capture** after a **Physical** edge or after **no_match** when **post-edge RMS** stays below a configurable percentile for *N* seconds; optional **shorter or zero skip** for “soft start” cohorts (related to **B4 — RMS-aware capture skip / LP run-in tuning**). Ships behind **flags**; validate on **live** and **classical** LPs so **false triggers** do not increase.
+3. **Recognition-only digital gain (software, medium–high risk):** Apply a **bounded linear gain** (or gentle **normalize-to-target-RMS**) **only** to the **WAV** sent to providers, with a **hard ceiling** and **only when** measured pre-capture RMS is below a threshold. **Does not** change ALSA; may still interact badly with **noisy** phono stages—**telemetry first** (first-window RMS vs match / no_match).
+4. **Dynamic ALSA capture gain (hardware integration, highest risk):** A privileged helper or narrow **`oceano-state-manager`** hook that adjusts **known-safe** mixer controls when **sustained** low RMS is observed during **Physical**, with **slow slew**, **max delta**, **cooldown**, and explicit **opt-in** in config; persist with **`alsactl store`** only if product commits to that model. **Defer** until (2)+(3) are ruled insufficient and **card matrix** is defined.
+
+### Recommendation
+
+- **Near term:** Improve **documentation** and **Advanced** copy for “quiet intros / live albums”; keep **manual gain** as the **primary** fix for extreme material.
+- **Product path:** Pursue **(2)** under **B4** with telemetry (`recognition-enhancement.md` Listening Metrics contract) before **(3)** or **(4)**.
+- **Explicit non-goal for now:** No commitment to **full automatic AGC** on the live REC OUT tap without a **dedicated spike** on fingerprint quality and **false-boundary** rates.
+
+---
+
 ## Product goals
 
 1. **Default identification path**: **ACRCloud** when configured (today’s primary **documented** API path), with **AudD** (or similar) as optional **snippet-friendly** REST providers, and **`shazamio`** only as an **optional, unofficial** integration (see below).
@@ -525,7 +552,7 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 | **B1c** | **Per-provider usage limits** — `UsageLimiter`, SQLite-backed counters, coordinator choke-point; optional `usage_limits` on each provider; defaults **off**; **reset** API + UI to clear local counters and unblock (see **Counter reset**). |
 | **B2** | **AudD** — **shipped** in `internal/recognition/audd.go`; config `audd_api_token` + chain modes `audd_first` / `audd_only` + insertion into `acrcloud_first` / `shazam_first` when token set. Further REST providers reuse the same pattern. |
 | **B3** | **Continuity refactor**: `continuity.enabled`, `continuity.provider`; migrate Shazam-prefixed keys; hardware validation. |
-| **B4** | **RMS-aware** capture skip / LP run-in tuning. |
+| **B4** | **RMS-aware** capture skip / LP run-in tuning; extends to **quiet program starts** and optional **first-window capture policy** (see **Quiet program starts, live fades, and capture gain**). |
 | **B5** | **Option A** Pi endpoint(s) or channel for **iOS-mediated** recognition jobs; security review. |
 
 ### iOS (`oceano-player-ios`) — after contract is stable
@@ -571,6 +598,7 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 4. **Continuity default after migration**: is **`continuity.enabled: false`** acceptable out of the box when **`shazamio`** is not installed, or do we require an explicit opt-in?
 5. **Usage limits:** should vendor **429 / quota** responses automatically **tighten** local counters or only rely on pre-configured caps?
 6. **Usage limits:** do we ship **vendor-named presets** (risky if pricing changes) vs **generic numeric templates** only in docs?
+7. **Low-level program material:** Is **B4** (trigger/capture policy + telemetry) enough for most users, or do we need a **supported** path for **recognition-only digital gain** / **opt-in ALSA assist** (see **Quiet program starts, live fades, and capture gain**)?
 
 ---
 

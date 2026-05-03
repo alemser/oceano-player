@@ -14,6 +14,8 @@ This document extends the earlier discussion into a concrete, incremental roadma
 
 **RMS percentile learning** (`advanced.rms_percentile_learning`, SQLite **`rms_learning`**) is **Done**: autonomous **histograms of stable-silence vs stable-music RMS** per format (`vinyl` / `cd` / `physical`) derive VU silence enter/exit from distributional separation; **`autonomous_apply`** overrides wizard profile thresholds once minimum sample counts are met. Wizard **`vinyl_transition`** metrics remain recommended for energy-dip / gap behaviour. Code: `internal/library/rms_learning.go`, `cmd/oceano-state-manager/rms_percentile_learner.go`, `source_vu_monitor.go`, Advanced UI.
 
+**Future (capture dynamics, not scheduled):** Very **quiet track openings** and **long live fade-ins** (low REC OUT level for many seconds) may delay **recognition** until capture gain or **capture/trigger policy** is adjusted. **RMS learning** helps **VU / silence classification** over time but does not replace **adequate analogue/digital level** into the capture card. Product/engineering options (documentation vs extended first capture vs bounded recognition-only gain vs opt-in ALSA assist) are captured under **Quiet program starts, live fades, and capture gain** in `docs/plans/recognition-flexible-providers-and-secrets.md`, aligned with backlog **B4**.
+
 ---
 
 ## Design principles (avoid regressions)

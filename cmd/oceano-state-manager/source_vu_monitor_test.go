@@ -54,14 +54,25 @@ func TestShouldSuppressBoundary_BypassWindowPreventsSuppression(t *testing.T) {
 }
 
 func TestShouldBypassDurationGuardsForBoundary(t *testing.T) {
-	if !shouldBypassDurationGuardsForBoundary("silence->audio", true) {
-		t.Fatal("hard silence->audio boundary should bypass duration guards")
+	now := time.Now()
+	seekUpdated := now.Add(-10 * time.Second)
+
+	if !shouldBypassDurationGuardsForBoundary("silence->audio", true, 0, 0, time.Time{}, now, 0.75) {
+		t.Fatal("hard silence->audio with unknown duration should bypass duration guards")
 	}
-	if shouldBypassDurationGuardsForBoundary("energy-change", true) {
+	if shouldBypassDurationGuardsForBoundary("energy-change", true, 0, 0, time.Time{}, now, 0.75) {
 		t.Fatal("hard non-silence boundary should not bypass duration guards")
 	}
-	if shouldBypassDurationGuardsForBoundary("silence->audio", false) {
+	if shouldBypassDurationGuardsForBoundary("silence->audio", false, 0, 0, time.Time{}, now, 0.75) {
 		t.Fatal("soft silence->audio boundary should not bypass duration guards")
+	}
+	// 240s track, 60s elapsed + 10s since seek update => 70s < 75% of 240s — mid-track hard silence must not bypass.
+	if shouldBypassDurationGuardsForBoundary("silence->audio", true, 240000, 60000, seekUpdated, now, 0.75) {
+		t.Fatal("hard silence->audio inside pessimism window should not bypass duration guards")
+	}
+	// 210s + 10s = 220s elapsed >= 180s suppressUntil — past window, bypass allowed for needle / gapless tail.
+	if !shouldBypassDurationGuardsForBoundary("silence->audio", true, 240000, 200000, seekUpdated, now, 0.75) {
+		t.Fatal("hard silence->audio after pessimism window should bypass duration guards")
 	}
 }
 

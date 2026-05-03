@@ -43,8 +43,12 @@ The `vuBoundaryDetector` classifies each frame and emits a `vuBoundaryOutcome`.
 
 **Hard boundary** (`silence→audio`, `isBoundary=true`, `isHardBoundary=true`):  
 `silenceFrames` (22) consecutive frames below threshold, then `activeFrames` (11) above.  
-Requires `hardSilenceFrames` (40) of deep silence before the "hard" flag is set —
-this arms the duration-guard bypass and signals a definitive track start (needle drop, CD track).  
+Requires `hardSilenceFrames` (40) of deep silence before the "hard" flag is set — this arms
+`durationGuardBypassUntil` and (when **no** reliable `DurationMs` + seek timeline) can **bypass**
+`shouldSuppressBoundary` so a needle re-drop still clears state. When duration is known and
+elapsed playback is **still inside** `DurationPessimism × knownDuration`, hard silence→audio
+**does not** bypass guards, so long quiet passages (e.g. live dynamics) do not clear metadata
+mid-track.  
 On hard boundary: pre-existing recognition state is cleared immediately (UI shows "Identifying…").  
 PCM skip: `captureSkipDuration` returns 2 s to flush stylus crackle from the buffer.
 
@@ -166,7 +170,13 @@ Guards prevent false-positive boundary triggers during quiet passages mid-track.
 ```
 shouldSuppressBoundary():
   suppress when elapsed < DurationPessimism × knownDuration
-  (bypass when: hardSilence boundary + elapsed <= earlyBypassGuardWindow (45 s, hardcoded))
+  (early window: if durationGuardBypassUntil armed AND elapsed <= earlyBypassGuardWindow (45 s),
+   return false so suppression does not block a needle re-drop near track start)
+
+shouldBypassDurationGuardsForBoundary() (hard silence→audio only):
+  skip the three suppression checks above only when not clearly mid-track:
+  if known duration + seek: bypass is false while elapsed < DurationPessimism × knownDuration;
+  if duration unknown: bypass stays true (legacy needle / no-metadata behaviour).
 
 shouldIgnoreBoundaryAtMatureProgress():
   ignore when elapsed >= DurationPessimism × knownDuration AND elapsed < knownDuration
@@ -190,8 +200,9 @@ durationGuardBypassUntil:
 
 ## Provider chain (`recognition_setup.go`)
 
-Both recognizers are always instantiated independently. Continuity always uses Shazam,
-regardless of the chain policy.
+Recognition is built from **`recognition.providers[]`** (see `recognition_setup.go`). The Shazamio
+continuity monitor runs only when the **`shazam`** provider is an enabled primary (same client
+path as the chain when enabled).
 
 ```
 RecognizerChain     Chain order           Confirmer (used by maybeConfirmCandidate)

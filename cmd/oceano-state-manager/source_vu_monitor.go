@@ -119,8 +119,30 @@ func shouldSuppressBoundarySensitiveBoundary(durationMs int, seekMS int64, seekU
 	return elapsed < trackDuration
 }
 
-func shouldBypassDurationGuardsForBoundary(reason string, isHardBoundary bool) bool {
-	return isHardBoundary && reason == "silence->audio"
+// shouldBypassDurationGuardsForBoundary allows hard silence→audio boundaries to
+// skip duration suppression only when we are not clearly still inside the
+// pessimism window of a known track length. Without this, any ~2s+ dip below the
+// silence threshold (live dynamics, long rests) arms a "hard" resume that
+// bypasses shouldSuppressBoundary and clears metadata mid-track.
+//
+// When duration/seek are unknown, preserve legacy behaviour: hard silence still
+// bypasses so needle-lift gaps without metadata still trigger.
+func shouldBypassDurationGuardsForBoundary(reason string, isHardBoundary bool, durationMs int, seekMS int64, seekUpdatedAt, now time.Time, durationPessimism float64) bool {
+	if !(isHardBoundary && reason == "silence->audio") {
+		return false
+	}
+	if durationMs > 0 && !seekUpdatedAt.IsZero() {
+		if durationPessimism <= 0 || durationPessimism > 1 {
+			durationPessimism = 0.75
+		}
+		elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
+		trackDuration := time.Duration(durationMs) * time.Millisecond
+		suppressUntil := time.Duration(float64(trackDuration) * durationPessimism)
+		if elapsed < suppressUntil {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *mgr) clearStalePhysicalRecognitionOnSilence(reason string, silenceElapsed time.Duration) bool {
@@ -446,9 +468,8 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		seekUpdatedAt = m.physicalSeekUpdatedAt
 		m.mu.Unlock()
 		now := time.Now()
-		bypassDurationGuards := shouldBypassDurationGuardsForBoundary(reason, isHardBoundary)
-
 		effPess := effectiveDurationPessimism(durationPessimism, boundarySensitive)
+		bypassDurationGuards := shouldBypassDurationGuardsForBoundary(reason, isHardBoundary, durationMs, seekMS, seekUpdatedAt, now, effPess)
 		if !bypassDurationGuards && shouldSuppressBoundarySensitiveBoundary(durationMs, seekMS, seekUpdatedAt, now, boundarySensitive, reason) {
 			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond
