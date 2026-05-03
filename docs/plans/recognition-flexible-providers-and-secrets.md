@@ -569,13 +569,38 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 
 **Follow-up (2026-05-03 backend):** iOS must **always emit `recognition.providers`** (non-empty when recognition should run) on save — backend no longer infers providers from `recognizer_chain`. Surface **`not_configured`** / empty-provider states in UX if helpful.
 
-**Still open vs full I1 scope:** per-provider **`usage_limits`** editors and **usage reset** actions, richer BYOK / unofficial **`shazamio`** copy.
+**Still open vs full I1 scope:** per-provider **`usage_limits`** editors and **usage reset** actions, richer BYOK / unofficial **`shazamio`** copy — see **Deferred: Provider quota / rate-limit UX** (this doc).
 
 ### Deferred / parallel research
 
 | Phase | Scope |
 |-------|--------|
 | **P*** | Parallel recognition, per-provider timeouts; compose with **per-provider usage limits** (`B1c`) and `recognition-provider-chain-improvement.md` coordinator quotas. |
+
+---
+
+## Deferred: Provider quota / rate-limit UX (not scheduled)
+
+**Goal:** Surface **provider quota exhaustion** (e.g. ACRCloud **3003** *requests limit exceeded*) to the user in the **providers / recognition settings** flow, not only in Pi logs. Complement with **optional operator-defined budgets** so the app can **warn before** the vendor hard-stops.
+
+**Backend backoff (implemented):** ACRCloud JSON status **3003** (and **4001**, **4003**) map to `ErrRateLimit` in `internal/recognition/acrcloud.go`, so the coordinator applies **`rateLimitBackoff` (5 min)** and **does not** bypass backoff on boundary triggers while `backoffRateLimited` is set — avoids ~30 s retry loops that hammer the API after quota exhaustion.
+
+**Backend / contract (when implemented):**
+
+- Expose a **stable snapshot** in unified state and/or **`GET /api/status`** (and SSE) — e.g. per-provider `last_error_code`, `rate_limited`, `rate_limited_message`, optional `rate_limited_until` — so clients do **not** need extra polling loops or heavy library calls.
+- Optional **`config.json`** fields (per provider or global): **user-declared monthly cap** (estimated calls) and **reset day of month** (billing-aligned by user). The Pi maintains an **approximate local counter** (primary + confirmation + chain retries); label in UX as **device-estimated**, not a substitute for the vendor dashboard.
+- **Source of truth** for “hard blocked” remains the **vendor HTTP response**; local limits are **advisory** only.
+
+**iOS (`oceano-player-ios`):**
+
+- Decide how to render **banner / badge / section** on the providers screen; consume the **same** state fields the app already loads for setup — **efficient**, no tight polling.
+- Record follow-ups in **`docs/cross-repo-sync.md`** when fields ship.
+
+**Non-goals for this deferral:**
+
+- No **UI / state JSON / iOS** surfacing yet; no vendor-specific **preset** packages (pricing changes). Server-side **quota-class backoff** for ACR is in place (see above).
+
+**Related:** Open question §5–§6 (*Usage limits*); `recognition-shazamio-deferral-continuity-and-extensibility.md` (live/gapless policy).
 
 ---
 

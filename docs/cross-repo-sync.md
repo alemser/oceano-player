@@ -284,3 +284,32 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 **Risk**
 
 - [x] **High** for Pi configs that never stored `recognition.providers` — mitigated by **Save** from iOS, contract doc, `docs/metrics-snapshots/README.md` `jq` example, and README troubleshooting *Track recognition not working*; re-open if field reports fail after upgrade.
+
+---
+
+## Log: 2026-05-03 — VU boundary policy, seek anchoring, ACR quota backoff
+
+**Backend (`oceano-state-manager` + `internal/recognition`)**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `shouldSuppressBoundarySensitiveBoundary` + `silence->audio` | **Compatible** | Boundary-sensitive **full-track** lock applies to **energy-change** only, not `silence->audio` (avoids stacking with narrowed hard-silence bypass). See `source_vu_monitor.go`. |
+| `computeRecognizedSeekMS` (periodic, first ID) | **Compatible** | When `previousResult == nil`, periodic seek uses **max** of capture elapsed and **wall time** since `physicalStartedAt`; hard-boundary **no match** re-anchors `physicalStartedAt` to `lastBoundaryAt`. Unified state **seek** fields may better match real playback after slow multi-attempt identification. |
+| ACRCloud JSON **3003** | **Compatible** | Treated as **`ErrRateLimit`** (with **4001**, **4003**) → coordinator **5 min** `rateLimitBackoff`, not 30 s generic error loop. Reduces API hammering after plan quota exhaustion. |
+
+**Documentation / planning**
+
+| Item | Notes |
+|------|-------|
+| `docs/reference/recognition.md` | Error table: ACR quota codes → 5 min backoff. |
+| `docs/plans/recognition-flexible-providers-and-secrets.md` | *Deferred: Provider quota / rate-limit UX* + **Backend backoff (implemented)** for 3003. |
+| `docs/plans/recognition-shazamio-deferral-continuity-and-extensibility.md` | Summary row → quota UX plan link; live/gapless planning unchanged. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] **Optional release note:** physical progress / “time into track” may look different after long `no_match` streaks (seek anchoring) — no new JSON keys.
+- [ ] **Future (deferred):** providers screen for quota exceeded + optional user budget / reset day — see flexible-providers plan; no contract fields yet.
+
+**Risk**
+
+- [x] **low** for HTTP/config contracts; **medium** for edge listening scenarios (live/gapless) — validate on device after deploy.

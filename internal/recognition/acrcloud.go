@@ -108,7 +108,10 @@ func (r *ACRCloudRecognizer) Recognize(ctx context.Context, wavPath string) (*Re
 	case 0:
 	case 1001:
 		return nil, nil
-	case 4001, 4003:
+	case 3003, 4001, 4003:
+		// 3003: identify request quota exceeded ("requests limit exceeded").
+		// 4001/4003: documented rate-limit style codes — treat as ErrRateLimit so
+		// the coordinator uses rate-limit backoff instead of hammering the API.
 		return nil, ErrRateLimit
 	default:
 		return nil, fmt.Errorf("ACRCloud error %d: %s", result.Status.Code, result.Status.Msg)

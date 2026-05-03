@@ -612,13 +612,14 @@ starts cleanly on the new track.
 | Error | Backoff | State effect |
 |-------|---------|-------------|
 | HTTP 429 (rate limit) | 5 min (`rateLimitBackoff`) | `backoffRateLimited = true` |
+| ACRCloud JSON **3003** (*requests limit exceeded*), **4001**, **4003** | 5 min (mapped to `ErrRateLimit`) | `backoffRateLimited = true` |
 | Provider error (network, timeout) | 30 s (`errorBackoff`) | `backoffRateLimited = false` |
 | No match | `NoMatchBackoff` (15 s default) | Phase → `"no_match"`, clears state on hard boundary |
 | Capture error (socket) | 30 s (`errorBackoff`) | Followup: `CaptureError` |
 | Source changed during capture | None (discard) | Followup: `Discarded`, no backoff |
 
 **Boundary trigger bypass**: All backoff types except rate-limit are bypassed on boundary
-triggers. Rate-limit (429) is never bypassed — the provider will reject the request anyway.
+triggers. Rate-limit (HTTP 429 and ACR quota codes above) is never bypassed — the provider will reject the request anyway.
 
 ---
 

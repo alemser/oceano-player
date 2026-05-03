@@ -60,6 +60,16 @@ Any “custom provider” feature that touches **`POST /api/config`** or systemd
 
 ---
 
+## Related: live / gapless boundary policy (planning only)
+
+**`duration-exceeded` grace (10 s):** Documented in `docs/reference/recognition.md` (`durationExceededGrace`). It is a **fixed constant** in `source_vu_monitor.go` (not user-configurable today). Rationale: absorb **clock vs. metadata** mismatch (ACR/library duration vs. pressing), **seek interpolation** jitter, and **processing lag** so the gapless fallback does not fire *before* the nominal end; the coordinator still receives `detectedAt` anchored at the theoretical track end.
+
+**On-device “light” deep learning for transitions:** Attractive **long-term research spike**, not a near-term default for Pi-class devices without a clear **latency, RAM, and maintenance** budget. Existing **RMS percentile learning + R3 telemetry nudges + calibration profiles** already reuse histograms with **interpretable** rules; a small model would need **labeled transition data** (operator-heavy) or **weak supervision** from boundary follow-ups. If pursued: prefer **export features → optional sidecar** (LAN) over bundling training/inference in the hot path until validated.
+
+**Heuristic “live + gapless” mode (cheaper than ML):** When metadata or library tags give **high confidence** that a recording is **live** (or user flags an album/side as **gapless**), policy could: tighten reliance on **`duration-exceeded`** + **total track duration**, raise **boundary sensitivity** for the session, reduce false `silence→audio` reliance, and optionally set **album-level difficulty** (e.g. treat side as one “boundary-sensitive” unit). **“100% certainty”** from audio alone is **not** realistic; use **explicit user/library flags** + provider hints (genre/live flags when trustworthy) + conservative defaults. Any new config keys require **`docs/cross-repo-sync.md`** and iOS contract review.
+
+---
+
 ## Summary
 
 | Topic | Now | Later |
@@ -67,3 +77,5 @@ Any “custom provider” feature that touches **`POST /api/config`** or systemd
 | Shazamio | Defer product reliance; optional install only | Decide remove/replace using stats + legal posture |
 | Continuity | Shazamio monitor when Shazam is an enabled primary and installed | User-chosen supported provider + slower cadence + quota UX |
 | Custom providers | Do not ship arbitrary code injection | Prefer HTTP contract or fork; signed bundles only if justified |
+| Live / gapless | `duration-exceeded` + 10 s grace; RMS/calibration telemetry | Optional user/library “live gapless” heuristics; ML only as validated sidecar |
+| Provider quotas (UI) | Errors visible in logs only | **`recognition-flexible-providers-and-secrets.md`** → *Deferred: Provider quota / rate-limit UX* |
