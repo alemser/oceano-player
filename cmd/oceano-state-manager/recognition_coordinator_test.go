@@ -589,6 +589,21 @@ func TestApplyRecognizedResult_SetsPhysicalSeek(t *testing.T) {
 	}
 }
 
+func TestComputeRecognizedSeekMS_FirstNonBoundaryUsesWallSincePlaybackAnchor(t *testing.T) {
+	now := time.Now()
+	captureStartedAt := now.Add(-5 * time.Second)
+	physStartedAt := now.Add(-88 * time.Second)
+	newRes := &RecognitionResult{ACRID: "acr-first", Title: "First", Artist: "Artist"}
+
+	seekMS, resetStart := computeRecognizedSeekMS(false, captureStartedAt, now, time.Time{}, physStartedAt, nil, newRes)
+	if !resetStart {
+		t.Fatal("expected first-ID periodic match to request physicalStartedAt reset")
+	}
+	if seekMS < 82000 || seekMS > 95000 {
+		t.Fatalf("seekMS=%dms want ~88s from playback anchor (slow retries), not ~5s capture-only", seekMS)
+	}
+}
+
 func TestComputeRecognizedSeekMS_NonBoundaryTrackChangeDoesNotReuseOldSessionElapsed(t *testing.T) {
 	now := time.Now()
 	captureStartedAt := now.Add(-30 * time.Second)

@@ -128,6 +128,15 @@ func computeRecognizedSeekMS(isBoundaryTrigger bool, captureStartedAt, now, last
 		return seekMS, false // same track — preserve physicalStartedAt, keep seek conservative
 	}
 
+	// First successful ID with no prior in-memory result: wall time since the
+	// physical session anchor (needle / resume) must count slow ACR retries and
+	// confirmation, not only the last capture window (Bug: progress stuck near 0).
+	if previousResult == nil && !physStartedAt.IsZero() {
+		if wall := now.Sub(physStartedAt).Milliseconds(); wall > seekMS {
+			seekMS = wall
+		}
+	}
+
 	return seekMS, true
 }
 
@@ -167,12 +176,20 @@ func (c *recognitionCoordinator) handleNoMatch(isBoundaryTrigger bool, isHardBou
 
 	if isBoundaryTrigger && isHardBoundaryTrigger {
 		c.mgr.mu.Lock()
+		boundaryAt := c.mgr.lastBoundaryAt
 		c.mgr.recognitionResult = nil
 		c.mgr.physicalArtworkPath = ""
 		c.mgr.physicalLibraryEntryID = 0
 		c.mgr.physicalBoundarySensitive = false
 		c.mgr.shazamioContinuityReady = false
 		c.mgr.shazamioContinuityAbandoned = false
+		// Re-anchor playback clock for the next identification so a later periodic
+		// match does not inherit wall time from before this (failed) track boundary.
+		if !boundaryAt.IsZero() {
+			c.mgr.physicalStartedAt = boundaryAt
+		} else {
+			c.mgr.physicalStartedAt = time.Now()
+		}
 		c.mgr.mu.Unlock()
 	}
 

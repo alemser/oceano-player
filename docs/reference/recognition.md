@@ -376,9 +376,10 @@ These require a recompile. All are in `boundary_detector.go` or `source_vu_monit
 The UI interpolates: `pos = seekMS + (now - seekUpdatedAt)`.
 
 On boundary triggers: `seekMS = max(now - captureStart, now - lastBoundaryAt)`.  
-On periodic triggers with a new track: `seekMS = now - captureStart`.  
+On periodic triggers with a new track: `seekMS = max(now - captureStart, now - physicalStartedAt)` when there was **no** prior in-memory result (first ID after needle / retries); otherwise `now - captureStart` only so a **known** track change does not reuse an old session clock (Bug 3).  
 On periodic triggers with the same track: seek is preserved (conservative, avoids jumps).  
-On same-track restore: `seekMS = recoverSeekMSFromSnapshot(preBoundarySeekMS, preBoundarySeekUpdatedAt, now)`.
+On same-track restore: `seekMS = recoverSeekMSFromSnapshot(preBoundarySeekMS, preBoundarySeekUpdatedAt, now)`.  
+After a **hard boundary** `no match`, `physicalStartedAt` is reset to `lastBoundaryAt` (or `now` if missing) so the next first-ID periodic match does not count audio from before that failed boundary.
 
 ---
 
