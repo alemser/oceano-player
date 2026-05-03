@@ -676,3 +676,69 @@ func TestPhysicalSeek_ResetOnBoundaryClear(t *testing.T) {
 		t.Errorf("physicalSeekUpdatedAt = %s, want zero after boundary clear", seekUpdatedAt)
 	}
 }
+
+func TestConfirmationMatchesCandidate_SameACRIDWithChainDisplayName(t *testing.T) {
+	conf := &RecognitionResult{ACRID: "x", Title: "Money", Artist: "Pink Floyd"}
+	cand := &RecognitionResult{ACRID: "x", Title: "Money", Artist: "Pink Floyd"}
+	if !confirmationMatchesCandidate("ACRCloud→Shazamio", "ACRCloud→Shazamio", conf, cand) {
+		t.Fatal("expected match when confirmer is chain and ACR IDs agree")
+	}
+}
+
+func TestConfirmationMatchesCandidate_ShamazIDWhenChainNamesDiffer(t *testing.T) {
+	// Confirmer is Shazamio; primary chain display name is not equal to confProviderName,
+	// but matching Shazam IDs must still count as agreement (regression: continuity wrapper name).
+	conf := &RecognitionResult{ShazamID: "222291", Title: "The Great Gig in the Sky", Artist: "Pink Floyd"}
+	cand := &RecognitionResult{ACRID: "acr1", ShazamID: "222291", Title: "The Great Gig in the Sky", Artist: "Pink Floyd"}
+	if !confirmationMatchesCandidate("Shazamio", "ACRCloud→Shazamio", conf, cand) {
+		t.Fatal("expected ShazamID parity to confirm same track when chain display names differ")
+	}
+}
+
+func TestConfirmationMatchesCandidate_MetadataFallback(t *testing.T) {
+	conf := &RecognitionResult{Title: "Money", Artist: "Pink Floyd"}
+	cand := &RecognitionResult{ACRID: "a", Title: "Money", Artist: "Pink Floyd"}
+	if !confirmationMatchesCandidate("Shazamio", "ACRCloud→Shazamio", conf, cand) {
+		t.Fatal("expected metadata equivalence to confirm")
+	}
+}
+
+func TestConfirmationMatchesCandidate_NilConf(t *testing.T) {
+	cand := &RecognitionResult{Title: "T", Artist: "A"}
+	if confirmationMatchesCandidate("Shazamio", "ACRCloud→Shazamio", nil, cand) {
+		t.Fatal("nil conf must not match")
+	}
+}
+
+func TestShazamioConfirmationFollowup_MergesIDAndSignalsAlignment(t *testing.T) {
+	conf := &RecognitionResult{ShazamID: "99"}
+	cand := &RecognitionResult{ACRID: "a", Title: "T", Artist: "A"}
+	if !shazamioConfirmationFollowup("Shazamio", conf, cand) {
+		t.Fatal("expected true for chain Shazamio confirmer")
+	}
+	if cand.ShazamID != "99" {
+		t.Fatalf("ShazamID = %q, want merged from conf", cand.ShazamID)
+	}
+}
+
+func TestShazamioConfirmationFollowup_IgnoresContinuityStatsName(t *testing.T) {
+	conf := &RecognitionResult{ShazamID: "99"}
+	cand := &RecognitionResult{ACRID: "a", ShazamID: ""}
+	if shazamioConfirmationFollowup("ShazamioContinuity", conf, cand) {
+		t.Fatal("continuity wrapper name must not trigger merge path")
+	}
+	if cand.ShazamID != "" {
+		t.Fatal("candidate ShazamID must stay empty when confirmer name is continuity stats")
+	}
+}
+
+func TestShazamioConfirmationFollowup_PreservesExistingShazamID(t *testing.T) {
+	conf := &RecognitionResult{ShazamID: "99"}
+	cand := &RecognitionResult{ShazamID: "88"}
+	if !shazamioConfirmationFollowup("Shazamio", conf, cand) {
+		t.Fatal("expected followup flag true")
+	}
+	if cand.ShazamID != "88" {
+		t.Fatal("existing candidate ShazamID must not be overwritten")
+	}
+}

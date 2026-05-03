@@ -7,6 +7,38 @@ import (
 	"testing"
 )
 
+func TestShazamParticipatesInProviders(t *testing.T) {
+	tests := []struct {
+		name string
+		spec []RecognitionProviderSpec
+		want bool
+	}{
+		{"empty", nil, false},
+		{"no shazam", []RecognitionProviderSpec{
+			{ID: "acrcloud", Enabled: true, Roles: []string{"primary"}},
+		}, false},
+		{"shazam disabled", []RecognitionProviderSpec{
+			{ID: "shazam", Enabled: false, Roles: []string{"primary"}},
+		}, false},
+		{"shazam no roles", []RecognitionProviderSpec{
+			{ID: "shazam", Enabled: true, Roles: nil},
+		}, false},
+		{"shazam enabled primary", []RecognitionProviderSpec{
+			{ID: "shazam", Enabled: true, Roles: []string{"primary"}},
+		}, true},
+		{"shazam id case", []RecognitionProviderSpec{
+			{ID: "SHAZAM", Enabled: true, Roles: []string{"primary"}},
+		}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shazamParticipatesInProviders(tt.spec); got != tt.want {
+				t.Fatalf("shazamParticipatesInProviders() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildRecognitionPlanFromProviders_PrimaryOrder(t *testing.T) {
 	a := &stubRecognizer{name: "A"}
 	b := &stubRecognizer{name: "B"}

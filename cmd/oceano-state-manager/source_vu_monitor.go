@@ -21,6 +21,12 @@ const (
 	// while avoiding clears during typical inter-track pauses on physical media.
 	staleSilenceKnownTrackClear          = 25 * time.Second
 	staleSilenceKnownTrackProgressFactor = 0.90
+	// If silence lasts at least this long while we still hold a catalogued duration,
+	// clear stale recognition even when seek+delta is below the 90% progress floor.
+	// Covers inconsistent duration/seek after a track ended (wrong ACR length, stuck seek)
+	// so the next silence→audio is not suppressed with the previous track's duration.
+	// Chosen slightly above typical session inter-track gaps (~45s) to limit mid-track clears.
+	staleSilenceForceClearAfter = 50 * time.Second
 	// Allow duration-guard bypass only near track start so a quick needle re-drop
 	// can trigger recognition, but mid-track false positives still remain guarded.
 	earlyBypassGuardWindow = 45 * time.Second
@@ -59,6 +65,9 @@ func shouldSuppressBoundary(durationMs int, seekMS int64, seekUpdatedAt, bypassU
 		return false
 	}
 	trackDuration := time.Duration(durationMs) * time.Millisecond
+	if elapsed >= trackDuration {
+		return false
+	}
 	suppressUntil := time.Duration(float64(trackDuration) * durationPessimism)
 	return elapsed < suppressUntil
 }
@@ -94,6 +103,20 @@ func shouldClearStaleRecognitionOnSilence(durationMs int, seekMS int64, seekUpda
 			delta = 0
 		}
 		elapsedMS := seekMS + delta
+
+		// Playback clock has reached or passed catalog duration — allow clearing with the
+		// usual silence debounce without requiring 90% progress (redundant but explicit).
+		if elapsedMS >= int64(durationMs) {
+			return silenceElapsed >= staleSilenceKnownTrackClear
+		}
+
+		// Long groove gap: progress metadata can disagree with what was heard (e.g. next
+		// track already playing while seek stayed low). Clear so silence→audio is not
+		// evaluated against the wrong duration.
+		if silenceElapsed >= staleSilenceForceClearAfter {
+			return true
+		}
+
 		minProgressMS := int64(float64(durationMs) * staleSilenceKnownTrackProgressFactor)
 		if elapsedMS < minProgressMS {
 			return false
@@ -139,11 +162,14 @@ func shouldBypassDurationGuardsForBoundary(reason string, isHardBoundary bool, d
 		return false
 	}
 	if durationMs > 0 && !seekUpdatedAt.IsZero() {
+		elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
+		trackDuration := time.Duration(durationMs) * time.Millisecond
+		if elapsed >= trackDuration {
+			return true
+		}
 		if durationPessimism <= 0 || durationPessimism > 1 {
 			durationPessimism = 0.75
 		}
-		elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
-		trackDuration := time.Duration(durationMs) * time.Millisecond
 		suppressUntil := time.Duration(float64(trackDuration) * durationPessimism)
 		if elapsed < suppressUntil {
 			return false

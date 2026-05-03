@@ -74,6 +74,10 @@ func TestShouldBypassDurationGuardsForBoundary(t *testing.T) {
 	if !shouldBypassDurationGuardsForBoundary("silence->audio", true, 240000, 200000, seekUpdated, now, 0.75) {
 		t.Fatal("hard silence->audio after pessimism window should bypass duration guards")
 	}
+	// Full track duration reached — bypass even if pessimism window math were ambiguous.
+	if !shouldBypassDurationGuardsForBoundary("silence->audio", true, 240000, 235000, seekUpdated, now, 0.75) {
+		t.Fatal("hard silence->audio when elapsed >= track duration should bypass duration guards")
+	}
 }
 
 func TestShouldSuppressBoundary_BypassWindowIgnoredAfterEarlyWindow(t *testing.T) {
@@ -91,6 +95,15 @@ func TestShouldSuppressBoundary_SuppressesWithoutBypass(t *testing.T) {
 
 	if got := shouldSuppressBoundary(240000, 15000, recognizedAt, time.Time{}, now, 0.75); !got {
 		t.Fatal("expected suppression when elapsed is below 75% and no bypass is active")
+	}
+}
+
+func TestShouldSuppressBoundary_NoSuppressPastFullTrackDuration(t *testing.T) {
+	now := time.Now()
+	seekUpdatedAt := now.Add(-10 * time.Second)
+	// 235s seek position + 10s since update = 245s elapsed on 240s track — past end, must not suppress.
+	if got := shouldSuppressBoundary(240000, 235000, seekUpdatedAt, time.Time{}, now, 0.75); got {
+		t.Fatal("expected no suppression once elapsed >= full catalog duration")
 	}
 }
 
@@ -140,6 +153,30 @@ func TestShouldClearStaleRecognitionOnSilence_UnknownDurationDoesNotClear(t *tes
 	now := time.Now()
 	if got := shouldClearStaleRecognitionOnSilence(0, 0, time.Time{}, now, 60*time.Second); got {
 		t.Fatal("expected no stale clear for unknown duration")
+	}
+}
+
+func TestShouldClearStaleRecognitionOnSilence_DurationExceededRespectsMinSilence(t *testing.T) {
+	now := time.Now()
+	seekUpdatedAt := now.Add(-5 * time.Second)
+	// elapsed 255s on 240s track — past duration but silence too short.
+	if got := shouldClearStaleRecognitionOnSilence(240000, 250000, seekUpdatedAt, now, 10*time.Second); got {
+		t.Fatal("expected no clear past duration until min silence debounce")
+	}
+	if got := shouldClearStaleRecognitionOnSilence(240000, 250000, seekUpdatedAt, now, 25*time.Second); !got {
+		t.Fatal("expected clear past duration once min silence debounce met")
+	}
+}
+
+func TestShouldClearStaleRecognitionOnSilence_ForceClearAfterLongSilenceDespiteLowProgress(t *testing.T) {
+	now := time.Now()
+	seekUpdatedAt := now.Add(-5 * time.Second)
+	// Low reported progress on a long catalog duration; long inter-track silence should still clear.
+	if got := shouldClearStaleRecognitionOnSilence(324000, 79000, seekUpdatedAt, now, 50*time.Second); !got {
+		t.Fatal("expected stale clear after prolonged silence despite progress below 90% floor")
+	}
+	if got := shouldClearStaleRecognitionOnSilence(324000, 79000, seekUpdatedAt, now, 40*time.Second); got {
+		t.Fatal("expected no force clear below staleSilenceForceClearAfter")
 	}
 }
 
