@@ -21,7 +21,7 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 | Area | Today |
 |------|--------|
 | Capture | `captureFromPCMSocket` writes **S16_LE stereo 44100 Hz** WAV (`cmd/oceano-state-manager/recognizer.go`). |
-| Chain | `RecognizerChain` string enum: `acrcloud_first`, `shazam_first`, `acrcloud_only`, `shazam_only` (`recognition_setup.go`). |
+| Chain | `recognizer_chain` in JSON is **deprecated** for runtime ordering; **`recognition.providers[]`** drives the plan (`recognition_setup.go`). |
 | Interface | `internal/recognition.Recognizer`: `Name()`, `Recognize(ctx, wavPath)` (`types.go`). |
 | AcoustID | **Not implemented**; `acoustid_client_key` was **removed** from the config schema and services (historical POC only under `scripts/poc_acoustid.py`). |
 | Credentials | ACRCloud host/key/secret live in **`/etc/oceano/config.json`** (edited via **`oceano-player-ios`**, `POST /api/config`, or **`sudo oceano-setup`**). The optional **shazamio** path uses a **Python venv + `shazamio`** (no Shazam API key in config). |
@@ -36,7 +36,7 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 3. **User-defined order**: Replace fixed enums with an **ordered list** of providers. **iOS** should present this as a **modern card list**: **drag-and-drop** defines sequence; **toggles** enable one or more; the Pi runs the chain in **that order** for **`first_success`** (and similar policies). Collapsed cards keep the screen simple; expanding (chevron) reveals credentials, limits, and advanced options (see **iOS settings UX: provider cards**).
 4. **Per-provider roles**: Each enabled provider can participate as **`primary`**, **`confirmer`**, and/or **`arbitration`** (same semantics as before; coordinator defines call order).
 5. **Security**: For paid or sensitive keys, prefer **storage on the phone** so the **Pi backend never holds plaintext secrets**—with explicit tradeoffs (see below).
-6. **Multi-provider outcomes**: User-controlled **merge** behaviour (`first_success`, `best_score`, `require_agreement`, `arbitrate`, optional `user_picks_on_conflict` later)—not only “first non-empty wins” as in `ChainRecognizer` today.
+6. **Multi-provider outcomes**: User-controlled **merge** behaviour (`first_success`, `best_score`, `require_agreement`, `arbitrate`, optional `user_picks_on_conflict` later)—beyond today’s **sequential first match** (`ChainRecognizer`; see *Primary order, confidence, and parallel execution*).
 7. **Per-provider usage limits**: Optional **daily / monthly / rolling** caps and **warn thresholds** so BYOK users do not exceed paid API plans; continuity calls metered separately where configured (see **Per-provider usage limits** below). Include an explicit **reset** control so users can clear local counters and **unblock** recognition after a mistaken cap or after upgrading a vendor plan (does not change vendor-side quota).
 
 ---
@@ -57,8 +57,8 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 
 | Optional | Notes |
 |----------|--------|
-| **Track recognition (physical)** | No ACRCloud / AudD / `shazamio` keys → chain resolves to **no providers**; state manager logs recognition disabled; **Physical / None** and AirPlay/BT metadata paths still behave as configured. |
-| **`recognition.providers[]` (explicit list)** | Legacy **`recognizer_chain` + credential fields** remain sufficient until clients rely on the ordered provider array; see **Explicit provider list** in phased summary. |
+| **Track recognition (physical)** | Requires **non-empty `recognition.providers`** with at least one **enabled** primary backed by credentials/install; otherwise recognition is disabled (`README.md`, `docs/cross-repo-sync.md`). **Physical / None** and AirPlay/BT metadata paths still behave as configured. |
+| **`recognition.providers[]` (explicit list)** | **Required** for physical recognition; `recognizer_chain` is **deprecated** for runtime ordering (kept only for compatibility in older JSON/systemd flags). |
 | **iOS companion** | Not required for a bare-minimum Pi; becomes the **primary** operator UI. Until then: `sudo oceano-setup`, hand-edited `config.json`, or `curl` to `POST /api/config`. |
 
 ### Green-path checklist (documentation target)
@@ -68,10 +68,10 @@ Use this as the **README / first-boot** bar; mirror in `README.md` when user-vis
 1. Install `.deb` or `install.sh` stack as documented; enable core systemd units.
 2. Confirm `oceano-source-detector` and `oceano-state-manager` are **active** (`journalctl` clean of fatal errors).
 3. Confirm `/tmp/oceano-state.json` updates (source + VU) during playback or silence as expected.
-4. **If** recognition is desired: add at least one provider’s credentials (or install `shazamio` path); until then, expect **no** ACR/AudD/Shazam calls.
+4. **If** recognition is desired: add **`recognition.providers`** (non-empty) **and** credentials per enabled slot (or `shazamio` path when using that id); until then, expect **no** ACR/AudD/Shazam calls.
 5. **If** you change service-affecting fields in `config.json` by hand: run **`sudo systemctl restart oceano-web`** (or `POST /api/config` once from a client) so systemd units for detector/manager stay aligned with JSON.
 
-**Planning implication:** **Explicit provider list** (parse non-empty `providers[]` with legacy fallback when empty or omitted) improves **config expressiveness** and **iOS contract** alignment; it does **not** block a minimal green-path install. Prioritize it when multi-provider order/roles need to round-trip in JSON; otherwise a lone maintainer can stay on **`recognizer_chain`** until then.
+**Planning implication:** **`recognition.providers[]`** is the **only** supported way to enable physical recognition ordering; **`recognizer_chain`** is not used to infer providers at runtime. Prioritize **iOS** (or `POST /api/config`) emitting a concrete `providers` array on every save.
 
 ---
 
@@ -102,6 +102,18 @@ Oceano’s optional “Shazam-class” recognition uses the **Python package [`s
 
 ---
 
+## Primary order, confidence, and parallel execution (clarification)
+
+**Shipped runtime (`merge_policy: first_success` + `ChainRecognizer`):** Providers with the **`primary`** role are ordered **exactly as they appear** in `recognition.providers[]`. For one capture WAV, the chain calls the **first** primary, then the **second**, and so on **only** when the previous call yields **no usable match** (`nil` / no match) or an error that allows advancing (see `internal/recognition/chain.go`). The **first non-nil successful result ends the chain**. A **low confidence score on an otherwise successful match does not** automatically try the next primary—doing that needs new coordinator logic or a different **`merge_policy`** (planned below).
+
+**`confirmer` / `arbitration`:** These roles are **separate** from the sequential “try next on failure” rule: the coordinator uses them for **second-pass validation**, tie-breaks, or dispute resolution—not as “fallback because score was low” unless product explicitly adds that rule.
+
+**iOS / operator copy:** Describe list order as **priority**: “try the first provider for this excerpt; if it cannot identify the track, try the next.” Do **not** promise score-based fallback or ranked alternatives until the backend implements them.
+
+**Future (this document’s merge modes):** Modes such as **`best_score`**, **parallel primary calls**, **`require_agreement`**, **`user_picks_on_conflict`**, and **`arbitrate`** (see tables under *User-configurable strategies*) cover **alternative candidates**, **confidence-based selection**, and **parallel execution**—they extend **`merge_policy`** and coordinator behaviour beyond today’s **sequential fallback on no-match/error only**.
+
+---
+
 ## Multi-provider aggregation vs Shazam-only continuity
 
 ### Why Shazam continuity exists today
@@ -126,7 +138,7 @@ Move beyond a fixed `ChainRecognizer` “first match wins” for the **final** d
 
 | Mode | Behaviour | UX / headless notes |
 |------|-----------|---------------------|
-| **`first_success`** | Current mental model: first provider in order returns a match → use it (after optional minimum confidence). | Simple; no UI conflict. |
+| **`first_success`** | Current shipped model: sequential chain; **first successful match wins**; next primary runs only after **no match / eligible error** on the previous (not “low score” on a match). | Simple; no UI conflict. Optional minimum-confidence gating is **not** implemented unless added explicitly. |
 | **`best_score`** | Run enabled providers (sequential or parallel); pick the result with the **highest declared confidence** or provider-specific score, with tie-breakers (e.g. prefer stable ids when available). | Fully automatic. |
 | **`require_agreement`** | Accept only if **N** providers agree on **normalised** artist+title (or on shared ISRC / MB recording id when available). | Reduces false positives; may yield **no** result until agreement—needs timeout fallback policy. |
 | **`prefer_provider`** | User ranks providers for **truth** when scores tie or metadata conflicts. | Complements ordered list. |
@@ -274,19 +286,17 @@ Secrets in `config.json` with **filesystem permissions** (`root` / `oceano` user
 
 ## Execution order: backend first, then iOS (incremental testing)
 
-**Principle:** Land **additive, testable** backend slices first. **iOS** follows once the **config contract** and (where needed) **HTTP APIs** are stable. Avoid breaking `oceano-player-ios` consumers of `GET/POST /api/config` or state JSON. A **fresh Pi** can satisfy **Minimum executable install (from zero)** with **no** `providers[]` and **no** recognition keys until the operator opts in.
+**Principle:** Land **additive, testable** backend slices first. **iOS** follows once the **config contract** and (where needed) **HTTP APIs** are stable. Avoid breaking `oceano-player-ios` consumers of `GET/POST /api/config` or state JSON. A **fresh Pi** can satisfy **Minimum executable install (from zero)** with **no** `providers[]` and **no** recognition keys until the operator opts in (physical recognition stays **off** until `providers` is configured).
 
 ### How to interleave work
 
 | Step | Layer | What ships | How you test before iOS |
 |------|--------|------------|-------------------------|
-| **1** | Backend | **Parse `recognition.providers[]`** with **fallback**: if absent, derive the same runtime plan from legacy `recognizer_chain` + existing ACR/Shazam fields (**no behavior change** for old JSON). | Edit `/etc/oceano/config.json` by hand (or `curl POST /api/config`) with **only** legacy keys → logs + recognition identical to today. |
-| **2** | Backend | Accept **optional** `providers` array in JSON; `oceano-web` `managerArgs` / reload unchanged until step 3. | Hand-craft minimal `providers` mirroring `acrcloud_first` → same behavior. |
-| **3** | Backend | **`oceano-web`** writes `providers` on save (optional **dev bridge**) **or** skip and use manual JSON until iOS ready. | Save from web once → systemd args + recognition still work. |
-| **4** | Backend | **`merge_policy`** + coordinator (start with `first_success` only = current semantics). | Toggle policy in JSON; verify logs and `oceano-state.json`. |
-| **5** | Backend | Continuity refactor flags (`continuity.enabled`, `continuity.provider`) behind defaults matching today. | Flip in JSON; gapless CD session on hardware. |
-| **6** | iOS | Settings screens: edit `recognition` (providers, roles, keys), call existing **`POST /api/config`**. | Device-only UX; Pi already understands payload. |
-| **7** | iOS + Backend | **Option A** delegated recognition (new channel) only after steps 1–6 are stable. | Contract in `docs/cross-repo-sync.md`; staged feature flag. |
+| **1** | Backend (**shipped 2026-05**) | **`recognition.providers[]` required** for physical recognition; **`recognizer_chain` deprecated** for runtime plan build; **`oceano-web`** does **not** materialize `providers` from chain on save (`docs/cross-repo-sync.md`). | Missing/empty `providers` → recognition disabled + `recognition.phase: not_configured` in state JSON. |
+| **2** | Backend | **`merge_policy`** + coordinator (`first_success` only = current semantics). | Toggle policy in JSON; verify logs and `oceano-state.json`. |
+| **3** | Backend | Continuity refactor flags (`continuity.enabled`, `continuity.provider`) behind defaults matching today. | Flip in JSON; gapless CD session on hardware. |
+| **4** | iOS | Settings screens: edit `recognition` (providers, roles, keys), call existing **`POST /api/config`** — **must persist non-empty `providers`** when any recognition slot is enabled. | Device-only UX; Pi already understands payload. |
+| **5** | iOS + Backend | **Option A** delegated recognition (new channel) only after steps 1–4 are stable. | Contract in `docs/cross-repo-sync.md`; staged feature flag. |
 
 **Rule of thumb:** after each backend step, **`go test ./...`** (or affected packages) + **one Pi smoke test** (physical play + journalctl). iOS work **blocks** on no **breaking** `config.json` shape—only **additive** keys until a deliberate major version.
 
@@ -509,7 +519,7 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 
 | Phase | Scope |
 |-------|--------|
-| **Explicit provider list** | **Config model**: `recognition.providers[]` + `merge_policy` (default `first_success`) + migration from `recognizer_chain`; **runtime parity** with current enum-based chain when `providers` omitted. **Not required** for a **minimum executable install** (see **Minimum executable install (from zero)**)—legacy chain + keys remain valid. |
+| **Explicit provider list** | **Shipped:** `recognition.providers[]` + `merge_policy` (default `first_success`); **non-empty `providers`** required for physical recognition; **`recognizer_chain` not used** for runtime ordering (see **Minimum executable install** — recognition optional until configured). |
 | **B1** | **`buildRecognitionComponents`** data-driven from `providers` + **roles**; confirmer / arbitration wiring; logs + validation hints for invalid configs. |
 | **B1b** | Extend **`merge_policy`** (`best_score`, `require_agreement`, `arbitrate`) without changing default behavior until explicitly set. |
 | **B1c** | **Per-provider usage limits** — `UsageLimiter`, SQLite-backed counters, coordinator choke-point; optional `usage_limits` on each provider; defaults **off**; **reset** API + UI to clear local counters and unblock (see **Counter reset**). |
@@ -522,15 +532,17 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 
 | Phase | Scope |
 |-------|--------|
-| **I1** ✅ **(MVP shipped)** | **Recognition settings** ( **`oceano-player-ios`** ): **provider card** screen — **drag-and-drop order**, per-card **toggle**, **chevron expand** for credentials + **`usage_limits`** + reset; `POST /api/config` sends ordered `providers[]`; masking; validation; copy that **`shazamio`** is unofficial if exposed to end users. **MVP** uses legacy `recognizer_chain` + fields (see **iOS I1 — completion status** below). |
+| **I1** ✅ **(MVP UI shipped; contract follow-up)** | **Recognition settings** (`oceano-player-ios`): provider cards, reorder, toggles, credentials, masking, **`shazamio`** disclosure. **Backend now requires** persisted **`recognition.providers[]`** on every save that should enable physical recognition — do not rely on `recognizer_chain` alone (see **iOS I1 — completion status**). |
 | **I2** | **Option A** client: subscribe to Pi job channel, run provider calls with Keychain secrets, return results. |
 | **I3** | Optional: **`user_picks_on_conflict`** UI when state exposes `track_candidates[]`. |
 
 #### iOS I1 — completion status (2026-05-02)
 
-**Marked complete (MVP)** in `oceano-player-ios`: Physical Media settings use **provider cards** with **drag-and-drop order**, per-card **toggle**, and **disclosure** for credentials (ACRCloud, AudD API token, shazamio Python path); save goes through existing **`POST /api/config`** with `recognizer_chain` + credential fields derived from slot order/toggles via `RecognitionProviderCatalog` (client-side); **`acoustid_client_key`** is stripped on load/save. `PhysicalMediaConfigView.swift` carries the UI; networking in `PhysicalMediaConfigClient.swift`.
+**MVP UI (2026-05-02)** in `oceano-player-ios`: Physical Media settings use **provider cards** with **drag-and-drop order**, per-card **toggle**, and **disclosure** for credentials (ACRCloud, AudD API token, shazamio path / flag); save goes through **`POST /api/config`** with `recognizer_chain` + credential fields derived from slot order/toggles via `RecognitionProviderCatalog` (client-side); **`acoustid_client_key`** is stripped on load/save. `PhysicalMediaConfigView.swift` / `PhysicalMediaConfigClient.swift`.
 
-**Still open vs full I1 scope above:** `recognition.providers[]` in the JSON body (awaits backend **explicit provider list** support + contract), per-provider **`usage_limits`** editors and **usage reset** actions, and additional end-user copy for BYOK / unofficial **`shazamio`** beyond subtitles.
+**Follow-up (2026-05-03 backend):** iOS must **always emit `recognition.providers`** (non-empty when recognition should run) on save — backend no longer infers providers from `recognizer_chain`. Surface **`not_configured`** / empty-provider states in UX if helpful.
+
+**Still open vs full I1 scope:** per-provider **`usage_limits`** editors and **usage reset** actions, richer BYOK / unofficial **`shazamio`** copy.
 
 ### Deferred / parallel research
 
