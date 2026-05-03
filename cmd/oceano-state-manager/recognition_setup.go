@@ -171,10 +171,15 @@ func buildRecognitionPlanFromProviders(specs []RecognitionProviderSpec, inst rec
 		log.Printf("recognizer: recognition.providers resolved to no available primary providers — recognition disabled")
 	}
 
+	var continuity Recognizer
+	if len(ordered) > 0 {
+		continuity = inst.shazamioContinuity
+	}
+
 	return RecognitionPlan{
 		Ordered:    ordered,
 		Confirmer:  confirmer,
-		Continuity: inst.shazamioContinuity,
+		Continuity: continuity,
 	}
 }
 
@@ -214,19 +219,17 @@ func buildRecognitionPlanFromChain(chain string, inst recognitionInstances) Reco
 func buildRecognitionComponents(cfg Config, lib *internallibrary.Library) recognitionComponents {
 	inst := buildRecognitionInstances(cfg, lib)
 
-	if len(cfg.RecognitionProviders) > 0 {
-		mp := strings.ToLower(strings.TrimSpace(cfg.RecognitionMergePolicy))
-		if mp != "" && mp != "first_success" {
-			log.Printf("recognizer: merge_policy=%q not implemented yet — using first_success", cfg.RecognitionMergePolicy)
-		}
-		log.Printf("recognizer: using recognition.providers from %s (%d entries, merge_policy=%s)",
-			cfg.CalibrationConfigPath, len(cfg.RecognitionProviders), strings.TrimSpace(cfg.RecognitionMergePolicy))
-		plan := buildRecognitionPlanFromProviders(cfg.RecognitionProviders, inst)
-		return newRecognitionComponents(plan)
+	mp := strings.ToLower(strings.TrimSpace(cfg.RecognitionMergePolicy))
+	if mp != "" && mp != "first_success" {
+		log.Printf("recognizer: merge_policy=%q not implemented yet — using first_success", cfg.RecognitionMergePolicy)
 	}
-
-	chain := normalizeRecognizerChain(cfg.RecognizerChain)
-	log.Printf("recognizer: chain policy=%s", chain)
-	plan := buildRecognitionPlanFromChain(chain, inst)
+	if len(cfg.RecognitionProviders) == 0 {
+		log.Printf("recognizer: recognition.providers missing or empty in %s — physical recognition disabled until configured",
+			cfg.CalibrationConfigPath)
+		return newRecognitionComponents(RecognitionPlan{})
+	}
+	log.Printf("recognizer: using recognition.providers from %s (%d entries, merge_policy=%s)",
+		cfg.CalibrationConfigPath, len(cfg.RecognitionProviders), strings.TrimSpace(cfg.RecognitionMergePolicy))
+	plan := buildRecognitionPlanFromProviders(cfg.RecognitionProviders, inst)
 	return newRecognitionComponents(plan)
 }

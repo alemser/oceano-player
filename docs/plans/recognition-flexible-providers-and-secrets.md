@@ -6,7 +6,7 @@ This plan describes how to evolve Oceano Player’s recognition stack from the c
 
 **AcoustID is not a product target:** the service and Chromaprint pipeline are oriented toward **full-track / library-scale** audio, while Oceano captures **short WAV segments** (typically ~7–20 s) from REC OUT. Requiring **whole-track** capture for reliable AcoustID matches would be **slow, heavy on storage/CPU, and a poor fit** for real-time vinyl/CD use. The POC and FAQ-aligned empty results on short clips confirmed this; see **Rationale: AcoustID deferred** below.
 
-It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, quotas, parallel mode) and should be read together with `docs/cross-repo-sync.md` for any API or config contract changes affecting `oceano-player-ios`.
+It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, quotas, parallel mode), `docs/plans/recognition-shazamio-deferral-continuity-and-extensibility.md` (defer Shazamio for product scale, continuity-by-provider roadmap, safe custom-provider patterns), `docs/metrics-snapshots/README.md` (optional `GET /api/recognition/stats` snapshots and SQL to reset Shazamio-only `recognition_summary` rows), and should be read together with `docs/cross-repo-sync.md` for any API or config contract changes affecting `oceano-player-ios`.
 
 ---
 
@@ -571,4 +571,6 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 - `cmd/oceano-state-manager/recognizer.go` — WAV capture format and skip window.
 - `internal/recognition/*` — recognizer interface and providers.
 - `docs/plans/recognition-provider-chain-improvement.md` — roles, quotas, parallel recognition.
+- `docs/plans/recognition-shazamio-deferral-continuity-and-extensibility.md` — Shazamio deferral, continuity provider choice, custom-provider security.
+- `docs/metrics-snapshots/README.md` — recognition stats snapshots; example baseline JSON under `docs/metrics-snapshots/` (e.g. `baseline-pre-shazamio-summary-reset-2026-05-03.json`).
 - `docs/plans/recognition-enhancement.md` — CPU / contention notes for fingerprint work on Pi.

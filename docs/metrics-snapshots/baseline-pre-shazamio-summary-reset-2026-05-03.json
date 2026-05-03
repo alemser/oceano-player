@@ -1,0 +1,15 @@
+{
+  "captured_at_utc": "2026-05-03T07:32:49Z",
+  "description": "GET /api/recognition/stats immediately before DELETE FROM recognition_summary for Shazamio-related providers on the home Pi.",
+  "db_operation": "DELETE FROM recognition_summary WHERE provider IN ('Shazamio','ShazamioContinuity','Shazam','ShazamContinuity');",
+  "stats": {
+    "ACRCloud": {"attempt": 1470, "error": 188, "no_match": 607, "success": 675},
+    "AudD": {"attempt": 25, "no_match": 2, "success": 23},
+    "Shazamio": {"attempt": 798, "error": 4, "no_match": 453, "success": 341},
+    "ShazamioContinuity": {"attempt": 4518, "error": 4, "no_match": 2210, "success": 2304},
+    "Trigger": {"boundary": 545, "fallback_timer": 965}
+  },
+  "derived": {
+    "trigger_fallback_timer_per_boundary": 1.77
+  }
+}

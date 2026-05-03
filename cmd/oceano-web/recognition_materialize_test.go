@@ -102,23 +102,18 @@ func TestBuildRecognitionProvidersFromLegacyChain_audOnly(t *testing.T) {
 	}
 }
 
-func TestMaterializeRecognitionProvidersIfEmpty_endToEnd(t *testing.T) {
+func TestMaterializeRecognitionProvidersIfEmpty_nilProvidersBecomesEmptySlice(t *testing.T) {
 	rec := &RecognitionConfig{
-		RecognizerChain:     "audd_first",
-		ACRCloudHost:          "h",
-		ACRCloudAccessKey:     "k",
-		ACRCloudSecretKey:     "s",
-		AudDAPIToken:          "t",
-		ShazamioRecognizerEnabled: true,
-		Providers:             nil,
-		MergePolicy:           "",
+		RecognizerChain: "audd_first",
+		Providers:       nil,
+		MergePolicy:     "",
 	}
 	materializeRecognitionProvidersIfEmpty(rec)
-	if len(rec.Providers) != 3 {
-		t.Fatalf("len %d", len(rec.Providers))
+	if rec.Providers == nil {
+		t.Fatal("expected non-nil empty slice")
 	}
-	if rec.Providers[0].ID != "audd" || !rec.Providers[0].Enabled {
-		t.Fatalf("first %+v", rec.Providers[0])
+	if len(rec.Providers) != 0 {
+		t.Fatalf("len %d want 0", len(rec.Providers))
 	}
 	if rec.MergePolicy != "first_success" {
 		t.Fatalf("merge %q", rec.MergePolicy)

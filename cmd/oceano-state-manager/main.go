@@ -133,6 +133,9 @@ type mgr struct {
 	// "matched" is derived from recognitionResult != nil; "identifying" is derived
 	// from recognizerBusyUntil; this field only needs to carry "no_match" and "off".
 	recognitionPhase string
+	// physicalRecognitionEnabled is true when at least one runnable primary
+	// recognizer was built from recognition.providers at startup.
+	physicalRecognitionEnabled bool
 	// Continuity mismatch confirmation: a mismatch must be observed twice within
 	// continuityMismatchConfirmWindow before a re-recognition trigger fires.
 	// This prevents a single Shazamio mis-identification (common when running
@@ -448,7 +451,7 @@ func main() {
 	flag.DurationVar(&cfg.DurationGuardBypassWindow, "duration-guard-bypass-window", cfg.DurationGuardBypassWindow, "time window after potential false boundary during which duration suppression guard is armed")
 	flag.Float64Var(&cfg.DurationPessimism, "duration-pessimism", cfg.DurationPessimism, "temporal threshold (0.0–1.0): below threshold VU boundaries are guarded, at/above threshold VU boundaries are ignored")
 	flag.DurationVar(&cfg.BoundaryRestoreMinSeek, "boundary-restore-min-seek", cfg.BoundaryRestoreMinSeek, "minimum pre-boundary seek required before restoring pre-boundary track metadata after same-track re-confirmation")
-	flag.StringVar(&cfg.RecognizerChain, "recognizer-chain", cfg.RecognizerChain, "recognition chain: acrcloud_first | shazam_first | acrcloud_only | shazam_only | audd_first | audd_only (optional AudD token inserts AudD into mixed chains; continuity uses shazamio when available)")
+	flag.StringVar(&cfg.RecognizerChain, "recognizer-chain", cfg.RecognizerChain, "deprecated: ignored for provider ordering — configure recognition.providers in calibration-config JSON")
 	flag.Parse()
 
 	applyRecognitionProvidersFromConfigFile(&cfg)
@@ -461,7 +464,13 @@ func main() {
 	_ = os.MkdirAll(filepath.Dir(cfg.OutputFile), 0o755)
 
 	m := newMgr(cfg)
-	m.markDirty() // write initial stopped state immediately
+	// Recognition plan does not depend on the library handle; build before first
+	// state write so recognition JSON reflects provider configuration.
+	components := buildRecognitionComponents(cfg, nil)
+	m.physicalRecognitionEnabled = components.chain != nil
+	rec := components.chain
+	confirmRec := components.confirmer
+	shazamioRec := components.continuity
 
 	var lib *internallibrary.Library
 	if cfg.LibraryDB != "" {
@@ -475,14 +484,14 @@ func main() {
 			m.lib = lib
 		}
 	}
-	components := buildRecognitionComponents(cfg, lib)
-	rec := components.chain
-	confirmRec := components.confirmer
-	shazamioRec := components.continuity
+
+	m.markDirty() // write initial stopped state immediately
 
 	if rec != nil {
 		log.Printf("recognizer: chain=%s pcm-socket=%s max-interval=%s refresh-interval=%s confirm-delay=%s shazam-continuity=%s",
 			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval, cfg.RecognizerRefreshInterval, cfg.ConfirmationDelay, cfg.ShazamioContinuityInterval)
+	} else {
+		log.Printf("recognizer: disabled — add non-empty recognition.providers to %s", cfg.CalibrationConfigPath)
 	}
 
 	// SIGUSR1 forces an immediate boundary-type recognition attempt — useful when

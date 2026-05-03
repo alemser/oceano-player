@@ -35,7 +35,8 @@ var itemRE = regexp.MustCompile(
 type RecognitionStatus struct {
 	// Phase is one of: "identifying" (capture in progress or first trigger pending),
 	// "matched" (recognition succeeded), "no_match" (last attempt returned no result),
-	// "off" (recognition disabled for the active input).
+	// "off" (recognition disabled for the active input),
+	// "not_configured" (no recognition.providers in config — operator setup required).
 	Phase    string `json:"phase"`
 	Provider string `json:"provider,omitempty"` // "acrcloud" | "shazam" | "audd" — set when phase is "matched"
 	Score    int    `json:"score,omitempty"`    // provider confidence score; 0 when unavailable
@@ -116,8 +117,9 @@ type detectorOutput struct {
 	Source string `json:"source"`
 }
 
-// RecognitionProviderSpec mirrors one entry in recognition.providers[] in config.json
-// (explicit provider list — non-empty array overrides recognizer_chain).
+// RecognitionProviderSpec mirrors one entry in recognition.providers[] in config.json.
+// Physical recognition runs only when this list contains at least one enabled
+// primary provider backed by credentials / install (see recognition_setup.go).
 // CredentialRef is parsed for forward compatibility (iOS relay / secrets); ignored at runtime for now.
 type RecognitionProviderSpec struct {
 	ID            string   `json:"id"`
@@ -146,11 +148,11 @@ type Config struct {
 	// ShazamioPythonBin is the path to the Python binary in the shazam-env virtualenv.
 	// When set and shazamio is importable, the Shazamio client is used as a fallback after ACRCloud.
 	ShazamioPythonBin string
-	// RecognizerChain controls which API providers are included and their order.
+	// RecognizerChain is deprecated for runtime ordering (kept for systemd flag
+	// compatibility and old JSON). Recognition is configured only via
+	// recognition.providers in calibration-config JSON.
 	// Valid values: "acrcloud_first" | "shazam_first" | "acrcloud_only" | "shazam_only" |
 	// "audd_first" | "audd_only".
-	// If the selected policy resolves to no available API provider, recognition
-	// is disabled until a provider becomes available again.
 	// Continuity monitoring always uses the Shazamio client when available, independent of this setting.
 	RecognizerChain string
 	// ShazamioContinuityInterval controls how often the Shazamio continuity path re-checks if the
@@ -250,8 +252,8 @@ type Config struct {
 	// higher values reduce false positives after manual needle repositioning.
 	BoundaryRestoreMinSeek time.Duration
 
-	// RecognitionProviders is loaded from recognition.providers in CalibrationConfigPath when
-	// that array is non-empty (explicit provider list). It overrides RecognizerChain for ordering and confirmer selection.
+	// RecognitionProviders is loaded from recognition.providers in CalibrationConfigPath.
+	// Empty or missing list disables physical recognition until configured.
 	RecognitionProviders []RecognitionProviderSpec
 	// RecognitionMergePolicy is recognition.merge_policy from config (default first_success).
 	// Only first_success is implemented; other values are logged and treated as first_success until additional merge_policy modes exist.

@@ -181,14 +181,19 @@ carries **extra commercial / ToS risk** for sold products—prefer **documented*
 providers (e.g. ACRCloud) for a default retail story. See the plan section
 *Third-party clarity: shazamio*.
 
-**Optional AudD:** [AudD](https://docs.audd.io/) is a **documented** REST API (BYOK token from [dashboard.audd.io](https://dashboard.audd.io/)). Configure `recognition.audd_api_token` and a chain that includes AudD (e.g. **AudD only** or **ACRCloud → AudD → Shazam** when the token is set). Short captures (~7–20 s WAV) are within their standard endpoint limits.
+**Optional AudD:** [AudD](https://docs.audd.io/) is a **documented** REST API (BYOK token from [dashboard.audd.io](https://dashboard.audd.io/)). Configure `recognition.audd_api_token` and include **AudD** in `recognition.providers` (ordered list) when you want it in the chain. Short captures (~7–20 s WAV) are within their standard endpoint limits.
 
 ### 2. ACRCloud credentials (required for track recognition)
 
 Track identification (artist, title, album) for physical media (vinyl, CD) is
 powered by [ACRCloud](https://www.acrcloud.com) when you enable it under **Track
-Recognition**. Without ACRCloud credentials (and no other configured provider),
-`track` will stay `null` for physical sources in current releases.
+Recognition**. The state manager runs physical recognition **only** when
+`recognition.providers` in `/etc/oceano/config.json` is a **non-empty** array with
+at least one **enabled** primary provider that has credentials (or Shazamio
+installed, if you enable that slot). The legacy `recognizer_chain` field is **not**
+used to infer providers anymore — save once from the **iOS app** or include
+`providers` explicitly in `POST /api/config`. Without credentials **and** without
+a usable provider entry, `track` stays `null` for physical sources.
 
 Set recognition credentials (iOS app or `POST /api/config`):
 - **ACRCloud Host** — e.g. `identify-eu-west-1.acrcloud.com`
@@ -395,28 +400,29 @@ Expected: `DPMS is Disabled` and `timeout: 0`.
 
 ### Track recognition not working (`track: null` for physical source)
 
-1. **ACRCloud credentials not configured** — the most common cause after a fresh install. Set **`recognition`** fields in **`/etc/oceano/config.json`** (iOS app or `POST /api/config`) and ensure services restarted.
+1. **Missing `recognition.providers` or empty array** — after upgrades, open **Physical Media** in the iOS app and **Save** so a non-empty `providers` list is written, or add the array by hand (see `docs/reference/recognition.md`). Credentials alone are not enough.
+2. **ACRCloud credentials not configured** — set **`recognition`** fields in **`/etc/oceano/config.json`** (iOS app or `POST /api/config`) and ensure services restarted.
 
-2. **RMS too high (> 0.40)** — clipping degrades recognition quality. Find your capture card number with `arecord -l`, then reduce the level:
+3. **RMS too high (> 0.40)** — clipping degrades recognition quality. Find your capture card number with `arecord -l`, then reduce the level:
    ```bash
    amixer -c N sset 'Mic' 50%   # replace N with your card number
    alsactl store
    ```
    Target: **RMS ≈ 0.15–0.20** during normal playback.
 
-3. **Source detector showing `None`** — the capture card may not be detected:
+4. **Source detector showing `None`** — the capture card may not be detected:
    ```bash
    journalctl -u oceano-source-detector.service -f
    # look for: heartbeat: source=Physical rms=X
    # if source=None while music is playing, check audio_input.device_match / device in config.json
    ```
 
-4. **Network unreachable (IPv6)** — ACRCloud client forces IPv4. Confirm connectivity:
+5. **Network unreachable (IPv6)** — ACRCloud client forces IPv4. Confirm connectivity:
    ```bash
    curl -4 https://identify-eu-west-1.acrcloud.com
    ```
 
-5. **Library reuse by provider ID** — once a physical track is recognized, oceano-state-manager reuses saved metadata/artwork from the local library by either **ACRCloud ACRID** or the **track id** returned by the optional **`shazamio`** integration (stored as `shazam_id` in the library). This keeps user-edited metadata and artwork stable even when one provider misses and the other one matches.
+6. **Library reuse by provider ID** — once a physical track is recognized, oceano-state-manager reuses saved metadata/artwork from the local library by either **ACRCloud ACRID** or the **track id** returned by the optional **`shazamio`** integration (stored as `shazam_id` in the library). This keeps user-edited metadata and artwork stable even when one provider misses and the other one matches.
 
 ---
 

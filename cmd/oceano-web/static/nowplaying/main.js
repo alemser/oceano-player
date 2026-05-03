@@ -367,6 +367,10 @@ function applyState(state) {
           ? `${inputName} — recognition disabled for this input`
           : 'Recognition disabled for this input';
         pulseSub = false;
+      } else if (phase === 'not_configured') {
+        mainTitle = 'Recognition not configured';
+        subText = 'Add recognition.providers in the Oceano iOS app or POST /api/config';
+        pulseSub = false;
       } else if (phase === 'no_match') {
         mainTitle = 'No match yet';
         subText = inputName

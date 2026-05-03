@@ -2,11 +2,10 @@ package main
 
 import "strings"
 
-// materializeRecognitionProvidersIfEmpty writes recognition.providers + merge_policy
-// when the incoming config has no explicit provider list. Non-empty providers are
-// left unchanged (e.g. iOS-authored ordering and roles). Empty or nil slice triggers
-// synthesis from recognizer_chain + credential fields so oceano-state-manager and
-// downstream clients share one persisted contract.
+// materializeRecognitionProvidersIfEmpty normalizes recognition.providers and
+// merge_policy for persistence. It does not synthesize providers from
+// recognizer_chain (deprecated for runtime ordering); operators must configure
+// recognition.providers explicitly (e.g. via oceano-player-ios or POST /api/config).
 func materializeRecognitionProvidersIfEmpty(rec *RecognitionConfig) {
 	if rec == nil {
 		return
@@ -17,9 +16,9 @@ func materializeRecognitionProvidersIfEmpty(rec *RecognitionConfig) {
 		}
 		return
 	}
-	chain := normalizeRecognizerChainValue(rec.RecognizerChain)
-	rec.RecognizerChain = chain
-	rec.Providers = buildRecognitionProvidersFromLegacyChain(chain, rec)
+	if rec.Providers == nil {
+		rec.Providers = []RecognitionProviderConfig{}
+	}
 	if strings.TrimSpace(rec.MergePolicy) == "" {
 		rec.MergePolicy = "first_success"
 	}
@@ -37,6 +36,9 @@ func normalizeRecognizerChainValue(raw string) string {
 	}
 }
 
+// buildRecognitionProvidersFromLegacyChain maps recognizer_chain + credential
+// fields to an explicit provider list. Used by tests and tooling; runtime
+// recognition is driven only by recognition.providers in config.json.
 func buildRecognitionProvidersFromLegacyChain(chain string, rec *RecognitionConfig) []RecognitionProviderConfig {
 	hasACR := strings.TrimSpace(rec.ACRCloudHost) != "" &&
 		strings.TrimSpace(rec.ACRCloudAccessKey) != "" &&

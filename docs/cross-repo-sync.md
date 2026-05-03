@@ -250,3 +250,25 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 **Risk**
 
 - [x] medium for operators who relied on the browser hub; mitigated by git history and iOS / `oceano-setup` / `POST /api/config`.
+
+---
+
+## Log: 2026-05-03 — `recognition.providers` required; `recognizer_chain` deprecated for runtime
+
+**Backend**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `recognition.providers` | **Breaking** | Physical recognition runs only when `recognition` exists in `/etc/oceano/config.json` and `providers` is a **non-empty** array that yields at least one runnable **primary** (credentials / install). Missing `recognition`, omitted `providers`, or `[]` disables recognition. |
+| `recognition.recognizer_chain` | **Deprecated** | Still written by older clients / systemd flags; **ignored** when building the recognition plan. |
+| `POST /api/config` materialize | **Breaking** | No longer synthesizes `providers` from `recognizer_chain`; empty/absent list stays empty (merge_policy default `first_success` when saving). |
+| `recognition` → state | **Additive** | `recognition.phase === "not_configured"` and `detail === "no_recognition_providers"` when no runnable primary chain. Now Playing shows setup copy. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] Always persist a non-empty `recognition.providers` when the user enables ACRCloud / AudD / Shazamio slots (do not rely on `recognizer_chain` alone after upgrade).
+- [ ] Surface `not_configured` in Physical Media UX if the backend reports it (optional polish).
+
+**Risk**
+
+- [ ] **High** for Pi configs that never stored `recognition.providers` — mitigated by one **Save** from iOS or a one-time `jq` edit; see README troubleshooting *Track recognition not working*.

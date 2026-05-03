@@ -75,7 +75,11 @@ func newTestMgr() *mgr {
 	cfg := defaultConfig()
 	cfg.OutputFile = "/tmp/oceano-state-test.json"
 	cfg.ArtworkDir = "/tmp"
-	return newMgr(cfg)
+	m := newMgr(cfg)
+	// Unit tests predate config-driven provider gating; treat recognition as enabled
+	// unless a case explicitly clears physicalRecognitionEnabled.
+	m.physicalRecognitionEnabled = true
+	return m
 }
 
 func TestApplyItem_TrackMetadata(t *testing.T) {
@@ -739,6 +743,28 @@ func TestBuildState_RecognitionOffPrecedesStaleRecognizerBusy(t *testing.T) {
 	}
 	if s.Recognition.Detail != "input_policy_off" {
 		t.Fatalf("Recognition.Detail = %q, want input_policy_off", s.Recognition.Detail)
+	}
+}
+
+func TestBuildState_RecognitionNotConfigured(t *testing.T) {
+	m := newTestMgr()
+	m.physicalRecognitionEnabled = false
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.vuInSilence = false
+	m.recognitionResult = nil
+	m.recognizerBusyUntil = time.Now().Add(2 * time.Minute)
+	m.mu.Unlock()
+
+	s := m.buildState()
+	if s.Recognition == nil {
+		t.Fatal("Recognition is nil")
+	}
+	if s.Recognition.Phase != "not_configured" {
+		t.Fatalf("Recognition.Phase = %q, want not_configured", s.Recognition.Phase)
+	}
+	if s.Recognition.Detail != "no_recognition_providers" {
+		t.Fatalf("Recognition.Detail = %q", s.Recognition.Detail)
 	}
 }
 

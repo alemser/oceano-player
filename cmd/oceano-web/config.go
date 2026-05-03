@@ -373,13 +373,13 @@ type RecognitionConfig struct {
 	// ShazamioContinuityCaptureDurationSecs is capture duration for each periodic
 	// Shazamio continuity check.
 	ShazamioContinuityCaptureDurationSecs int `json:"shazam_continuity_capture_duration_secs"`
-	// RecognizerChain controls which API providers are active and their order.
+	// RecognizerChain is deprecated for runtime ordering (retained in JSON for
+	// compatibility). Physical recognition uses recognition.providers only.
 	// Valid values: "acrcloud_first" (default), "shazam_first", "acrcloud_only", "shazam_only",
 	// "audd_first", "audd_only".
 	RecognizerChain string `json:"recognizer_chain"`
-	// Providers is an optional ordered explicit provider list. When non-empty, oceano-state-manager
-	// reads it from this config file (--calibration-config) and uses it instead of
-	// RecognizerChain for primary/confirmer ordering. Omitted or empty: legacy chain only.
+	// Providers is the ordered explicit provider list read by oceano-state-manager
+	// from this file. Empty list disables physical recognition until configured.
 	Providers []RecognitionProviderConfig `json:"providers,omitempty"`
 	// MergePolicy selects how multiple primary results combine (default first_success).
 	// Additional values are reserved for future coordinator work.

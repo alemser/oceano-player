@@ -136,3 +136,61 @@ func TestApplyRecognitionProvidersFromConfigFile_DefaultMergePolicy(t *testing.T
 		t.Fatalf("merge_policy=%q", cfg.RecognitionMergePolicy)
 	}
 }
+
+func TestApplyRecognitionProvidersFromConfigFile_MissingRecognitionKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	payload := `{"audio_input":{"device_match":""}}`
+	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.CalibrationConfigPath = path
+	applyRecognitionProvidersFromConfigFile(&cfg)
+	if cfg.RecognitionProviders != nil {
+		t.Fatalf("want nil providers, got len=%d", len(cfg.RecognitionProviders))
+	}
+}
+
+func TestApplyRecognitionProvidersFromConfigFile_EmptyProvidersArray(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	payload := `{"recognition":{"providers":[],"merge_policy":"first_success"}}`
+	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.CalibrationConfigPath = path
+	applyRecognitionProvidersFromConfigFile(&cfg)
+	if len(cfg.RecognitionProviders) != 0 {
+		t.Fatalf("len=%d", len(cfg.RecognitionProviders))
+	}
+}
+
+func TestBuildRecognitionPlanFromProviders_NoContinuityWithoutPrimaries(t *testing.T) {
+	shz := &stubRecognizer{name: "Shazamio"}
+	inst := recognitionInstances{shazamio: shz, shazamioContinuity: shz}
+	specs := []RecognitionProviderSpec{
+		{ID: "acrcloud", Enabled: true, Roles: []string{"primary"}},
+	}
+	plan := buildRecognitionPlanFromProviders(specs, inst)
+	if len(plan.Ordered) != 0 {
+		t.Fatalf("expected no primaries without ACR instance")
+	}
+	if plan.Continuity != nil {
+		t.Fatal("continuity should be nil when no runnable primary chain")
+	}
+}
+
+func TestBuildRecognitionPlanFromProviders_ContinuityWhenPrimaryRuns(t *testing.T) {
+	a := &stubRecognizer{name: "A"}
+	shz := &stubRecognizer{name: "Shazamio"}
+	inst := recognitionInstances{acr: a, shazamio: shz, shazamioContinuity: shz}
+	specs := []RecognitionProviderSpec{
+		{ID: "acrcloud", Enabled: true, Roles: []string{"primary"}},
+	}
+	plan := buildRecognitionPlanFromProviders(specs, inst)
+	if plan.Continuity == nil {
+		t.Fatal("expected continuity when at least one primary is available")
+	}
+}

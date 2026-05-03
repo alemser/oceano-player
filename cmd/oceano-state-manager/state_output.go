@@ -218,6 +218,13 @@ func (m *mgr) buildRecognitionStatusLocked() *RecognitionStatus {
 		}
 	}
 
+	if !m.physicalRecognitionEnabled {
+		return &RecognitionStatus{
+			Phase:  "not_configured",
+			Detail: "no_recognition_providers",
+		}
+	}
+
 	pol := resolveRecognitionPolicyFromConfigPathCached(m.cfg.CalibrationConfigPath)
 	inID := strings.TrimSpace(pol.LastKnownInputID)
 	inName := strings.TrimSpace(pol.InputLogicalName)

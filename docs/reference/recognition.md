@@ -610,7 +610,7 @@ If your change touches **non-empty `recognition.providers[]`**, **`recognition.m
 
 Agent-oriented checklist: `.cursor/skills/pi-recognition-explicit-providers-smoke/SKILL.md`. For capture → PCM → recognition end-to-end, combine with **pi-loopback-capture-sim**.
 
-**Persistence:** `oceano-web` `POST /api/config` writes a non-empty `recognition.providers` list whenever the request would otherwise store an empty explicit list — synthesized from `recognizer_chain` and which credentials are set — so disk state matches the contract the state manager prefers.
+**Persistence:** `oceano-web` `POST /api/config` normalizes `recognition.merge_policy` and ensures `recognition.providers` is a JSON array (possibly **empty**). It **does not** synthesize providers from `recognizer_chain`; clients must send an explicit `providers` list for physical recognition to run. Missing or empty `providers` disables recognition until configured.
 
 ---
 

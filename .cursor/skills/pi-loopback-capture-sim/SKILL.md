@@ -118,7 +118,7 @@ sudo OCEANO_CONFIG=/etc/oceano/config.json ./scripts/pi-recognition-provider-smo
 
 The script cycles three fixtures (ACR-only primary, three primaries, ACR primary + AudD confirmer) and restores the original config on exit.
 
-Off-device, lock legacy **`recognizer_chain`** plan building with Go tests:
+Off-device, lock the **legacy chain → provider list helper** (used by tests / tooling, not runtime ordering) with:
 
 ```bash
 go test ./cmd/oceano-state-manager -run TestBuildRecognitionPlanFromChain_matrix -count=1
