@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -149,6 +150,34 @@ func TestApplyRecognitionProvidersFromConfigFile_MissingRecognitionKey(t *testin
 	applyRecognitionProvidersFromConfigFile(&cfg)
 	if cfg.RecognitionProviders != nil {
 		t.Fatalf("want nil providers, got len=%d", len(cfg.RecognitionProviders))
+	}
+}
+
+func TestApplyRecognitionProvidersFromConfigFile_ShazamRecognizerDisabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	payload := `{
+  "recognition": {
+    "shazam_recognizer_enabled": false,
+    "providers": [
+      {"id": "acrcloud", "enabled": true, "roles": ["primary"]},
+      {"id": "shazam", "enabled": true, "roles": ["primary"]}
+    ]
+  }
+}`
+	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.CalibrationConfigPath = path
+	applyRecognitionProvidersFromConfigFile(&cfg)
+	if len(cfg.RecognitionProviders) != 2 {
+		t.Fatalf("providers len=%d", len(cfg.RecognitionProviders))
+	}
+	for _, p := range cfg.RecognitionProviders {
+		if strings.EqualFold(p.ID, "shazam") && p.Enabled {
+			t.Fatal("want shazam provider forced off when shazam_recognizer_enabled is false")
+		}
 	}
 }
 

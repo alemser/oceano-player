@@ -88,13 +88,13 @@ absorb brief source-detector restarts without triggering a new session.
 ### 3. Shazamio continuity monitor (`runShazamioContinuityMonitor`, `main.go`)
 
 Runs independently at `ShazamioContinuityInterval` (8 s). Polls with a short capture
-(`ShazamioContinuityCaptureDuration`, 4 s). The goroutine is started whenever **Shazamio
-is installed** (`ShazamioPythonBin` resolves to a working subprocess client). Until
-per-provider roles are configurable in the operator UI, Shazamio keeps **dual behaviour**:
-it may appear in the primary chain when listed under `recognition.providers`, while the
-continuity monitor still runs whenever the client exists (including **ACR-only** or
-**AudD-only** primary chains — same as historical behaviour). When running, behaviour
-still depends on `shazamioContinuityReady` (set after alignment / successful match metadata).
+(`ShazamioContinuityCaptureDuration`, 4 s). The subprocess uses the **fixed** install path
+`BundledShazamioPythonBin` (`/opt/shazam-env/bin/python` from `install-shazam.sh`) and is
+**started only when** `recognition.providers` includes an enabled `shazam` entry (and
+`shazam_recognizer_enabled` is not `false`). Until per-provider roles are configurable in the
+operator UI, Shazamio keeps **dual behaviour**: it joins the primary chain when listed, and
+the continuity monitor runs whenever that client is running. When running, behaviour still
+depends on `shazamioContinuityReady` (set after alignment / successful match metadata).
 
 Confirmation logic:
 
@@ -210,9 +210,9 @@ durationGuardBypassUntil:
 ## Provider chain (`recognition_setup.go`)
 
 Recognition is built from **`recognition.providers[]`** (see `recognition_setup.go`). The Shazamio
-continuity monitor runs whenever the Shazamio subprocess client is available, even when the
-configured primary chain does not include **`shazam`** (dual behaviour until dedicated
-continuity roles exist in config).
+subprocess (fixed path `/opt/shazam-env/bin/python`) starts only when **`shazam`** is enabled
+there; the continuity monitor runs whenever that client is running (dual chain + continuity
+until dedicated continuity roles exist in config).
 
 ```
 RecognizerChain     Chain order           Confirmer (used by maybeConfirmCandidate)

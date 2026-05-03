@@ -145,17 +145,16 @@ type Config struct {
 	// AudDAPIToken is the AudD API token (BYOK, https://docs.audd.io/). When non-empty,
 	// AudD is available for chain policies that include it.
 	AudDAPIToken string
-	// ShazamioPythonBin is the path to the Python binary in the shazam-env virtualenv.
-	// When set and shazamio is importable, the Shazamio client is used as a fallback after ACRCloud.
+	// ShazamioPythonBin is an optional CLI override for the Shazamio interpreter.
+	// When empty, recognition_setup uses internal/recognition.BundledShazamioPythonBin.
+	// Shazamio is constructed only when recognition.providers includes an enabled shazam entry.
 	ShazamioPythonBin string
 	// RecognizerChain is deprecated for runtime ordering (kept for systemd flag
 	// compatibility and old JSON). Recognition is configured only via
 	// recognition.providers in calibration-config JSON.
 	// Valid values: "acrcloud_first" | "shazam_first" | "acrcloud_only" | "shazam_only" |
 	// "audd_first" | "audd_only".
-	// Deprecated: Shazamio continuity follows the same rule as recognition.providers —
-	// only when the legacy chain policy would run Shazamio as a primary step
-	// (acrcloud_only / audd_only omit it).
+	// Deprecated for ordering; kept for systemd/JSON compatibility.
 	RecognizerChain string
 	// ShazamioContinuityInterval controls how often the Shazamio continuity path re-checks if the
 	// current track is still playing (for soft/gapless transitions).

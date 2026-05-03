@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	internallibrary "github.com/alemser/oceano-player/internal/library"
+	internalrecognition "github.com/alemser/oceano-player/internal/recognition"
 )
 
 func normalizeRecognizerChain(raw string) string {
@@ -59,6 +60,23 @@ func newRecognitionComponents(plan RecognitionPlan) recognitionComponents {
 	}
 }
 
+// shazamParticipatesInProviders reports whether recognition.providers lists an enabled
+// shazam entry with at least one role (operator / iOS chain toggle). The Python
+// interpreter path is fixed in code (BundledShazamioPythonBin); this gate is the
+// only user-facing on/off for starting the Shazamio subprocess.
+func shazamParticipatesInProviders(specs []RecognitionProviderSpec) bool {
+	for _, spec := range specs {
+		if !strings.EqualFold(strings.TrimSpace(spec.ID), "shazam") {
+			continue
+		}
+		if !spec.Enabled || len(spec.Roles) == 0 {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 func buildRecognitionInstances(cfg Config, lib *internallibrary.Library) recognitionInstances {
 	var acrRec Recognizer
 	if cfg.ACRCloudHost != "" && cfg.ACRCloudAccessKey != "" && cfg.ACRCloudSecretKey != "" {
@@ -78,13 +96,17 @@ func buildRecognitionInstances(cfg Config, lib *internallibrary.Library) recogni
 
 	var shazamioRec Recognizer
 	var shazamioContinuityRec Recognizer
-	if cfg.ShazamioPythonBin != "" {
-		if s, err := NewShazamioRecognizer(cfg.ShazamioPythonBin); err != nil {
+	if shazamParticipatesInProviders(cfg.RecognitionProviders) {
+		py := internalrecognition.BundledShazamioPythonBin
+		if p := strings.TrimSpace(cfg.ShazamioPythonBin); p != "" {
+			py = p
+		}
+		if s, err := NewShazamioRecognizer(py); err != nil {
 			log.Printf("recognizer: Shazamio unavailable — %v", err)
 		} else {
 			shazamioRec = wrapWithStats(s, lib)
 			shazamioContinuityRec = wrapWithStatsAs(s, lib, "ShazamioContinuity")
-			log.Printf("recognizer: Shazamio enabled (python=%s)", cfg.ShazamioPythonBin)
+			log.Printf("recognizer: Shazamio enabled (python=%s)", py)
 		}
 	}
 

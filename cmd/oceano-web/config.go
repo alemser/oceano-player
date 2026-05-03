@@ -384,9 +384,9 @@ type RecognitionConfig struct {
 	// MergePolicy selects how multiple primary results combine (default first_success).
 	// Additional values are reserved for future coordinator work.
 	MergePolicy string `json:"merge_policy,omitempty"`
-	// ShazamioRecognizerEnabled turns Shazamio (community Python client) on for the
-	// recognition chain and continuity monitor. The interpreter path is fixed
-	// (recognition.BundledShazamioPythonBin). Not the official Shazam API.
+	// ShazamioRecognizerEnabled toggles shazam entries in recognition.providers on save
+	// and sets recognition.shazam_recognizer_enabled. The interpreter path is always
+	// recognition.BundledShazamioPythonBin (install-shazam.sh). Not the official Shazam API.
 	ShazamioRecognizerEnabled bool `json:"shazam_recognizer_enabled"`
 	// ShazamioPythonBin is deprecated (ignored at runtime). It may appear in old JSON until
 	// the next save; loadConfig migrates from it when shazam_recognizer_enabled is absent.
@@ -828,11 +828,9 @@ func managerArgs(cfg Config, configPath string) []string {
 	if strings.TrimSpace(rec.AudDAPIToken) != "" {
 		args = append(args, "--audd-api-token", strings.TrimSpace(rec.AudDAPIToken))
 	}
-	shazamioPythonPath := ""
-	if rec.ShazamioRecognizerEnabled {
-		shazamioPythonPath = recognition.BundledShazamioPythonBin
-	}
-	args = append(args, "--shazam-python", shazamioPythonPath)
+	// Always pass bundled interpreter path; state-manager starts Shazamio only when
+	// recognition.providers includes enabled shazam (and JSON toggle is not false).
+	args = append(args, "--shazam-python", recognition.BundledShazamioPythonBin)
 	// Boolean flags and --verbose must be last (no paired value).
 	args = append(args, "--verbose")
 	return args

@@ -212,10 +212,10 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 | Item | Type | Notes |
 |------|------|-------|
-| `recognition.shazam_recognizer_enabled` | **Additive** | Boolean; when `true`, `oceano-web` passes `--shazam-python` with fixed path `recognition.BundledShazamioPythonBin` (`/opt/shazam-env/bin/python`). When `false`, passes an empty flag value → Shazamio client disabled. |
+| `recognition.shazam_recognizer_enabled` | **Compatible** | When explicitly `false`, `oceano-state-manager` forces `recognition.providers` shazam entries to `enabled: false` on load (subprocess not started). When omitted or `true`, shazam rows are unchanged. |
 | `recognition.shazam_python_bin` | **Deprecated** | Ignored at runtime; cleared on save. `loadConfig` migrates to `shazam_recognizer_enabled` when that key is absent (legacy: explicit empty `shazam_python_bin` → off; key omitted → on; root `shazam_python` from older `install-shazam.sh` → on). |
-| `internal/recognition.BundledShazamioPythonBin` | **Additive** | Constant matching the venv from `install-shazam.sh`. |
-| `oceano-state-manager` default `--shazam-python` | **Compatible** | Default empty so the systemd `ExecStart` from the web UI is authoritative. |
+| `internal/recognition.BundledShazamioPythonBin` | **Additive** | Constant matching the venv from `install-shazam.sh`; **authoritative** interpreter path for Shazamio (optional non-empty `--shazam-python` overrides for debugging only). |
+| `oceano-web` → systemd `--shazam-python` | **Compatible** | Always written as `BundledShazamioPythonBin`. `oceano-state-manager` starts Shazamio only when an enabled shazam provider is present after applying `shazam_recognizer_enabled`; empty CLI value still uses the bundled path in code when shazam participates. |
 
 **iOS follow-up (`oceano-player-ios`)**
 

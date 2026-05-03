@@ -31,8 +31,9 @@ func applyRecognitionProvidersFromConfigFile(cfg *Config) {
 	}
 	var top struct {
 		Recognition *struct {
-			Providers   []RecognitionProviderSpec `json:"providers"`
-			MergePolicy string                    `json:"merge_policy"`
+			Providers                 []RecognitionProviderSpec `json:"providers"`
+			MergePolicy               string                    `json:"merge_policy"`
+			ShazamRecognizerEnabled   *bool                     `json:"shazam_recognizer_enabled"`
 		} `json:"recognition"`
 	}
 	if err := json.Unmarshal(data, &top); err != nil {
@@ -52,4 +53,14 @@ func applyRecognitionProvidersFromConfigFile(cfg *Config) {
 	}
 	cfg.RecognitionMergePolicy = mp
 	cfg.RecognitionProviders = append([]RecognitionProviderSpec(nil), top.Recognition.Providers...)
+
+	// recognition.shazam_recognizer_enabled: when explicitly false, treat shazam as off
+	// in the provider list so the subprocess is not started (iOS / web toggle).
+	if top.Recognition.ShazamRecognizerEnabled != nil && !*top.Recognition.ShazamRecognizerEnabled {
+		for i := range cfg.RecognitionProviders {
+			if strings.EqualFold(strings.TrimSpace(cfg.RecognitionProviders[i].ID), "shazam") {
+				cfg.RecognitionProviders[i].Enabled = false
+			}
+		}
+	}
 }

@@ -440,7 +440,7 @@ func main() {
 	flag.DurationVar(&cfg.ConfirmationDelay, "confirmation-delay", cfg.ConfirmationDelay, "wait before second recognition call to confirm a track change (0 = disabled)")
 	flag.DurationVar(&cfg.ConfirmationCaptureDuration, "confirmation-capture-duration", cfg.ConfirmationCaptureDuration, "audio capture duration for confirmation call")
 	flag.IntVar(&cfg.ConfirmationBypassScore, "confirmation-bypass-score", cfg.ConfirmationBypassScore, "skip confirmation when initial provider score is >= this value (0 = always confirm)")
-	flag.StringVar(&cfg.ShazamioPythonBin, "shazam-python", cfg.ShazamioPythonBin, "path to Python binary with shazamio installed (empty to disable Shazamio / community client)")
+	flag.StringVar(&cfg.ShazamioPythonBin, "shazam-python", cfg.ShazamioPythonBin, "optional override for Shazamio interpreter; when empty, bundled /opt/shazam-env/bin/python is used if shazam is enabled in recognition.providers")
 	flag.DurationVar(&cfg.ShazamioContinuityInterval, "shazam-continuity-interval", cfg.ShazamioContinuityInterval, "how often to run Shazamio continuity checks for the current track")
 	flag.DurationVar(&cfg.ShazamioContinuityCaptureDuration, "shazam-continuity-capture-duration", cfg.ShazamioContinuityCaptureDuration, "audio capture duration per periodic Shazamio continuity check")
 	flag.DurationVar(&cfg.ContinuityCalibrationGrace, "continuity-calibration-grace", cfg.ContinuityCalibrationGrace, "grace period (after recognition) during which continuity monitor is in learning mode")
