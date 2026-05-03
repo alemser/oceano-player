@@ -188,8 +188,11 @@ shouldIgnoreBoundaryAtMatureProgress():
   (hands off to continuity monitor in this range when shazamContinuityReady)
 
 shouldSuppressBoundarySensitiveBoundary():
-  extra lock for library rows marked BoundarySensitive:
-  suppress all non-duration-exceeded boundaries until elapsed >= knownDuration
+  extra lock for library rows marked BoundarySensitive on **energy-change** only:
+  suppress until elapsed >= knownDuration (quiet classical passages).
+  **silence→audio** is excluded — it is already covered by pessimism +
+  `shouldBypassDurationGuardsForBoundary`; stacking the full-track lock blocked
+  legitimate silence gaps after hard-silence bypass was narrowed.
 
 effectiveDurationPessimism():
   base = DurationPessimism (default 0.75)

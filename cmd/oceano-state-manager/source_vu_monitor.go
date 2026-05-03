@@ -112,6 +112,13 @@ func shouldSuppressBoundarySensitiveBoundary(durationMs int, seekMS int64, seekU
 	if reason == "duration-exceeded" {
 		return false
 	}
+	// Silence→audio is gated by pessimism + shouldSuppressBoundary +
+	// shouldBypassDurationGuardsForBoundary. Full-track lock is for energy-change
+	// false positives on quiet classical passages; applying it to silence→audio
+	// stacked with the narrowed hard-silence bypass and blocked real gaps/triggers.
+	if reason == "silence->audio" {
+		return false
+	}
 	elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 	trackDuration := time.Duration(durationMs) * time.Millisecond
 	// Boundary-sensitive tracks with known duration stay locked until the known

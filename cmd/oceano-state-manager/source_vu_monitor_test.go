@@ -143,19 +143,27 @@ func TestShouldClearStaleRecognitionOnSilence_UnknownDurationDoesNotClear(t *tes
 	}
 }
 
-func TestShouldSuppressBoundarySensitiveBoundary_BlocksUntilTrackEnd(t *testing.T) {
+func TestShouldSuppressBoundarySensitiveBoundary_BlocksEnergyChangeUntilTrackEnd(t *testing.T) {
 	now := time.Now()
 	seekUpdatedAt := now.Add(-5 * time.Second)
-	if got := shouldSuppressBoundarySensitiveBoundary(240000, 120000, seekUpdatedAt, now, true, "silence-resume"); !got {
+	if got := shouldSuppressBoundarySensitiveBoundary(240000, 120000, seekUpdatedAt, now, true, "energy-change"); !got {
 		t.Fatal("expected boundary-sensitive suppression before known track end")
 	}
 }
 
-func TestShouldSuppressBoundarySensitiveBoundary_AllowsAtTrackEnd(t *testing.T) {
+func TestShouldSuppressBoundarySensitiveBoundary_AllowsEnergyChangeAtTrackEnd(t *testing.T) {
 	now := time.Now()
 	seekUpdatedAt := now.Add(-5 * time.Second)
-	if got := shouldSuppressBoundarySensitiveBoundary(240000, 236000, seekUpdatedAt, now, true, "silence-resume"); got {
+	if got := shouldSuppressBoundarySensitiveBoundary(240000, 236000, seekUpdatedAt, now, true, "energy-change"); got {
 		t.Fatal("expected no boundary-sensitive suppression at/after known track end")
+	}
+}
+
+func TestShouldSuppressBoundarySensitiveBoundary_SilenceAudioNotFullTrackLocked(t *testing.T) {
+	now := time.Now()
+	seekUpdatedAt := now.Add(-5 * time.Second)
+	if got := shouldSuppressBoundarySensitiveBoundary(240000, 120000, seekUpdatedAt, now, true, "silence->audio"); got {
+		t.Fatal("silence→audio must not use full-track boundary-sensitive lock; pessimism guards apply separately")
 	}
 }
 
