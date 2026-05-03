@@ -228,7 +228,7 @@ AmplifierConfig
   └── ConnectedDevices: []ConnectedDeviceConfig {ID, Name, InputIDs, HasRemote, IRCodes}
 ```
 
-Config é o source of truth único — não há base de dados. O ficheiro `/etc/oceano/config.json` é reescrito atomicamente pela UI (write tmp → rename).
+Config é o source of truth único — não há base de dados. O ficheiro `/etc/oceano/config.json` é reescrito atomicamente pelos clientes (`POST /api/config`, iOS, ou ferramentas de setup) via `oceano-web` (write tmp → rename).
 
 ### Sistema de Perfis
 

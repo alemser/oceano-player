@@ -255,8 +255,9 @@ type BluetoothConfig struct {
 }
 
 // Config is the central configuration for all Oceano services.
-// It is stored at /etc/oceano/config.json and managed exclusively
-// through the web UI. Each service reads its section on startup.
+// It is stored at /etc/oceano/config.json. The companion iOS app (or any client)
+// updates it via POST /api/config; oceano-web also rewrites systemd units when
+// relevant fields change. Each service reads its section on startup.
 //
 // Design principles:
 //   - Every CLI flag exposed by oceano-source-detector and

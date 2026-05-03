@@ -318,7 +318,7 @@ O coordinator nunca abre o dispositivo ALSA directamente.
 
 **Skip de 2s nos boundary triggers:** o socket PCM tem um buffer circular interno do `oceano-source-detector`. Nos primeiros 2s após uma transição silêncio→áudio, esse buffer ainda contém amostras da faixa anterior (crackle de agulha em vinyl, click de CD). O skip descarta esses dados.
 
-**Fonte de verdade da duração:** `recognition.capture_duration_secs` em `/etc/oceano/config.json`. Ao gravar na UI web, `oceano-web` reescreve `oceano-state-manager.service` com `--recognizer-capture-duration` igual a esse valor. O default do binário (`defaultConfig` em Go) e o default do JSON gerado pela UI usam o **mesmo** número (7s) para evitar divergência quando alguém corre o state-manager sem unit file.
+**Fonte de verdade da duração:** `recognition.capture_duration_secs` em `/etc/oceano/config.json`. Ao gravar via `POST /api/config` (ou cliente equivalente), `oceano-web` reescreve `oceano-state-manager.service` com `--recognizer-capture-duration` igual a esse valor. O default do binário (`defaultConfig` em Go) e o default do JSON em instalações novas usam o **mesmo** número (7s) para evitar divergência quando alguém corre o state-manager sem unit file.
 
 ---
 

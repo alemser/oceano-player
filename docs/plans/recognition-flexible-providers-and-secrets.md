@@ -24,7 +24,7 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 | Chain | `RecognizerChain` string enum: `acrcloud_first`, `shazam_first`, `acrcloud_only`, `shazam_only` (`recognition_setup.go`). |
 | Interface | `internal/recognition.Recognizer`: `Name()`, `Recognize(ctx, wavPath)` (`types.go`). |
 | AcoustID | **Not implemented**; `acoustid_client_key` was **removed** from the config schema and services (historical POC only under `scripts/poc_acoustid.py`). |
-| Credentials | ACRCloud host/key/secret live in **`/etc/oceano/config.json`** (today also editable via bundled web UI; **product converges to iOS-only** for user-facing config). The optional **shazamio** path uses a **Python venv + `shazamio`** (no Shazam API key in config). |
+| Credentials | ACRCloud host/key/secret live in **`/etc/oceano/config.json`** (edited via **`oceano-player-ios`**, `POST /api/config`, or **`sudo oceano-setup`**). The optional **shazamio** path uses a **Python venv + `shazamio`** (no Shazam API key in config). |
 | **Continuity monitor** | **`runShazamContinuityMonitor`** (`main.go`) periodically captures short audio and runs the **`shazamio`** subprocess path only, independent of `RecognizerChain`. It detects **gapless** or **soft** track changes (weak VU boundaries), calibrates against the current result, and can **suppress** VU-driven boundaries when “continuity is ready”. Tuning lives under `ShazamContinuity*` and `Continuity*` in `config_types.go` / `oceano-web/config.go`. |
 
 ---
@@ -51,7 +51,7 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 |-------------|--------|
 | **`oceano-source-detector`** + **`oceano-state-manager`** | Core path: capture → source classification, VU, unified state. |
 | **Unified state output** | `/tmp/oceano-state.json` with `source`, `vu`, `state`; `track` may be empty or streaming-derived. |
-| **Optional but practical: `oceano-web`** | Easiest way to tune devices, thresholds, and service restarts without hand-editing JSON today; **transitional**—see **Client apps vs oceano-web**. |
+| **Optional but practical: `oceano-web`** | Serves **HTTP APIs** (e.g. `POST /api/config`) and **`/nowplaying.html`** for the local display; use **iOS** or **`oceano-setup`** for operator-facing configuration—see **Client apps vs oceano-web**. |
 
 ### What is explicitly optional at first boot
 
@@ -59,7 +59,7 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 |----------|--------|
 | **Track recognition (physical)** | No ACRCloud / AudD / `shazamio` keys → chain resolves to **no providers**; state manager logs recognition disabled; **Physical / None** and AirPlay/BT metadata paths still behave as configured. |
 | **`recognition.providers[]` (explicit list)** | Legacy **`recognizer_chain` + credential fields** remain sufficient until clients rely on the ordered provider array; see **Explicit provider list** in phased summary. |
-| **iOS companion** | Not required for a bare-minimum Pi; becomes the **primary** operator UI over time. Until then: web UI or static `config.json` + systemd. |
+| **iOS companion** | Not required for a bare-minimum Pi; becomes the **primary** operator UI. Until then: `sudo oceano-setup`, hand-edited `config.json`, or `curl` to `POST /api/config`. |
 
 ### Green-path checklist (documentation target)
 
@@ -69,7 +69,7 @@ Use this as the **README / first-boot** bar; mirror in `README.md` when user-vis
 2. Confirm `oceano-source-detector` and `oceano-state-manager` are **active** (`journalctl` clean of fatal errors).
 3. Confirm `/tmp/oceano-state.json` updates (source + VU) during playback or silence as expected.
 4. **If** recognition is desired: add at least one provider’s credentials (or install `shazamio` path); until then, expect **no** ACR/AudD/Shazam calls.
-5. **If** using the web UI: open `:8080`, save once to align generated unit args with `config.json`.
+5. **If** you change service-affecting fields in `config.json` by hand: run **`sudo systemctl restart oceano-web`** (or `POST /api/config` once from a client) so systemd units for detector/manager stay aligned with JSON.
 
 **Planning implication:** **Explicit provider list** (parse non-empty `providers[]` with legacy fallback when empty or omitted) improves **config expressiveness** and **iOS contract** alignment; it does **not** block a minimal green-path install. Prioritize it when multi-provider order/roles need to round-trip in JSON; otherwise a lone maintainer can stay on **`recognizer_chain`** until then.
 

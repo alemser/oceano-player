@@ -85,7 +85,7 @@ write_service() {
 
   cat > "${SERVICE_DEST}" <<EOF
 [Unit]
-Description=Oceano Web — configuration UI and status API
+Description=Oceano Web — HTTP API, SSE, and Now Playing static UI
 After=network.target oceano-state-manager.service
 
 [Service]
@@ -210,7 +210,7 @@ main() {
   local ip
   ip=$(hostname -I 2>/dev/null | awk '{print $1}') || ip="<pi-ip>"
   local port="${addr##*:}"
-  echo -e "Open ${BOLD}http://${ip}:${port}${RESET} in your browser to configure Oceano."
+  echo -e "API base: ${BOLD}http://${ip}:${port}${RESET} — use iOS or POST /api/config for settings; ${BOLD}http://${ip}:${port}/nowplaying.html${RESET} for the local display."
   echo -e "Use ${BOLD}journalctl -u ${SERVICE_NAME} -f${RESET} to monitor logs."
 }
 

@@ -1096,11 +1096,9 @@ func main() {
 	fmt.Printf("\n%sSetup complete!%s\n", bold, reset)
 	out, _ := exec.Command("hostname", "-I").Output()
 	if fields := strings.Fields(string(out)); len(fields) > 0 {
-		fmt.Printf("Open %shttp://%s:8080%s to review your configuration.\n",
-			cyan, fields[0], reset)
-		fmt.Printf("Then open %shttp://%s:8080/config%s to continue the web checklist (physical media first).\n",
-			cyan, fields[0], reset)
+		fmt.Printf("Use %shttp://%s:8080/api/config%s (GET/POST) or the iOS app to edit configuration; local display: %shttp://%s:8080/nowplaying.html%s.\n",
+			cyan, fields[0], reset, cyan, fields[0], reset)
 	}
-	fmt.Println("Next recommended web steps: Capture → Track Recognition (third-party APIs are bring-your-own-account; typically ACRCloud today) → Amplifier topology (optional IR) → Calibration → Stylus.")
+	fmt.Println("Next: finish recognition credentials and capture gain (see README); optional IR topology and calibration when you use amplifier control.")
 	printDisplayResolutionHints()
 }

@@ -69,11 +69,10 @@ scp /tmp/oceano-loopback-test.wav pi@PI_HOST:/tmp/
 
 ## Point Oceano capture at loopback (temporary)
 
-1. Open **oceano-web** → **Audio Input**.
-2. Set capture device to the **loopback capture** device string, e.g. `plughw:CARD,1,0` (adjust `CARD`).
-3. **Save & Restart Services** (or restart `oceano-source-detector` manually).
+1. Edit **`/etc/oceano/config.json`** (`audio_input.device` / `device_match`), e.g. via **`oceano-player-ios`** or `POST /api/config` — set capture to the **loopback capture** device string, e.g. `plughw:CARD,1,0` (adjust `CARD`).
+2. Ensure **`oceano-source-detector`** restarts (config save via API does this when audio fields change, or run `sudo systemctl restart oceano-source-detector`).
 
-**Revert** after the test: restore the real capture `device_match` / `plughw:…` and save again.
+**Revert** after the test: restore the real capture `device_match` / `plughw:…` in JSON and restart again.
 
 ## Feed audio into the loopback cable
 

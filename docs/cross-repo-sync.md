@@ -130,7 +130,7 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 | Item | Type | Notes |
 |------|------|-------|
-| `recognition.acoustid_client_key` in `/etc/oceano/config.json` | **Additive / legacy** | Optional string; round-tripped through web UI and `oceano-state-manager` CLI. **AcoustID is not a product provider** (short-capture model); if non-empty, state-manager logs that the key is **ignored**. See `docs/plans/recognition-flexible-providers-and-secrets.md`. |
+| `recognition.acoustid_client_key` in `/etc/oceano/config.json` | **Additive / legacy** | Optional string; may appear in `GET/POST /api/config` payloads and `oceano-state-manager` CLI. **AcoustID is not a product provider** (short-capture model); if non-empty, state-manager logs that the key is **ignored**. See `docs/plans/recognition-flexible-providers-and-secrets.md`. |
 
 **iOS follow-up (`oceano-player-ios`)**
 
@@ -230,3 +230,23 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 **Risk**
 
 - [x] low
+
+---
+
+## Log: 2026-05-03 — Embedded web configuration hub removed
+
+**Backend (`oceano-web`)**
+
+| Item | Type | Notes |
+|------|------|-------|
+| Static HTML hub | **Removed** | `index.html`, `config.html`, hub pages (`/streaming`, `/topology`, `/recognition`, …), and their JS/CSS were deleted from `cmd/oceano-web/static/`. **`GET /` redirects to `/nowplaying.html`**. |
+| HTTP APIs | **Unchanged** | `GET/POST /api/config`, library/history/recognition/amplifier/stylus routes, SSE, artwork, etc. remain for **`oceano-player-ios`** and automation. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] Remove any in-app links or help text that pointed users at `http://<pi>:8080/` for **browser-based** configuration (except **`/nowplaying.html`** if you intentionally deep-link the HDMI preview).
+- [ ] Confirm first-run copy tells users to use **the app** or **`sudo oceano-setup`** for Pi-side bootstrap, not a web checklist.
+
+**Risk**
+
+- [x] medium for operators who relied on the browser hub; mitigated by git history and iOS / `oceano-setup` / `POST /api/config`.

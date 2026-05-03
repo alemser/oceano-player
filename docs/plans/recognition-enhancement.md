@@ -288,7 +288,7 @@ While **Physical** is active, the VU loop classifies **stable silence** (≥ ~1.
 
 ### Configuration
 
-`advanced.rms_percentile_learning`: **`enabled`**, **`autonomous_apply`**, **`min_silence_samples`**, **`min_music_samples`**, **`persist_interval_secs`**, optional **`histogram_bins`**, **`histogram_max_rms`**. Advanced page: `cmd/oceano-web/static/advanced.html` + `advanced_page.js`.
+`advanced.rms_percentile_learning`: **`enabled`**, **`autonomous_apply`**, **`min_silence_samples`**, **`min_music_samples`**, **`persist_interval_secs`**, optional **`histogram_bins`**, **`histogram_max_rms`**. Tune via **`/etc/oceano/config.json`** (iOS / `POST /api/config`); the legacy **Advanced** web page was removed.
 
 ### Optional future: dual-policy shadow (R10)
 

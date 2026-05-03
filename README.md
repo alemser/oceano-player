@@ -56,10 +56,10 @@ Services are enabled and started automatically.
    `install-oceano-display.sh` in this repo. On Raspberry Pi OS the wizard and script also
    adjust **`/etc/lightdm/lightdm.conf`** so `rpd-labwc` in the main file does not override the
    `oceano-kiosk` session; reboot after the display step if the panel is connected.
-2. Open **`http://<pi-ip>:8080`** — **Track Recognition** using **your own** API
-   accounts with each provider you enable ([BYOK](#third-party-recognition-byok);
-   current default path is **ACRCloud**), plus **Audio Input** (device, silence
-   threshold) if you need to fine-tune beyond the wizard.
+2. Configure **`/etc/oceano/config.json`** via **`oceano-player-ios`** or `POST /api/config`
+   (same fields as before): **Track Recognition** using **your own** API accounts
+   ([BYOK](#third-party-recognition-byok); default path **ACRCloud**), plus **Audio Input**
+   (device, silence threshold) if you need to fine-tune beyond the wizard.
 3. Calibrate **USB capture gain** (RMS in logs) for reliable recognition — see
    [§1 Audio capture level](#1-audio-capture-level-required-for-track-recognition)
    below.
@@ -88,9 +88,9 @@ troubleshooting notes:
 | **Kiosk / HDMI** | No `xrandr --auto` in the launch script (avoids a **black** screen on some panels). Kiosk setup also writes anti-blanking defaults (`xset s off`, `xset -dpms`, `xset s noblank`) via `~/.xprofile` and launch-time guards. Use `/boot/firmware/config.txt` or `raspi-config` for HDMI mode if needed. |
 | **Bluetooth discoverable** | `bluetoothctl` + `main.conf` after the Bluetooth step. |
 
-The web UI on port **8080** is the ongoing control plane; “Save & Restart” rewrites
-service units and shairport when needed. Deeper failure modes (RMS, ACRCloud, …)
-are in [Troubleshooting](#troubleshooting) below.
+**`oceano-web`** on port **8080** exposes **HTTP APIs** (including `POST /api/config`) and the
+**`/nowplaying.html`** local display; successful config writes still rewrite systemd units and
+shairport when needed. Deeper failure modes (RMS, ACRCloud, …) are in [Troubleshooting](#troubleshooting) below.
 
 ### AirPlay DAC auto-return (silent fallback mode)
 
@@ -131,13 +131,15 @@ This single command installs all services and dependencies (including Go,
 | `oceano-bridge-watchdog` | Reconnects bridge when DAC wakes from standby |
 | `oceano-source-detector` | Captures REC-OUT, detects physical media, publishes VU + PCM |
 | `oceano-state-manager` | Merges all sources into `/tmp/oceano-state.json` |
-| `oceano-web` | Configuration UI at `http://<pi-ip>:8080` |
+| `oceano-web` | HTTP API + `/nowplaying.html` at `http://<pi-ip>:8080` |
 
 ---
 
 ## First-time setup after install
 
-After installation, open `http://<pi-ip>:8080` in your browser and configure:
+After installation, use **`oceano-player-ios`**, `POST /api/config`, or **`sudo oceano-setup`**
+to edit `/etc/oceano/config.json`. Open **`http://<pi-ip>:8080/nowplaying.html`** only for the
+local HDMI/DSI display (optional).
 
 ### 1. Audio capture level (required for track recognition)
 
@@ -188,12 +190,12 @@ powered by [ACRCloud](https://www.acrcloud.com) when you enable it under **Track
 Recognition**. Without ACRCloud credentials (and no other configured provider),
 `track` will stay `null` for physical sources in current releases.
 
-In the web UI at `http://<pi-ip>:8080`, open **Recognition Configuration** (`/recognition.html`) or the hub and fill in:
+Set recognition credentials (iOS app or `POST /api/config`):
 - **ACRCloud Host** — e.g. `identify-eu-west-1.acrcloud.com`
 - **Access Key**
 - **Secret Key**
 
-Click **Save & Restart Services**. Confirm recognition is active:
+After saving config, services restart automatically when fields that affect them change. Confirm recognition is active:
 ```bash
 journalctl -u oceano-state-manager.service -f | grep recognizer
 # should show: recognizer [ACRCloud]: capturing ...
@@ -201,7 +203,7 @@ journalctl -u oceano-state-manager.service -f | grep recognizer
 
 ### 3. Audio input device (if auto-detection fails)
 
-Set the capture path after install: `sudo oceano-setup` or the web UI **Audio Input** — use **Auto-detect name** with a **substring** that appears in your card’s line in `/proc/asound/cards` (e.g. `Device`, `UAC2`), or an explicit `plughw:N,0` / `plughw:CARD=Name,DEV=0`. The default is not tied to a fixed product name.
+Set the capture path after install: `sudo oceano-setup` or **`audio_input`** in `config.json` (via iOS / `POST /api/config`) — use **Auto-detect name** with a **substring** that appears in your card’s line in `/proc/asound/cards` (e.g. `Device`, `UAC2`), or an explicit `plughw:N,0` / `plughw:CARD=Name,DEV=0`. The default is not tied to a fixed product name.
 
 To list available capture devices:
 ```bash
@@ -210,7 +212,7 @@ arecord -l
 
 ### 4. Listening metrics and boundary telemetry (optional)
 
-Open **`http://<pi-ip>:8080/history.html`** (also linked from the main config page as **Metrics**). The same services and recognition logic run from the first boot; there is **no separate “learning phase”** you must enable. What starts empty is **historical data**: play history, recognition counters, and **VU boundary telemetry** only appear after you have actually played physical media (and gone through track changes or silence transitions the monitor can see).
+Use **`GET /api/history/stats`**, **`GET /api/recognition/stats`**, and related JSON APIs (or the iOS app) for **listening metrics**. The same services and recognition logic run from the first boot; there is **no separate “learning phase”** you must enable. What starts empty is **historical data**: play history, recognition counters, and **VU boundary telemetry** only appear after you have actually played physical media (and gone through track changes or silence transitions the monitor can see).
 
 On a **fresh install**, expect **low or zero counts** for the first hours or days. After a **service upgrade**, boundary rows are recorded from the **new process start onward** (events before the restart are not backfilled into the database). Totals become more useful after **a week or two** of normal listening if you want to compare suppression rates or tune calibration—but the system is fully operational before then.
 
@@ -218,7 +220,7 @@ When you correct a library entry’s format (**Vinyl**, **CD**, or **Unknown**),
 
 After each **fired** boundary, the state manager records **post-recognition follow-up** columns on the same row (outcome, optional IDs, **early-boundary** cohort flag). **Listening Metrics** shows linked counts under the boundary summary when data exists.
 
-**RMS percentile learning** (optional, Advanced settings): while **Physical** is active, the state manager accumulates **stable-silence vs stable-music** RMS histograms per format into the library database table **`rms_learning`**. With **Autonomous apply** enabled, derived silence enter/exit can **replace** wizard OFF/ON thresholds for VU boundaries once enough samples exist; the vinyl **transition** wizard step remains useful for gap/energy behaviour. Disable learning or autonomous apply if you change capture gain or hardware.
+**RMS percentile learning** (optional, `advanced.rms_percentile_learning` in `config.json`): while **Physical** is active, the state manager accumulates **stable-silence vs stable-music** RMS histograms per format into the library database table **`rms_learning`**. With **Autonomous apply** enabled, derived silence enter/exit can **replace** calibration OFF/ON thresholds for VU boundaries once enough samples exist. Disable learning or autonomous apply if you change capture gain or hardware.
 
 ---
 
@@ -393,7 +395,7 @@ Expected: `DPMS is Disabled` and `timeout: 0`.
 
 ### Track recognition not working (`track: null` for physical source)
 
-1. **ACRCloud credentials not configured** — the most common cause after a fresh install. Open `http://<pi-ip>:8080` → **Track Recognition** → fill in credentials → **Save & Restart Services**.
+1. **ACRCloud credentials not configured** — the most common cause after a fresh install. Set **`recognition`** fields in **`/etc/oceano/config.json`** (iOS app or `POST /api/config`) and ensure services restarted.
 
 2. **RMS too high (> 0.40)** — clipping degrades recognition quality. Find your capture card number with `arecord -l`, then reduce the level:
    ```bash
@@ -406,7 +408,7 @@ Expected: `DPMS is Disabled` and `timeout: 0`.
    ```bash
    journalctl -u oceano-source-detector.service -f
    # look for: heartbeat: source=Physical rms=X
-   # if source=None while music is playing, check --device-match in the web UI
+   # if source=None while music is playing, check audio_input.device_match / device in config.json
    ```
 
 4. **Network unreachable (IPv6)** — ACRCloud client forces IPv4. Confirm connectivity:
@@ -420,7 +422,7 @@ Expected: `DPMS is Disabled` and `timeout: 0`.
 
 ### Source oscillating rapidly between Physical and None
 
-The silence threshold is too close to the noise floor at the current capture volume. In the web UI under **Audio Input**, raise **Silence Threshold** to `0.025`.
+The silence threshold is too close to the noise floor at the current capture volume. Raise **`audio_input.silence_threshold`** in `config.json` (e.g. to `0.025`).
 
 ### Legacy `streaming_usb_guard_enabled` in config
 
@@ -434,7 +436,7 @@ If this key still exists in `/etc/oceano/config.json` from older installs, it is
 The last recognized track is shown for 60 seconds after audio stops (configurable via `--idle-delay`). If the phono stage has residual hum keeping RMS above the threshold, the source stays `Physical` and the old track persists until the next recognition cycle.
 
 Options:
-- Raise **Silence Threshold** slightly in the web UI so phono hum is treated as silence
+- Raise **`audio_input.silence_threshold`** slightly in `config.json` so phono hum is treated as silence
 - The recognizer retries at every track boundary (silence → audio transition)
 
 ---
@@ -447,10 +449,11 @@ Expected when playing a compilation or "Best Of". ACRCloud returns the best-know
 
 ## Configuration reference
 
-All service parameters are managed through the web UI at `http://<pi-ip>:8080`.
-The underlying config is stored at `/etc/oceano/config.json`.
+All service parameters live in **`/etc/oceano/config.json`**, edited with **`oceano-player-ios`**,
+`POST /api/config`, or **`sudo oceano-setup`** (wizard). **`oceano-web`** applies changes that
+require systemd or shairport updates when config is saved via the API.
 
-**Recognition capture length:** `recognition.capture_duration_secs` is the seconds of audio written to each WAV for ACRCloud and the optional **`shazamio`** path (one capture per attempt). Saving the web UI regenerates `oceano-state-manager.service` with a matching `--recognizer-capture-duration` flag. The Go binary’s built-in default is the same value (7s) so ad-hoc runs without systemd flags match fresh `config.json` installs.
+**Recognition capture length:** `recognition.capture_duration_secs` is the seconds of audio written to each WAV for ACRCloud and the optional **`shazamio`** path (one capture per attempt). A config save that touches recognition regenerates `oceano-state-manager.service` with a matching `--recognizer-capture-duration` flag. The Go binary’s built-in default is the same value (7s) so ad-hoc runs without systemd flags match fresh `config.json` installs.
 
 ### `install.sh` options
 
@@ -481,7 +484,7 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-After reinstall, ACRCloud credentials are preserved if `/etc/oceano/config.json` was not deleted. If it was, re-configure credentials in the web UI and re-run `amixer` to set the capture level.
+After reinstall, ACRCloud credentials are preserved if `/etc/oceano/config.json` was not deleted. If it was, re-configure credentials via the iOS app or `POST /api/config` and re-run `amixer` to set the capture level.
 
 ---
 
@@ -539,5 +542,5 @@ Install oceano-player first (this project), then oceano-now-playing.
 - Bluetooth receiver (BlueZ + PipeWire)
 - UPnP/OpenHome (`upmpdcli` / `gmrender-resurrect`)
 - PipeWire migration — replace `arecord` single-reader model with monitor taps
-- Local media library — SQLite cache of recognized tracks enriched with MusicBrainz metadata and Cover Art Archive artwork; editable via web UI
+- Local media library — SQLite cache of recognized tracks enriched with MusicBrainz metadata and Cover Art Archive artwork; editable via library HTTP APIs / iOS
 .

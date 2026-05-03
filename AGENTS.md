@@ -88,36 +88,34 @@ detection takes priority over any concurrently active AirPlay stream.
 **PipeWire migration**: once PipeWire replaces `arecord`, the PCM and VU sockets become PipeWire
 monitor taps. Only `oceano-source-detector/main.go` changes; the state manager is unaffected.
 
-## Web configuration UI
+## oceano-web (HTTP API + Now Playing)
 
 `cmd/oceano-web` is a self-contained HTTP server (default `:8080`) that provides:
 
-- **Config editor** — reads/writes `/etc/oceano/config.json`, the single source of truth for all
-  service parameters (audio devices, ACRCloud credentials, thresholds, socket paths).
-- **Service restarter** — on save, rewrites the systemd unit files for `oceano-source-detector`
+- **`POST /api/config`** — reads/writes `/etc/oceano/config.json` (used by **`oceano-player-ios`** and
+  automation); on changes that affect services, rewrites systemd units for `oceano-source-detector`
   and `oceano-state-manager` and restarts them via `systemctl`.
 - **AirPlay output guardian** — keeps `shairport-sync` ALSA output aligned with
   `audio_output.device_match`: uses `plughw:N,0` when the DAC is present, falls back
   to ALSA `null` (silent sink) when absent, and auto-returns when the DAC reappears.
-- **Status bar** — polls `/api/status` (proxies `/tmp/oceano-state.json`) to show live playback state.
-- **Real-time stream** — `/api/stream` is a Server-Sent Events endpoint that pushes state changes
-  whenever `/tmp/oceano-state.json` is modified (500 ms poll, `: ping` keepalive every 15 s).
-- **Now Playing UI** — `/nowplaying.html` is a full-screen display page for 5"–7" HDMI/DSI screens
-  (optimised for 1024×600). It connects to `/api/stream` and renders artwork, track metadata,
-  source logos, and format-specific info (sample rate, bit depth, CD track, vinyl side/track).
-- **Device picker** — `/api/devices` scans `/proc/asound/cards` and returns ALSA card names so
-  the user can pick a device without knowing the card number.
+- **`/api/status`**, **`/api/stream` (SSE)** — state for UIs; `/api/stream` pushes when
+  `/tmp/oceano-state.json` changes (500 ms poll, `: ping` keepalive every 15 s).
+- **Now Playing page** — `/nowplaying.html` (and static assets under `static/nowplaying/`) for
+  5"–7" HDMI/DSI; connects to `/api/stream` and renders artwork, metadata, source logos, format chips.
+- **`/api/devices`** — scans `/proc/asound/cards` for ALSA names (clients such as setup wizards).
 
-All static assets (`index.html`, `nowplaying.html`) are embedded into the binary at compile time
-via `//go:embed static`, so a single binary is deployed.
+There is **no** embedded HTML configuration hub; use the iOS app, `sudo oceano-setup`, or
+`curl`/your own client against `/api/config`.
 
-Config sections mirror the service CLI flags:
+Embedded static assets are only the Now Playing bundle (`//go:embed static`).
+
+`config.json` sections mirror the service CLI flags (see README configuration reference):
 
 | Section | Controls |
 |---|---|
 | Audio Input | capture device (auto-detect by name or explicit `plughw:N,0`), silence threshold, debounce window |
 | Audio Output | AirPlay name, DAC device (auto-detect or explicit) |
-| Track Recognition | ACRCloud host / key / secret, capture duration (default 7s; `capture_duration_secs` in config.json rewrites `--recognizer-capture-duration` on save), max re-recognition interval |
+| Track Recognition | ACRCloud host / key / secret, capture duration (default 7s; `capture_duration_secs` rewrites `--recognizer-capture-duration` on save), max re-recognition interval |
 | Advanced | socket paths, state/source file paths, artwork dir, metadata pipe |
 
 Install:
@@ -180,10 +178,9 @@ and install path document running `oceano-setup` after `apt install`.
 cmd/
   oceano-source-detector/   # Go: Physical/None detector + VU + PCM relay (systemd service)
   oceano-state-manager/     # Go: unified state aggregator + recognition + Bluetooth monitor (systemd service)
-  oceano-web/               # Go: config UI + /api/stream SSE + /nowplaying.html (port 8080)
+  oceano-web/               # Go: HTTP API + /api/stream SSE + /nowplaying.html (port 8080)
     static/
-      index.html            #   Configuration UI (all screen sizes)
-      nowplaying.html       #   Full-screen now playing UI for 5"–7" HDMI/DSI displays
+      nowplaying.html       #   Full-screen now playing UI for 5"–7" HDMI/DSI displays (+ nowplaying/*, icons.js)
   oceano-setup/             # Go: interactive wizard (AirPlay/BT/devices; optional display — run after .deb or install.sh)
 scripts/
   test-acoustid.sh          # Legacy standalone AcoustID experiment (not used by services)

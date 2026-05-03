@@ -171,21 +171,17 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Static files (HTML, CSS, JS)
+	// Static: now playing display only (no embedded configuration hub).
 	sub, _ := fs.Sub(staticFiles, "static")
-	mux.Handle("/", http.FileServer(http.FS(sub)))
-	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
-		redirectWithQuery(w, r, "/config.html")
-	})
-	mux.HandleFunc("/stylus", func(w http.ResponseWriter, r *http.Request) {
-		redirectWithQuery(w, r, "/stylus.html")
-	})
-	mux.HandleFunc("/topology", func(w http.ResponseWriter, r *http.Request) {
-		redirectWithQuery(w, r, "/topology.html")
-	})
-	mux.HandleFunc("/ir-setup", func(w http.ResponseWriter, r *http.Request) {
-		redirectWithQuery(w, r, "/ir-setup.html")
-	})
+	fileServer := http.FileServer(http.FS(sub))
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimSuffix(r.URL.Path, "/")
+		if p == "" || p == "/" || p == "/index.html" {
+			redirectWithQuery(w, r, "/nowplaying.html")
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	}))
 
 	// API: core state and config endpoints.
 	mux.HandleFunc("/api/config", handleConfig(*configPath))
