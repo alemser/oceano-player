@@ -244,8 +244,8 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 **iOS follow-up (`oceano-player-ios`)**
 
-- [ ] Remove any in-app links or help text that pointed users at `http://<pi>:8080/` for **browser-based** configuration (except **`/nowplaying.html`** if you intentionally deep-link the HDMI preview).
-- [ ] Confirm first-run copy tells users to use **the app** or **`sudo oceano-setup`** for Pi-side bootstrap, not a web checklist.
+- [x] Remove any in-app links or help text that pointed users at `http://<pi>:8080/` for **browser-based** configuration (except **`/nowplaying.html`** if you intentionally deep-link the HDMI preview).
+- [x] Confirm first-run copy tells users to use **the app** or **`sudo oceano-setup`** for Pi-side bootstrap, not a web checklist.
 
 **Risk**
 
