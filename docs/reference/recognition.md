@@ -88,12 +88,13 @@ absorb brief source-detector restarts without triggering a new session.
 ### 3. Shazamio continuity monitor (`runShazamioContinuityMonitor`, `main.go`)
 
 Runs independently at `ShazamioContinuityInterval` (8 s). Polls with a short capture
-(`ShazamioContinuityCaptureDuration`, 4 s). The goroutine is started only when **Shazamio
-is part of the active primary chain** (enabled `shazam` primary in `recognition.providers`,
-or a legacy `recognizer_chain` value that includes the Shazamio primary slot — not
-`acrcloud_only` / `audd_only`) **and** `ShazamioPythonBin` resolves to a working client.
-When running, behaviour still depends on `shazamioContinuityReady` (set after alignment /
-successful match metadata).
+(`ShazamioContinuityCaptureDuration`, 4 s). The goroutine is started whenever **Shazamio
+is installed** (`ShazamioPythonBin` resolves to a working subprocess client). Until
+per-provider roles are configurable in the operator UI, Shazamio keeps **dual behaviour**:
+it may appear in the primary chain when listed under `recognition.providers`, while the
+continuity monitor still runs whenever the client exists (including **ACR-only** or
+**AudD-only** primary chains — same as historical behaviour). When running, behaviour
+still depends on `shazamioContinuityReady` (set after alignment / successful match metadata).
 
 Confirmation logic:
 
@@ -209,8 +210,9 @@ durationGuardBypassUntil:
 ## Provider chain (`recognition_setup.go`)
 
 Recognition is built from **`recognition.providers[]`** (see `recognition_setup.go`). The Shazamio
-continuity monitor runs only when the **`shazam`** provider is an enabled primary (same client
-path as the chain when enabled).
+continuity monitor runs whenever the Shazamio subprocess client is available, even when the
+configured primary chain does not include **`shazam`** (dual behaviour until dedicated
+continuity roles exist in config).
 
 ```
 RecognizerChain     Chain order           Confirmer (used by maybeConfirmCandidate)
@@ -220,6 +222,10 @@ RecognizerChain     Chain order           Confirmer (used by maybeConfirmCandida
 "acrcloud_only"     ACRCloud              nil (same-provider second call if confirm enabled)
 "shazam_only"       Shazam                nil
 ```
+
+With **three or more** enabled primary providers in `recognition.providers`, the automatic
+second-primary confirmer fallback does not apply; set an explicit **`confirmer`** role on
+one provider if you use confirmation delay with a multi-primary chain.
 
 `ChainRecognizer` (`internal/recognition/chain.go`) tries providers in order and returns the
 first non-nil result. Each provider is wrapped in `statsRecognizer` for per-call telemetry.

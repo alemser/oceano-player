@@ -130,7 +130,6 @@ func specHasRole(spec RecognitionProviderSpec, want string) bool {
 
 func buildRecognitionPlanFromProviders(specs []RecognitionProviderSpec, inst recognitionInstances) RecognitionPlan {
 	var ordered []Recognizer
-	var shazamPrimaryInChain bool
 	for _, spec := range specs {
 		if !spec.Enabled || len(spec.Roles) == 0 {
 			continue
@@ -146,9 +145,6 @@ func buildRecognitionPlanFromProviders(specs []RecognitionProviderSpec, inst rec
 				log.Printf("recognizer: provider id=%q has primary role but is not available (credentials / install) — skipped", spec.ID)
 			}
 			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(spec.ID), "shazam") {
-			shazamPrimaryInChain = true
 		}
 		ordered = append(ordered, rec)
 	}
@@ -175,10 +171,14 @@ func buildRecognitionPlanFromProviders(specs []RecognitionProviderSpec, inst rec
 		log.Printf("recognizer: recognition.providers resolved to no available primary providers — recognition disabled")
 	}
 
-	// Shazamio continuity is tied to Shazamio being an enabled primary until we add
-	// an explicit continuity role in config (see docs/plans/recognition-flexible-providers-and-secrets.md).
+	// Shazamio is the only provider with a built-in continuity path today. While
+	// per-provider roles are not yet configurable in the operator UI, Shazamio keeps
+	// dual behaviour: it joins the primary chain when listed under recognition.providers,
+	// and the continuity monitor runs whenever the Shazamio subprocess client is
+	// available (same as pre-explicit-list deployments). When dedicated roles land,
+	// gate continuity on config instead of this blanket rule.
 	var continuity Recognizer
-	if shazamPrimaryInChain && inst.shazamioContinuity != nil {
+	if inst.shazamioContinuity != nil {
 		continuity = inst.shazamioContinuity
 	}
 
@@ -186,17 +186,6 @@ func buildRecognitionPlanFromProviders(specs []RecognitionProviderSpec, inst rec
 		Ordered:    ordered,
 		Confirmer:  confirmer,
 		Continuity: continuity,
-	}
-}
-
-// legacyChainIncludesShazamPrimary reports whether deprecated recognizer_chain ordering
-// would run Shazamio as a primary step (acrcloud_only and audd_only omit it).
-func legacyChainIncludesShazamPrimary(chain string) bool {
-	switch normalizeRecognizerChain(chain) {
-	case "acrcloud_only", "audd_only":
-		return false
-	default:
-		return true
 	}
 }
 
@@ -227,7 +216,7 @@ func buildRecognitionPlanFromChain(chain string, inst recognitionInstances) Reco
 	}
 
 	var continuity Recognizer
-	if legacyChainIncludesShazamPrimary(chain) && inst.shazamioContinuity != nil {
+	if inst.shazamioContinuity != nil {
 		continuity = inst.shazamioContinuity
 	}
 

@@ -305,7 +305,10 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 		return false, false
 	}
 
-	sameTrack := confProviderName == c.rec.Name() && conf.ACRID != "" && conf.ACRID == result.ACRID
+	sameTrack := confProviderName == c.rec.Name() && conf.ACRID != "" && result.ACRID != "" && conf.ACRID == result.ACRID
+	if !sameTrack && conf.ShazamID != "" && result.ShazamID != "" && conf.ShazamID == result.ShazamID {
+		sameTrack = true
+	}
 	if !sameTrack {
 		sameTrack = tracksEquivalent(conf.Title, conf.Artist, result.Title, result.Artist)
 	}
@@ -316,8 +319,10 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 	}
 
 	log.Printf("recognizer [%s]: confirmed by %s — %s — %s", c.rec.Name(), confProviderName, result.Artist, result.Title)
-	if c.shazamioRec != nil && confProviderName == c.shazamioRec.Name() {
-		if result.ShazamID == "" {
+	// c.shazamioRec is the continuity stats wrapper ("ShazamioContinuity"); the chain
+	// confirmer reports Name() == "Shazamio". Match on the chain identity for ShazamID merge.
+	if confProviderName == "Shazamio" {
+		if result.ShazamID == "" && conf.ShazamID != "" {
 			result.ShazamID = conf.ShazamID
 		}
 		return true, false
