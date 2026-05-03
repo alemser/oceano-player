@@ -13,20 +13,20 @@ import (
 )
 
 type recognitionCoordinator struct {
-	mgr        *mgr
-	rec        Recognizer
-	confirmRec Recognizer
-	shazamRec  Recognizer
-	lib        *internallibrary.Library
+	mgr         *mgr
+	rec         Recognizer
+	confirmRec  Recognizer
+	shazamioRec Recognizer
+	lib         *internallibrary.Library
 }
 
-func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, lib *internallibrary.Library) *recognitionCoordinator {
+func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, shazamioRec Recognizer, lib *internallibrary.Library) *recognitionCoordinator {
 	return &recognitionCoordinator{
-		mgr:        m,
-		rec:        rec,
-		confirmRec: confirmRec,
-		shazamRec:  shazamRec,
-		lib:        lib,
+		mgr:         m,
+		rec:         rec,
+		confirmRec:  confirmRec,
+		shazamioRec: shazamioRec,
+		lib:         lib,
 	}
 }
 
@@ -42,7 +42,7 @@ func isPhysicalFormat(format string) bool {
 	return f == "cd" || f == "vinyl"
 }
 
-func isNewTrackCandidate(result *RecognitionResult, currentACRID, currentShazamID string) bool {
+func isNewTrackCandidate(result *RecognitionResult, currentACRID, currentShazamioKey string) bool {
 	if result == nil {
 		return false
 	}
@@ -50,9 +50,9 @@ func isNewTrackCandidate(result *RecognitionResult, currentACRID, currentShazamI
 		return result.ACRID != currentACRID
 	}
 	if result.ShazamID != "" {
-		return result.ShazamID != currentShazamID
+		return result.ShazamID != currentShazamioKey
 	}
-	return currentACRID == "" && currentShazamID == ""
+	return currentACRID == "" && currentShazamioKey == ""
 }
 
 func shouldBypassBackoff(isBoundaryTrigger, backoffRateLimited bool) bool {
@@ -171,8 +171,8 @@ func (c *recognitionCoordinator) handleNoMatch(isBoundaryTrigger bool, isHardBou
 		c.mgr.physicalArtworkPath = ""
 		c.mgr.physicalLibraryEntryID = 0
 		c.mgr.physicalBoundarySensitive = false
-		c.mgr.shazamContinuityReady = false
-		c.mgr.shazamContinuityAbandoned = false
+		c.mgr.shazamioContinuityReady = false
+		c.mgr.shazamioContinuityAbandoned = false
 		c.mgr.mu.Unlock()
 	}
 
@@ -192,14 +192,14 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 
 	c.mgr.mu.Lock()
 	currentACRID := ""
-	currentShazamID := ""
+	currentShazamioKey := ""
 	if c.mgr.recognitionResult != nil {
 		currentACRID = c.mgr.recognitionResult.ACRID
-		currentShazamID = c.mgr.recognitionResult.ShazamID
+		currentShazamioKey = c.mgr.recognitionResult.ShazamID
 	}
 	c.mgr.mu.Unlock()
 
-	if !isNewTrackCandidate(result, currentACRID, currentShazamID) {
+	if !isNewTrackCandidate(result, currentACRID, currentShazamioKey) {
 		return false, false
 	}
 
@@ -299,7 +299,7 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 	}
 
 	log.Printf("recognizer [%s]: confirmed by %s — %s — %s", c.rec.Name(), confProviderName, result.Artist, result.Title)
-	if c.shazamRec != nil && confProviderName == c.shazamRec.Name() {
+	if c.shazamioRec != nil && confProviderName == c.shazamioRec.Name() {
 		if result.ShazamID == "" {
 			result.ShazamID = conf.ShazamID
 		}
@@ -308,7 +308,7 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 	return false, false
 }
 
-func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult, isBoundaryTrigger bool, isShazamFallback bool, shazamMatchedACR bool, captureStartedAt time.Time, persistToLibrary bool) {
+func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult, isBoundaryTrigger bool, isShazamioFallback bool, shazamioMatchedACR bool, captureStartedAt time.Time, persistToLibrary bool) {
 	if c.lib != nil {
 		artworkPath := ""
 		if entry, lookupErr := c.lib.LookupByIDs(result.ACRID, result.ShazamID); lookupErr != nil {
@@ -399,8 +399,8 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.lastRecognizedAt = now
 		c.mgr.physicalLibraryEntryID = entryID
 		c.mgr.physicalBoundarySensitive = boundarySensitive
-		c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
-		c.mgr.shazamContinuityAbandoned = false
+		c.mgr.shazamioContinuityReady = isShazamioFallback || shazamioMatchedACR || result.ShazamID != ""
+		c.mgr.shazamioContinuityAbandoned = false
 		if isPhysicalFormat(result.Format) {
 			c.mgr.physicalFormat = result.Format
 		}
@@ -430,8 +430,8 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 	c.mgr.recognitionPhase = ""
 	c.mgr.lastRecognizedAt = now
 	c.mgr.physicalBoundarySensitive = false
-	c.mgr.shazamContinuityReady = isShazamFallback || shazamMatchedACR || result.ShazamID != ""
-	c.mgr.shazamContinuityAbandoned = false
+	c.mgr.shazamioContinuityReady = isShazamioFallback || shazamioMatchedACR || result.ShazamID != ""
+	c.mgr.shazamioContinuityAbandoned = false
 	if isPhysicalFormat(result.Format) {
 		c.mgr.physicalFormat = result.Format
 	}
@@ -587,8 +587,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				c.mgr.physicalArtworkPath = ""
 				c.mgr.physicalLibraryEntryID = 0
 				c.mgr.physicalBoundarySensitive = false
-				c.mgr.shazamContinuityReady = false
-				c.mgr.shazamContinuityAbandoned = false
+				c.mgr.shazamioContinuityReady = false
+				c.mgr.shazamioContinuityAbandoned = false
 				c.mgr.mu.Unlock()
 				c.mgr.markDirty()
 			} else {
@@ -733,10 +733,10 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 
 		if result != nil {
 			source, score := recognitionLogFields(result)
-			log.Printf("recognizer [%s]: %s source=%s ids(acr=%q shazam=%q)  %s — %s",
+			log.Printf("recognizer [%s]: %s source=%s ids(acr=%q shazamio_id=%q)  %s — %s",
 				c.rec.Name(), score, source, result.ACRID, result.ShazamID, result.Artist, result.Title)
-			isShazamFallback := result.ShazamID != "" && result.ACRID == ""
-			shazamMatchedACR := false
+			isShazamioFallback := result.ShazamID != "" && result.ACRID == ""
+			shazamioMatchedACR := false
 
 			c.mgr.mu.Lock()
 			currentResult := c.mgr.recognitionResult
@@ -819,7 +819,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			}
 
 			stop := false
-			shazamMatchedACR, stop = c.maybeConfirmCandidate(ctx, result, isBoundaryTrigger)
+			shazamioMatchedACR, stop = c.maybeConfirmCandidate(ctx, result, isBoundaryTrigger)
 			if stop {
 				return
 			}
@@ -827,8 +827,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			c.applyRecognizedResult(
 				result,
 				isBoundaryTrigger,
-				isShazamFallback,
-				shazamMatchedACR,
+				isShazamioFallback,
+				shazamioMatchedACR,
 				captureStartedAt,
 				shouldPersistRecognitionForInputPolicy(policy.Policy),
 			)
@@ -848,8 +848,8 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			})
 
 			// Detect false-positive boundary: the boundary trigger fired but
-			if c.shazamRec != nil && result.ACRID != "" && !shazamMatchedACR {
-				go c.mgr.tryEnableShazamContinuity(ctx, c.shazamRec, result)
+			if c.shazamioRec != nil && result.ACRID != "" && !shazamioMatchedACR {
+				go c.mgr.tryEnableShazamioContinuity(ctx, c.shazamioRec, result)
 			}
 
 			for {

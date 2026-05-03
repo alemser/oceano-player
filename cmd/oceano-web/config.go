@@ -366,12 +366,12 @@ type RecognitionConfig struct {
 	// ConfirmationBypassScore skips confirmation when initial score >= value.
 	// Set 0 to always require confirmation.
 	ConfirmationBypassScore int `json:"confirmation_bypass_score"`
-	// ShazamContinuityIntervalSecs controls how often the Shazamio continuity loop
+	// ShazamioContinuityIntervalSecs controls how often the Shazamio continuity loop
 	// checks whether the currently playing physical track is still the same.
-	ShazamContinuityIntervalSecs int `json:"shazam_continuity_interval_secs"`
-	// ShazamContinuityCaptureDurationSecs is capture duration for each periodic
+	ShazamioContinuityIntervalSecs int `json:"shazam_continuity_interval_secs"`
+	// ShazamioContinuityCaptureDurationSecs is capture duration for each periodic
 	// Shazamio continuity check.
-	ShazamContinuityCaptureDurationSecs int `json:"shazam_continuity_capture_duration_secs"`
+	ShazamioContinuityCaptureDurationSecs int `json:"shazam_continuity_capture_duration_secs"`
 	// RecognizerChain controls which API providers are active and their order.
 	// Valid values: "acrcloud_first" (default), "shazam_first", "acrcloud_only", "shazam_only",
 	// "audd_first", "audd_only".
@@ -383,13 +383,13 @@ type RecognitionConfig struct {
 	// MergePolicy selects how multiple primary results combine (default first_success).
 	// Additional values are reserved for future coordinator work.
 	MergePolicy string `json:"merge_policy,omitempty"`
-	// ShazamRecognizerEnabled turns Shazamio (community Python client) on for the
+	// ShazamioRecognizerEnabled turns Shazamio (community Python client) on for the
 	// recognition chain and continuity monitor. The interpreter path is fixed
-	// (recognition.BundledShazamPythonBin). Not the official Shazam API.
-	ShazamRecognizerEnabled bool `json:"shazam_recognizer_enabled"`
-	// ShazamPythonBin is deprecated (ignored at runtime). It may appear in old JSON until
+	// (recognition.BundledShazamioPythonBin). Not the official Shazam API.
+	ShazamioRecognizerEnabled bool `json:"shazam_recognizer_enabled"`
+	// ShazamioPythonBin is deprecated (ignored at runtime). It may appear in old JSON until
 	// the next save; loadConfig migrates from it when shazam_recognizer_enabled is absent.
-	ShazamPythonBin string `json:"shazam_python_bin,omitempty"`
+	ShazamioPythonBin string `json:"shazam_python_bin,omitempty"`
 
 	// --- Gapless / Continuity Tuning (Advanced) ---
 	// ContinuityCalibrationGraceSecs is how long to wait before the Shazamio
@@ -489,12 +489,12 @@ type AdvancedConfig struct {
 
 // RMSPercentileLearningConfig enables autonomous RMS histogram learning (library DB).
 type RMSPercentileLearningConfig struct {
-	Enabled             *bool `json:"enabled,omitempty"`
-	AutonomousApply     bool `json:"autonomous_apply"`
-	MinSilenceSamples   int  `json:"min_silence_samples,omitempty"`
-	MinMusicSamples     int  `json:"min_music_samples,omitempty"`
-	PersistIntervalSecs int  `json:"persist_interval_secs,omitempty"`
-	HistogramBins       int  `json:"histogram_bins,omitempty"`
+	Enabled             *bool   `json:"enabled,omitempty"`
+	AutonomousApply     bool    `json:"autonomous_apply"`
+	MinSilenceSamples   int     `json:"min_silence_samples,omitempty"`
+	MinMusicSamples     int     `json:"min_music_samples,omitempty"`
+	PersistIntervalSecs int     `json:"persist_interval_secs,omitempty"`
+	HistogramBins       int     `json:"histogram_bins,omitempty"`
 	HistogramMaxRMS     float64 `json:"histogram_max_rms,omitempty"`
 }
 
@@ -518,7 +518,7 @@ type TelemetryNudgesConfig struct {
 	MaxDurationPessimismDelta float64 `json:"max_duration_pessimism_delta,omitempty"`
 	// EarlyTrackProgressP75Threshold: when P75 seek/duration among matched fires is below this, apply an extra silence nudge (default 0.18).
 	EarlyTrackProgressP75Threshold float64 `json:"early_track_progress_p75_threshold,omitempty"`
-	EarlyTrackExtraSilenceDelta      float64 `json:"early_track_extra_silence_delta,omitempty"`
+	EarlyTrackExtraSilenceDelta    float64 `json:"early_track_extra_silence_delta,omitempty"`
 }
 
 // CalibrationProfile stores OFF/ON RMS snapshots captured by the recognition
@@ -568,10 +568,10 @@ func defaultConfig() Config {
 			ConfirmationDelaySecs:                   0,
 			ConfirmationCaptureDurationSecs:         4,
 			ConfirmationBypassScore:                 95,
-			ShazamContinuityIntervalSecs:            8,
-			ShazamContinuityCaptureDurationSecs:     4,
-			RecognizerChain:            "acrcloud_first",
-			ShazamRecognizerEnabled:    true,
+			ShazamioContinuityIntervalSecs:          8,
+			ShazamioContinuityCaptureDurationSecs:   4,
+			RecognizerChain:                         "acrcloud_first",
+			ShazamioRecognizerEnabled:               true,
 			ContinuityCalibrationGraceSecs:          45,
 			ContinuityMismatchConfirmWindowSecs:     180,
 			ContinuityRequiredSightingsCalibrated:   2,
@@ -649,7 +649,7 @@ func loadConfig(path string) (Config, error) {
 }
 
 // migrateRecognitionShazam maps deprecated shazam_python_bin (and legacy root shazam_python)
-// into ShazamRecognizerEnabled when shazam_recognizer_enabled was not stored yet.
+// into ShazamioRecognizerEnabled when shazam_recognizer_enabled was not stored yet.
 func migrateRecognitionShazam(cfg *Config, raw []byte) {
 	if cfg == nil {
 		return
@@ -670,22 +670,22 @@ func migrateRecognitionShazam(cfg *Config, raw []byte) {
 	_, hasPathKey := recMap["shazam_python_bin"]
 	if !hasEnabledKey {
 		if hasPathKey {
-			cfg.Recognition.ShazamRecognizerEnabled = strings.TrimSpace(cfg.Recognition.ShazamPythonBin) != ""
+			cfg.Recognition.ShazamioRecognizerEnabled = strings.TrimSpace(cfg.Recognition.ShazamioPythonBin) != ""
 		} else {
 			// Legacy: omitted path meant bundled venv from install-shazam / defaults.
-			cfg.Recognition.ShazamRecognizerEnabled = true
+			cfg.Recognition.ShazamioRecognizerEnabled = true
 		}
 		// Erroneous root key written by older install-shazam.sh versions.
 		var rootObj map[string]interface{}
 		if json.Unmarshal(raw, &rootObj) == nil {
 			if v, ok := rootObj["shazam_python"]; ok {
 				if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-					cfg.Recognition.ShazamRecognizerEnabled = true
+					cfg.Recognition.ShazamioRecognizerEnabled = true
 				}
 			}
 		}
 	}
-	cfg.Recognition.ShazamPythonBin = ""
+	cfg.Recognition.ShazamioPythonBin = ""
 }
 
 func migrateLegacyCDPlayer(cfg *Config) {
@@ -741,7 +741,7 @@ func migrateLegacyCDPlayer(cfg *Config) {
 
 func saveConfig(path string, cfg Config) error {
 	// Deprecated field: path is bundled; do not persist user/path strings.
-	cfg.Recognition.ShazamPythonBin = ""
+	cfg.Recognition.ShazamioPythonBin = ""
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
@@ -796,8 +796,8 @@ func managerArgs(cfg Config, configPath string) []string {
 		"--confirmation-delay", fmt.Sprintf("%ds", rec.ConfirmationDelaySecs),
 		"--confirmation-capture-duration", fmt.Sprintf("%ds", rec.ConfirmationCaptureDurationSecs),
 		"--confirmation-bypass-score", fmt.Sprintf("%d", rec.ConfirmationBypassScore),
-		"--shazam-continuity-interval", fmt.Sprintf("%ds", rec.ShazamContinuityIntervalSecs),
-		"--shazam-continuity-capture-duration", fmt.Sprintf("%ds", rec.ShazamContinuityCaptureDurationSecs),
+		"--shazam-continuity-interval", fmt.Sprintf("%ds", rec.ShazamioContinuityIntervalSecs),
+		"--shazam-continuity-capture-duration", fmt.Sprintf("%ds", rec.ShazamioContinuityCaptureDurationSecs),
 		"--continuity-calibration-grace", fmt.Sprintf("%ds", rec.ContinuityCalibrationGraceSecs),
 		"--continuity-mismatch-confirm-window", fmt.Sprintf("%ds", rec.ContinuityMismatchConfirmWindowSecs),
 		"--continuity-required-sightings-calibrated", fmt.Sprintf("%d", rec.ContinuityRequiredSightingsCalibrated),
@@ -827,11 +827,11 @@ func managerArgs(cfg Config, configPath string) []string {
 	if strings.TrimSpace(rec.AudDAPIToken) != "" {
 		args = append(args, "--audd-api-token", strings.TrimSpace(rec.AudDAPIToken))
 	}
-	shazamPath := ""
-	if rec.ShazamRecognizerEnabled {
-		shazamPath = recognition.BundledShazamPythonBin
+	shazamioPythonPath := ""
+	if rec.ShazamioRecognizerEnabled {
+		shazamioPythonPath = recognition.BundledShazamioPythonBin
 	}
-	args = append(args, "--shazam-python", shazamPath)
+	args = append(args, "--shazam-python", shazamioPythonPath)
 	// Boolean flags and --verbose must be last (no paired value).
 	args = append(args, "--verbose")
 	return args

@@ -151,6 +151,10 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 			SELECT 'Shazamio', event, count FROM recognition_summary WHERE provider = 'Shazam'
 			ON CONFLICT(provider, event) DO UPDATE SET count = count + excluded.count`,
 		`DELETE FROM recognition_summary WHERE provider = 'Shazam'`,
+		`INSERT INTO recognition_summary (provider, event, count)
+			SELECT 'ShazamioContinuity', event, count FROM recognition_summary WHERE provider = 'ShazamContinuity'
+			ON CONFLICT(provider, event) DO UPDATE SET count = count + excluded.count`,
+		`DELETE FROM recognition_summary WHERE provider = 'ShazamContinuity'`,
 	} {
 		if _, err := l.db.Exec(stmt); err != nil {
 			_ = l.db.Close()

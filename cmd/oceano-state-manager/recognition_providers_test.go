@@ -10,7 +10,7 @@ func TestBuildRecognitionPlanFromProviders_PrimaryOrder(t *testing.T) {
 	a := &stubRecognizer{name: "A"}
 	b := &stubRecognizer{name: "B"}
 	c := &stubRecognizer{name: "C"}
-	inst := recognitionInstances{acr: a, audd: b, shazam: c}
+	inst := recognitionInstances{acr: a, audd: b, shazamio: c}
 	specs := []RecognitionProviderSpec{
 		{ID: "acrcloud", Enabled: true, Roles: []string{"primary"}},
 		{ID: "audd", Enabled: true, Roles: []string{"primary"}},
@@ -79,7 +79,7 @@ func TestBuildRecognitionPlanFromChain_MatchesAcrCloudFirstOrdering(t *testing.T
 	a := &stubRecognizer{name: "A"}
 	b := &stubRecognizer{name: "B"}
 	c := &stubRecognizer{name: "C"}
-	inst := recognitionInstances{acr: a, audd: b, shazam: c}
+	inst := recognitionInstances{acr: a, audd: b, shazamio: c}
 	planChain := buildRecognitionPlanFromChain("acrcloud_first", inst)
 	planProv := buildRecognitionPlanFromProviders([]RecognitionProviderSpec{
 		{ID: "acrcloud", Enabled: true, Roles: []string{"primary"}},

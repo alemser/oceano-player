@@ -23,7 +23,7 @@ type Result struct {
 	Score    int
 	Format   string
 	// DurationMs is the track duration in milliseconds as reported by the
-	// recognition provider (ACRCloud: duration_ms; Shazam: matches[0].length).
+	// recognition provider (ACRCloud: duration_ms; Shazamio wire: matches[0].length).
 	// Zero means the provider did not return a duration.
 	DurationMs int
 	// TrackNumber is the position of the track on the release (e.g. "3" for CD
@@ -42,4 +42,3 @@ type Recognizer interface {
 	Name() string
 	Recognize(ctx context.Context, wavPath string) (*Result, error)
 }
-

@@ -2,9 +2,9 @@ package recognition
 
 import "testing"
 
-func TestParseShazamOutput_ExtractsDurationMs(t *testing.T) {
+func TestParseShazamioJSONOutput_ExtractsDurationMs(t *testing.T) {
 	data := []byte(`{"shazam_id":"123","title":"Exodus","artist":"Bob Marley","album":"Exodus","score":85,"duration_ms":244000}`)
-	res, err := parseShazamOutput(data)
+	res, err := parseShazamioJSONOutput(data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -19,10 +19,10 @@ func TestParseShazamOutput_ExtractsDurationMs(t *testing.T) {
 	}
 }
 
-func TestParseShazamOutput_ZeroDurationMs_WhenAbsent(t *testing.T) {
+func TestParseShazamioJSONOutput_ZeroDurationMs_WhenAbsent(t *testing.T) {
 	// Daemon may omit duration_ms when shazamio does not return it.
 	data := []byte(`{"shazam_id":"456","title":"Jamming","artist":"Bob Marley","album":"Exodus","score":72}`)
-	res, err := parseShazamOutput(data)
+	res, err := parseShazamioJSONOutput(data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -34,9 +34,9 @@ func TestParseShazamOutput_ZeroDurationMs_WhenAbsent(t *testing.T) {
 	}
 }
 
-func TestParseShazamOutput_ZeroDurationMs_WhenExplicitZero(t *testing.T) {
+func TestParseShazamioJSONOutput_ZeroDurationMs_WhenExplicitZero(t *testing.T) {
 	data := []byte(`{"shazam_id":"789","title":"Redemption Song","artist":"Bob Marley","album":"Uprising","score":90,"duration_ms":0}`)
-	res, err := parseShazamOutput(data)
+	res, err := parseShazamioJSONOutput(data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,10 +48,10 @@ func TestParseShazamOutput_ZeroDurationMs_WhenExplicitZero(t *testing.T) {
 	}
 }
 
-func TestParseShazamOutput_NoMatchReturnsNil(t *testing.T) {
+func TestParseShazamioJSONOutput_NoMatchReturnsNil(t *testing.T) {
 	// Empty title+artist → provider returned no match.
 	data := []byte(`{}`)
-	res, err := parseShazamOutput(data)
+	res, err := parseShazamioJSONOutput(data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

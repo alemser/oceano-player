@@ -61,7 +61,7 @@ func fetchArtwork(artist, album, dir string) (string, error) {
 }
 
 // fetchArtworkFromSong resolves artwork via iTunes song search when album
-// metadata is missing (common for Shazam-only matches). Returns ("", nil)
+// metadata is missing (common for Shazamio-only matches). Returns ("", nil)
 // when nothing matches.
 func fetchArtworkFromSong(artist, title, dir string) (string, error) {
 	imageURL, err := itunesArtworkURLFromSong(artist, title)

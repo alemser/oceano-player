@@ -141,6 +141,11 @@ var migrations = []string{
 		SELECT 'Shazamio', event, count FROM recognition_summary WHERE provider = 'Shazam'
 		ON CONFLICT(provider, event) DO UPDATE SET count = count + excluded.count`,
 	`DELETE FROM recognition_summary WHERE provider = 'Shazam'`,
+	// Merge stats bucket "ShazamContinuity" → "ShazamioContinuity" (wrapWithStatsAs role name).
+	`INSERT INTO recognition_summary (provider, event, count)
+		SELECT 'ShazamioContinuity', event, count FROM recognition_summary WHERE provider = 'ShazamContinuity'
+		ON CONFLICT(provider, event) DO UPDATE SET count = count + excluded.count`,
+	`DELETE FROM recognition_summary WHERE provider = 'ShazamContinuity'`,
 }
 
 var currentSchemaVersion = len(migrations)
@@ -151,21 +156,21 @@ type Library struct {
 }
 
 type CollectionEntry struct {
-	ID            int64
-	ACRID         string
-	ShazamID      string
-	Title         string
-	Artist        string
-	Album         string
-	Label         string
-	Released      string
-	Score         int
-	Format        string
-	TrackNumber   string
-	ArtworkPath   string
-	PlayCount     int
-	FirstPlayed   string
-	LastPlayed    string
+	ID                int64
+	ACRID             string
+	ShazamID          string
+	Title             string
+	Artist            string
+	Album             string
+	Label             string
+	Released          string
+	Score             int
+	Format            string
+	TrackNumber       string
+	ArtworkPath       string
+	PlayCount         int
+	FirstPlayed       string
+	LastPlayed        string
 	UserConfirmed     bool
 	DurationMs        int
 	BoundarySensitive bool

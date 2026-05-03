@@ -142,22 +142,22 @@ type Config struct {
 	// AudDAPIToken is the AudD API token (BYOK, https://docs.audd.io/). When non-empty,
 	// AudD is available for chain policies that include it.
 	AudDAPIToken string
-	// ShazamPythonBin is the path to the Python binary in the shazam-env virtualenv.
-	// When set and shazamio is importable, Shazam is used as a fallback after ACRCloud.
-	ShazamPythonBin string
+	// ShazamioPythonBin is the path to the Python binary in the shazam-env virtualenv.
+	// When set and shazamio is importable, the Shazamio client is used as a fallback after ACRCloud.
+	ShazamioPythonBin string
 	// RecognizerChain controls which API providers are included and their order.
 	// Valid values: "acrcloud_first" | "shazam_first" | "acrcloud_only" | "shazam_only" |
 	// "audd_first" | "audd_only".
 	// If the selected policy resolves to no available API provider, recognition
 	// is disabled until a provider becomes available again.
-	// Continuity monitoring always uses Shazam when available, independent of this setting.
+	// Continuity monitoring always uses the Shazamio client when available, independent of this setting.
 	RecognizerChain string
-	// ShazamContinuityInterval controls how often Shazam re-checks if the
+	// ShazamioContinuityInterval controls how often the Shazamio continuity path re-checks if the
 	// current track is still playing (for soft/gapless transitions).
-	ShazamContinuityInterval time.Duration
-	// ShazamContinuityCaptureDuration is the capture duration used by periodic
-	// Shazam continuity checks.
-	ShazamContinuityCaptureDuration time.Duration
+	ShazamioContinuityInterval time.Duration
+	// ShazamioContinuityCaptureDuration is the capture duration used by periodic
+	// Shazamio continuity checks.
+	ShazamioContinuityCaptureDuration time.Duration
 	// PCMSocket is the Unix socket path exposed by oceano-source-detector for raw PCM relay.
 	// The recognizer reads from this socket so it never opens the ALSA device directly.
 	PCMSocket string
@@ -215,7 +215,7 @@ type Config struct {
 	// ConfirmationBypassScore skips the second confirmation call when the initial
 	// provider score is already very high. Set to 0 to always require confirmation.
 	ConfirmationBypassScore int
-	// ContinuityCalibrationGrace is the duration to wait before the Shazam continuity
+	// ContinuityCalibrationGrace is the duration to wait before the Shazamio continuity
 	// monitor starts checking for track changes. During this grace period after a
 	// successful recognition, the monitor is in "learning" mode. Lower values = faster
 	// gapless detection but more false positives. Default: 45 seconds.
@@ -231,7 +231,7 @@ type Config struct {
 	// grace period (when the monitor is still learning). Default: 3 sightings.
 	ContinuityRequiredSightingsUncalibrated int
 	// EarlyCheckMargin is how close to the end of the known track duration the continuity
-	// monitor becomes more sensitive. When within this margin, the next Shazam poll is
+	// monitor becomes more sensitive. When within this margin, the next Shazamio poll is
 	// more sensitive to detect an upcoming track change. Default: 20 seconds.
 	EarlyCheckMargin time.Duration
 	// DurationGuardBypassWindow is the time window (after a potential false boundary is
@@ -277,9 +277,9 @@ func defaultConfig() Config {
 		ConfirmationDelay:                       0,
 		ConfirmationCaptureDuration:             4 * time.Second,
 		ConfirmationBypassScore:                 95,
-		ShazamPythonBin:                         "",
-		ShazamContinuityInterval:                8 * time.Second,
-		ShazamContinuityCaptureDuration:         4 * time.Second,
+		ShazamioPythonBin:                       "",
+		ShazamioContinuityInterval:              8 * time.Second,
+		ShazamioContinuityCaptureDuration:       4 * time.Second,
 		BoundaryRestoreMinSeek:                  60 * time.Second,
 		RecognizerChain:                         "acrcloud_first",
 		ContinuityCalibrationGrace:              45 * time.Second,

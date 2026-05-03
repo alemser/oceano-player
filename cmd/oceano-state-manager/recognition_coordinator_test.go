@@ -52,7 +52,7 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 		Artist: "Existing Artist",
 	}
 	m.physicalArtworkPath = "/tmp/existing.jpg"
-	m.shazamContinuityReady = true
+	m.shazamioContinuityReady = true
 	m.mu.Unlock()
 
 	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Primary"}, nil, nil, nil)
@@ -71,8 +71,8 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 	if m.physicalArtworkPath != "" {
 		t.Fatalf("expected physicalArtworkPath to be cleared, got %q", m.physicalArtworkPath)
 	}
-	if m.shazamContinuityReady {
-		t.Fatal("expected shazamContinuityReady to be cleared on boundary no-match")
+	if m.shazamioContinuityReady {
+		t.Fatal("expected shazamioContinuityReady to be cleared on boundary no-match")
 	}
 	if backoffUntil.IsZero() {
 		t.Fatal("expected no-match backoff to be scheduled")
@@ -191,11 +191,11 @@ func TestIsPhysicalFormat(t *testing.T) {
 
 func TestIsNewTrackCandidate(t *testing.T) {
 	tests := []struct {
-		name            string
-		result          *RecognitionResult
-		currentACRID    string
-		currentShazamID string
-		want            bool
+		name               string
+		result             *RecognitionResult
+		currentACRID       string
+		currentShazamioKey string
+		want               bool
 	}{
 		{
 			name:         "nil result",
@@ -216,16 +216,16 @@ func TestIsNewTrackCandidate(t *testing.T) {
 			want:         false,
 		},
 		{
-			name:            "shazam changed when no acrid",
-			result:          &RecognitionResult{ShazamID: "shz-2"},
-			currentShazamID: "shz-1",
-			want:            true,
+			name:               "shazamio key changed when no acrid",
+			result:             &RecognitionResult{ShazamID: "shz-2"},
+			currentShazamioKey: "shz-1",
+			want:               true,
 		},
 		{
-			name:            "shazam unchanged when no acrid",
-			result:          &RecognitionResult{ShazamID: "shz-1"},
-			currentShazamID: "shz-1",
-			want:            false,
+			name:               "shazamio key unchanged when no acrid",
+			result:             &RecognitionResult{ShazamID: "shz-1"},
+			currentShazamioKey: "shz-1",
+			want:               false,
 		},
 		{
 			name:   "no ids and no current ids",
@@ -242,7 +242,7 @@ func TestIsNewTrackCandidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isNewTrackCandidate(tt.result, tt.currentACRID, tt.currentShazamID); got != tt.want {
+			if got := isNewTrackCandidate(tt.result, tt.currentACRID, tt.currentShazamioKey); got != tt.want {
 				t.Fatalf("isNewTrackCandidate() = %v, want %v", got, tt.want)
 			}
 		})

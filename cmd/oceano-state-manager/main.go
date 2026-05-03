@@ -89,15 +89,15 @@ type mgr struct {
 	// Used by the fallback timer to allow periodic re-checks when no VU boundary
 	// trigger fires (e.g. gapless albums with no audible silence between tracks).
 	lastRecognizedAt time.Time
-	// shazamContinuityReady becomes true when the current track is a Shazamio
+	// shazamioContinuityReady becomes true when the current track is a Shazamio
 	// fallback match, or when Shazamio has confirmed the current ACR track.
-	shazamContinuityReady bool
-	// shazamContinuityAbandoned is set after the calibration deadline passes
+	shazamioContinuityReady bool
+	// shazamioContinuityAbandoned is set after the calibration deadline passes
 	// without Shazamio ever agreeing with ACRCloud on the current track. When true,
 	// the continuity monitor is skipped for the rest of the track's lifetime so
 	// that systematic Shazamio mis-identification cannot fire spurious triggers.
-	// Reset to false whenever shazamContinuityReady is reset (new track / boundary).
-	shazamContinuityAbandoned bool
+	// Reset to false whenever shazamioContinuityReady is reset (new track / boundary).
+	shazamioContinuityAbandoned bool
 	// physicalStartedAt records approximately when the current track began
 	// playing. Set to time.Now() when a new physical session starts (source
 	// goes from None → Physical after idle delay). Updated to lastBoundaryAt
@@ -183,23 +183,23 @@ func (m *mgr) markDirty() {
 // display. When confirmRec differs from rec (e.g. Shazamio confirming an ACRCloud
 // result), agreement from two independent services is required. When confirmRec
 // is nil, rec itself is used for the second call (same-provider confirmation).
-func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamRec Recognizer, lib *internallibrary.Library) {
-	newRecognitionCoordinator(m, rec, confirmRec, shazamRec, lib).run(ctx)
+func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamioRec Recognizer, lib *internallibrary.Library) {
+	newRecognitionCoordinator(m, rec, confirmRec, shazamioRec, lib).run(ctx)
 }
 
-func (m *mgr) tryEnableShazamContinuity(ctx context.Context, shazamRec Recognizer, current *RecognitionResult) {
-	if shazamRec == nil || current == nil || current.ACRID == "" {
+func (m *mgr) tryEnableShazamioContinuity(ctx context.Context, shazamioRec Recognizer, current *RecognitionResult) {
+	if shazamioRec == nil || current == nil || current.ACRID == "" {
 		return
 	}
 	// Skip if already aligned for this track — avoids duplicate goroutines when
 	// the same ACRCloud result is recorded twice (retry after confirmation, etc.).
 	m.mu.Lock()
-	alreadyReady := m.shazamContinuityReady && m.recognitionResult != nil && m.recognitionResult.ACRID == current.ACRID
+	alreadyReady := m.shazamioContinuityReady && m.recognitionResult != nil && m.recognitionResult.ACRID == current.ACRID
 	m.mu.Unlock()
 	if alreadyReady {
 		return
 	}
-	dur := m.cfg.ShazamContinuityCaptureDuration
+	dur := m.cfg.ShazamioContinuityCaptureDuration
 	if dur <= 0 {
 		dur = 6 * time.Second
 	}
@@ -211,7 +211,7 @@ func (m *mgr) tryEnableShazamContinuity(ctx context.Context, shazamRec Recognize
 	}
 	defer os.Remove(wavPath)
 
-	shRes, err := shazamRec.Recognize(ctx, wavPath)
+	shRes, err := shazamioRec.Recognize(ctx, wavPath)
 	if err != nil || shRes == nil {
 		return
 	}
@@ -227,22 +227,22 @@ func (m *mgr) tryEnableShazamContinuity(ctx context.Context, shazamRec Recognize
 	if m.recognitionResult.ACRID != current.ACRID {
 		return
 	}
-	m.shazamContinuityReady = true
+	m.shazamioContinuityReady = true
 	if m.recognitionResult.ShazamID == "" && shRes.ShazamID != "" {
 		m.recognitionResult.ShazamID = shRes.ShazamID
 	}
 	log.Printf("shazamio continuity: alignment confirmed for current ACR track (%s — %s)", current.Artist, current.Title)
 }
 
-func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recognizer) {
-	if shazamRec == nil {
+func (m *mgr) runShazamioContinuityMonitor(ctx context.Context, shazamioRec Recognizer) {
+	if shazamioRec == nil {
 		return
 	}
-	interval := m.cfg.ShazamContinuityInterval
+	interval := m.cfg.ShazamioContinuityInterval
 	if interval <= 0 {
 		interval = 8 * time.Second
 	}
-	captureDur := m.cfg.ShazamContinuityCaptureDuration
+	captureDur := m.cfg.ShazamioContinuityCaptureDuration
 	if captureDur <= 0 {
 		captureDur = 4 * time.Second
 	}
@@ -287,8 +287,8 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 			continue
 		}
 		current := *m.recognitionResult
-		ready := m.shazamContinuityReady
-		abandoned := m.shazamContinuityAbandoned
+		ready := m.shazamioContinuityReady
+		abandoned := m.shazamioContinuityAbandoned
 		lastRecognizedAt := m.lastRecognizedAt
 		m.mu.Unlock()
 
@@ -327,7 +327,7 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 			continue
 		}
 
-		shRes, recErr := shazamRec.Recognize(ctx, wavPath)
+		shRes, recErr := shazamioRec.Recognize(ctx, wavPath)
 		os.Remove(wavPath)
 		if recErr != nil || shRes == nil {
 			continue
@@ -346,8 +346,8 @@ func (m *mgr) runShazamContinuityMonitor(ctx context.Context, shazamRec Recogniz
 				}
 				// Opportunistically confirm alignment: Shazamio agrees with the current
 				// track, so the continuity monitor is now calibrated even if
-				// tryEnableShazamContinuity previously failed.
-				m.shazamContinuityReady = true
+				// tryEnableShazamioContinuity previously failed.
+				m.shazamioContinuityReady = true
 			}
 			m.mu.Unlock()
 			continue
@@ -437,9 +437,9 @@ func main() {
 	flag.DurationVar(&cfg.ConfirmationDelay, "confirmation-delay", cfg.ConfirmationDelay, "wait before second recognition call to confirm a track change (0 = disabled)")
 	flag.DurationVar(&cfg.ConfirmationCaptureDuration, "confirmation-capture-duration", cfg.ConfirmationCaptureDuration, "audio capture duration for confirmation call")
 	flag.IntVar(&cfg.ConfirmationBypassScore, "confirmation-bypass-score", cfg.ConfirmationBypassScore, "skip confirmation when initial provider score is >= this value (0 = always confirm)")
-	flag.StringVar(&cfg.ShazamPythonBin, "shazam-python", cfg.ShazamPythonBin, "path to Python binary with shazamio installed (empty to disable Shazamio / community client)")
-	flag.DurationVar(&cfg.ShazamContinuityInterval, "shazam-continuity-interval", cfg.ShazamContinuityInterval, "how often to run Shazamio continuity checks for the current track")
-	flag.DurationVar(&cfg.ShazamContinuityCaptureDuration, "shazam-continuity-capture-duration", cfg.ShazamContinuityCaptureDuration, "audio capture duration per periodic Shazamio continuity check")
+	flag.StringVar(&cfg.ShazamioPythonBin, "shazam-python", cfg.ShazamioPythonBin, "path to Python binary with shazamio installed (empty to disable Shazamio / community client)")
+	flag.DurationVar(&cfg.ShazamioContinuityInterval, "shazam-continuity-interval", cfg.ShazamioContinuityInterval, "how often to run Shazamio continuity checks for the current track")
+	flag.DurationVar(&cfg.ShazamioContinuityCaptureDuration, "shazam-continuity-capture-duration", cfg.ShazamioContinuityCaptureDuration, "audio capture duration per periodic Shazamio continuity check")
 	flag.DurationVar(&cfg.ContinuityCalibrationGrace, "continuity-calibration-grace", cfg.ContinuityCalibrationGrace, "grace period (after recognition) during which continuity monitor is in learning mode")
 	flag.DurationVar(&cfg.ContinuityMismatchConfirmWindow, "continuity-mismatch-confirm-window", cfg.ContinuityMismatchConfirmWindow, "time window for counting repeated track-change sightings toward confirmation")
 	flag.IntVar(&cfg.ContinuityRequiredSightingsCalibrated, "continuity-required-sightings-calibrated", cfg.ContinuityRequiredSightingsCalibrated, "number of repeated sightings of same track change (when calibrated) before re-recognition triggers")
@@ -478,11 +478,11 @@ func main() {
 	components := buildRecognitionComponents(cfg, lib)
 	rec := components.chain
 	confirmRec := components.confirmer
-	shazamRec := components.continuity
+	shazamioRec := components.continuity
 
 	if rec != nil {
 		log.Printf("recognizer: chain=%s pcm-socket=%s max-interval=%s refresh-interval=%s confirm-delay=%s shazam-continuity=%s",
-			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval, cfg.RecognizerRefreshInterval, cfg.ConfirmationDelay, cfg.ShazamContinuityInterval)
+			rec.Name(), cfg.PCMSocket, cfg.RecognizerMaxInterval, cfg.RecognizerRefreshInterval, cfg.ConfirmationDelay, cfg.ShazamioContinuityInterval)
 	}
 
 	// SIGUSR1 forces an immediate boundary-type recognition attempt — useful when
@@ -509,8 +509,8 @@ func main() {
 	go m.runBluetoothMonitor(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
-	go m.runRecognizer(ctx, rec, confirmRec, shazamRec, lib)
-	go m.runShazamContinuityMonitor(ctx, shazamRec)
+	go m.runRecognizer(ctx, rec, confirmRec, shazamioRec, lib)
+	go m.runShazamioContinuityMonitor(ctx, shazamioRec)
 	go m.runLibrarySync(ctx, lib)
 	go m.runStatsLogger(ctx, lib)
 	go m.runPlayHistoryRecorder(ctx)

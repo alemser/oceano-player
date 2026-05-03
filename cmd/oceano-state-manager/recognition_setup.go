@@ -39,10 +39,10 @@ type RecognitionPlan struct {
 }
 
 type recognitionInstances struct {
-	acr              Recognizer
-	audd             Recognizer
-	shazam           Recognizer
-	shazamContinuity Recognizer
+	acr                Recognizer
+	audd               Recognizer
+	shazamio           Recognizer // B0 id "shazam" maps to Shazamio community client; reserve distinct ids for future official Shazam API.
+	shazamioContinuity Recognizer
 }
 
 type recognitionComponents struct {
@@ -76,23 +76,23 @@ func buildRecognitionInstances(cfg Config, lib *internallibrary.Library) recogni
 		log.Printf("recognizer: AudD enabled (documented API)")
 	}
 
-	var shazamRec Recognizer
-	var shazamContinuityRec Recognizer
-	if cfg.ShazamPythonBin != "" {
-		if s, err := NewShazamRecognizer(cfg.ShazamPythonBin); err != nil {
+	var shazamioRec Recognizer
+	var shazamioContinuityRec Recognizer
+	if cfg.ShazamioPythonBin != "" {
+		if s, err := NewShazamioRecognizer(cfg.ShazamioPythonBin); err != nil {
 			log.Printf("recognizer: Shazamio unavailable — %v", err)
 		} else {
-			shazamRec = wrapWithStats(s, lib)
-			shazamContinuityRec = wrapWithStatsAs(s, lib, "ShazamContinuity")
-			log.Printf("recognizer: Shazamio enabled (python=%s)", cfg.ShazamPythonBin)
+			shazamioRec = wrapWithStats(s, lib)
+			shazamioContinuityRec = wrapWithStatsAs(s, lib, "ShazamioContinuity")
+			log.Printf("recognizer: Shazamio enabled (python=%s)", cfg.ShazamioPythonBin)
 		}
 	}
 
 	return recognitionInstances{
-		acr:              acrRec,
-		audd:             auddRec,
-		shazam:           shazamRec,
-		shazamContinuity: shazamContinuityRec,
+		acr:                acrRec,
+		audd:               auddRec,
+		shazamio:           shazamioRec,
+		shazamioContinuity: shazamioContinuityRec,
 	}
 }
 
@@ -112,7 +112,7 @@ func recognizerForProviderID(id string, inst recognitionInstances) Recognizer {
 	case "audd":
 		return inst.audd
 	case "shazam":
-		return inst.shazam
+		return inst.shazamio
 	default:
 		return nil
 	}
@@ -174,7 +174,7 @@ func buildRecognitionPlanFromProviders(specs []RecognitionProviderSpec, inst rec
 	return RecognitionPlan{
 		Ordered:    ordered,
 		Confirmer:  confirmer,
-		Continuity: inst.shazamContinuity,
+		Continuity: inst.shazamioContinuity,
 	}
 }
 
@@ -182,17 +182,17 @@ func buildRecognitionPlanFromChain(chain string, inst recognitionInstances) Reco
 	var ordered []Recognizer
 	switch chain {
 	case "shazam_first":
-		ordered = appendRecognizers(ordered, inst.shazam, inst.acr, inst.audd)
+		ordered = appendRecognizers(ordered, inst.shazamio, inst.acr, inst.audd)
 	case "acrcloud_only":
 		ordered = appendRecognizers(ordered, inst.acr)
 	case "shazam_only":
-		ordered = appendRecognizers(ordered, inst.shazam)
+		ordered = appendRecognizers(ordered, inst.shazamio)
 	case "audd_only":
 		ordered = appendRecognizers(ordered, inst.audd)
 	case "audd_first":
-		ordered = appendRecognizers(ordered, inst.audd, inst.acr, inst.shazam)
+		ordered = appendRecognizers(ordered, inst.audd, inst.acr, inst.shazamio)
 	default: // "acrcloud_first"
-		ordered = appendRecognizers(ordered, inst.acr, inst.audd, inst.shazam)
+		ordered = appendRecognizers(ordered, inst.acr, inst.audd, inst.shazamio)
 	}
 
 	if len(ordered) == 0 {
@@ -207,7 +207,7 @@ func buildRecognitionPlanFromChain(chain string, inst recognitionInstances) Reco
 	return RecognitionPlan{
 		Ordered:    ordered,
 		Confirmer:  confirmer,
-		Continuity: inst.shazamContinuity,
+		Continuity: inst.shazamioContinuity,
 	}
 }
 

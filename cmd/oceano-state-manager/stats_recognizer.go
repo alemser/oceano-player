@@ -48,7 +48,7 @@ func wrapWithStats(r Recognizer, lib *internallibrary.Library) Recognizer {
 
 // wrapWithStatsAs is like wrapWithStats but records events under name instead of r.Name().
 // Use this when the same underlying recognizer is used in two distinct roles and you want
-// separate counters per role (e.g. "Shazamio" for chain calls vs "ShazamContinuity" for
+// separate counters per role (e.g. "Shazamio" for chain calls vs "ShazamioContinuity" for
 // the continuity monitor).
 func wrapWithStatsAs(r Recognizer, lib *internallibrary.Library, name string) Recognizer {
 	if r == nil || lib == nil {

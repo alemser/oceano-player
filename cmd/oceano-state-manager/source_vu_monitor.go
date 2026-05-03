@@ -135,8 +135,8 @@ func (m *mgr) clearStalePhysicalRecognitionOnSilence(reason string, silenceElaps
 	m.physicalArtworkPath = ""
 	m.physicalLibraryEntryID = 0
 	m.physicalBoundarySensitive = false
-	m.shazamContinuityReady = false
-	m.shazamContinuityAbandoned = false
+	m.shazamioContinuityReady = false
+	m.shazamioContinuityAbandoned = false
 	m.physicalSeekMS = 0
 	m.physicalSeekUpdatedAt = time.Time{}
 	m.mu.Unlock()
@@ -212,7 +212,7 @@ func (m *mgr) pollSourceFile() {
 		m.physicalArtworkPath = ""
 		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
-		m.shazamContinuityReady = false
+		m.shazamioContinuityReady = false
 		m.lastContinuityMismatchAt = time.Time{}
 		m.lastContinuityMismatchFrom = ""
 		m.lastContinuityMismatchTo = ""
@@ -223,7 +223,7 @@ func (m *mgr) pollSourceFile() {
 		m.physicalArtworkPath = ""
 		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
-		m.shazamContinuityReady = false
+		m.shazamioContinuityReady = false
 		m.lastContinuityMismatchAt = time.Time{}
 		m.lastContinuityMismatchFrom = ""
 		m.lastContinuityMismatchTo = ""
@@ -245,7 +245,7 @@ func (m *mgr) pollSourceFile() {
 		m.physicalArtworkPath = ""
 		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
-		m.shazamContinuityReady = false
+		m.shazamioContinuityReady = false
 		m.lastContinuityMismatchAt = time.Time{}
 		m.lastContinuityMismatchFrom = ""
 		m.lastContinuityMismatchTo = ""
@@ -437,7 +437,7 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		var durationMs int
 		var seekMS int64
 		var seekUpdatedAt time.Time
-		continuityReady := m.shazamContinuityReady
+		continuityReady := m.shazamioContinuityReady
 		boundarySensitive := m.physicalBoundarySensitive
 		if m.recognitionResult != nil {
 			durationMs = m.recognitionResult.DurationMs
