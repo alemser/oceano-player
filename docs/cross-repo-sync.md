@@ -154,7 +154,7 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 | Item | Type | Notes |
 |------|------|-------|
-| `recognition.acoustid_client_key` in `/etc/oceano/config.json` | **Additive / legacy** | Optional string; may appear in `GET/POST /api/config` payloads and `oceano-state-manager` CLI. **AcoustID is not a product provider** (short-capture model); if non-empty, state-manager logs that the key is **ignored**. See `docs/plans/recognition-flexible-providers-and-secrets.md`. |
+| `recognition.acoustid_client_key` in `/etc/oceano/config.json` | **Additive / legacy** | Optional string; may appear in `GET/POST /api/config` payloads and `oceano-state-manager` CLI. **AcoustID is not a product provider** (short-capture model); if non-empty, state-manager logs that the key is **ignored**. See `docs/plans/recognition-master-plan.md` (feature **P15**). |
 
 **iOS follow-up (`oceano-player-ios`)**
 
@@ -341,8 +341,7 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 | Item | Notes |
 |------|-------|
 | `docs/reference/recognition.md` | Error table: ACR quota codes → 5 min backoff. |
-| `docs/plans/recognition-flexible-providers-and-secrets.md` | *Deferred: Provider quota / rate-limit UX* + **Backend backoff (implemented)** for 3003. |
-| `docs/plans/recognition-shazamio-deferral-continuity-and-extensibility.md` | Summary row → quota UX plan link; live/gapless planning unchanged. |
+| `docs/plans/recognition-master-plan.md` | **Deferred: Provider quota / rate-limit UX** (§ *Deferred: provider quota…*); **Backend backoff (implemented)** for ACR 3003 / related codes → `ErrRateLimit`. Live/gapless / Shazamio stance in same file. |
 
 **iOS follow-up (`oceano-player-ios`)**
 

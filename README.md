@@ -174,8 +174,8 @@ You are responsible for **their** developer terms, **pricing**, quotas, and
 acceptable use. **Oceano Player only ships client integration**—it does not
 resell API access, bundle unlimited third-party quota, or act as your contractual
 counterparty with those services. For product positioning and compliance notes,
-see [`docs/plans/recognition-flexible-providers-and-secrets.md`](docs/plans/recognition-flexible-providers-and-secrets.md)
-(*Commercial product fit*).
+see [`docs/plans/recognition-master-plan.md`](docs/plans/recognition-master-plan.md)
+(§ **Product & compliance** and **Third-party clarity: shazamio**).
 
 **Optional `shazamio` path:** the installer sets up a Python venv with the community
 **[`shazamio`](https://pypi.org/project/shazamio/)** package. That is **not** a

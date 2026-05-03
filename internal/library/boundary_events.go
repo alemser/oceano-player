@@ -53,7 +53,7 @@ type BoundaryRecognitionFollowup struct {
 }
 
 // Conservative early-boundary cohort: long tracks only, boundary seek well
-// before nominal end (see recognition-enhancement-plan Axis 3).
+// before nominal end (see docs/plans/recognition-master-plan.md § Axis 3).
 const (
 	earlyBoundaryMinTrackDurationMs = 90000
 	earlyBoundarySeekFraction       = 0.25

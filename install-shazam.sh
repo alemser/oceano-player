@@ -3,7 +3,7 @@
 # oceano-state-manager as a fallback recognizer when ACRCloud returns no match.
 #
 # shazamio is a community library, not an official Shazam/Apple API product.
-# Commercial deployments: see docs/plans/recognition-flexible-providers-and-secrets.md
+# Commercial deployments: see docs/plans/recognition-master-plan.md (Third-party clarity: shazamio).
 # ("Third-party clarity: shazamio").
 #
 # Usage:
