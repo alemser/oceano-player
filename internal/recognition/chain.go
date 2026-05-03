@@ -2,14 +2,16 @@ package recognition
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strings"
 )
 
 // ChainRecognizer tries each Recognizer in order and returns the first
 // non-nil result. On rate limit or error from one provider it moves to
-// the next instead of giving up. Returns (nil, nil) only when all
-// providers report no match.
+// the next instead of giving up. Returns (nil, nil) when every provider
+// ends with no match, including after an earlier provider hit rate limit
+// and a later one successfully evaluated the capture with no match.
 type ChainRecognizer struct {
 	chain []Recognizer
 }
@@ -68,6 +70,11 @@ func (c *ChainRecognizer) Recognize(ctx context.Context, wavPath string) (*Resul
 				log.Printf("recognizer chain: %s: fallback match %s — %s", r.Name(), result.Artist, result.Title)
 			}
 			return result, nil
+		}
+		// Clean no match from this provider: do not let an earlier rate-limit error
+		// force the whole chain to report rate-limited after a fallback ran.
+		if errors.Is(lastErr, ErrRateLimit) {
+			lastErr = nil
 		}
 		log.Printf("recognizer chain: %s: no match — trying next", r.Name())
 	}

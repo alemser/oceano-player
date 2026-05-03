@@ -155,6 +155,22 @@ func TestChainRecognizer_FallsThrough_OnRateLimit(t *testing.T) {
 	}
 }
 
+func TestChainRecognizer_RateLimitThenNoMatch_ReturnsNilNil(t *testing.T) {
+	// When ACR is over quota but Shazamio runs and finds nothing, the outcome
+	// must be plain no-match so the coordinator does not apply 5m rate-limit backoff.
+	a := &stubRecognizer{name: "ACRCloud", err: ErrRateLimit}
+	b := &stubRecognizer{name: "Shazamio", result: nil}
+	chain := NewChainRecognizer(a, b)
+
+	result, err := chain.Recognize(context.Background(), "test.wav")
+	if err != nil {
+		t.Fatalf("expected nil error (no-match path), got %v", err)
+	}
+	if result != nil {
+		t.Fatalf("expected nil result, got %v", result)
+	}
+}
+
 func TestChainRecognizer_ErrorThenNoMatch_ReturnsError(t *testing.T) {
 	// This outcome drives runRecognizer's error path after both configured
 	// providers have been exhausted.
