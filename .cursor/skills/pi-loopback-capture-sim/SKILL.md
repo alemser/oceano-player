@@ -106,16 +106,20 @@ bash .cursor/skills/pi-loopback-capture-sim/scripts/loopback-smoke.sh --help
 
 The script only **prints** suggested commands and device hints; it does not rewrite `config.json` (avoid accidental production misconfiguration).
 
-## Related: provider chain smoke (no audio)
+## Related: explicit provider list smoke (no audio)
 
-To exercise **`recognizer_chain`** values on the Pi (restart + `SIGUSR1` + log grep) without editing config by hand:
+**Policy:** If you changed code under the explicit provider list (see skill **pi-recognition-explicit-providers-smoke** — `recognition.providers`, `merge_policy`, plan build, or related web config types), you **must** run that skill’s checklist (`go test` + Pi smoke) in addition to any loopback work.
+
+To exercise the **same config path as iOS** — non-empty `recognition.providers` + `merge_policy` — on the Pi (restart + `SIGUSR1` + per-fixture `journalctl` grep), without hand-editing JSON:
 
 ```bash
 sudo ./scripts/pi-recognition-provider-smoke.sh --dry-run   # print actions
 sudo OCEANO_CONFIG=/etc/oceano/config.json ./scripts/pi-recognition-provider-smoke.sh
 ```
 
-Off-device, lock provider **ordering** with Go tests:
+The script cycles three fixtures (ACR-only primary, three primaries, ACR primary + AudD confirmer) and restores the original config on exit.
+
+Off-device, lock legacy **`recognizer_chain`** plan building with Go tests:
 
 ```bash
 go test ./cmd/oceano-state-manager -run TestBuildRecognitionPlanFromChain_matrix -count=1

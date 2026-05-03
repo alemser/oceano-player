@@ -224,6 +224,7 @@ Output: `/tmp/oceano-source.json`
 
 - **Behavior-preserving refactors first**: prefer incremental extraction over rewrites; avoid changing runtime semantics unless explicitly requested.
 - **No-regression discipline**: run package and full-repo tests after structural changes; if tests fail, fix immediately before proceeding.
+- **Explicit provider list changes**: any edit to `recognition.providers` / `merge_policy` wiring (state-manager plan build, config load, web `RecognitionConfig`, provider id mapping) requires `go test ./cmd/oceano-state-manager/... -short`, the chain matrix test (`TestBuildRecognitionPlanFromChain_matrix`), and `scripts/pi-recognition-provider-smoke.sh` on a Pi when available — see `.cursor/skills/pi-recognition-explicit-providers-smoke/SKILL.md` and [`docs/reference/recognition.md`](docs/reference/recognition.md#explicit-provider-list-mandatory-verification).
 - **Cohesion over file size**: group code by responsibility (wiring, metadata ingest, monitoring, recognition, persistence, output), not by convenience.
 - **Loose coupling at boundaries**: avoid hidden field/implementation coupling between components; use explicit interfaces and narrow contracts.
 - **Configurable provider orchestration**: recognizers should be easy to enable/disable/reorder and assign to distinct roles (primary, confirmer, continuity).

@@ -598,6 +598,20 @@ triggers. Rate-limit (429) is never bypassed — the provider will reject the re
 
 ---
 
+## Explicit provider list (mandatory verification)
+
+If your change touches **non-empty `recognition.providers[]`**, **`recognition.merge_policy`**, loading them from `CalibrationConfigPath`, building the runtime plan from that list, or the **web / JSON types** that round-trip those keys, complete this before merge:
+
+1. `go test ./cmd/oceano-state-manager/... -count=1 -short`
+2. `go test ./cmd/oceano-state-manager -run TestBuildRecognitionPlanFromChain_matrix -count=1`
+3. On a Pi with Oceano installed: `sudo ./scripts/pi-recognition-provider-smoke.sh --dry-run`, then run without `--dry-run` (script restores `config.json` on exit).
+
+**Typical files:** `recognition_setup.go`, `recognition_config_load.go`, `recognition_providers*.go`, `config_types.go` (`RecognitionProvider*`), `cmd/oceano-web/config.go` (`Providers`, `MergePolicy`), and `internal/recognition/` when **provider `id` → implementation** mapping changes.
+
+Agent-oriented checklist: `.cursor/skills/pi-recognition-explicit-providers-smoke/SKILL.md`. For capture → PCM → recognition end-to-end, combine with **pi-loopback-capture-sim**.
+
+---
+
 ## Key files
 
 | File | Responsibility |

@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-// recognitionConfigFragment is the minimal JSON shape read from CalibrationConfigPath for B0.
+// recognitionConfigFragment is the minimal JSON shape read from CalibrationConfigPath
+// to load recognition.providers / merge_policy (explicit provider list).
 type recognitionConfigFragment struct {
 	Recognition struct {
 		Providers   []RecognitionProviderSpec `json:"providers"`

@@ -41,7 +41,7 @@ type RecognitionPlan struct {
 type recognitionInstances struct {
 	acr                Recognizer
 	audd               Recognizer
-	shazamio           Recognizer // B0 id "shazam" maps to Shazamio community client; reserve distinct ids for future official Shazam API.
+	shazamio           Recognizer // Explicit provider list: id "shazam" maps to Shazamio community client; reserve distinct ids for future official Shazam API.
 	shazamioContinuity Recognizer
 }
 

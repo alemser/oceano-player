@@ -185,19 +185,19 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 ---
 
-## Log: 2026-05-02 — `recognition.providers[]` + `merge_policy` (B0, additive)
+## Log: 2026-05-02 — `recognition.providers[]` + `merge_policy` (explicit provider list, additive)
 
 **Backend**
 
 | Item | Type | Notes |
 |------|------|-------|
 | `recognition.providers` | **Additive** | Optional JSON array of `{ "id", "enabled", "roles", "credential_ref"? }`. Known `id` values: `acrcloud`, `audd`, `shazam`. Empty `roles` ⇒ entry skipped (per plan). When **non-empty**, `oceano-state-manager` reads ordering from **`--calibration-config`** (default `/etc/oceano/config.json`) and **does not use `--recognizer-chain`** for primary/confirmer construction. When **omitted** or empty: legacy **`recognizer_chain`** behaviour unchanged. |
-| `recognition.merge_policy` | **Additive** | Optional string; default `first_success` when `providers` is used. Other values are logged and treated as `first_success` until coordinator work (B1b). |
+| `recognition.merge_policy` | **Additive** | Optional string; default `first_success` when `providers` is used. Other values are logged and treated as `first_success` until extended merge_policy / coordinator work lands. |
 
 **iOS follow-up (`oceano-player-ios`)**
 
-- [x] Send and preserve `recognition.providers` + `merge_policy` on `POST /api/config` when the loaded config had a non-empty `providers` array (B0); otherwise omit those keys and keep legacy `recognizer_chain` + credential fields only. Cards still drive order/toggles; each enabled provider with credentials is saved as `roles: ["primary"]` (unknown provider ids in the snapshot are appended unchanged; `credential_ref` is preserved per id).
-- [x] Validate at least one enabled primary with credentials before save (same rules as legacy card validation); footer copy when B0 is active.
+- [x] Send and preserve `recognition.providers` + `merge_policy` on `POST /api/config` when the loaded config had a non-empty `providers` array (explicit provider list); otherwise omit those keys and keep legacy `recognizer_chain` + credential fields only. Cards still drive order/toggles; each enabled provider with credentials is saved as `roles: ["primary"]` (unknown provider ids in the snapshot are appended unchanged; `credential_ref` is preserved per id).
+- [x] Validate at least one enabled primary with credentials before save (same rules as legacy card validation); footer copy when the explicit provider list is active.
 - **Deferred (not iOS now):** Option A delegated recognition (phone-mediated API calls / **I2**) — only after `providers` + config contract are stable end-to-end.
 
 **Risk**
@@ -220,6 +220,12 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 **iOS follow-up (`oceano-player-ios`)**
 
 - [x] Send `shazam_recognizer_enabled` (bool) on save; remove `shazam_python_bin` from POST; infer bool on GET when absent (aligned with web migration). No Python path field in Physical Media UI; user-facing **Shazamio** naming; JSON `id` / state `shazam` unchanged.
+
+**Contract note (wire vs product)**
+
+- Keep wire `id` **`shazam`** and `recognizer_chain` values **`shazam_*`** for the community Shazamio path; a future official Shazam API would use a **new** provider id (e.g. `shazam_official`), not a rename of `shazam`.
+- iOS should keep a Swift property name obviously tied to **`shazam_recognizer_enabled`** (e.g. `shazamRecognizerEnabled`) unless both repos adopt explicit `CodingKeys` + docs.
+- If the Pi resets or migrates SQLite / `recognition_summary` buckets, Insights counters may change without an iOS contract change unless API shapes or keys change.
 
 **Risk**
 

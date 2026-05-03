@@ -19,6 +19,7 @@ Developer documentation for the Oceano Player backend.
 | Understand state detection, source priority, and how NowPlaying is driven | [reference/state-detection.md](reference/state-detection.md) |
 | Understand amplifier IR control, power detection, profiles | [reference/amplifier-control.md](reference/amplifier-control.md) |
 | Know the engineering standards and agent policies | [standards.md](standards.md) |
+| After editing explicit recognition providers (`recognition.providers` / `merge_policy`) | [reference/recognition.md](reference/recognition.md#explicit-provider-list-mandatory-verification) + `.cursor/skills/pi-recognition-explicit-providers-smoke/SKILL.md` |
 | Make a backend change and evaluate iOS impact | [cross-repo-sync.md](cross-repo-sync.md) |
 | See the recognition enhancement roadmap (R1–R10) | [plans/recognition-enhancement.md](plans/recognition-enhancement.md) |
 | Improve recognition provider chain (new providers, UX, parallel) | [plans/recognition-provider-chain-improvement.md](plans/recognition-provider-chain-improvement.md) |

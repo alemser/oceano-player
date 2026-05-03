@@ -116,7 +116,8 @@ type detectorOutput struct {
 	Source string `json:"source"`
 }
 
-// RecognitionProviderSpec mirrors one entry in recognition.providers[] in config.json (B0).
+// RecognitionProviderSpec mirrors one entry in recognition.providers[] in config.json
+// (explicit provider list — non-empty array overrides recognizer_chain).
 // CredentialRef is parsed for forward compatibility (iOS relay / secrets); ignored at runtime for now.
 type RecognitionProviderSpec struct {
 	ID            string   `json:"id"`
@@ -250,10 +251,10 @@ type Config struct {
 	BoundaryRestoreMinSeek time.Duration
 
 	// RecognitionProviders is loaded from recognition.providers in CalibrationConfigPath when
-	// that array is non-empty (B0). It overrides RecognizerChain for ordering and confirmer selection.
+	// that array is non-empty (explicit provider list). It overrides RecognizerChain for ordering and confirmer selection.
 	RecognitionProviders []RecognitionProviderSpec
 	// RecognitionMergePolicy is recognition.merge_policy from config (default first_success).
-	// Only first_success is implemented; other values are logged and treated as first_success until B1b.
+	// Only first_success is implemented; other values are logged and treated as first_success until additional merge_policy modes exist.
 	RecognitionMergePolicy string
 }
 

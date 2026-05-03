@@ -43,7 +43,7 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 
 ## Minimum executable install (from zero)
 
-**Intent:** Define what “Oceano works” means on a **fresh install** before any flexible-provider or iOS-heavy work lands. This keeps scope honest for a **single-operator** or **early-adopter** setup: recognition config evolution (**B0+**) is **not** a prerequisite for a usable appliance.
+**Intent:** Define what “Oceano works” means on a **fresh install** before any flexible-provider or iOS-heavy work lands. This keeps scope honest for a **single-operator** or **early-adopter** setup: recognition config evolution (**explicit provider list and later phases**) is **not** a prerequisite for a usable appliance.
 
 ### What must run
 
@@ -58,7 +58,7 @@ It complements `docs/plans/recognition-provider-chain-improvement.md` (roles, qu
 | Optional | Notes |
 |----------|--------|
 | **Track recognition (physical)** | No ACRCloud / AudD / `shazamio` keys → chain resolves to **no providers**; state manager logs recognition disabled; **Physical / None** and AirPlay/BT metadata paths still behave as configured. |
-| **`recognition.providers[]` / B0** | Legacy **`recognizer_chain` + credential fields** remain sufficient until the new config shape ships; see **B0**. |
+| **`recognition.providers[]` (explicit list)** | Legacy **`recognizer_chain` + credential fields** remain sufficient until clients rely on the ordered provider array; see **Explicit provider list** in phased summary. |
 | **iOS companion** | Not required for a bare-minimum Pi; becomes the **primary** operator UI over time. Until then: web UI or static `config.json` + systemd. |
 
 ### Green-path checklist (documentation target)
@@ -71,7 +71,7 @@ Use this as the **README / first-boot** bar; mirror in `README.md` when user-vis
 4. **If** recognition is desired: add at least one provider’s credentials (or install `shazamio` path); until then, expect **no** ACR/AudD/Shazam calls.
 5. **If** using the web UI: open `:8080`, save once to align generated unit args with `config.json`.
 
-**Planning implication:** **B0** (parse `providers[]` with legacy fallback) improves **config expressiveness** and **iOS contract** alignment; it does **not** block a minimal green-path install. Prioritize B0 when multi-provider order/roles need to round-trip in JSON; otherwise a lone maintainer can stay on **`recognizer_chain`** until then.
+**Planning implication:** **Explicit provider list** (parse non-empty `providers[]` with legacy fallback when empty or omitted) improves **config expressiveness** and **iOS contract** alignment; it does **not** block a minimal green-path install. Prioritize it when multi-provider order/roles need to round-trip in JSON; otherwise a lone maintainer can stay on **`recognizer_chain`** until then.
 
 ---
 
@@ -509,7 +509,7 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 
 | Phase | Scope |
 |-------|--------|
-| **B0** | **Config model**: `recognition.providers[]` + `merge_policy` (default `first_success`) + migration from `recognizer_chain`; **runtime parity** with current enum-based chain when `providers` omitted. **Not required** for a **minimum executable install** (see **Minimum executable install (from zero)**)—legacy chain + keys remain valid. |
+| **Explicit provider list** | **Config model**: `recognition.providers[]` + `merge_policy` (default `first_success`) + migration from `recognizer_chain`; **runtime parity** with current enum-based chain when `providers` omitted. **Not required** for a **minimum executable install** (see **Minimum executable install (from zero)**)—legacy chain + keys remain valid. |
 | **B1** | **`buildRecognitionComponents`** data-driven from `providers` + **roles**; confirmer / arbitration wiring; logs + validation hints for invalid configs. |
 | **B1b** | Extend **`merge_policy`** (`best_score`, `require_agreement`, `arbitrate`) without changing default behavior until explicitly set. |
 | **B1c** | **Per-provider usage limits** — `UsageLimiter`, SQLite-backed counters, coordinator choke-point; optional `usage_limits` on each provider; defaults **off**; **reset** API + UI to clear local counters and unblock (see **Counter reset**). |
@@ -530,7 +530,7 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 
 **Marked complete (MVP)** in `oceano-player-ios`: Physical Media settings use **provider cards** with **drag-and-drop order**, per-card **toggle**, and **disclosure** for credentials (ACRCloud, AudD API token, shazamio Python path); save goes through existing **`POST /api/config`** with `recognizer_chain` + credential fields derived from slot order/toggles via `RecognitionProviderCatalog` (client-side); **`acoustid_client_key`** is stripped on load/save. `PhysicalMediaConfigView.swift` carries the UI; networking in `PhysicalMediaConfigClient.swift`.
 
-**Still open vs full I1 scope above:** `recognition.providers[]` in the JSON body (awaits backend **B0** + contract), per-provider **`usage_limits`** editors and **usage reset** actions, and additional end-user copy for BYOK / unofficial **`shazamio`** beyond subtitles.
+**Still open vs full I1 scope above:** `recognition.providers[]` in the JSON body (awaits backend **explicit provider list** support + contract), per-provider **`usage_limits`** editors and **usage reset** actions, and additional end-user copy for BYOK / unofficial **`shazamio`** beyond subtitles.
 
 ### Deferred / parallel research
 
@@ -542,6 +542,7 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 
 ## Documentation and cross-repo
 
+- After code changes to **`recognition.providers`** / **`merge_policy`** wiring, run the checks in **`docs/reference/recognition.md`** (section *Explicit provider list (mandatory verification)*) and **`.cursor/skills/pi-recognition-explicit-providers-smoke/SKILL.md`** (`go test` + `scripts/pi-recognition-provider-smoke.sh` on a Pi).
 - Update **`README.md`**, **`CLAUDE.md` / `AGENTS.md`**, and **`docs/cross-repo-sync.md`** whenever:
   - `config.json` keys or semantics change;
   - unified state JSON gains fields;

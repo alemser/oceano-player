@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# Cycles recognizer_chain on the Pi (legacy path: no recognition.providers array),
-# restarts oceano-state-manager, sends SIGUSR1 to force a recognition attempt,
-# and greps recent logs for recognizer startup lines.
+# Exercises the explicit provider list path (non-empty recognition.providers + merge_policy),
+# matching how the iOS app persists recognition configuration — not legacy recognizer_chain-only mode.
 #
-# Does not start loopback audio — pair with pi-loopback-capture-sim for full capture.
+# For each fixture: writes config, restarts oceano-state-manager, sends SIGUSR1 to force a
+# recognition attempt, greps recent logs for the providers-based recognizer startup line.
+#
+# Does not start loopback audio — pair with pi-loopback-capture-sim for PCM-driven runs.
+#
+# Policy: run after any change to explicit provider list wiring — see
+# .cursor/skills/pi-recognition-explicit-providers-smoke/SKILL.md and docs/reference/recognition.md
 #
 # Usage (on the Pi, with sudo):
 #   sudo OCEANO_CONFIG=/etc/oceano/config.json ./scripts/pi-recognition-provider-smoke.sh
@@ -13,7 +18,6 @@ set -euo pipefail
 
 CFG="${OCEANO_CONFIG:-/etc/oceano/config.json}"
 DRY_RUN=0
-CHAINS=(acrcloud_first shazam_first audd_first acrcloud_only shazam_only audd_only)
 
 usage() {
   cat <<'EOF'
@@ -21,8 +25,10 @@ Usage: pi-recognition-provider-smoke.sh [--dry-run] [--config PATH]
 
 Requires: jq, systemd, oceano-state-manager.
 
+This script only tests the explicit provider list path: recognition.providers[] + merge_policy (iOS-style).
+
 Options:
-  --dry-run       Print jq/systemctl commands only
+  --dry-run       Print jq/systemctl actions only
   --config PATH   Config JSON (default: /etc/oceano/config.json or OCEANO_CONFIG)
   -h, --help      This help
 
@@ -32,6 +38,10 @@ Environment:
 Safety:
   Backs up the config once to <config>.bak.provider-smoke.<pid> and restores it
   on exit (trap), unless --dry-run.
+
+Note:
+  If credentials or Shazamio Python are missing on the Pi, some providers will be
+  skipped at runtime — logs still show whether the explicit-provider loader path is active.
 EOF
 }
 
@@ -48,6 +58,11 @@ if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required (sudo apt install -y jq)" >&2
   exit 1
 fi
+
+# Fixtures: JSON arrays for recognition.providers. Wire id "shazam" = Shazamio on Pi.
+FIX_ACR_ONLY=$(jq -c -n '[{id:"acrcloud",enabled:true,roles:["primary"]}]')
+FIX_THREE_PRIMARY=$(jq -c -n '[{id:"acrcloud",enabled:true,roles:["primary"]},{id:"audd",enabled:true,roles:["primary"]},{id:"shazam",enabled:true,roles:["primary"]}]')
+FIX_ACR_PRIMARY_AUDD_CONF=$(jq -c -n '[{id:"acrcloud",enabled:true,roles:["primary"]},{id:"audd",enabled:true,roles:["confirmer"]}]')
 
 BACKUP="${CFG}.bak.provider-smoke.$$"
 restore() {
@@ -72,19 +87,19 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
   echo "Backup: $BACKUP"
 fi
 
-apply_chain() {
-  local chain="$1"
+apply_explicit_provider_fixture() {
+  local label="$1"
+  local providers_json="$2"
   local tmp
   tmp="$(mktemp)"
-  # Legacy chain path: remove B0 providers so state-manager uses recognizer_chain.
-  jq --arg c "$chain" \
-    '.recognition.recognizer_chain = $c
-     | del(.recognition.providers)
-     | del(.recognition.merge_policy)' \
+  jq --argjson p "$providers_json" \
+    '.recognition.providers = $p
+     | .recognition.merge_policy = "first_success"
+     | .recognition.recognizer_chain = (.recognition.recognizer_chain // "acrcloud_first")' \
     "$CFG" >"$tmp"
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    echo "Would: cp $tmp -> $CFG && systemctl restart oceano-state-manager (chain=$chain)"
+    echo "Would apply explicit-provider fixture $label: $providers_json"
     rm -f "$tmp"
     return 0
   fi
@@ -95,18 +110,21 @@ apply_chain() {
   sleep 2
   systemctl kill --kill-who=main --signal=SIGUSR1 oceano-state-manager.service || true
   sleep 2
+
+  echo "--- journalctl after: $label ---"
+  journalctl -u oceano-state-manager.service -n 80 --no-pager \
+    | grep -E "recognizer: (using recognition\.providers|provider id=|ACRCloud enabled|AudD enabled|Shazamio enabled|resolved to no available primary|chain=)" \
+    || echo "(no matching lines in last 80 — try: journalctl -u oceano-state-manager -f)"
 }
 
-echo "=== Provider chain smoke (legacy recognizer_chain) ==="
-for chain in "${CHAINS[@]}"; do
-  echo "--- Chain: $chain ---"
-  apply_chain "$chain"
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    continue
-  fi
-  journalctl -u oceano-state-manager.service -n 80 --no-pager \
-    | grep -E "recognizer: (chain policy=|using recognition\.providers|ACRCloud enabled|AudD enabled|Shazamio enabled|chain=)" \
-    || echo "(no matching recognizer lines in last 80 log lines — check full journalctl)"
-done
+echo "=== Explicit recognition.providers smoke (iOS-style path) ==="
+apply_explicit_provider_fixture "acrcloud_primary_only" "$FIX_ACR_ONLY"
+apply_explicit_provider_fixture "three_primary_acr_aud_shazam" "$FIX_THREE_PRIMARY"
+apply_explicit_provider_fixture "acr_primary_aud_confirmer" "$FIX_ACR_PRIMARY_AUDD_CONF"
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "Dry run complete."
+  exit 0
+fi
 
 echo "Done. Config restored on exit."

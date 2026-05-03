@@ -376,7 +376,7 @@ type RecognitionConfig struct {
 	// Valid values: "acrcloud_first" (default), "shazam_first", "acrcloud_only", "shazam_only",
 	// "audd_first", "audd_only".
 	RecognizerChain string `json:"recognizer_chain"`
-	// Providers is an optional ordered list (B0). When non-empty, oceano-state-manager
+	// Providers is an optional ordered explicit provider list. When non-empty, oceano-state-manager
 	// reads it from this config file (--calibration-config) and uses it instead of
 	// RecognizerChain for primary/confirmer ordering. Omitted or empty: legacy chain only.
 	Providers []RecognitionProviderConfig `json:"providers,omitempty"`
@@ -438,7 +438,7 @@ type RecognitionConfig struct {
 	BoundaryRestoreMinSeekSecs int `json:"boundary_restore_min_seek_secs"`
 }
 
-// RecognitionProviderConfig is one entry in recognition.providers[] (B0).
+// RecognitionProviderConfig is one entry in recognition.providers[] (explicit provider list).
 type RecognitionProviderConfig struct {
 	ID            string   `json:"id"`
 	Enabled       bool     `json:"enabled"`

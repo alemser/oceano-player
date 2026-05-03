@@ -14,6 +14,7 @@ Use it as a practical policy when implementing backend changes.
 - Run relevant tests for touched areas; run full repo tests for broad refactors.
 - Treat failing tests as blockers; fix or revert before finishing.
 - Keep compatibility paths for API/config contracts whenever possible.
+- **Explicit `recognition.providers` / `merge_policy`:** Any change to how the non-empty provider list is loaded, validated, mapped to recognizers, or serialized in web config must also run the Pi smoke `scripts/pi-recognition-provider-smoke.sh` (see `.cursor/skills/pi-recognition-explicit-providers-smoke/SKILL.md` and [reference/recognition.md](reference/recognition.md#explicit-provider-list-mandatory-verification)) in addition to `go test ./cmd/oceano-state-manager/...`.
 
 ## 3) Contract-first backend changes
 
