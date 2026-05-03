@@ -490,8 +490,8 @@ Record contract changes in `docs/cross-repo-sync.md` when `oceano-state.json`, `
 | Phase | Scope |
 |-------|--------|
 | **B1c** | Introduce **`UsageLimiter`** + SQLite counters + wiring in coordinator; **no default limits** until JSON present; **`POST /api/recognition/usage/reset`** (or shared library entrypoint) + **Counter reset** UX on web/iOS. |
-| **B2+** | When **AudD** / multi-provider is default, ship **example presets** in docs (not in image) for common vendor tiers. |
-| **I1+** | iOS editors for `usage_limits` + usage readback + **Reset local counters** per provider (same contract as web reset API). |
+| **AudD presets (docs)** | When **AudD** / multi-provider is default, ship **example presets** in docs (not in image) for common vendor tiers. |
+| **iOS usage limits UI** | Editors for `usage_limits` + usage readback + **Reset local counters** per provider (same contract as web reset API). |
 
 Align with **`recognition-provider-chain-improvement.md`** so global “parallel mode” quotas and per-provider limits compose predictably (e.g. **stricter of local limit vs global coordinator cap** wins).
 
@@ -547,29 +547,29 @@ Use these **after** a recording id or reliable **artist + title** (e.g. from ACR
 | Phase | Scope |
 |-------|--------|
 | **Explicit provider list** | **Shipped:** `recognition.providers[]` + `merge_policy` (default `first_success`); **non-empty `providers`** required for physical recognition; **`recognizer_chain` not used** for runtime ordering (see **Minimum executable install** — recognition optional until configured). |
-| **B1** | **`buildRecognitionComponents`** data-driven from `providers` + **roles**; confirmer / arbitration wiring; logs + validation hints for invalid configs. |
-| **B1b** | Extend **`merge_policy`** (`best_score`, `require_agreement`, `arbitrate`) without changing default behavior until explicitly set. |
-| **B1c** | **Per-provider usage limits** — `UsageLimiter`, SQLite-backed counters, coordinator choke-point; optional `usage_limits` on each provider; defaults **off**; **reset** API + UI to clear local counters and unblock (see **Counter reset**). |
-| **B2** | **AudD** — **shipped** in `internal/recognition/audd.go`; config `audd_api_token` + chain modes `audd_first` / `audd_only` + insertion into `acrcloud_first` / `shazam_first` when token set. Further REST providers reuse the same pattern. |
-| **B3** | **Continuity refactor**: `continuity.enabled`, `continuity.provider`; migrate Shazam-prefixed keys; hardware validation. |
-| **B4** | **RMS-aware** capture skip / LP run-in tuning; extends to **quiet program starts** and optional **first-window capture policy** (see **Quiet program starts, live fades, and capture gain**). |
-| **B5** | **Option A** Pi endpoint(s) or channel for **iOS-mediated** recognition jobs; security review. |
+| **Provider roles & confirmer wiring** | **`buildRecognitionComponents`** (and successors) fully data-driven from `providers` + **roles**; confirmer / arbitration wiring; logs + validation hints for invalid configs. |
+| **Extended `merge_policy`** | Values such as `best_score`, `require_agreement`, `arbitrate` without changing default `first_success` until explicitly set. |
+| **Per-provider usage limits** | `UsageLimiter`, SQLite-backed counters, coordinator choke-point; optional `usage_limits` on each provider; defaults **off**; **reset** API + UI to clear local counters and unblock (see **Counter reset**). |
+| **Additional REST providers (AudD)** | **Shipped** in `internal/recognition/audd.go`; config `audd_api_token` + chain modes `audd_first` / `audd_only` + insertion into `acrcloud_first` / `shazam_first` when token set. Further REST providers reuse the same pattern. |
+| **Continuity config refactor** | `continuity.enabled`, `continuity.provider`; migrate Shazam-prefixed keys; hardware validation. |
+| **RMS-aware capture tuning** | Capture skip / LP run-in tuning; extends to **quiet program starts** and optional **first-window capture policy** (see **Quiet program starts, live fades, and capture gain**). |
+| **Delegated recognition (Option A)** | Pi endpoint(s) or channel for **iOS-mediated** recognition jobs; security review. |
 
 ### iOS (`oceano-player-ios`) — after contract is stable
 
 | Phase | Scope |
 |-------|--------|
-| **I1** ✅ **(MVP UI shipped; contract follow-up)** | **Recognition settings** (`oceano-player-ios`): provider cards, reorder, toggles, credentials, masking, **`shazamio`** disclosure. **Backend now requires** persisted **`recognition.providers[]`** on every save that should enable physical recognition — do not rely on `recognizer_chain` alone (see **iOS I1 — completion status**). |
-| **I2** | **Option A** client: subscribe to Pi job channel, run provider calls with Keychain secrets, return results. |
-| **I3** | Optional: **`user_picks_on_conflict`** UI when state exposes `track_candidates[]`. |
+| **iOS recognition settings (MVP shipped)** ✅ | Provider cards, reorder, toggles, credentials, masking, **`shazamio`** disclosure. **Backend requires** persisted **`recognition.providers[]`** on every save that should enable physical recognition — do not rely on `recognizer_chain` alone (see **iOS — completion status** below). |
+| **Delegated client jobs (Option A)** | Subscribe to Pi job channel, run provider calls with Keychain secrets, return results. |
+| **Conflict-resolution UI** | Optional: **`user_picks_on_conflict`** when state exposes `track_candidates[]`. |
 
-#### iOS I1 — completion status (2026-05-02)
+#### iOS recognition settings — completion status (2026-05-02)
 
 **MVP UI (2026-05-02)** in `oceano-player-ios`: Physical Media settings use **provider cards** with **drag-and-drop order**, per-card **toggle**, and **disclosure** for credentials (ACRCloud, AudD API token, shazamio path / flag); save goes through **`POST /api/config`** with `recognizer_chain` + credential fields derived from slot order/toggles via `RecognitionProviderCatalog` (client-side); **`acoustid_client_key`** is stripped on load/save. `PhysicalMediaConfigView.swift` / `PhysicalMediaConfigClient.swift`.
 
 **Follow-up (2026-05-03 backend):** iOS must **always emit `recognition.providers`** (non-empty when recognition should run) on save — backend no longer infers providers from `recognizer_chain`. Surface **`not_configured`** / empty-provider states in UX if helpful.
 
-**Still open vs full I1 scope:** per-provider **`usage_limits`** editors and **usage reset** actions, richer BYOK / unofficial **`shazamio`** copy — see **Deferred: Provider quota / rate-limit UX** (this doc).
+**Still open vs full settings scope:** per-provider **`usage_limits`** editors and **usage reset** actions, richer BYOK / unofficial **`shazamio`** copy — see **Deferred: Provider quota / rate-limit UX** (this doc).
 
 ### Deferred / parallel research
 

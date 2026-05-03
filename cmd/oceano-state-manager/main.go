@@ -109,6 +109,10 @@ type mgr struct {
 	// Used by buildState to set state="idle" during inter-track gaps, and by
 	// the recognition coordinator to skip recognition attempts during silence.
 	vuInSilence bool
+	// lastVuLeft/lastVuRight mirror the latest VU socket frame (throttled markDirty).
+	lastVuLeft       float64
+	lastVuRight      float64
+	vuMeterPublishAt time.Time
 	// physicalSeekMS and physicalSeekUpdatedAt provide a best-effort seek
 	// position for the Physical source progress bar. Set when recognition
 	// completes (boundary or fallback), using the elapsed time since capture

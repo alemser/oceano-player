@@ -48,6 +48,8 @@ The backend must expose a single stream (WebSocket or SSE) that the UI consumes:
 }
 ```
 
+`vu` is present in `/tmp/oceano-state.json` when the VU socket is active; **`oceano-web` SSE and `GET /api/status` omit `vu` by default** and require **`?vu=1`** to include it (see `docs/reference/http-lightweight-clients.md`). HDMI Now Playing uses **`/api/stream?vu=1`**.
+
 Track metadata for physical media (Vinyl/CD) is identified via the configured online recognizer chain.
 
 ## Architecture
@@ -216,6 +218,7 @@ Output: `/tmp/oceano-source.json`
 - Shell scripts: `bash`, `set -euo pipefail`, no external deps beyond standard Pi OS packages
 - Systemd for process supervision — no custom daemons or init scripts
 - Output state as atomic JSON file writes (`write tmp → rename`)
+- **Naming:** use meaningful identifiers in code and comments; do not introduce opaque requirement-phase codes (**B0**, **B1**, **R3**, …) as names. See [`docs/standards.md`](docs/standards.md) §9. Legacy JSON keys (e.g. `r3_telemetry_nudges`) stay frozen; describe them in prose when documenting.
 
 ## Engineering principles valued in this repo
 
@@ -229,7 +232,7 @@ Output: `/tmp/oceano-source.json`
 - **Operational reliability on Raspberry Pi**: prioritize stable long-running behavior, predictable backoff/retry logic, and atomic state updates.
 - **Documentation stays in sync**: when architecture/workflows change, update README/CLAUDE/install help in the same change set.
 
-For an explicit, agent-oriented policy, see `docs/engineering-standards.md`.
+For an explicit, agent-oriented policy, see [`docs/standards.md`](docs/standards.md).
 
 ## Deployment
 

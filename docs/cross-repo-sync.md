@@ -41,6 +41,30 @@ Run this checklist for any change touching:
    - Validate changed endpoints manually (or with existing tests).
    - Confirm no accidental contract drift remains.
 
+---
+
+## Log: 2026-05-03 — Lightweight HTTP: VU-gated SSE, player summary, library sync
+
+**Contract owner:** [`docs/reference/http-lightweight-clients.md`](reference/http-lightweight-clients.md)
+
+**Backend (`oceano-web` + `oceano-state-manager`)**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `GET /api/stream` | **Compatible** | Default SSE payload **omits** top-level `vu` (use `?vu=1` to match on-disk JSON). Named SSE event **`library`** with `{"library_version":n}` when the counter bumps. |
+| `GET /api/status` | **Compatible** | Same `vu` rule: default omit; `?vu=1` includes meters. |
+| `GET /api/player/summary` | **Additive** | Small state + `library_version`; **`ETag` / `304`**; header **`X-Oceano-Library-Version`**. |
+| `GET /api/library` | **Compatible** | **`ETag` / `304`** + **`X-Oceano-Library-Version`** on full list response. |
+| `GET /api/library/changes` | **Additive** | `since_version` → `deleted_ids` + `upserts` + current `library_version`. |
+| `PlayerState.vu` | **Additive** | State file may include `vu` levels (throttled writes from VU socket). |
+| SQLite `oceano_library_sync` + `library_changelog` | **Additive** | Triggers on `collection` maintain monotonic **`library_version`**. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] Prefer **`GET /api/player/summary`** with **`If-None-Match`** for foreground polling; use SSE without `vu` unless showing meters.
+- [ ] Library: use **`GET /api/library`** `ETag`/`304` and/or **`GET /api/library/changes`**; optionally listen for SSE **`event: library`**.
+- [ ] Confirm any code that assumed **`vu` always present** on SSE/status is updated (default is now omitted).
+
 ## Suggested iOS impact template
 
 ```md
@@ -253,9 +277,24 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 ---
 
+## Log: 2026-05-03 — `GET /api/config` ETag; recognition POST restart dedup
+
+**Backend (`oceano-web`)**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `ETag` + `304` | **Compatible** | `GET /api/config` sets `ETag` (SHA-256 of JSON body), `Cache-Control: private, no-cache`; `If-None-Match` → `304 Not Modified` when unchanged. Documented in `docs/backend-recognition-providers-contract.md`. |
+| `POST /api/config` | **Compatible** | `oceano-state-manager` restart skipped when `recognition` differs only by materializer normalization (nil vs empty `providers`, default `merge_policy`) — same on-disk semantics as before. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] Optional: send `If-None-Match` on config refresh to use `304` (bandwidth / battery).
+
+---
+
 ## Log: 2026-05-03 — `recognition.providers` required; `recognizer_chain` deprecated for runtime
 
-**Companion contract (downstream repo):** `oceano-player-ios/docs/backend-recognition-providers-contract.md` — checklist for implementers (non-empty `providers` on POST, GET upgrade path, `not_configured`, UX copy). Item 3 there must state that the **client** merges `providers` into the POST body; **`oceano-web` does not** synthesize providers from `recognizer_chain`.
+**Companion contract (downstream repo):** `oceano-player-ios/docs/backend-recognition-providers-contract.md` — in-tree mirror: `docs/backend-recognition-providers-contract.md`. Checklist for implementers (non-empty `providers` on POST, GET upgrade path, `not_configured`, UX copy). Item 3 there must state that the **client** merges `providers` into the POST body; **`oceano-web` does not** synthesize providers from `recognizer_chain`.
 
 **Backend (`oceano-player` — shipped)**
 

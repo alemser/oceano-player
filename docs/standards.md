@@ -52,7 +52,14 @@ Use it as a practical policy when implementing backend changes.
 - If breaking is unavoidable, provide migration notes and compatibility fallback when feasible.
 - Call out removed defaults/flags explicitly in docs and release notes.
 
-## 9) Agent completion criteria
+## 9) Meaningful names — no opaque requirement codes
+
+- Do **not** name functions, types, variables, or in-code comments after internal requirement shorthand (**B0**, **B1**, **I2**, **R3**, etc.). Those codes are hard to grep and age poorly (compare: a feature once referred to only as “R3” in discussion).
+- Prefer **descriptive** identifiers: e.g. `buildRecognitionProvidersPayloadForSave`, `recognitionProvidersMissingOnPi`, “telemetry-driven VU nudges” in prose.
+- **Frozen wire / config keys** (e.g. `advanced.r3_telemetry_nudges`) must **not** be renamed without an explicit migration — they stay for compatibility. In **new** docs and comments, spell out what they do; you may mention the JSON key in backticks once.
+- **Planning docs** may keep historical milestone tables if each row’s **title** is descriptive; avoid adding new single-letter or `B1`-style phase codes.
+
+## 10) Agent completion criteria
 
 A backend task is only complete when all are true:
 

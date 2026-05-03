@@ -116,8 +116,8 @@ type amplifierInputRecognitionPolicyItem struct {
 }
 
 type amplifierInputRecognitionPolicyResponse struct {
-	LastKnownInputID string                                 `json:"last_known_input_id"`
-	Items            []amplifierInputRecognitionPolicyItem  `json:"items"`
+	LastKnownInputID string                                `json:"last_known_input_id"`
+	Items            []amplifierInputRecognitionPolicyItem `json:"items"`
 }
 
 // --- amplifier handlers ---
@@ -385,8 +385,8 @@ func (s *amplifierServer) handleAmplifierSelectInput(w http.ResponseWriter, r *h
 		return
 	}
 	var req struct {
-		Steps          int             `json:"steps"`
-		Direction      string          `json:"direction"`
+		Steps          int              `json:"steps"`
+		Direction      string           `json:"direction"`
 		TargetInputID  AmplifierInputID `json:"target_input_id"`
 		CurrentInputID AmplifierInputID `json:"current_input_id"`
 	}

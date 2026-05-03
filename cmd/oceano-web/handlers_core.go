@@ -26,18 +26,24 @@ func handleStatus(configPath string) http.HandlerFunc {
 			http.Error(w, `{"error":"state file not found"}`, http.StatusServiceUnavailable)
 			return
 		}
+		out, err := rewriteStateJSONForClient(data, streamWantsVU(r))
+		if err != nil {
+			out = data
+		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
+		w.Header().Set("Cache-Control", "private, no-cache")
+		w.Write(out)
 	}
 }
 
-func handleStream(configPath string) http.HandlerFunc {
+func handleStream(configPath, libraryDBPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "streaming not supported", http.StatusInternalServerError)
 			return
 		}
+		includeVU := streamWantsVU(r)
 		cfg, _ := loadConfig(configPath)
 		stateFile := cfg.Advanced.StateFile
 
@@ -48,7 +54,42 @@ func handleStream(configPath string) http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
 		writeStateEvent := func(data []byte) {
-			fmt.Fprint(w, formatSSEDataFrame(data))
+			out, err := rewriteStateJSONForClient(data, includeVU)
+			if err != nil {
+				out = data
+			}
+			fmt.Fprint(w, formatSSEDataFrame(out))
+			flusher.Flush()
+		}
+
+		var lib *LibraryDB
+		if strings.TrimSpace(libraryDBPath) != "" {
+			var err error
+			lib, err = openLibraryDB(libraryDBPath)
+			if err != nil {
+				log.Printf("sse: library open: %v", err)
+				lib = nil
+			}
+		}
+		if lib != nil {
+			defer lib.close()
+		}
+
+		lastLibVer := int64(-1)
+		emitLibraryVersion := func() {
+			if lib == nil {
+				return
+			}
+			v, err := lib.getLibraryVersion()
+			if err != nil || v == lastLibVer {
+				return
+			}
+			lastLibVer = v
+			b, err := json.Marshal(map[string]int64{"library_version": v})
+			if err != nil {
+				return
+			}
+			fmt.Fprint(w, formatSSEEvent("library", b))
 			flusher.Flush()
 		}
 
@@ -59,6 +100,7 @@ func handleStream(configPath string) http.HandlerFunc {
 				writeStateEvent(data)
 			}
 		}
+		emitLibraryVersion()
 
 		tick := time.NewTicker(500 * time.Millisecond)
 		ping := time.NewTicker(15 * time.Second)
@@ -73,19 +115,18 @@ func handleStream(configPath string) http.HandlerFunc {
 				fmt.Fprintf(w, ": ping\n\n")
 				flusher.Flush()
 			case <-tick.C:
+				var stateData []byte
 				info, err := os.Stat(stateFile)
-				if err != nil {
-					continue
+				if err == nil && info.ModTime().After(lastMod) {
+					lastMod = info.ModTime()
+					if d, err := os.ReadFile(stateFile); err == nil {
+						stateData = d
+					}
 				}
-				if !info.ModTime().After(lastMod) {
-					continue
+				if len(stateData) > 0 {
+					writeStateEvent(stateData)
 				}
-				lastMod = info.ModTime()
-				data, err := os.ReadFile(stateFile)
-				if err != nil {
-					continue
-				}
-				writeStateEvent(data)
+				emitLibraryVersion()
 			}
 		}
 	}
@@ -606,7 +647,7 @@ func handleConfig(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			apiGetConfig(w, configPath)
+			apiGetConfig(w, r, configPath)
 		case http.MethodPost:
 			apiPostConfig(w, r, configPath)
 		default:

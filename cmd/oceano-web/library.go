@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -160,6 +161,10 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 			_ = l.db.Close()
 			return nil, fmt.Errorf("library: merge legacy shazam recognition summary: %w", err)
 		}
+	}
+	if err := ensureLibrarySyncSchema(l.db); err != nil {
+		_ = l.db.Close()
+		return nil, err
 	}
 	return l, nil
 }
@@ -548,6 +553,117 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 	return entries, rows.Err()
 }
 
+// getLibraryVersion returns oceano_library_sync.library_version (0 if missing).
+func (l *LibraryDB) getLibraryVersion() (int64, error) {
+	if l == nil || l.db == nil {
+		return 0, nil
+	}
+	var v sql.NullInt64
+	err := l.db.QueryRow(`SELECT library_version FROM oceano_library_sync WHERE id = 1`).Scan(&v)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if !v.Valid {
+		return 0, nil
+	}
+	return v.Int64, nil
+}
+
+// entryByID returns one collection row or nil if not found.
+func (l *LibraryDB) entryByID(id int64) (*LibraryEntry, error) {
+	if l == nil || l.db == nil {
+		return nil, nil
+	}
+	row := l.db.QueryRow(`
+		SELECT id, COALESCE(acrid,''), COALESCE(shazam_id,''), title, artist, COALESCE(album,''), COALESCE(label,''),
+		       COALESCE(released,''), COALESCE(format,'Unknown'),
+		       COALESCE(track_number,''), COALESCE(artwork_path,''),
+		       COALESCE(duration_ms,0), play_count, first_played, last_played, COALESCE(user_confirmed,0),
+		       COALESCE(boundary_sensitive,0)
+		FROM collection WHERE id = ?`, id)
+	var e LibraryEntry
+	var confirmed, boundarySens int
+	err := row.Scan(&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist, &e.Album, &e.Label, &e.Released, &e.Format,
+		&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed, &boundarySens)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	e.UserConfirmed = confirmed == 1
+	e.BoundarySensitive = boundarySens == 1
+	return &e, nil
+}
+
+// LibraryChangesResponse is JSON for GET /api/library/changes.
+type LibraryChangesResponse struct {
+	LibraryVersion int64          `json:"library_version"`
+	DeletedIDs     []int64        `json:"deleted_ids"`
+	Upserts        []LibraryEntry `json:"upserts"`
+}
+
+// libraryChangesSince returns rows touched after sinceVersion (exclusive), ordered by changelog seq.
+func (l *LibraryDB) libraryChangesSince(sinceVersion int64) (*LibraryChangesResponse, error) {
+	cur, err := l.getLibraryVersion()
+	if err != nil {
+		return nil, err
+	}
+	out := &LibraryChangesResponse{LibraryVersion: cur, DeletedIDs: []int64{}, Upserts: []LibraryEntry{}}
+	if sinceVersion < 0 {
+		sinceVersion = 0
+	}
+	if sinceVersion >= cur {
+		return out, nil
+	}
+	rows, err := l.db.Query(`
+		SELECT collection_id, op FROM library_changelog WHERE version > ? ORDER BY seq`, sinceVersion)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	upsertIDs := make(map[int64]struct{})
+	for rows.Next() {
+		var cid int64
+		var op string
+		if err := rows.Scan(&cid, &op); err != nil {
+			return nil, err
+		}
+		switch strings.ToLower(strings.TrimSpace(op)) {
+		case "delete":
+			out.DeletedIDs = append(out.DeletedIDs, cid)
+			delete(upsertIDs, cid)
+		case "upsert":
+			upsertIDs[cid] = struct{}{}
+		default:
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for id := range upsertIDs {
+		e, err := l.entryByID(id)
+		if err != nil {
+			return nil, err
+		}
+		if e != nil {
+			out.Upserts = append(out.Upserts, *e)
+		}
+	}
+	// Map iteration order is non-deterministic; stable order helps tests and clients.
+	if len(out.Upserts) > 1 {
+		sort.Slice(out.Upserts, func(i, j int) bool { return out.Upserts[i].ID < out.Upserts[j].ID })
+	}
+	if len(out.DeletedIDs) > 1 {
+		sort.Slice(out.DeletedIDs, func(i, j int) bool { return out.DeletedIDs[i] < out.DeletedIDs[j] })
+	}
+	return out, nil
+}
+
 // search returns user-confirmed tracks matching title/artist/album query.
 func (l *LibraryDB) search(q string, limit int) ([]LibraryEntry, error) {
 	q = strings.TrimSpace(strings.ToLower(q))
@@ -819,8 +935,17 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			return
 		}
 		if lib == nil {
+			body := []byte("[]")
+			etag := weakJSONETag(body)
+			w.Header().Set("ETag", etag)
+			w.Header().Set("X-Oceano-Library-Version", "0")
+			w.Header().Set("Cache-Control", "private, no-cache")
+			if configETagMatches(r.Header.Get("If-None-Match"), etag) {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte("[]"))
+			w.Write(body)
 			return
 		}
 		defer lib.close()
@@ -833,8 +958,54 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		if entries == nil {
 			entries = []LibraryEntry{}
 		}
+		body, err := json.Marshal(entries)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		libVer, _ := lib.getLibraryVersion()
+		etag := weakJSONETag(body)
+		w.Header().Set("ETag", etag)
+		w.Header().Set("X-Oceano-Library-Version", strconv.FormatInt(libVer, 10))
+		w.Header().Set("Cache-Control", "private, no-cache")
+		if configETagMatches(r.Header.Get("If-None-Match"), etag) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(entries)
+		w.Write(body)
+	})
+
+	// GET /api/library/changes?since_version=N — incremental collection updates.
+	mux.HandleFunc("/api/library/changes", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		since := int64(0)
+		if raw := strings.TrimSpace(r.URL.Query().Get("since_version")); raw != "" {
+			if v, err := strconv.ParseInt(raw, 10, 64); err == nil {
+				since = v
+			}
+		}
+		lib, err := openLibraryDB(libraryDBPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if lib == nil {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(&LibraryChangesResponse{})
+			return
+		}
+		defer lib.close()
+		out, err := lib.libraryChangesSince(since)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(out)
 	})
 
 	mux.HandleFunc("/api/library/search", func(w http.ResponseWriter, r *http.Request) {

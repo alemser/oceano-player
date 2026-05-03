@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"reflect"
+	"strings"
+)
 
 // materializeRecognitionProvidersIfEmpty normalizes recognition.providers and
 // merge_policy for persistence. It does not synthesize providers from
@@ -22,6 +25,31 @@ func materializeRecognitionProvidersIfEmpty(rec *RecognitionConfig) {
 	if strings.TrimSpace(rec.MergePolicy) == "" {
 		rec.MergePolicy = "first_success"
 	}
+}
+
+// recognitionRecognitionEqualForRestart compares recognition blocks for whether
+// persisting would change oceano-state-manager behavior. It treats nil vs empty
+// providers and omitted vs default merge_policy like materialize + state-manager
+// defaults, avoiding spurious service restarts when POST only normalizes JSON.
+func recognitionRecognitionEqualForRestart(a, b RecognitionConfig) bool {
+	return reflect.DeepEqual(
+		normalizeRecognitionForManagerRestart(a),
+		normalizeRecognitionForManagerRestart(b),
+	)
+}
+
+func normalizeRecognitionForManagerRestart(r RecognitionConfig) RecognitionConfig {
+	out := r
+	if len(out.Providers) == 0 {
+		out.Providers = []RecognitionProviderConfig{}
+	}
+	mp := strings.TrimSpace(out.MergePolicy)
+	if mp == "" {
+		mp = "first_success"
+	}
+	out.MergePolicy = mp
+	out.ShazamioPythonBin = ""
+	return out
 }
 
 func normalizeRecognizerChainValue(raw string) string {

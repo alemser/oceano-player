@@ -158,7 +158,11 @@ func (m *mgr) buildState() PlayerState {
 		Recognition:            recognition,
 		PhysicalDetectorActive: m.physicalSource == "Physical",
 		AirPlayTransport:       airplayTransport,
-		UpdatedAt:              time.Now().UTC().Format(time.RFC3339),
+		Vu: &VuLevels{
+			Left:  m.lastVuLeft,
+			Right: m.lastVuRight,
+		},
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 }
 

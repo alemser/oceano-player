@@ -522,7 +522,7 @@ let _reconnectTimer = null;
 function connect() {
   if (_es) { _es.close(); _es = null; }
 
-  _es = new EventSource('/api/stream');
+  _es = new EventSource('/api/stream?vu=1');
 
   _es.onopen = () => {
     clearTimeout(_reconnectTimer);

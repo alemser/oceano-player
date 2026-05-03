@@ -146,6 +146,40 @@ var migrations = []string{
 		SELECT 'ShazamioContinuity', event, count FROM recognition_summary WHERE provider = 'ShazamContinuity'
 		ON CONFLICT(provider, event) DO UPDATE SET count = count + excluded.count`,
 	`DELETE FROM recognition_summary WHERE provider = 'ShazamContinuity'`,
+	// Client sync: monotonic library_version + changelog for incremental library API.
+	`CREATE TABLE IF NOT EXISTS oceano_library_sync (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		library_version INTEGER NOT NULL DEFAULT 0
+	)`,
+	`INSERT OR IGNORE INTO oceano_library_sync (id, library_version) VALUES (1, 0)`,
+	`CREATE TABLE IF NOT EXISTS library_changelog (
+		seq INTEGER PRIMARY KEY AUTOINCREMENT,
+		version INTEGER NOT NULL,
+		collection_id INTEGER NOT NULL,
+		op TEXT NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS library_changelog_version_idx ON library_changelog(version)`,
+	`DROP TRIGGER IF EXISTS collection_ai_library_sync`,
+	`CREATE TRIGGER collection_ai_library_sync AFTER INSERT ON collection BEGIN
+		UPDATE oceano_library_sync SET library_version = library_version + 1 WHERE id = 1;
+		INSERT INTO library_changelog(version, collection_id, op)
+			SELECT library_version, NEW.id, 'upsert' FROM oceano_library_sync WHERE id = 1;
+	END`,
+	`DROP TRIGGER IF EXISTS collection_au_library_sync`,
+	`CREATE TRIGGER collection_au_library_sync AFTER UPDATE ON collection BEGIN
+		UPDATE oceano_library_sync SET library_version = library_version + 1 WHERE id = 1;
+		INSERT INTO library_changelog(version, collection_id, op)
+			SELECT library_version, NEW.id, 'upsert' FROM oceano_library_sync WHERE id = 1;
+	END`,
+	`DROP TRIGGER IF EXISTS collection_ad_library_sync`,
+	`CREATE TRIGGER collection_ad_library_sync AFTER DELETE ON collection BEGIN
+		UPDATE oceano_library_sync SET library_version = library_version + 1 WHERE id = 1;
+		INSERT INTO library_changelog(version, collection_id, op)
+			SELECT library_version, OLD.id, 'delete' FROM oceano_library_sync WHERE id = 1;
+	END`,
+	// Baseline changelog for existing installs (does not re-run once library_changelog has rows).
+	`INSERT INTO library_changelog(version, collection_id, op) SELECT 1, id, 'upsert' FROM collection WHERE NOT EXISTS (SELECT 1 FROM library_changelog LIMIT 1)`,
+	`UPDATE oceano_library_sync SET library_version = (SELECT COALESCE(MAX(version), 0) FROM library_changelog) WHERE id = 1`,
 }
 
 var currentSchemaVersion = len(migrations)
@@ -330,6 +364,26 @@ func Open(path string) (*Library, error) {
 
 func (l *Library) DB() *sql.DB {
 	return l.db
+}
+
+// LibraryVersion returns the monotonic counter bumped on collection INSERT/UPDATE/DELETE.
+// Used by HTTP clients for ETag / If-None-Match and incremental library sync.
+func (l *Library) LibraryVersion() (int64, error) {
+	if l == nil || l.db == nil {
+		return 0, nil
+	}
+	var v sql.NullInt64
+	err := l.db.QueryRow(`SELECT library_version FROM oceano_library_sync WHERE id = 1`).Scan(&v)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if !v.Valid {
+		return 0, nil
+	}
+	return v.Int64, nil
 }
 
 func (l *Library) migrate() error {
