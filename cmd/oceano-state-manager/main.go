@@ -464,13 +464,10 @@ func main() {
 	_ = os.MkdirAll(filepath.Dir(cfg.OutputFile), 0o755)
 
 	m := newMgr(cfg)
-	// Recognition plan does not depend on the library handle; build before first
-	// state write so recognition JSON reflects provider configuration.
-	components := buildRecognitionComponents(cfg, nil)
-	m.physicalRecognitionEnabled = components.chain != nil
-	rec := components.chain
-	confirmRec := components.confirmer
-	shazamioRec := components.continuity
+	// Plan order does not depend on the library handle; build once without lib so
+	// recognition JSON reflects provider configuration before the first state write.
+	planProbe := buildRecognitionComponents(cfg, nil)
+	m.physicalRecognitionEnabled = planProbe.chain != nil
 
 	var lib *internallibrary.Library
 	if cfg.LibraryDB != "" {
@@ -484,6 +481,12 @@ func main() {
 			m.lib = lib
 		}
 	}
+	// Re-build with the same cfg so wrapWithStats attaches to lib — provider
+	// recognition_summary counters require a non-nil library handle.
+	components := buildRecognitionComponents(cfg, lib)
+	rec := components.chain
+	confirmRec := components.confirmer
+	shazamioRec := components.continuity
 
 	m.markDirty() // write initial stopped state immediately
 

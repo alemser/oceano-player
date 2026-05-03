@@ -255,7 +255,9 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 ## Log: 2026-05-03 — `recognition.providers` required; `recognizer_chain` deprecated for runtime
 
-**Backend**
+**Companion contract (downstream repo):** `oceano-player-ios/docs/backend-recognition-providers-contract.md` — checklist for implementers (non-empty `providers` on POST, GET upgrade path, `not_configured`, UX copy). Item 3 there must state that the **client** merges `providers` into the POST body; **`oceano-web` does not** synthesize providers from `recognizer_chain`.
+
+**Backend (`oceano-player` — shipped)**
 
 | Item | Type | Notes |
 |------|------|-------|
@@ -264,11 +266,21 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 | `POST /api/config` materialize | **Breaking** | No longer synthesizes `providers` from `recognizer_chain`; empty/absent list stays empty (merge_policy default `first_success` when saving). |
 | `recognition` → state | **Additive** | `recognition.phase === "not_configured"` and `detail === "no_recognition_providers"` when no runnable primary chain. Now Playing shows setup copy. |
 
+**Backend checklist (this repo)**
+
+- [x] `oceano-state-manager`: recognition plan built **only** from `recognition.providers`; empty/missing → disabled + logs.
+- [x] `recognition_config_load.go`: load empty `providers` when `recognition` present; clear when `recognition` absent.
+- [x] `oceano-web`: `materializeRecognitionProvidersIfEmpty` no longer builds providers from `recognizer_chain`.
+- [x] `PlayerState.recognition` + kiosk `nowplaying/main.js`: `not_configured` / `no_recognition_providers`.
+- [x] `README.md`, `docs/reference/recognition.md`, `docs/metrics-snapshots/README.md` (upgrade `jq` example).
+
 **iOS follow-up (`oceano-player-ios`)**
 
-- [ ] Always persist a non-empty `recognition.providers` when the user enables ACRCloud / AudD / Shazamio slots (do not rely on `recognizer_chain` alone after upgrade).
-- [ ] Surface `not_configured` in Physical Media UX if the backend reports it (optional polish).
+- [x] In-tree contract + checklist: `docs/backend-recognition-providers-contract.md` (linked above).
+- [x] Persist non-empty `recognition.providers` on Physical Media save when recognition should run; do not rely on `recognizer_chain` alone (per contract doc — **verify on device** before release).
+- [x] GET without `providers` / empty: pre-fill from card model + prompt Save, or merge pre-filled list into **outgoing POST** (Pi does not infer providers).
+- [x] SSE / status: handle `phase === "not_configured"` + `detail === "no_recognition_providers"` (per contract doc — **verify on device**).
 
 **Risk**
 
-- [ ] **High** for Pi configs that never stored `recognition.providers` — mitigated by one **Save** from iOS or a one-time `jq` edit; see README troubleshooting *Track recognition not working*.
+- [x] **High** for Pi configs that never stored `recognition.providers` — mitigated by **Save** from iOS, contract doc, `docs/metrics-snapshots/README.md` `jq` example, and README troubleshooting *Track recognition not working*; re-open if field reports fail after upgrade.
