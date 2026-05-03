@@ -517,6 +517,45 @@ document.addEventListener('click', e => {
 });
 
 // ── Save config ──────────────────────────────────────────────────────────────
+/** Merges live DOM recognition fields (when present) into the loaded snapshot so POST /api/config matches the UI. */
+function buildRecognitionFromDom() {
+  const b = _recognitionConfig || {};
+  const r = { ...b };
+  if (document.getElementById('rec-chain')) {
+    r.recognizer_chain = val('rec-chain') || 'acrcloud_first';
+  }
+  if (document.getElementById('rec-host')) r.acrcloud_host = val('rec-host');
+  if (document.getElementById('rec-access-key')) r.acrcloud_access_key = val('rec-access-key');
+  if (document.getElementById('rec-secret-key')) r.acrcloud_secret_key = val('rec-secret-key');
+  if (document.getElementById('rec-audd-token')) r.audd_api_token = val('rec-audd-token');
+  const shazEl = document.getElementById('rec-shazam-enabled');
+  if (shazEl) r.shazam_recognizer_enabled = shazEl.checked;
+  if (document.getElementById('rec-duration')) r.capture_duration_secs = intOr('rec-duration', b.capture_duration_secs ?? 7);
+  if (document.getElementById('rec-interval')) r.max_interval_secs = intOr('rec-interval', b.max_interval_secs ?? 300);
+  if (document.getElementById('rec-refresh-interval')) {
+    r.refresh_interval_secs = intOr('rec-refresh-interval', b.refresh_interval_secs ?? 120);
+  }
+  if (document.getElementById('rec-no-match-backoff')) {
+    r.no_match_backoff_secs = intOr('rec-no-match-backoff', b.no_match_backoff_secs ?? 15);
+  }
+  if (document.getElementById('rec-confirm-delay')) {
+    r.confirmation_delay_secs = intOr('rec-confirm-delay', b.confirmation_delay_secs ?? 0);
+  }
+  if (document.getElementById('rec-confirm-duration')) {
+    r.confirmation_capture_duration_secs = intOr('rec-confirm-duration', b.confirmation_capture_duration_secs ?? 4);
+  }
+  if (document.getElementById('rec-confirm-bypass')) {
+    r.confirmation_bypass_score = intOr('rec-confirm-bypass', b.confirmation_bypass_score ?? 95);
+  }
+  if (document.getElementById('rec-continuity-interval')) {
+    r.shazam_continuity_interval_secs = intOr('rec-continuity-interval', b.shazam_continuity_interval_secs ?? 8);
+  }
+  if (document.getElementById('rec-continuity-capture')) {
+    r.shazam_continuity_capture_duration_secs = intOr('rec-continuity-capture', b.shazam_continuity_capture_duration_secs ?? 4);
+  }
+  return r;
+}
+
 const cfgForm = document.getElementById('cfg-form');
 if (cfgForm) cfgForm.addEventListener('submit', async e => {
   e.preventDefault();
@@ -541,12 +580,7 @@ if (cfgForm) cfgForm.addEventListener('submit', async e => {
       enabled: document.getElementById('bt-enabled')?.checked ?? false,
       name:    val('bt-name'),
     },
-    recognition: {
-      ..._recognitionConfig,
-      ...(document.getElementById('rec-shazam-enabled')
-        ? { shazam_recognizer_enabled: document.getElementById('rec-shazam-enabled').checked }
-        : {}),
-    },
+    recognition: buildRecognitionFromDom(),
     display: {
       ui_preset:                val('disp-preset'),
       cycle_time:               parseInt(val('disp-cycle-time')) || 30,

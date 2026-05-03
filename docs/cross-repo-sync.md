@@ -191,7 +191,7 @@ If you changed backend behavior and did not explicitly evaluate iOS impact, the 
 
 | Item | Type | Notes |
 |------|------|-------|
-| `recognition.providers` | **Additive** | Optional JSON array of `{ "id", "enabled", "roles", "credential_ref"? }`. Known `id` values: `acrcloud`, `audd`, `shazam`. Empty `roles` ⇒ entry skipped (per plan). When **non-empty**, `oceano-state-manager` reads ordering from **`--calibration-config`** (default `/etc/oceano/config.json`) and **does not use `--recognizer-chain`** for primary/confirmer construction. When **omitted** or empty: legacy **`recognizer_chain`** behaviour unchanged. |
+| `recognition.providers` | **Additive** | Optional JSON array of `{ "id", "enabled", "roles", "credential_ref"? }`. Known `id` values: `acrcloud`, `audd`, `shazam`. Empty `roles` ⇒ entry skipped (per plan). When **non-empty**, `oceano-state-manager` reads ordering from **`--calibration-config`** (default `/etc/oceano/config.json`) and **does not use `--recognizer-chain`** for primary/confirmer construction. When **omitted** or empty: legacy **`recognizer_chain`** behaviour unchanged. **`oceano-web` `POST /api/config`:** if `providers` is **missing** or **`[]`**, the server **materializes** `providers` + `merge_policy: first_success` from `recognizer_chain` and credential fields before writing JSON (non-empty `providers` in the body are left as-is). |
 | `recognition.merge_policy` | **Additive** | Optional string; default `first_success` when `providers` is used. Other values are logged and treated as `first_success` until extended merge_policy / coordinator work lands. |
 
 **iOS follow-up (`oceano-player-ios`)**

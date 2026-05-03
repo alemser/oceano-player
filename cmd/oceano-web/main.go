@@ -298,6 +298,8 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		return
 	}
 
+	materializeRecognitionProvidersIfEmpty(&cfg.Recognition)
+
 	if err := saveConfig(configPath, cfg); err != nil {
 		http.Error(w, "save failed: "+err.Error(), http.StatusInternalServerError)
 		return
