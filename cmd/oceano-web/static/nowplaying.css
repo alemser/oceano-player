@@ -72,6 +72,101 @@ body::after {
   filter: saturate(0.88) brightness(0.94);
 }
 
+/* Recognition in progress: keep last artwork/titles visible but subdued; status moves to corner badge (see main.js). */
+#app.identifying-mode #content {
+  transition: opacity 0.45s ease, filter 0.45s ease;
+  opacity: 0.78;
+  filter: saturate(0.9) brightness(0.9);
+}
+
+.identifying-badge {
+  position: absolute;
+  top: min(11vh, 104px);
+  left: max(2.2vw, 14px);
+  z-index: 8;
+  max-width: min(380px, calc(100vw - 28px));
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.38s ease, transform 0.38s ease;
+}
+
+.identifying-badge.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.identifying-badge-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px 10px 12px;
+  border-radius: 14px;
+  background: rgba(10, 14, 24, 0.78);
+  border: 1px solid rgba(85, 105, 155, 0.38);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.42);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.identifying-badge-waves {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.identifying-wave {
+  width: 4px;
+  height: 20px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(126, 184, 255, 0.95), rgba(74, 158, 255, 0.75));
+  transform-origin: center bottom;
+  animation: identifying-wave-pulse 0.95s ease-in-out infinite;
+}
+
+.identifying-wave:nth-child(2) { animation-delay: 0.12s; }
+.identifying-wave:nth-child(3) { animation-delay: 0.24s; }
+
+.identifying-badge:not(.is-visible) .identifying-wave {
+  animation: none;
+}
+
+@keyframes identifying-wave-pulse {
+  0%, 100% { transform: scaleY(0.32); opacity: 0.45; }
+  50%      { transform: scaleY(1); opacity: 1; }
+}
+
+.identifying-badge-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.identifying-badge-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #c5d0ef;
+  line-height: 1.25;
+}
+
+.identifying-badge-sub {
+  font-size: 0.66rem;
+  font-weight: 500;
+  color: #7f8cb0;
+  line-height: 1.35;
+  letter-spacing: 0.03em;
+}
+
+.identifying-badge.pulsing-sub.is-visible .identifying-badge-sub {
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
 /* ─── Source bar (top) ─────────────────────────────────────── */
 #source-bar {
   display: flex;
@@ -704,6 +799,10 @@ body:has(#idle-screen.visible) #amp-indicator {
   .amp-indicator { padding: 6px 9px; gap: 6px; }
   .amp-indicator-label { max-width: 112px; overflow: hidden; text-overflow: ellipsis; }
   .amp-indicator-input { max-width: 120px; }
+  .identifying-badge { top: 10px; left: 10px; max-width: min(280px, calc(100vw - 20px)); }
+  .identifying-badge-inner { padding: 8px 10px; gap: 8px; }
+  .identifying-badge-title { font-size: 0.62rem; }
+  .identifying-badge-sub { font-size: 0.58rem; }
 }
 
 

@@ -180,6 +180,21 @@
     </div>
 
   </div>
+
+  <!-- Floating status while recognition runs: discrete corner badge + optional wave animation -->
+  <div id="identifying-badge" class="identifying-badge" aria-hidden="true">
+    <div class="identifying-badge-inner">
+      <span class="identifying-badge-waves" aria-hidden="true">
+        <span class="identifying-wave"></span>
+        <span class="identifying-wave"></span>
+        <span class="identifying-wave"></span>
+      </span>
+      <div class="identifying-badge-copy">
+        <span id="identifying-badge-title" class="identifying-badge-title">Identifying…</span>
+        <div id="identifying-badge-sub" class="identifying-badge-sub"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="/nowplaying/helpers.js"></script>
