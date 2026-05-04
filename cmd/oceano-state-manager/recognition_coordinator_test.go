@@ -55,7 +55,7 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 	m.shazamioContinuityReady = true
 	m.mu.Unlock()
 
-	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Primary"}, nil, nil, nil, nil)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Primary"}, nil, nil, nil)
 
 	var backoffUntil time.Time
 	backoffRateLimited := false
@@ -94,7 +94,7 @@ func TestHandleNoMatch_SoftBoundaryPreservesRecognition(t *testing.T) {
 	m.physicalArtworkPath = "/tmp/existing.jpg"
 	m.mu.Unlock()
 
-	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Primary"}, nil, nil, nil, nil)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Primary"}, nil, nil, nil)
 
 	var backoffUntil time.Time
 	backoffRateLimited := false
@@ -122,7 +122,7 @@ func TestHandleNoMatch_SoftBoundaryPreservesRecognition(t *testing.T) {
 func TestDrainPendingTriggers_ReturnsDrainedCount(t *testing.T) {
 	m := newTestMgr()
 	m.recognizeTrigger = make(chan recognizeTrigger, 2)
-	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Primary"}, nil, nil, nil, nil)
+	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Primary"}, nil, nil, nil)
 
 	m.recognizeTrigger <- recognizeTrigger{isBoundary: false}
 	m.recognizeTrigger <- recognizeTrigger{isBoundary: true}
@@ -137,7 +137,7 @@ func TestDrainPendingTriggers_ReturnsDrainedCount(t *testing.T) {
 
 func TestHandleRecognitionErrorSetsBackoff(t *testing.T) {
 	m := newTestMgr()
-	c := newRecognitionCoordinator(m, &stubRecognizer{name: "A"}, nil, nil, nil, nil)
+	c := newRecognitionCoordinator(m, &stubRecognizer{name: "A"}, nil, nil, nil)
 
 	var backoffUntil time.Time
 	backoffRateLimited := false
@@ -153,7 +153,7 @@ func TestHandleRecognitionErrorSetsBackoff(t *testing.T) {
 
 func TestHandleRecognitionErrorSetsRateLimitBackoff(t *testing.T) {
 	m := newTestMgr()
-	c := newRecognitionCoordinator(m, &stubRecognizer{name: "A"}, nil, nil, nil, nil)
+	c := newRecognitionCoordinator(m, &stubRecognizer{name: "A"}, nil, nil, nil)
 
 	var backoffUntil time.Time
 	backoffRateLimited := false
@@ -252,7 +252,7 @@ func TestIsNewTrackCandidate(t *testing.T) {
 func TestRecognitionCoordinator_PrimaryRecognizerUsesChainPrimary(t *testing.T) {
 	primary := &stubRecognizer{name: "ACRCloud"}
 	fallback := &stubRecognizer{name: "Shazamio"}
-	coordinator := newRecognitionCoordinator(newTestMgr(), NewChainRecognizer(primary, fallback), nil, nil, nil, nil)
+	coordinator := newRecognitionCoordinator(newTestMgr(), NewChainRecognizer(primary, fallback), nil, nil, nil)
 
 	if got := coordinator.primaryRecognizer(); got != primary {
 		t.Fatalf("primaryRecognizer() = %v, want %v", got, primary)
@@ -298,7 +298,7 @@ func TestComputeRecognizedSeekMS_NonBoundaryDifferentMetadataResetsProgress(t *t
 
 func TestRecognitionCoordinator_PrimaryRecognizerReturnsRecognizerAsIs(t *testing.T) {
 	rec := &stubRecognizer{name: "ACRCloud"}
-	coordinator := newRecognitionCoordinator(newTestMgr(), rec, nil, nil, nil, nil)
+	coordinator := newRecognitionCoordinator(newTestMgr(), rec, nil, nil, nil)
 
 	if got := coordinator.primaryRecognizer(); got != rec {
 		t.Fatalf("primaryRecognizer() = %v, want %v", got, rec)
@@ -563,7 +563,7 @@ func TestApplyRecognizedResult_SetsPhysicalSeek(t *testing.T) {
 	m.mu.Lock()
 	m.physicalSource = "Physical"
 	m.mu.Unlock()
-	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil, nil)
+	coordinator := newRecognitionCoordinator(m, nil, nil, nil, nil)
 
 	captureStartedAt := time.Now().Add(-3 * time.Second) // simulate 3 s capture already elapsed
 	result := &RecognitionResult{ACRID: "acr-seek-1", Title: "Seek Track", Artist: "Artist", Score: 85}

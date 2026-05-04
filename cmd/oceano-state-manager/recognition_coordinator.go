@@ -2,39 +2,42 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 	"time"
 
+	"errors"
+
 	internallibrary "github.com/alemser/oceano-player/internal/library"
-	internalrecognition "github.com/alemser/oceano-player/internal/recognition"
+	internalmetadata "github.com/alemser/oceano-player/internal/metadata"
 )
 
 type recognitionCoordinator struct {
-	mgr         *mgr
-	rec         Recognizer
-	confirmRec  Recognizer
-	shazamioRec Recognizer
-	discogs     *internalrecognition.DiscogsClient
-	lib         *internallibrary.Library
+	mgr           *mgr
+	rec           Recognizer
+	confirmRec    Recognizer
+	shazamioRec   Recognizer
+	lib           *internallibrary.Library
+	metadataChain *internalmetadata.Chain
 }
 
-func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, shazamioRec Recognizer, discogs *internalrecognition.DiscogsClient, lib *internallibrary.Library) *recognitionCoordinator {
+func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, shazamioRec Recognizer, lib *internallibrary.Library) *recognitionCoordinator {
 	return &recognitionCoordinator{
 		mgr:         m,
 		rec:         rec,
 		confirmRec:  confirmRec,
 		shazamioRec: shazamioRec,
-		discogs:     discogs,
 		lib:         lib,
 	}
 }
 
-func (c *recognitionCoordinator) enrichWithDiscogsAsync(result *RecognitionResult) {
-	if c.discogs == nil || result == nil {
+// enrichWithMetadataChainAsync runs the metadata enrichment chain after recognition,
+// applying missing fields (album, label, released, discogs_url) to in-memory state
+// and the library DB. Artwork is handled synchronously in applyRecognizedResult.
+func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *RecognitionResult) {
+	if c.metadataChain == nil || result == nil {
 		return
 	}
 	snapshot := cloneRecognitionResult(result)
@@ -42,19 +45,29 @@ func (c *recognitionCoordinator) enrichWithDiscogsAsync(result *RecognitionResul
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), c.mgr.cfg.Discogs.Timeout+2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		enriched, err := c.discogs.EnrichTrack(ctx, snapshot.Artist, snapshot.Title, snapshot.Album, snapshot.Format)
+		req := internalmetadata.Request{
+			Title:       snapshot.Title,
+			Artist:      snapshot.Artist,
+			Album:       snapshot.Album,
+			Label:       snapshot.Label,
+			Released:    snapshot.Released,
+			TrackNumber: snapshot.TrackNumber,
+			DiscogsURL:  snapshot.DiscogsURL,
+			Format:      snapshot.Format,
+			ACRID:       snapshot.ACRID,
+			ShazamID:    snapshot.ShazamID,
+			// WantArtwork is false — artwork is handled synchronously in applyRecognizedResult.
+		}
+
+		patch, err := c.metadataChain.Run(ctx, req, nil)
 		if err != nil {
-			if errors.Is(err, ErrRateLimit) {
-				log.Printf("discogs enrichment: rate limited")
-				return
-			}
-			log.Printf("discogs enrichment: lookup failed: %v", err)
+			log.Printf("metadata chain: enrichment error for %s — %s: %v", snapshot.Artist, snapshot.Title, err)
 			return
 		}
-		if enriched == nil {
+		if patch == nil || patch.Empty() {
 			return
 		}
 
@@ -65,37 +78,37 @@ func (c *recognitionCoordinator) enrichWithDiscogsAsync(result *RecognitionResul
 			return
 		}
 		changed := false
-		if current.Album == "" && enriched.Album != "" {
-			current.Album = enriched.Album
+		if current.Album == "" && patch.Album != "" {
+			current.Album = patch.Album
 			changed = true
 		}
-		if current.Label == "" && enriched.Label != "" {
-			current.Label = enriched.Label
+		if current.Label == "" && patch.Label != "" {
+			current.Label = patch.Label
 			changed = true
 		}
-		if current.Released == "" && enriched.Released != "" {
-			current.Released = enriched.Released
+		if current.Released == "" && patch.Released != "" {
+			current.Released = patch.Released
 			changed = true
 		}
-		if current.TrackNumber == "" && enriched.TrackNumber != "" {
-			current.TrackNumber = enriched.TrackNumber
+		if current.TrackNumber == "" && patch.TrackNumber != "" {
+			current.TrackNumber = patch.TrackNumber
 			changed = true
 		}
-		if current.DiscogsURL == "" && enriched.DiscogsURL != "" {
-			current.DiscogsURL = enriched.DiscogsURL
+		if current.DiscogsURL == "" && patch.DiscogsURL != "" {
+			current.DiscogsURL = patch.DiscogsURL
 			changed = true
 		}
 		libraryID := c.mgr.physicalLibraryEntryID
 		c.mgr.mu.Unlock()
 
 		if changed {
-			log.Printf("discogs enrichment: applied metadata for %s — %s (score=%d)", snapshot.Artist, snapshot.Title, enriched.Score)
+			log.Printf("metadata chain: applied enrichment for %s — %s (provider=%s)", snapshot.Artist, snapshot.Title, patch.Provider)
 			c.mgr.markDirty()
 		}
 
 		if c.lib != nil && libraryID > 0 {
-			if dbErr := c.lib.UpdateDiscogsEnrichment(libraryID, enriched.DiscogsURL, enriched.Album, enriched.Label, enriched.Released); dbErr != nil {
-				log.Printf("discogs enrichment: db persist error: %v", dbErr)
+			if dbErr := c.lib.UpdateEnrichmentPatch(libraryID, patch.DiscogsURL, patch.Album, patch.Label, patch.Released, patch.Provider); dbErr != nil {
+				log.Printf("metadata chain: db persist error: %v", dbErr)
 			}
 		}
 	}()
@@ -632,7 +645,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 			c.mgr.physicalStartedAt = captureStartedAt
 		}
 		c.mgr.mu.Unlock()
-		c.enrichWithDiscogsAsync(result)
+		c.enrichWithMetadataChainAsync(result)
 		return
 	}
 
@@ -663,7 +676,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.physicalStartedAt = captureStartedAt
 	}
 	c.mgr.mu.Unlock()
-	c.enrichWithDiscogsAsync(result)
+	c.enrichWithMetadataChainAsync(result)
 }
 
 func resolvedRefreshInterval(refresh, max time.Duration) time.Duration {
