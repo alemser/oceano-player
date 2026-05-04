@@ -56,9 +56,6 @@ func TestDiscogsClient_EnrichTrack_SelectsBestCandidate(t *testing.T) {
 	if got.Released != "1959" {
 		t.Fatalf("released=%q want 1959", got.Released)
 	}
-	if got.TrackNumber != "1" {
-		t.Fatalf("track number=%q want 1 (Discogs tracklist match)", got.TrackNumber)
-	}
 }
 
 func TestDiscogsClient_EnrichTrack_YearAsString(t *testing.T) {
@@ -98,8 +95,34 @@ func TestDiscogsClient_EnrichTrack_YearAsString(t *testing.T) {
 	if got.Released != "1959" {
 		t.Fatalf("released=%q want 1959", got.Released)
 	}
-	if got.TrackNumber != "1" {
-		t.Fatalf("track number=%q want 1", got.TrackNumber)
+}
+
+func TestDiscogsClient_EnrichTrack_YearNonNumericString(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/database/search") {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"results":[{"title":"Artist - Album","year":"unknown","label":["Label"],"resource_url":"` + "http://" + r.Host + `/releases/1","format":["Vinyl"]}]}`))
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/releases/") {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"tracklist":[{"position":"A1","type_":"track","title":"Track One"}]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	client := NewDiscogsClient(DiscogsClientConfig{Token: "tok", Timeout: 2 * time.Second, MaxRetries: 1, BaseURL: srv.URL})
+	got, err := client.EnrichTrack(context.Background(), "Artist", "Track One", "Album", "Vinyl")
+	if err != nil {
+		t.Fatalf("EnrichTrack error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected enrichment result even with non-numeric year")
+	}
+	if got.Released != "" {
+		t.Fatalf("released=%q: want empty string for non-numeric year", got.Released)
 	}
 }
 
@@ -145,8 +168,8 @@ func TestCanonicalDiscogsTrackPosition(t *testing.T) {
 		{"cd2-11", "cd2-11"}, // HasPrefix CD → passthrough (case preserved in Fields join — actually we use Fields on original "cd2-11" → "cd2-11")
 	}
 	for _, tc := range tests {
-		if g := CanonicalDiscogsTrackPosition(tc.in); g != tc.want {
-			t.Fatalf("CanonicalDiscogsTrackPosition(%q) = %q want %q", tc.in, g, tc.want)
+		if g := canonicalDiscogsTrackPosition(tc.in); g != tc.want {
+			t.Fatalf("canonicalDiscogsTrackPosition(%q) = %q want %q", tc.in, g, tc.want)
 		}
 	}
 }

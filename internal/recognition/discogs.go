@@ -70,7 +70,8 @@ func (y *discogsYear) UnmarshalJSON(data []byte) error {
 		}
 		v, err := strconv.Atoi(s)
 		if err != nil {
-			return fmt.Errorf("discogs year %q: %w", s, err)
+			// Non-numeric year strings (e.g. "unknown", "?") are common in Discogs; treat as zero.
+			return nil
 		}
 		*y = discogsYear(v)
 		return nil
@@ -141,11 +142,6 @@ func (c *DiscogsClient) EnrichTrack(ctx context.Context, artist, title, album, p
 		resp, err := c.search(ctx, artist, title)
 		if err == nil {
 			best := pickBestDiscogsResult(resp.Results, artist, title, album, physicalFormat)
-			if best != nil && strings.TrimSpace(best.DiscogsURL) != "" {
-				if pos, errPos := c.resolveTrackNumberFromRelease(ctx, best.DiscogsURL, title); errPos == nil && pos != "" {
-					best.TrackNumber = pos
-				}
-			}
 			return best, nil
 		}
 		lastErr = err
@@ -185,7 +181,7 @@ var (
 	canonicalPosDigitsOnly  = regexp.MustCompile(`^\d{1,3}$`)
 )
 
-// CanonicalDiscogsTrackPosition normalizes Discogs release tracklist `position` strings (and library
+// canonicalDiscogsTrackPosition normalizes Discogs release tracklist `position` strings (and library
 // PATCH `track_number` from oceano-web) for stable JSON/state and alignment with the Now Playing
 // vinyl parser (`parseVinylTrackRef` in helpers.js).
 //
@@ -196,7 +192,7 @@ var (
 //   - Digits then letter ("2A", "3d", "12-A"): canonical digit(s) + uppercase side letter ("2A", "3D").
 //   - Multi-disc / Discogs compound labels ("CD1-3", "1-11", paths with "/"): only trim/collapse
 //     whitespace; no structural rewrite.
-func CanonicalDiscogsTrackPosition(pos string) string {
+func canonicalDiscogsTrackPosition(pos string) string {
 	pos = strings.TrimSpace(pos)
 	if pos == "" {
 		return ""
@@ -276,7 +272,7 @@ func matchDiscogsTracklistPosition(tracklist []discogsTracklistItem, wantTitle s
 			continue
 		}
 		if cand == want {
-			return CanonicalDiscogsTrackPosition(row.Position)
+			return canonicalDiscogsTrackPosition(row.Position)
 		}
 	}
 	// Second pass: substring match (compilation titles, subtle punctuation differences).
@@ -292,8 +288,8 @@ func matchDiscogsTracklistPosition(tracklist []discogsTracklistItem, wantTitle s
 		if cand == "" {
 			continue
 		}
-		if strings.Contains(cand, want) || strings.Contains(want, cand) {
-			return CanonicalDiscogsTrackPosition(row.Position)
+		if len(cand) >= 4 && len(want) >= 4 && (strings.Contains(cand, want) || strings.Contains(want, cand)) {
+			return canonicalDiscogsTrackPosition(row.Position)
 		}
 	}
 	return ""

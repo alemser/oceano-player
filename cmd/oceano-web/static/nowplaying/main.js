@@ -394,10 +394,8 @@ function applyState(state) {
     isPhysicalPlaybackSource(source) &&
     state.state === 'idle';
   let effectiveTrack = track;
-  if (holdActive && !track) {
-    effectiveTrack = _lastState?.track || null;
-  } else if (interTrackPhysicalSilence && !track) {
-    effectiveTrack = _lastState?.track || null;
+  if ((holdActive || interTrackPhysicalSilence) && !track) {
+    effectiveTrack = _lastState?.track || _lastGoodPhysicalTrack || null;
   }
 
   const isIdle = forceIdleForRecognitionOff || (!effectivePlaying || source === 'None');
@@ -419,20 +417,24 @@ function applyState(state) {
   _clockIdleVisible = deepClockIdle;
 
   /** CD/album ended: detector may drop (no inter-track silence path) while we wait for the deep clock.
-   *  Keep the last physical recognize result on screen and skip standby dim — avoids an empty dimmed shell
-   *  that reads like a broken idle preview. */
+   *  Keep the last physical recognized result on screen and skip standby dim — avoids an empty dimmed shell.
+   *  _lastState.track may be null when the CD ended via a VU-silence state; fall back to _lastGoodPhysicalTrack. */
   let holdStandbyLastFrame = false;
+  const lastKnownPhysicalFrame = (
+    _lastState &&
+    isPhysicalPlaybackSource(String(_lastState.source || 'None')) &&
+    isRecognizedTrack(_lastState.track)
+  ) ? _lastState.track
+    : (_lastGoodPhysicalTrack && isRecognizedTrack(_lastGoodPhysicalTrack) ? _lastGoodPhysicalTrack : null);
   if (
     chromeIdle &&
     !deepClockIdle &&
-    _lastState &&
     !isStreamingSource(source) &&
-    isPhysicalPlaybackSource(String(_lastState.source || 'None')) &&
-    isRecognizedTrack(_lastState.track) &&
+    isRecognizedTrack(lastKnownPhysicalFrame) &&
     !isRecognizedTrack(effectiveTrack)
   ) {
     holdStandbyLastFrame = true;
-    effectiveTrack = _lastState.track;
+    effectiveTrack = lastKnownPhysicalFrame;
   }
 
   if (chromeIdle && !deepClockIdle && _deepIdleStartedAtMs > 0) {
@@ -463,8 +465,12 @@ function applyState(state) {
     }
   }
   const $ampInd = document.getElementById('amp-indicator');
-  if ($ampInd && deepClockIdle) {
-    $ampInd.style.display = 'none';
+  if ($ampInd) {
+    if (deepClockIdle) {
+      $ampInd.style.display = 'none';
+    } else if ($ampInd.style.display === 'none') {
+      $ampInd.style.display = '';
+    }
   }
 
   // Source icon + label
