@@ -352,6 +352,19 @@ Whenever a feature is added, a flag is changed, or a workflow changes:
 
 If you make a change and notice that any of these are stale, update them in the same commit.
 
+## Backup / restore evolution guardrails (agent-critical)
+
+When changing backup, restore, SQLite schema, or `oceano-web` DB bootstrap logic:
+
+- Treat `internal/library` migrations as the single schema authority for `library.db`.
+- Avoid introducing web-only `ALTER TABLE` paths that can drift from `schema_migrations`.
+- If a restore can replace `library.db` while services are running, ensure `oceano-state-manager` is restarted so it reopens the new DB file.
+- Keep restore behavior forward-compatible: older backups should either migrate cleanly or be explicitly reconciled before state-manager writes.
+- Validate on real restore flow (`/api/backups/restore` and upload-restore), then check:
+  - DB opens with WAL,
+  - no `duplicate column` / `malformed schema` errors,
+  - state-manager library recording remains enabled.
+
 ## What NOT to do
 
 - Do not block the ALSA device with multiple `arecord` calls — consume the PCM socket from `oceano-source-detector` instead; PipeWire monitor taps are the long-term replacement

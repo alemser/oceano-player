@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +24,22 @@ type BackupInfo struct {
 	File      string    `json:"file"`
 	CreatedAt time.Time `json:"created_at"`
 	SizeBytes int64     `json:"size_bytes"`
+}
+
+// BackupPreflightReport describes compatibility checks for a backup archive
+// before running restore.
+type BackupPreflightReport struct {
+	File                      string `json:"file"`
+	Compatible                bool   `json:"compatible"`
+	ArchiveReadable           bool   `json:"archive_readable"`
+	HasLibraryDB              bool   `json:"has_library_db"`
+	HasConfig                 bool   `json:"has_config"`
+	LibraryIntegrityOK        bool   `json:"library_integrity_ok"`
+	BackupSchemaVersion       int    `json:"backup_schema_version"`
+	CurrentSchemaVersion      int    `json:"current_schema_version"`
+	HasDiscogsURLInBackup     bool   `json:"has_discogs_url_in_backup"`
+	HasDiscogsURLInCurrentDB  bool   `json:"has_discogs_url_in_current_db"`
+	Recommendations           []string `json:"recommendations"`
 }
 
 // backupFileName returns a UTC-timestamped backup filename.
@@ -402,6 +419,133 @@ func restoreFromBackup(backupPath, scope, libraryDBPath, artworkDir, configPath 
 	return msgs, nil
 }
 
+func sqliteSchemaSnapshot(path string) (integrity string, maxVersion int, hasDiscogsURL bool, err error) {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return "", 0, false, err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	if err := db.QueryRow(`PRAGMA integrity_check`).Scan(&integrity); err != nil {
+		return "", 0, false, err
+	}
+	if err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&maxVersion); err != nil {
+		// Older DBs may not have schema_migrations yet.
+		maxVersion = 0
+	}
+
+	rows, err := db.Query(`PRAGMA table_info(collection)`)
+	if err != nil {
+		return integrity, maxVersion, false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			colType   string
+			notNull   int
+			dfltValue sql.NullString
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return integrity, maxVersion, false, err
+		}
+		if strings.EqualFold(name, "discogs_url") {
+			hasDiscogsURL = true
+		}
+	}
+	return integrity, maxVersion, hasDiscogsURL, rows.Err()
+}
+
+func preflightBackup(backupPath, currentLibraryDBPath string) (*BackupPreflightReport, error) {
+	report := &BackupPreflightReport{
+		File:            filepath.Base(backupPath),
+		Compatible:      false,
+		ArchiveReadable: false,
+		Recommendations: []string{},
+	}
+
+	f, err := os.Open(backupPath)
+	if err != nil {
+		return report, fmt.Errorf("open backup: %w", err)
+	}
+	defer f.Close()
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return report, fmt.Errorf("gzip reader: %w", err)
+	}
+	defer gr.Close()
+
+	report.ArchiveReadable = true
+	tr := tar.NewReader(gr)
+
+	var extractedLibrary string
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return report, fmt.Errorf("read archive: %w", err)
+		}
+		switch hdr.Name {
+		case "library.db":
+			report.HasLibraryDB = true
+			tmp, err := os.CreateTemp("", "oceano-preflight-*.db")
+			if err != nil {
+				return report, err
+			}
+			extractedLibrary = tmp.Name()
+			if _, err := io.Copy(tmp, tr); err != nil {
+				tmp.Close()
+				return report, err
+			}
+			tmp.Close()
+		case "config.json":
+			report.HasConfig = true
+		}
+	}
+
+	if extractedLibrary == "" {
+		report.Recommendations = append(report.Recommendations, "Backup does not contain library.db")
+		return report, nil
+	}
+	defer os.Remove(extractedLibrary)
+
+	backupIntegrity, backupVersion, backupHasDiscogs, err := sqliteSchemaSnapshot(extractedLibrary)
+	if err != nil {
+		report.Recommendations = append(report.Recommendations, "Cannot inspect backup library.db")
+		return report, nil
+	}
+	report.LibraryIntegrityOK = strings.EqualFold(backupIntegrity, "ok")
+	report.BackupSchemaVersion = backupVersion
+	report.HasDiscogsURLInBackup = backupHasDiscogs
+
+	if _, statErr := os.Stat(currentLibraryDBPath); statErr == nil {
+		if currentIntegrity, currentVersion, currentHasDiscogs, curErr := sqliteSchemaSnapshot(currentLibraryDBPath); curErr == nil {
+			_ = currentIntegrity // currently informational; no strict gate.
+			report.CurrentSchemaVersion = currentVersion
+			report.HasDiscogsURLInCurrentDB = currentHasDiscogs
+		}
+	}
+
+	if !report.LibraryIntegrityOK {
+		report.Recommendations = append(report.Recommendations, "Backup DB integrity_check is not ok")
+	}
+	if report.CurrentSchemaVersion > 0 && report.BackupSchemaVersion > 0 && report.BackupSchemaVersion < report.CurrentSchemaVersion {
+		report.Recommendations = append(report.Recommendations,
+			fmt.Sprintf("Backup schema version (%d) is older than current (%d); restore is still possible but requires migration/reconciliation on startup", report.BackupSchemaVersion, report.CurrentSchemaVersion))
+	}
+
+	report.Compatible = report.ArchiveReadable && report.HasLibraryDB && report.LibraryIntegrityOK
+	if report.Compatible {
+		report.Recommendations = append(report.Recommendations, "Backup is structurally compatible for restore")
+	}
+	return report, nil
+}
+
 // registerBackupRoutes wires all backup and restore API endpoints into mux.
 //
 //	GET  /api/backups              — list available backups (JSON array)
@@ -411,6 +555,49 @@ func restoreFromBackup(backupPath, scope, libraryDBPath, artworkDir, configPath 
 //	GET  /api/library/export/backup — legacy redirect to latest backup download
 func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configPath string) {
 	backupDir := filepath.Dir(libraryDBPath)
+	restartAfterRestore := func(scope string, msgs []string) []string {
+		restoreLibrary := scope == "library" || scope == "both"
+		restoreConfig := scope == "config" || scope == "both"
+
+		// Library restores replace the SQLite file under running services.
+		// Restart state-manager so it reopens the fresh DB file and avoids stale
+		// handles/mixed old-vs-new inode reads.
+		if restoreLibrary {
+			if _, err := os.Stat(managerSvc); err == nil {
+				if rErr := restartService(managerUnit); rErr == nil {
+					msgs = append(msgs, "oceano-state-manager restarted")
+				} else {
+					msgs = append(msgs, "manager restart: "+rErr.Error())
+				}
+			}
+		}
+
+		// If config was restored, rewrite units and restart affected services.
+		if restoreConfig {
+			newCfg, cfgErr := loadConfig(configPath)
+			if cfgErr == nil {
+				if _, err := os.Stat(detectorSvc); err == nil {
+					if wErr := writeDetectorService(newCfg); wErr == nil {
+						if rErr := restartService(detectorUnit); rErr == nil {
+							msgs = append(msgs, "oceano-source-detector restarted")
+						} else {
+							msgs = append(msgs, "detector restart: "+rErr.Error())
+						}
+					}
+				}
+				if _, err := os.Stat(managerSvc); err == nil {
+					if wErr := writeManagerService(newCfg, configPath); wErr == nil {
+						if rErr := restartService(managerUnit); rErr == nil {
+							msgs = append(msgs, "oceano-state-manager restarted")
+						} else {
+							msgs = append(msgs, "manager restart: "+rErr.Error())
+						}
+					}
+				}
+			}
+		}
+		return msgs
+	}
 
 	// GET /api/backups — list available backups.
 	mux.HandleFunc("/api/backups", func(w http.ResponseWriter, r *http.Request) {
@@ -459,6 +646,31 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 		if _, err := io.Copy(w, bf); err != nil {
 			log.Printf("backup download: stream: %v", err)
 		}
+	})
+
+	// GET /api/backups/preflight?file=<name> — compatibility check before restore.
+	mux.HandleFunc("/api/backups/preflight", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		name := r.URL.Query().Get("file")
+		if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+			http.Error(w, "invalid file parameter", http.StatusBadRequest)
+			return
+		}
+		path := filepath.Join(backupDir, name)
+		if _, err := os.Stat(path); err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		report, err := preflightBackup(path, libraryDBPath)
+		if err != nil {
+			http.Error(w, "preflight failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(report)
 	})
 
 	// POST /api/backups/run — trigger an immediate backup now.
@@ -526,30 +738,7 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 			return
 		}
 
-		// If the config was restored, restart affected services.
-		if req.Scope == "config" || req.Scope == "both" {
-			newCfg, cfgErr := loadConfig(configPath)
-			if cfgErr == nil {
-				if _, err := os.Stat(detectorSvc); err == nil {
-					if wErr := writeDetectorService(newCfg); wErr == nil {
-						if rErr := restartService(detectorUnit); rErr == nil {
-							msgs = append(msgs, "oceano-source-detector restarted")
-						} else {
-							msgs = append(msgs, "detector restart: "+rErr.Error())
-						}
-					}
-				}
-				if _, err := os.Stat(managerSvc); err == nil {
-					if wErr := writeManagerService(newCfg, configPath); wErr == nil {
-						if rErr := restartService(managerUnit); rErr == nil {
-							msgs = append(msgs, "oceano-state-manager restarted")
-						} else {
-							msgs = append(msgs, "manager restart: "+rErr.Error())
-						}
-					}
-				}
-			}
-		}
+		msgs = restartAfterRestore(req.Scope, msgs)
 
 		log.Printf("restore from %s (scope=%s): %v", req.File, req.Scope, msgs)
 		w.Header().Set("Content-Type", "application/json")
@@ -604,34 +793,51 @@ func registerBackupRoutes(mux *http.ServeMux, libraryDBPath, artworkDir, configP
 			return
 		}
 
-		// Restart affected services if config was restored.
-		if scope == "config" || scope == "both" {
-			newCfg, cfgErr := loadConfig(configPath)
-			if cfgErr == nil {
-				if _, err := os.Stat(detectorSvc); err == nil {
-					if wErr := writeDetectorService(newCfg); wErr == nil {
-						if rErr := restartService(detectorUnit); rErr == nil {
-							msgs = append(msgs, "oceano-source-detector restarted")
-						} else {
-							msgs = append(msgs, "detector restart: "+rErr.Error())
-						}
-					}
-				}
-				if _, err := os.Stat(managerSvc); err == nil {
-					if wErr := writeManagerService(newCfg, configPath); wErr == nil {
-						if rErr := restartService(managerUnit); rErr == nil {
-							msgs = append(msgs, "oceano-state-manager restarted")
-						} else {
-							msgs = append(msgs, "manager restart: "+rErr.Error())
-						}
-					}
-				}
-			}
-		}
+		msgs = restartAfterRestore(scope, msgs)
 
 		log.Printf("upload-restore (scope=%s): %v", scope, msgs)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "results": msgs})
+	})
+
+	// POST /api/backups/upload-preflight — inspect uploaded backup archive without restoring.
+	mux.HandleFunc("/api/backups/upload-preflight", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := r.ParseMultipartForm(512 << 20); err != nil {
+			http.Error(w, "parse form: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		f, _, err := r.FormFile("backup")
+		if err != nil {
+			http.Error(w, "backup file missing: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer f.Close()
+
+		tmp, err := os.CreateTemp("", "oceano-upload-preflight-*.tar.gz")
+		if err != nil {
+			http.Error(w, "temp file: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		tmpPath := tmp.Name()
+		defer os.Remove(tmpPath)
+		if _, err := io.Copy(tmp, f); err != nil {
+			tmp.Close()
+			http.Error(w, "write upload: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		tmp.Close()
+
+		report, err := preflightBackup(tmpPath, libraryDBPath)
+		if err != nil {
+			http.Error(w, "preflight failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(report)
 	})
 
 	// GET /api/library/export/backup — legacy endpoint: redirect to latest backup.

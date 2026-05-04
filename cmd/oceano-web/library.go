@@ -187,7 +187,69 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		_ = l.db.Close()
 		return nil, err
 	}
+	if err := l.reconcileSchemaMigrations(); err != nil {
+		_ = l.db.Close()
+		return nil, err
+	}
 	return l, nil
+}
+
+// reconcileSchemaMigrations keeps schema_migrations aligned with columns that
+// may already exist in restored databases.
+//
+// Why this matters:
+// - Older backups can contain additive columns (e.g. discogs_url) while
+//   schema_migrations lags behind.
+// - If state-manager later runs its official migration chain, it can fail on
+//   duplicate-column errors unless the version marker is reconciled.
+func (l *LibraryDB) reconcileSchemaMigrations() error {
+	if l == nil || l.db == nil {
+		return nil
+	}
+	if _, err := l.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`); err != nil {
+		return fmt.Errorf("library: ensure schema_migrations: %w", err)
+	}
+
+	var maxVersion int
+	if err := l.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&maxVersion); err != nil {
+		return fmt.Errorf("library: read max schema version: %w", err)
+	}
+
+	rows, err := l.db.Query(`PRAGMA table_info(collection)`)
+	if err != nil {
+		return fmt.Errorf("library: inspect collection columns: %w", err)
+	}
+	defer rows.Close()
+
+	hasDiscogsURL := false
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			colType   string
+			notNull   int
+			dfltValue sql.NullString
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("library: scan table_info(collection): %w", err)
+		}
+		if strings.EqualFold(name, "discogs_url") {
+			hasDiscogsURL = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("library: iterate table_info(collection): %w", err)
+	}
+
+	// Keep in sync with internal/library migrations: v52 adds collection.discogs_url.
+	if hasDiscogsURL && maxVersion < 52 {
+		if _, err := l.db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES (52)`); err != nil {
+			return fmt.Errorf("library: reconcile migration v52: %w", err)
+		}
+		log.Printf("library: reconciled schema_migrations to include v52 (discogs_url present)")
+	}
+	return nil
 }
 
 // getRecognitionStats returns a map of provider -> event -> count.
