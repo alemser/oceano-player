@@ -334,6 +334,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	logConfigPostSummary(cfg)
 
 	materializeRecognitionProvidersIfEmpty(&cfg.Recognition)
 	if err := validateSafeAudioInputUpdate(old.AudioInput, cfg.AudioInput); err != nil {
@@ -487,6 +488,31 @@ func validateSafeAudioInputUpdate(oldCfg, newCfg AudioInputConfig) error {
 		return fmt.Errorf("refusing to clear both device and device_match; keep at least one capture selector")
 	}
 	return nil
+}
+
+func logConfigPostSummary(cfg Config) {
+	parts := make([]string, 0, len(cfg.Recognition.Providers))
+	for _, p := range cfg.Recognition.Providers {
+		role := ""
+		if len(p.Roles) > 0 {
+			role = strings.Join(p.Roles, ",")
+		}
+		parts = append(parts, fmt.Sprintf("%s(enabled=%t roles=%s)", p.ID, p.Enabled, role))
+	}
+	auddSet := strings.TrimSpace(cfg.Recognition.AudDAPIToken) != ""
+	acrSet := strings.TrimSpace(cfg.Recognition.ACRCloudHost) != "" &&
+		strings.TrimSpace(cfg.Recognition.ACRCloudAccessKey) != "" &&
+		strings.TrimSpace(cfg.Recognition.ACRCloudSecretKey) != ""
+	log.Printf(
+		"api/config POST summary: providers=[%s] merge_policy=%q chain=%q audd_set=%t acr_set=%t audio_input.device=%q audio_input.device_match=%q",
+		strings.Join(parts, " -> "),
+		cfg.Recognition.MergePolicy,
+		cfg.Recognition.RecognizerChain,
+		auddSet,
+		acrSet,
+		strings.TrimSpace(cfg.AudioInput.Device),
+		strings.TrimSpace(cfg.AudioInput.DeviceMatch),
+	)
 }
 
 // applyBluetoothConfig applies Bluetooth adapter settings that take effect
