@@ -59,6 +59,86 @@ func shouldBypassBackoff(isBoundaryTrigger, backoffRateLimited bool) bool {
 	return isBoundaryTrigger && !backoffRateLimited
 }
 
+// canonicalProviderID maps a recognizer display name to the stable ID used in
+// state.json and the provider-health endpoint.
+func canonicalProviderID(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.Contains(lower, "acrcloud"):
+		return "acrcloud"
+	case strings.Contains(lower, "shazam"):
+		return "shazam"
+	case strings.Contains(lower, "audd"):
+		return "audd"
+	default:
+		return ""
+	}
+}
+
+// recognizerCanonicalIDs returns canonical provider IDs for ALL providers in a
+// recognizer. For a ChainRecognizer whose Name() is "ACRCloud→Shazam" it splits
+// on "→" and maps each segment, skipping unknown names. Used when clearing
+// backoff after a successful recognition (all providers in the chain benefit).
+func recognizerCanonicalIDs(rec Recognizer) []string {
+	parts := strings.Split(rec.Name(), "→")
+	ids := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if id := canonicalProviderID(strings.TrimSpace(p)); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// rateLimitedCanonicalIDs returns the canonical provider ID of the specific
+// provider that returned ErrRateLimit. For a ChainRecognizer it consults
+// RateLimitedProviderName() so only the culprit is reported — not every
+// provider in the chain. For a single (non-chain) recognizer it uses its
+// own canonical ID, since it is by definition the one that rate-limited.
+func rateLimitedCanonicalIDs(rec Recognizer) []string {
+	if chain, ok := rec.(*ChainRecognizer); ok {
+		name := chain.RateLimitedProviderName()
+		if name == "" {
+			return nil // chain recorded no rate-limit culprit
+		}
+		if id := canonicalProviderID(name); id != "" {
+			return []string{id}
+		}
+		return nil
+	}
+	return recognizerCanonicalIDs(rec)
+}
+
+// setProviderBackoff records that a provider is rate-limited until the given
+// time. Logs on the first entry into backoff (transition from not-limited).
+func (m *mgr) setProviderBackoff(providerID string, until time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.providerBackoffExpires == nil {
+		m.providerBackoffExpires = make(map[string]time.Time)
+	}
+	prev := m.providerBackoffExpires[providerID]
+	m.providerBackoffExpires[providerID] = until
+	if prev.IsZero() || time.Now().After(prev) {
+		log.Printf("recognition: provider %s rate-limited until %s", providerID, until.UTC().Format(time.RFC3339))
+	}
+}
+
+// clearProviderBackoff removes any active backoff entry for the given provider.
+// Logs when clearing an entry that had not yet expired.
+func (m *mgr) clearProviderBackoff(providerID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.providerBackoffExpires == nil {
+		return
+	}
+	prev, had := m.providerBackoffExpires[providerID]
+	delete(m.providerBackoffExpires, providerID)
+	if had && !prev.IsZero() && time.Now().Before(prev) {
+		log.Printf("recognition: provider %s backoff cleared (was until %s)", providerID, prev.UTC().Format(time.RFC3339))
+	}
+}
+
 func shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth bool) bool {
 	return !isPhysical || isAirPlay || isBluetooth
 }
@@ -156,9 +236,13 @@ func (c *recognitionCoordinator) handleRecognitionError(err error, backoffUntil 
 	log.Printf("recognizer [%s]: error: %v", c.rec.Name(), err)
 	if errors.Is(err, ErrRateLimit) {
 		const rateLimitBackoff = 5 * time.Minute
+		until := time.Now().Add(rateLimitBackoff)
 		log.Printf("recognizer [%s]: rate limited — backing off %s", c.rec.Name(), rateLimitBackoff)
-		*backoffUntil = time.Now().Add(rateLimitBackoff)
+		*backoffUntil = until
 		*backoffRateLimited = true
+		for _, id := range rateLimitedCanonicalIDs(c.rec) {
+			c.mgr.setProviderBackoff(id, until)
+		}
 		return true
 	}
 	const errorBackoff = 30 * time.Second
@@ -288,6 +372,14 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 		}
 		log.Printf("recognizer [%s]: confirmation capture error — accepting original result: %v", c.rec.Name(), confErr)
 		return false, false
+	}
+	if tel, gainErr := applyCaptureAutoGainOnWAVFile(confWav, c.mgr.cfg.RecognitionCaptureAutoGain); gainErr != nil {
+		if c.mgr.cfg.Verbose {
+			log.Printf("recognizer [%s]: confirmation capture auto-gain skipped: %v", c.rec.Name(), gainErr)
+		}
+	} else if tel.Applied {
+		log.Printf("recognizer [%s]: confirmation capture auto-gain applied gain=%.2fx rms %.4f→%.4f peak %.4f→%.4f clipped=%d",
+			c.rec.Name(), tel.Gain, tel.BeforeRMS, tel.AfterRMS, tel.BeforePeak, tel.AfterPeak, tel.Clipped)
 	}
 
 	confCtx2, confCancel2 := context.WithTimeout(ctx, confDur+10*time.Second)
@@ -745,6 +837,14 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			})
 			continue
 		}
+		if tel, gainErr := applyCaptureAutoGainOnWAVFile(wavPath, c.mgr.cfg.RecognitionCaptureAutoGain); gainErr != nil {
+			if c.mgr.cfg.Verbose {
+				log.Printf("recognizer [%s]: capture auto-gain skipped: %v", c.rec.Name(), gainErr)
+			}
+		} else if tel.Applied {
+			log.Printf("recognizer [%s]: capture auto-gain applied gain=%.2fx rms %.4f→%.4f peak %.4f→%.4f clipped=%d",
+				c.rec.Name(), tel.Gain, tel.BeforeRMS, tel.AfterRMS, tel.BeforePeak, tel.AfterPeak, tel.Clipped)
+		}
 
 		triggerStr := "fallback_timer"
 		if isBoundaryTrigger {
@@ -803,6 +903,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 
 		backoffUntil = time.Time{}
 		backoffRateLimited = false
+		for _, id := range recognizerCanonicalIDs(c.rec) {
+			c.mgr.clearProviderBackoff(id)
+		}
 
 		if result != nil {
 			source, score := recognitionLogFields(result)

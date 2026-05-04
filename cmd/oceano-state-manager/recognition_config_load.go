@@ -20,6 +20,7 @@ func applyRecognitionProvidersFromConfigFile(cfg *Config) {
 	if path == "" {
 		cfg.RecognitionProviders = nil
 		cfg.RecognitionMergePolicy = ""
+		cfg.RecognitionCaptureAutoGain = defaultRecognitionCaptureAutoGainConfig()
 		return
 	}
 	data, err := os.ReadFile(path)
@@ -27,24 +28,28 @@ func applyRecognitionProvidersFromConfigFile(cfg *Config) {
 		log.Printf("recognizer: cannot read %s for recognition.providers: %v", path, err)
 		cfg.RecognitionProviders = nil
 		cfg.RecognitionMergePolicy = ""
+		cfg.RecognitionCaptureAutoGain = defaultRecognitionCaptureAutoGainConfig()
 		return
 	}
 	var top struct {
 		Recognition *struct {
-			Providers                 []RecognitionProviderSpec `json:"providers"`
-			MergePolicy               string                    `json:"merge_policy"`
-			ShazamRecognizerEnabled   *bool                     `json:"shazam_recognizer_enabled"`
+			Providers               []RecognitionProviderSpec       `json:"providers"`
+			MergePolicy             string                          `json:"merge_policy"`
+			ShazamRecognizerEnabled *bool                           `json:"shazam_recognizer_enabled"`
+			CaptureAutoGain         RecognitionCaptureAutoGainConfig `json:"capture_auto_gain"`
 		} `json:"recognition"`
 	}
 	if err := json.Unmarshal(data, &top); err != nil {
 		log.Printf("recognizer: parse %s: %v", path, err)
 		cfg.RecognitionProviders = nil
 		cfg.RecognitionMergePolicy = ""
+		cfg.RecognitionCaptureAutoGain = defaultRecognitionCaptureAutoGainConfig()
 		return
 	}
 	if top.Recognition == nil {
 		cfg.RecognitionProviders = nil
 		cfg.RecognitionMergePolicy = ""
+		cfg.RecognitionCaptureAutoGain = defaultRecognitionCaptureAutoGainConfig()
 		return
 	}
 	mp := strings.TrimSpace(top.Recognition.MergePolicy)
@@ -53,6 +58,7 @@ func applyRecognitionProvidersFromConfigFile(cfg *Config) {
 	}
 	cfg.RecognitionMergePolicy = mp
 	cfg.RecognitionProviders = append([]RecognitionProviderSpec(nil), top.Recognition.Providers...)
+	cfg.RecognitionCaptureAutoGain = normalizeRecognitionCaptureAutoGainConfig(top.Recognition.CaptureAutoGain)
 
 	// recognition.shazam_recognizer_enabled: when explicitly false, treat shazam as off
 	// in the provider list so the subprocess is not started (iOS / web toggle).

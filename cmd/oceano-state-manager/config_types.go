@@ -47,6 +47,14 @@ type RecognitionStatus struct {
 	// recognition policy (from calibration config). Empty when unknown.
 	ActiveInputID   string `json:"active_input_id,omitempty"`
 	ActiveInputName string `json:"active_input_name,omitempty"`
+	// RateLimitedProviders lists canonical provider IDs currently in rate-limit
+	// backoff: "acrcloud", "shazam", "audd". Omitted when empty.
+	RateLimitedProviders []string `json:"rate_limited_providers,omitempty"`
+	// BackoffExpires maps each rate-limited provider ID to its backoff expiry as a
+	// Unix epoch second (UTC). Omitted when no providers are rate-limited. iOS
+	// clients should use this to compute relative durations ("disponível em ~12 min")
+	// without timezone ambiguity.
+	BackoffExpires map[string]int64 `json:"backoff_expires,omitempty"`
 }
 
 // VuLevels holds the latest stereo meter snapshot from oceano-source-detector
@@ -80,6 +88,14 @@ type PlayerState struct {
 	// detector is currently active. It exposes recognizer phase so the UI can
 	// distinguish "identifying", "matched", "no_match", and "off" states.
 	Recognition *RecognitionStatus `json:"recognition,omitempty"`
+	// ProviderBackoff maps canonical provider IDs ("acrcloud", "shazam", "audd")
+	// to their rate-limit backoff expiry as a Unix epoch second (UTC). Present
+	// regardless of the active source — a provider can be rate-limited from a
+	// Physical session even while AirPlay or Bluetooth is playing. Omitted when
+	// no providers are in backoff. Clients should prefer this over
+	// recognition.backoff_expires for config-screen health views, as recognition
+	// is omitted when source is not Physical.
+	ProviderBackoff map[string]int64 `json:"provider_backoff,omitempty"`
 	// PhysicalDetectorActive is true only while /tmp/oceano-source.json reports
 	// Physical. False during the post-Physical idle-delay tail when source is
 	// still promoted to CD/Vinyl for UI grace — lets the display avoid "Identifying…"
@@ -180,6 +196,10 @@ type Config struct {
 	// RecognitionConfig.CaptureDurationSecs in cmd/oceano-web/config.go; deployed
 	// units normally pass --recognizer-capture-duration from that JSON via oceano-web.
 	RecognizerCaptureDuration time.Duration
+	// RecognitionCaptureAutoGain optionally applies a bounded gain correction to
+	// recognition captures before provider calls. This is capture-only and does
+	// not affect source detection or VU boundary thresholds.
+	RecognitionCaptureAutoGain RecognitionCaptureAutoGainConfig
 	// RecognizerMaxInterval is the periodic fallback re-recognition interval used
 	// when no track has been identified yet. On timer-based fires the previous
 	// result is kept on a no-match so the display is not blanked mid-track.
@@ -282,6 +302,7 @@ func defaultConfig() Config {
 		VUSilenceThreshold:                      0.0095,
 		CalibrationConfigPath:                   "/etc/oceano/config.json",
 		RecognizerCaptureDuration:               7 * time.Second,
+		RecognitionCaptureAutoGain:              defaultRecognitionCaptureAutoGainConfig(),
 		RecognizerMaxInterval:                   5 * time.Minute,
 		RecognizerRefreshInterval:               2 * time.Minute,
 		NoMatchBackoff:                          15 * time.Second,

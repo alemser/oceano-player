@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -398,6 +399,145 @@ type boundaryCalibrationReadiness struct {
 	RmsLearningEnabled           bool   `json:"rms_learning_enabled"`
 	RmsAutonomousApply           bool   `json:"rms_autonomous_apply"`
 	RmsCaptureNote               string `json:"rms_capture_note"`
+}
+
+// providerHealthEntry is one row in GET /api/recognition/provider-health.
+type providerHealthEntry struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	// Configured is true when the provider is enabled in recognition.providers[]
+	// AND has non-empty credentials in config (e.g. host/key/secret for ACRCloud).
+	// false means "enabled but credentials missing" — provider will not run.
+	Configured     bool     `json:"configured"`
+	RateLimited    bool     `json:"rate_limited"`
+	BackoffExpires *int64   `json:"backoff_expires,omitempty"` // Unix epoch second; key omitted (not null) when not rate-limited
+	LastSuccessAt  *int64   `json:"last_success_at,omitempty"` // Unix epoch second; key omitted when no success in 24h
+	LastAttemptAt  *int64   `json:"last_attempt_at,omitempty"` // Unix epoch second; key omitted when no attempt in 24h
+	Attempts24h    int      `json:"attempts_24h"`
+	SuccessRate24h *float64 `json:"success_rate_24h,omitempty"` // key omitted when no attempts; otherwise 0.0–1.0
+}
+
+// providerHealthResponse is JSON for GET /api/recognition/provider-health.
+// DataComplete is false when state.json or the SQLite DB was unavailable —
+// the client should treat the data as a best-effort snapshot.
+type providerHealthResponse struct {
+	Providers    []providerHealthEntry `json:"providers"`
+	DataComplete bool                  `json:"data_complete"`
+}
+
+// stateFileProviderBackoff is the minimal parse target for extracting the
+// top-level provider_backoff map from /tmp/oceano-state.json. This field is
+// always present when providers are rate-limited, regardless of the active
+// source (unlike recognition.backoff_expires which is omitted during AirPlay).
+type stateFileProviderBackoff struct {
+	ProviderBackoff map[string]int64 `json:"provider_backoff"`
+}
+
+// isProviderCredentialed reports whether provider id has the required
+// credentials in cfg to actually run. "Enabled" in providers[] is necessary
+// but not sufficient — missing credentials prevent the provider from starting.
+func isProviderCredentialed(id string, cfg Config) bool {
+	switch id {
+	case "acrcloud":
+		return strings.TrimSpace(cfg.Recognition.ACRCloudHost) != "" &&
+			strings.TrimSpace(cfg.Recognition.ACRCloudAccessKey) != "" &&
+			strings.TrimSpace(cfg.Recognition.ACRCloudSecretKey) != ""
+	case "shazam":
+		return cfg.Recognition.ShazamioRecognizerEnabled
+	case "audd":
+		return strings.TrimSpace(cfg.Recognition.AudDAPIToken) != ""
+	default:
+		return false
+	}
+}
+
+// providerHealth24hStats holds aggregated attempt stats for one canonical provider ID.
+type providerHealth24hStats struct {
+	Attempts      int
+	Successes     int
+	LastSuccessAt int64 // Unix epoch second; 0 if none
+	LastAttemptAt int64 // Unix epoch second; 0 if none
+}
+
+// dbProviderToCanonicalID maps a recognizer Name() as stored in recognition_attempts
+// to the stable canonical ID used in config.json and state.json.
+func dbProviderToCanonicalID(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.Contains(lower, "acrcloud"):
+		return "acrcloud"
+	case strings.Contains(lower, "shazam"):
+		return "shazam"
+	case strings.Contains(lower, "audd"):
+		return "audd"
+	default:
+		return ""
+	}
+}
+
+// providerDisplayName returns a human-readable label for a canonical provider ID.
+func providerDisplayName(id string) string {
+	switch id {
+	case "acrcloud":
+		return "ACRCloud"
+	case "shazam":
+		return "Shazam"
+	case "audd":
+		return "AudD"
+	default:
+		return id
+	}
+}
+
+// recognitionProviderHealthStats returns per-canonical-ID attempt stats for
+// the last 24 hours, aggregating all DB provider name variants that share an ID.
+func (l *LibraryDB) recognitionProviderHealthStats() (map[string]*providerHealth24hStats, error) {
+	rows, err := l.db.Query(`
+		SELECT provider,
+		       COUNT(*) AS attempts,
+		       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS successes,
+		       MAX(CASE WHEN outcome = 'success'
+		               THEN CAST(strftime('%s', occurred_at) AS INTEGER)
+		               ELSE NULL END) AS last_success_at,
+		       MAX(CAST(strftime('%s', occurred_at) AS INTEGER)) AS last_attempt_at
+		FROM recognition_attempts
+		WHERE occurred_at >= datetime('now', '-24 hours')
+		GROUP BY provider`)
+	if err != nil {
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "no such table") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]*providerHealth24hStats)
+	for rows.Next() {
+		var dbName string
+		var attempts, successes int
+		var lastSuccessAt, lastAttemptAt sql.NullInt64
+		if err := rows.Scan(&dbName, &attempts, &successes, &lastSuccessAt, &lastAttemptAt); err != nil {
+			return nil, err
+		}
+		id := dbProviderToCanonicalID(dbName)
+		if id == "" {
+			continue
+		}
+		if _, ok := result[id]; !ok {
+			result[id] = &providerHealth24hStats{}
+		}
+		s := result[id]
+		s.Attempts += attempts
+		s.Successes += successes
+		if lastSuccessAt.Valid && lastSuccessAt.Int64 > s.LastSuccessAt {
+			s.LastSuccessAt = lastSuccessAt.Int64
+		}
+		if lastAttemptAt.Valid && lastAttemptAt.Int64 > s.LastAttemptAt {
+			s.LastAttemptAt = lastAttemptAt.Int64
+		}
+	}
+	return result, rows.Err()
 }
 
 func (l *LibraryDB) countR3PairedFollowupsSince(sinceRFC3339 string) (int, error) {
@@ -1329,6 +1469,88 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			"source":           "default_baseline",
 			"note":             "Enable adaptive tuning and RMS autonomous apply, then Save & Restart Services.",
 		})
+	})
+
+	// GET /api/recognition/provider-health — per-provider snapshot for the config screen.
+	// Combines current rate-limit state from state.json with 24h attempt stats from SQLite.
+	// Rate-limited is derived from backoff_expires > now (not from attempt heuristics).
+	mux.HandleFunc("/api/recognition/provider-health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		cfg, _ := loadConfig(configPath)
+		dataComplete := true
+
+		// Read rate-limit backoff from the top-level provider_backoff field in
+		// state.json. This field is present regardless of the active source
+		// (unlike recognition.backoff_expires, which is omitted during AirPlay/BT).
+		backoffExpires := map[string]int64{}
+		if data, err := os.ReadFile(stateFilePath); err != nil {
+			log.Printf("provider-health: state file unavailable: %v", err)
+			dataComplete = false
+		} else {
+			var snap stateFileProviderBackoff
+			if err := json.Unmarshal(data, &snap); err != nil {
+				log.Printf("provider-health: state file parse error: %v", err)
+				dataComplete = false
+			} else if snap.ProviderBackoff != nil {
+				backoffExpires = snap.ProviderBackoff
+			}
+		}
+
+		// Query 24h attempt stats from SQLite.
+		stats := map[string]*providerHealth24hStats{}
+		if lib, err := openLibraryDB(libraryDBPath); err != nil {
+			log.Printf("provider-health: library DB unavailable: %v", err)
+			dataComplete = false
+		} else if lib != nil {
+			defer lib.close()
+			if s, err := lib.recognitionProviderHealthStats(); err != nil {
+				log.Printf("provider-health: stats query error: %v", err)
+				dataComplete = false
+			} else if s != nil {
+				stats = s
+			}
+		}
+
+		now := time.Now().Unix()
+		entries := make([]providerHealthEntry, 0, len(cfg.Recognition.Providers))
+		for _, p := range cfg.Recognition.Providers {
+			if !p.Enabled {
+				continue
+			}
+			entry := providerHealthEntry{
+				ID:          p.ID,
+				DisplayName: providerDisplayName(p.ID),
+				Configured:  isProviderCredentialed(p.ID, cfg),
+			}
+			if until, ok := backoffExpires[p.ID]; ok && until > now {
+				entry.RateLimited = true
+				entry.BackoffExpires = &until
+			}
+			if s, ok := stats[p.ID]; ok {
+				entry.Attempts24h = s.Attempts
+				if s.Attempts > 0 {
+					rate := float64(s.Successes) / float64(s.Attempts)
+					entry.SuccessRate24h = &rate
+				}
+				if s.LastSuccessAt > 0 {
+					v := s.LastSuccessAt
+					entry.LastSuccessAt = &v
+				}
+				if s.LastAttemptAt > 0 {
+					v := s.LastAttemptAt
+					entry.LastAttemptAt = &v
+				}
+			}
+			entries = append(entries, entry)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "private, no-cache")
+		json.NewEncoder(w).Encode(providerHealthResponse{Providers: entries, DataComplete: dataComplete})
 	})
 
 	// GET /api/library/artworks — recent tracks with artwork, for the picker.

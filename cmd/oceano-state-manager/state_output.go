@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -150,12 +151,15 @@ func (m *mgr) buildState() PlayerState {
 		// track remains nil until recognition identifies the track.
 	}
 
+	_, providerBackoff := m.collectRateLimitedProvidersLocked()
+
 	return PlayerState{
 		Source:                 displaySource,
 		Format:                 physFmt,
 		State:                  state,
 		Track:                  track,
 		Recognition:            recognition,
+		ProviderBackoff:        providerBackoff,
 		PhysicalDetectorActive: m.physicalSource == "Physical",
 		AirPlayTransport:       airplayTransport,
 		Vu: &VuLevels{
@@ -199,11 +203,36 @@ func (m *mgr) buildAirPlayTransportStatusLocked() *AirPlayTransportStatus {
 	}
 }
 
+// collectRateLimitedProvidersLocked reads m.providerBackoffExpires and returns
+// the list of provider IDs whose backoff has not yet expired, plus a map of
+// expiry epochs. Must be called with m.mu held.
+func (m *mgr) collectRateLimitedProvidersLocked() ([]string, map[string]int64) {
+	if len(m.providerBackoffExpires) == 0 {
+		return nil, nil
+	}
+	now := time.Now()
+	var ids []string
+	var expires map[string]int64
+	for id, until := range m.providerBackoffExpires {
+		if now.Before(until) {
+			ids = append(ids, id)
+			if expires == nil {
+				expires = make(map[string]int64)
+			}
+			expires[id] = until.Unix()
+		}
+	}
+	sort.Strings(ids)
+	return ids, expires
+}
+
 func (m *mgr) buildRecognitionStatusLocked() *RecognitionStatus {
 	// Only expose recognition UI while the physical detector is actively on.
 	if m.physicalSource != "Physical" {
 		return nil
 	}
+
+	rateLimited, backoffExpires := m.collectRateLimitedProvidersLocked()
 
 	if r := m.recognitionResult; r != nil {
 		provider := ""
@@ -216,9 +245,11 @@ func (m *mgr) buildRecognitionStatusLocked() *RecognitionStatus {
 			provider = "audd"
 		}
 		return &RecognitionStatus{
-			Phase:    "matched",
-			Provider: provider,
-			Score:    r.Score,
+			Phase:                "matched",
+			Provider:             provider,
+			Score:                r.Score,
+			RateLimitedProviders: rateLimited,
+			BackoffExpires:       backoffExpires,
 		}
 	}
 
@@ -238,10 +269,12 @@ func (m *mgr) buildRecognitionStatusLocked() *RecognitionStatus {
 	// attempts (for example per-input recognition policy "off").
 	if m.recognitionPhase == "no_match" {
 		return &RecognitionStatus{
-			Phase:           "no_match",
-			Detail:          "no_match",
-			ActiveInputID:   inID,
-			ActiveInputName: inName,
+			Phase:                "no_match",
+			Detail:               "no_match",
+			ActiveInputID:        inID,
+			ActiveInputName:      inName,
+			RateLimitedProviders: rateLimited,
+			BackoffExpires:       backoffExpires,
 		}
 	}
 	if m.recognitionPhase == "off" {
@@ -255,18 +288,22 @@ func (m *mgr) buildRecognitionStatusLocked() *RecognitionStatus {
 
 	if time.Now().Before(m.recognizerBusyUntil) {
 		return &RecognitionStatus{
-			Phase:           "identifying",
-			Detail:          "capturing",
-			ActiveInputID:   inID,
-			ActiveInputName: inName,
+			Phase:                "identifying",
+			Detail:               "capturing",
+			ActiveInputID:        inID,
+			ActiveInputName:      inName,
+			RateLimitedProviders: rateLimited,
+			BackoffExpires:       backoffExpires,
 		}
 	}
 
 	return &RecognitionStatus{
-		Phase:           "identifying",
-		Detail:          "waiting_trigger",
-		ActiveInputID:   inID,
-		ActiveInputName: inName,
+		Phase:                "identifying",
+		Detail:               "waiting_trigger",
+		ActiveInputID:        inID,
+		ActiveInputName:      inName,
+		RateLimitedProviders: rateLimited,
+		BackoffExpires:       backoffExpires,
 	}
 }
 

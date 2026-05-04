@@ -228,6 +228,51 @@ func TestApplyRecognitionProvidersFromConfigFile_EmptyProvidersArray(t *testing.
 	}
 }
 
+func TestApplyRecognitionProvidersFromConfigFile_CaptureAutoGainLoaded(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	payload := `{
+  "recognition": {
+    "providers": [{"id":"acrcloud","enabled":true,"roles":["primary"]}],
+    "capture_auto_gain": {
+      "enabled": true,
+      "target_rms": 0.14,
+      "min_gain": 1.0,
+      "max_gain": 2.0,
+      "peak_limit": 0.96
+    }
+  }
+}`
+	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.CalibrationConfigPath = path
+	applyRecognitionProvidersFromConfigFile(&cfg)
+	if !cfg.RecognitionCaptureAutoGain.Enabled {
+		t.Fatal("expected capture auto-gain enabled from config")
+	}
+	if cfg.RecognitionCaptureAutoGain.TargetRMS != 0.14 {
+		t.Fatalf("target_rms got %.2f", cfg.RecognitionCaptureAutoGain.TargetRMS)
+	}
+}
+
+func TestApplyRecognitionProvidersFromConfigFile_CaptureAutoGainDefaultsWhenMissingRecognition(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	payload := `{"audio_input":{"device_match":""}}`
+	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.RecognitionCaptureAutoGain.Enabled = false
+	cfg.CalibrationConfigPath = path
+	applyRecognitionProvidersFromConfigFile(&cfg)
+	if !cfg.RecognitionCaptureAutoGain.Enabled {
+		t.Fatal("expected capture auto-gain reset to default (enabled) when recognition key is missing")
+	}
+}
+
 func TestBuildRecognitionPlanFromProviders_ContinuityWhenShazamioClientPresentEvenWithoutPrimaries(t *testing.T) {
 	shz := &stubRecognizer{name: "Shazamio"}
 	inst := recognitionInstances{shazamio: shz, shazamioContinuity: shz}

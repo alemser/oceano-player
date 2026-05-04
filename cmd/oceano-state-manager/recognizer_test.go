@@ -28,11 +28,79 @@ func TestWavPCMLevelStats_SineTone(t *testing.T) {
 	_ = os.Remove(path)
 }
 
+func TestMaybeApplyRecognitionCaptureAutoGain_BoostsLowLevelCapture(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "quiet.wav")
+	if err := writeTestToneWAVWithAmplitude(path, 44100, 2000, 440.0, 0.1); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := RecognitionCaptureAutoGainConfig{
+		Enabled:   true,
+		TargetRMS: 0.16,
+		MinGain:   1.0,
+		MaxGain:   2.5,
+		PeakLimit: 0.98,
+	}
+	adjusted, tel, err := maybeApplyRecognitionCaptureAutoGain(raw, cfg)
+	if err != nil {
+		t.Fatalf("maybeApplyRecognitionCaptureAutoGain: %v", err)
+	}
+	if !tel.Applied {
+		t.Fatalf("expected gain to be applied, telemetry=%+v", tel)
+	}
+	if tel.AfterRMS <= tel.BeforeRMS {
+		t.Fatalf("expected after RMS > before RMS, got %.4f <= %.4f", tel.AfterRMS, tel.BeforeRMS)
+	}
+	if tel.AfterPeak > cfg.PeakLimit+0.01 {
+		t.Fatalf("expected after peak <= peak limit, got %.4f", tel.AfterPeak)
+	}
+	if len(adjusted) != len(raw) {
+		t.Fatalf("expected adjusted wav size preserved")
+	}
+}
+
+func TestMaybeApplyRecognitionCaptureAutoGain_DisabledNoChange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "quiet.wav")
+	if err := writeTestToneWAVWithAmplitude(path, 44100, 2000, 440.0, 0.1); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := RecognitionCaptureAutoGainConfig{Enabled: false}
+	adjusted, tel, err := maybeApplyRecognitionCaptureAutoGain(raw, cfg)
+	if err != nil {
+		t.Fatalf("maybeApplyRecognitionCaptureAutoGain: %v", err)
+	}
+	if tel.Applied {
+		t.Fatalf("expected no gain application when disabled")
+	}
+	if !bytes.Equal(raw, adjusted) {
+		t.Fatalf("expected unchanged bytes when disabled")
+	}
+}
+
 // writeTestToneWAV writes a minimal mono 16-bit PCM WAV with a full-scale sine.
 func writeTestToneWAV(path string, sampleRate, numSamples int, freqHz float64) error {
+	return writeTestToneWAVWithAmplitude(path, sampleRate, numSamples, freqHz, 1.0)
+}
+
+func writeTestToneWAVWithAmplitude(path string, sampleRate, numSamples int, freqHz, amp float64) error {
+	if amp < 0 {
+		amp = 0
+	}
+	if amp > 1 {
+		amp = 1
+	}
 	pcm := make([]byte, numSamples*2)
 	for i := 0; i < numSamples; i++ {
-		s := int16(32767.0 * math.Sin(2*math.Pi*freqHz*float64(i)/float64(sampleRate)))
+		s := int16(32767.0 * amp * math.Sin(2*math.Pi*freqHz*float64(i)/float64(sampleRate)))
 		binary.LittleEndian.PutUint16(pcm[i*2:i*2+2], uint16(s))
 	}
 	var b bytes.Buffer

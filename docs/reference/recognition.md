@@ -462,6 +462,21 @@ The phase is **not** set to `"identifying"` — the UI infers this from the comb
 `source == "Physical"` and `track` being empty. The `recognizerBusyUntil` timestamp on `mgr`
 tracks when the coordinator is actively capturing/recording, but is not exposed in state.
 
+### Rate-limit backoff fields (added alongside `phase`)
+
+Two additional fields appear in `recognition` when one or more providers are in rate-limit backoff:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `rate_limited_providers` | `[]string` (omitted when empty) | Canonical IDs of providers currently in backoff: `"acrcloud"`, `"shazam"`, `"audd"` |
+| `backoff_expires` | `map[string]int64` (omitted when empty) | Unix epoch second (UTC) when each provider's backoff expires — use `backoff_expires[id] - now` for countdown arithmetic |
+
+These fields are present in **all** recognition phases (`matched`, `no_match`, `identifying`) and omitted entirely when no providers are rate-limited. The `"off"` phase (input policy) does not include them.
+
+**Attribution rule**: for a `ChainRecognizer` (`"ACRCloud→Shazam"`), only the provider that actually returned `ErrRateLimit` is listed — not every member of the chain. `ChainRecognizer` records `lastRateLimitedName` during each `Recognize()` call so the coordinator can set the backoff on the specific culprit.
+
+**Backoff duration**: rate-limit → 5 min (`rateLimitBackoff`). On successful recognition, backoff is cleared for all providers in the chain via `clearProviderBackoff`.
+
 ---
 
 ## Confirmation flow (`maybeConfirmCandidate`)
