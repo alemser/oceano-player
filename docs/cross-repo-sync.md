@@ -56,7 +56,7 @@ Run this checklist for any change touching:
 
 **iOS follow-up (`oceano-player-ios`)**
 
-- [x] **Config / Physical Media screen (MVP)**: **Discogs (optional)** section above Metadata Enrichment — `Enable Discogs API` + Personal Access Token field map to `recognition.discogs.enabled` / `recognition.discogs.token` on `POST /api/config` (full `recognition` round-trip preserved).
+- [x] **Config / Physical Media screen (MVP)**: Metadata Enrichment → **Discogs** row → **Credentials** — `Enable Discogs API` + Personal Access Token map to `recognition.discogs.enabled` / `recognition.discogs.token` on `POST /api/config` (full `recognition` round-trip preserved).
 - [x] **Validation (MVP)**: orange footnote when enabled with empty token; **Save** persists `enabled: false` until a token is set (matches prior web behaviour).
 - [x] **Metadata Enrichment** Discogs card subtitle clarifies token is **Discogs-only**, not ACRCloud/AudD.
 - [ ] **Advanced Discogs tuning** (`timeout_secs`, `max_retries`, `cache_ttl_hours`) is intentionally **deferred** for a later iOS iteration; backend defaults remain authoritative for now.
