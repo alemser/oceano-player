@@ -353,6 +353,8 @@ type RecognitionConfig struct {
 	// CaptureAutoGain applies optional bounded gain correction only to recognition
 	// captures (WAV sent to providers). It does not alter source detection/VU.
 	CaptureAutoGain RecognitionCaptureAutoGainConfig `json:"capture_auto_gain,omitempty"`
+	// Discogs controls optional post-recognition metadata enrichment.
+	Discogs DiscogsConfig `json:"discogs,omitempty"`
 	// MaxIntervalSecs is the fallback re-recognition interval when no
 	// silence gap (track boundary) is detected and no track is identified.
 	MaxIntervalSecs int `json:"max_interval_secs"`
@@ -440,6 +442,16 @@ type RecognitionConfig struct {
 	// re-confirmation. Higher values reduce false positives after manual needle
 	// repositioning. Typical: 60 s for vinyl-safe behavior.
 	BoundaryRestoreMinSeekSecs int `json:"boundary_restore_min_seek_secs"`
+}
+
+// DiscogsConfig controls optional Discogs post-recognition enrichment.
+// It is disabled by default and never blocks recognition when unavailable.
+type DiscogsConfig struct {
+	Enabled       bool   `json:"enabled"`
+	Token         string `json:"token"`
+	TimeoutSecs   int    `json:"timeout_secs"`
+	MaxRetries    int    `json:"max_retries"`
+	CacheTTLHours int    `json:"cache_ttl_hours"`
 }
 
 // RecognitionCaptureAutoGainConfig controls optional adaptive gain for
@@ -583,6 +595,12 @@ func defaultConfig() Config {
 				MaxGain:   2.5,
 				PeakLimit: 0.98,
 			},
+			Discogs: DiscogsConfig{
+				Enabled:       false,
+				TimeoutSecs:   6,
+				MaxRetries:    2,
+				CacheTTLHours: 72,
+			},
 			MaxIntervalSecs:                         300,
 			RefreshIntervalSecs:                     120,
 			NoMatchBackoffSecs:                      15,
@@ -666,7 +684,24 @@ func loadConfig(path string) (Config, error) {
 	}
 	migrateLegacyCDPlayer(&cfg)
 	migrateRecognitionShazam(&cfg, data)
+	cfg.Recognition.Discogs = normalizeDiscogsConfig(cfg.Recognition.Discogs)
 	return cfg, nil
+}
+
+func normalizeDiscogsConfig(raw DiscogsConfig) DiscogsConfig {
+	def := defaultConfig().Recognition.Discogs
+	out := raw
+	out.Token = strings.TrimSpace(out.Token)
+	if out.TimeoutSecs <= 0 {
+		out.TimeoutSecs = def.TimeoutSecs
+	}
+	if out.MaxRetries <= 0 {
+		out.MaxRetries = def.MaxRetries
+	}
+	if out.CacheTTLHours <= 0 {
+		out.CacheTTLHours = def.CacheTTLHours
+	}
+	return out
 }
 
 // migrateRecognitionShazam maps deprecated shazam_python_bin (and legacy root shazam_python)

@@ -146,6 +146,7 @@ func (m *mgr) buildState() PlayerState {
 				SampleRate:    sampleRate,
 				BitDepth:      bitDepth,
 				ArtworkPath:   m.physicalArtworkPath,
+				DiscogsURL:    r.DiscogsURL,
 			}
 		}
 		// track remains nil until recognition identifies the track.
@@ -455,6 +456,10 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 			}
 			if m.recognitionResult.TrackNumber != entry.TrackNumber {
 				m.recognitionResult.TrackNumber = entry.TrackNumber
+				changed = true
+			}
+			if m.recognitionResult.DiscogsURL != entry.DiscogsURL {
+				m.recognitionResult.DiscogsURL = entry.DiscogsURL
 				changed = true
 			}
 			if entry.DurationMs > 0 {

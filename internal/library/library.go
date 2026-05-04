@@ -199,6 +199,8 @@ var migrations = []string{
 		physical_format TEXT NOT NULL DEFAULT ''
 	)`,
 	`CREATE INDEX IF NOT EXISTS recognition_attempts_occurred_at_idx ON recognition_attempts(occurred_at)`,
+	// Discogs post-recognition enrichment fields (additive; null = not yet enriched).
+	`ALTER TABLE collection ADD COLUMN discogs_url TEXT`,
 }
 
 var currentSchemaVersion = len(migrations)
@@ -227,6 +229,7 @@ type CollectionEntry struct {
 	UserConfirmed     bool
 	DurationMs        int
 	BoundarySensitive bool
+	DiscogsURL        string
 }
 
 var (
@@ -325,7 +328,8 @@ func (l *Library) lookupByEquivalentMetadata(title, artist string) (*CollectionE
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0)
+		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0),
+		       COALESCE(discogs_url,'')
 		FROM collection
 		WHERE title != '' AND artist != ''`)
 	if err != nil {
@@ -341,7 +345,7 @@ func (l *Library) lookupByEquivalentMetadata(title, artist string) (*CollectionE
 			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 			&e.TrackNumber, &e.ArtworkPath,
 			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-			&e.DurationMs, &boundarySens,
+			&e.DurationMs, &boundarySens, &e.DiscogsURL,
 		); err != nil {
 			return nil, fmt.Errorf("library: equivalent metadata lookup scan: %w", err)
 		}
@@ -453,7 +457,8 @@ func (l *Library) lookupByColumn(col, value string) (*CollectionEntry, error) {
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0)
+		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0),
+		       COALESCE(discogs_url,'')
 		FROM collection WHERE `+col+` = ?`, value)
 
 	var e CollectionEntry
@@ -463,7 +468,7 @@ func (l *Library) lookupByColumn(col, value string) (*CollectionEntry, error) {
 		&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 		&e.TrackNumber, &e.ArtworkPath,
 		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-		&e.DurationMs, &boundarySens,
+		&e.DurationMs, &boundarySens, &e.DiscogsURL,
 	)
 	e.UserConfirmed = confirmed == 1
 	e.BoundarySensitive = boundarySens == 1
@@ -531,7 +536,8 @@ func (l *Library) GetByID(id int64) (*CollectionEntry, error) {
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0)
+		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0),
+		       COALESCE(discogs_url,'')
 		FROM collection WHERE id = ?`, id)
 	var e CollectionEntry
 	var confirmed, boundarySens int
@@ -540,7 +546,7 @@ func (l *Library) GetByID(id int64) (*CollectionEntry, error) {
 		&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 		&e.TrackNumber, &e.ArtworkPath,
 		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-		&e.DurationMs, &boundarySens,
+		&e.DurationMs, &boundarySens, &e.DiscogsURL,
 	)
 	e.UserConfirmed = confirmed == 1
 	e.BoundarySensitive = boundarySens == 1
@@ -625,7 +631,8 @@ func (l *Library) FindPhysicalMatch(title, artist string) (*CollectionEntry, err
 		       COALESCE(score,0), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
-		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0)
+		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0),
+		       COALESCE(discogs_url,'')
 		FROM collection
 		WHERE title != '' AND artist != ''
 		  AND user_confirmed = 1
@@ -643,7 +650,7 @@ func (l *Library) FindPhysicalMatch(title, artist string) (*CollectionEntry, err
 			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 			&e.TrackNumber, &e.ArtworkPath,
 			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-			&e.DurationMs, &boundarySens,
+			&e.DurationMs, &boundarySens, &e.DiscogsURL,
 		); err != nil {
 			return nil, fmt.Errorf("library: physical match scan: %w", err)
 		}
@@ -776,6 +783,32 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 	}
 	_, err = l.db.Exec(`UPDATE collection SET play_count = play_count + 1, last_played = ? WHERE id = ?`, now, id)
 	return id, err
+}
+
+// UpdateDiscogsEnrichment persists Discogs-sourced fields for an existing
+// collection row using an additive policy: existing non-empty values are never
+// overwritten so user edits are preserved.
+func (l *Library) UpdateDiscogsEnrichment(id int64, url, album, label, released string) error {
+	if l == nil || l.db == nil || id <= 0 {
+		return nil
+	}
+	_, err := l.db.Exec(`
+		UPDATE collection SET
+			discogs_url = CASE WHEN COALESCE(discogs_url,'') = '' AND ? != '' THEN ? ELSE discogs_url END,
+			album       = CASE WHEN COALESCE(album,'') = ''       AND ? != '' THEN ? ELSE album END,
+			label       = CASE WHEN COALESCE(label,'') = ''       AND ? != '' THEN ? ELSE label END,
+			released    = CASE WHEN COALESCE(released,'') = ''    AND ? != '' THEN ? ELSE released END
+		WHERE id = ?`,
+		url, url,
+		album, album,
+		label, label,
+		released, released,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("library: update discogs enrichment id=%d: %w", id, err)
+	}
+	return nil
 }
 
 func (l *Library) Close() error {

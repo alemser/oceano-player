@@ -12,6 +12,7 @@ import (
 	"time"
 
 	internallibrary "github.com/alemser/oceano-player/internal/library"
+	internalrecognition "github.com/alemser/oceano-player/internal/recognition"
 )
 
 // --- Manager ---
@@ -194,8 +195,8 @@ func (m *mgr) markDirty() {
 // display. When confirmRec differs from rec (e.g. Shazamio confirming an ACRCloud
 // result), agreement from two independent services is required. When confirmRec
 // is nil, rec itself is used for the second call (same-provider confirmation).
-func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamioRec Recognizer, lib *internallibrary.Library) {
-	newRecognitionCoordinator(m, rec, confirmRec, shazamioRec, lib).run(ctx)
+func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamioRec Recognizer, discogs *internalrecognition.DiscogsClient, lib *internallibrary.Library) {
+	newRecognitionCoordinator(m, rec, confirmRec, shazamioRec, discogs, lib).run(ctx)
 }
 
 func (m *mgr) tryEnableShazamioContinuity(ctx context.Context, shazamioRec Recognizer, current *RecognitionResult) {
@@ -511,6 +512,19 @@ func main() {
 	rec := components.chain
 	confirmRec := components.confirmer
 	shazamioRec := components.continuity
+	var discogsClient *internalrecognition.DiscogsClient
+	if cfg.Discogs.Enabled {
+		discogsClient = internalrecognition.NewDiscogsClient(internalrecognition.DiscogsClientConfig{
+			Token:      cfg.Discogs.Token,
+			Timeout:    cfg.Discogs.Timeout,
+			MaxRetries: cfg.Discogs.MaxRetries,
+		})
+		if discogsClient == nil {
+			log.Printf("discogs enrichment: disabled (missing token)")
+		} else {
+			log.Printf("discogs enrichment: enabled (timeout=%s retries=%d)", cfg.Discogs.Timeout, cfg.Discogs.MaxRetries)
+		}
+	}
 
 	m.markDirty() // write initial stopped state immediately
 
@@ -549,7 +563,7 @@ func main() {
 	go m.runBluetoothMonitor(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
-	go m.runRecognizer(ctx, rec, confirmRec, shazamioRec, lib)
+	go m.runRecognizer(ctx, rec, confirmRec, shazamioRec, discogsClient, lib)
 	go m.runShazamioContinuityMonitor(ctx, shazamioRec)
 	go m.runLibrarySync(ctx, lib)
 	go m.runStatsLogger(ctx, lib)

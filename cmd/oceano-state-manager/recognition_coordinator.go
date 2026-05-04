@@ -10,6 +10,7 @@ import (
 	"time"
 
 	internallibrary "github.com/alemser/oceano-player/internal/library"
+	internalrecognition "github.com/alemser/oceano-player/internal/recognition"
 )
 
 type recognitionCoordinator struct {
@@ -17,17 +18,87 @@ type recognitionCoordinator struct {
 	rec         Recognizer
 	confirmRec  Recognizer
 	shazamioRec Recognizer
+	discogs     *internalrecognition.DiscogsClient
 	lib         *internallibrary.Library
 }
 
-func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, shazamioRec Recognizer, lib *internallibrary.Library) *recognitionCoordinator {
+func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, shazamioRec Recognizer, discogs *internalrecognition.DiscogsClient, lib *internallibrary.Library) *recognitionCoordinator {
 	return &recognitionCoordinator{
 		mgr:         m,
 		rec:         rec,
 		confirmRec:  confirmRec,
 		shazamioRec: shazamioRec,
+		discogs:     discogs,
 		lib:         lib,
 	}
+}
+
+func (c *recognitionCoordinator) enrichWithDiscogsAsync(result *RecognitionResult) {
+	if c.discogs == nil || result == nil {
+		return
+	}
+	snapshot := cloneRecognitionResult(result)
+	if strings.TrimSpace(snapshot.Title) == "" || strings.TrimSpace(snapshot.Artist) == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), c.mgr.cfg.Discogs.Timeout+2*time.Second)
+		defer cancel()
+
+		enriched, err := c.discogs.EnrichTrack(ctx, snapshot.Artist, snapshot.Title, snapshot.Album, snapshot.Format)
+		if err != nil {
+			if errors.Is(err, ErrRateLimit) {
+				log.Printf("discogs enrichment: rate limited")
+				return
+			}
+			log.Printf("discogs enrichment: lookup failed: %v", err)
+			return
+		}
+		if enriched == nil {
+			return
+		}
+
+		c.mgr.mu.Lock()
+		current := c.mgr.recognitionResult
+		if current == nil || !sameTrackByProviderIDs(current, snapshot) {
+			c.mgr.mu.Unlock()
+			return
+		}
+		changed := false
+		if current.Album == "" && enriched.Album != "" {
+			current.Album = enriched.Album
+			changed = true
+		}
+		if current.Label == "" && enriched.Label != "" {
+			current.Label = enriched.Label
+			changed = true
+		}
+		if current.Released == "" && enriched.Released != "" {
+			current.Released = enriched.Released
+			changed = true
+		}
+		if current.TrackNumber == "" && enriched.TrackNumber != "" {
+			current.TrackNumber = enriched.TrackNumber
+			changed = true
+		}
+		if current.DiscogsURL == "" && enriched.DiscogsURL != "" {
+			current.DiscogsURL = enriched.DiscogsURL
+			changed = true
+		}
+		libraryID := c.mgr.physicalLibraryEntryID
+		c.mgr.mu.Unlock()
+
+		if changed {
+			log.Printf("discogs enrichment: applied metadata for %s — %s (score=%d)", snapshot.Artist, snapshot.Title, enriched.Score)
+			c.mgr.markDirty()
+		}
+
+		if c.lib != nil && libraryID > 0 {
+			if dbErr := c.lib.UpdateDiscogsEnrichment(libraryID, enriched.DiscogsURL, enriched.Album, enriched.Label, enriched.Released); dbErr != nil {
+				log.Printf("discogs enrichment: db persist error: %v", dbErr)
+			}
+		}
+	}()
 }
 
 func (c *recognitionCoordinator) primaryRecognizer() Recognizer {
@@ -469,6 +540,9 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 			if entry.DurationMs > 0 {
 				result.DurationMs = pickLongerDurationMs(result.DurationMs, entry.DurationMs)
 			}
+			if entry.DiscogsURL != "" {
+				result.DiscogsURL = entry.DiscogsURL
+			}
 			artworkPath = entry.ArtworkPath
 		}
 
@@ -520,6 +594,9 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 					if finalEntry.ArtworkPath != "" {
 						artworkPath = finalEntry.ArtworkPath
 					}
+					if finalEntry.DiscogsURL != "" {
+						result.DiscogsURL = finalEntry.DiscogsURL
+					}
 				}
 			}
 		} else if c.mgr.cfg.Verbose {
@@ -555,6 +632,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 			c.mgr.physicalStartedAt = captureStartedAt
 		}
 		c.mgr.mu.Unlock()
+		c.enrichWithDiscogsAsync(result)
 		return
 	}
 
@@ -585,6 +663,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.physicalStartedAt = captureStartedAt
 	}
 	c.mgr.mu.Unlock()
+	c.enrichWithDiscogsAsync(result)
 }
 
 func resolvedRefreshInterval(refresh, max time.Duration) time.Duration {

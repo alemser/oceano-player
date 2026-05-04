@@ -37,7 +37,8 @@ type LibraryEntry struct {
 	UserConfirmed bool   `json:"user_confirmed"`
 	// BoundarySensitive marks tracks where quiet passages are often mistaken for
 	// track boundaries (R8); the state manager nudges duration-based VU guards.
-	BoundarySensitive bool `json:"boundary_sensitive"`
+	BoundarySensitive bool   `json:"boundary_sensitive"`
+	DiscogsURL        string `json:"discogs_url,omitempty"`
 }
 
 // LibraryDB wraps the collection SQLite database for the web UI.
@@ -116,6 +117,7 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		`ALTER TABLE boundary_events ADD COLUMN early_boundary INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE boundary_events ADD COLUMN followup_recorded_at TEXT`,
 		`ALTER TABLE collection ADD COLUMN boundary_sensitive INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE collection ADD COLUMN discogs_url TEXT`,
 		`CREATE TABLE IF NOT EXISTS rms_learning (
 			format_key TEXT NOT NULL PRIMARY KEY,
 			updated_at TEXT NOT NULL,
@@ -760,7 +762,7 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 		       COALESCE(released,''), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       COALESCE(duration_ms,0), play_count, first_played, last_played, COALESCE(user_confirmed,0),
-		       COALESCE(boundary_sensitive,0)
+		       COALESCE(boundary_sensitive,0), COALESCE(discogs_url,'')
 		FROM collection ORDER BY last_played DESC`)
 	if err != nil {
 		return nil, err
@@ -772,7 +774,8 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 		var e LibraryEntry
 		var confirmed, boundarySens int
 		if err := rows.Scan(&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist, &e.Album, &e.Label, &e.Released, &e.Format,
-			&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed, &boundarySens); err != nil {
+			&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed, &boundarySens,
+			&e.DiscogsURL); err != nil {
 			return nil, err
 		}
 		e.UserConfirmed = confirmed == 1
@@ -811,12 +814,13 @@ func (l *LibraryDB) entryByID(id int64) (*LibraryEntry, error) {
 		       COALESCE(released,''), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       COALESCE(duration_ms,0), play_count, first_played, last_played, COALESCE(user_confirmed,0),
-		       COALESCE(boundary_sensitive,0)
+		       COALESCE(boundary_sensitive,0), COALESCE(discogs_url,'')
 		FROM collection WHERE id = ?`, id)
 	var e LibraryEntry
 	var confirmed, boundarySens int
 	err := row.Scan(&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist, &e.Album, &e.Label, &e.Released, &e.Format,
-		&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed, &boundarySens)
+		&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed, &boundarySens,
+		&e.DiscogsURL)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

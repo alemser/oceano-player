@@ -191,6 +191,16 @@ If new Discogs fields are added to API/state payloads:
 
 No breaking change should be introduced for existing iOS flows.
 
+### iOS config UX recommendation (MVP)
+
+For the first iOS rollout, keep Discogs settings minimal:
+
+- expose only `recognition.discogs.enabled` (toggle)
+- expose only `recognition.discogs.token` (secure BYOK field)
+- defer advanced knobs (`timeout_secs`, `max_retries`, `cache_ttl_hours`) to a later iteration
+
+This mirrors the provider-oriented setup experience while keeping Discogs activation simple and safe.
+
 ## Risks and mitigations
 
 - Wrong pressing selected -> keep confidence threshold + manual override.

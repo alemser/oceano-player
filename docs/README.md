@@ -17,6 +17,7 @@ Developer documentation for the Oceano Player backend.
 | Understand the product vision and long-term architecture | [reference/architecture-vision.md](reference/architecture-vision.md) |
 | Understand how physical track recognition works end-to-end | [reference/recognition.md](reference/recognition.md) (quick reference) + [reference/recognition-architecture.md](reference/recognition-architecture.md) (narrative deep-dive) |
 | Evaluate Discogs enrichment for vinyl/CD metadata | [reference/discogs-integration.md](reference/discogs-integration.md) |
+| Track Discogs implementation progress (PR checklist) | [plans/discogs-implementation-plan.md](plans/discogs-implementation-plan.md) |
 | Plan capability toggles and future billing entitlements | [plans/modular-capabilities-and-entitlements.md](plans/modular-capabilities-and-entitlements.md) |
 | Understand state detection, source priority, and how NowPlaying is driven | [reference/state-detection.md](reference/state-detection.md) |
 | Tune iOS / automation HTTP usage (SSE `vu`, summary polling, library ETag) | [reference/http-lightweight-clients.md](reference/http-lightweight-clients.md) |

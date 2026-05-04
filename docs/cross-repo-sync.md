@@ -43,6 +43,34 @@ Run this checklist for any change touching:
 
 ---
 
+## Log: 2026-05-04 — Discogs enrichment: persistence + additive API/state exposure (PR3)
+
+**Backend (`oceano-state-manager` + `internal/library` + `oceano-web`)**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `track.discogs_url` in `GET /api/stream` + `GET /api/status` | **Additive** | URL string; present in the Physical source track object when Discogs enrichment succeeds; omitted (`omitempty`) otherwise. |
+| `discogs_url` in `GET /api/library` + `GET /api/library/changes` | **Additive** | Present on `LibraryEntry` when persisted; empty string when not yet enriched. |
+| SQLite `collection.discogs_url` | **Additive** | New nullable column via migration; existing rows default to `NULL` (mapped as empty string). |
+| `UpdateDiscogsEnrichment` (internal) | **Additive** | State-manager persists Discogs URL + supplementary fields (`album`, `label`, `released`) after async enrichment; additive policy — no overwrites of existing values. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] **Config / Physical Media screen (MVP)**: add Discogs controls aligned with existing provider UX:
+  - `Enable Discogs enrichment` toggle -> maps to `recognition.discogs.enabled`
+  - `Discogs token` secure input (BYOK) -> maps to `recognition.discogs.token`
+  - Save via `POST /api/config` preserving the full `recognition` object (including `recognition.providers` flow)
+- [ ] **Validation (MVP)**: if `recognition.discogs.enabled == true` and `token` is empty, block save with inline guidance.
+- [ ] **Advanced Discogs tuning** (`timeout_secs`, `max_retries`, `cache_ttl_hours`) is intentionally **deferred** for a later iOS iteration; backend defaults remain authoritative for now.
+- [ ] **Now Playing / Physical Media screen**: when `track.discogs_url` is non-empty, optionally surface a Discogs link or badge. No crash risk — field is `omitempty` and clients that ignore it are unaffected.
+- [ ] **Library screen**: `discogs_url` may appear on `LibraryEntry`; safe to display or ignore per design decision.
+
+**Risk**
+
+- [x] low — purely additive; no field renames or removals.
+
+---
+
 ## Log: 2026-05-04 — Per-provider rate-limit feedback (`recognition` in state.json + `/api/recognition/provider-health`)
 
 **Contract owner:** [`docs/reference/recognition.md`](reference/recognition.md) — "Rate-limit backoff fields" section

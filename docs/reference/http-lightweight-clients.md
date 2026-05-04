@@ -7,6 +7,7 @@ This document owns the **optional performance knobs** on `oceano-web` for LAN cl
 - **Default:** the `data:` JSON **omits** the top-level `vu` object (stereo meter snapshot) even when `oceano-state-manager` writes it to `/tmp/oceano-state.json`. This avoids high-frequency JSON decode on clients that do not render meters.
 - **VU included:** `GET /api/stream?vu=1` — same payload shape as the on-disk state file (includes `vu` when present).
 - **HDMI / Now Playing:** `static/nowplaying/main.js` uses **`/api/stream?vu=1`** so local meters keep working.
+- **Discogs additive field:** when Discogs enrichment succeeds for a physical track, `track.discogs_url` may be present. Omitted otherwise.
 
 ### Named SSE event: `library`
 
@@ -34,6 +35,7 @@ Compact JSON for **1–3 s foreground polling** (source, `state`, `format`, `phy
 ## `GET /api/library`
 
 - Full collection array (unchanged shape).
+- Additive field: `discogs_url` may be present on entries enriched by Discogs.
 - **`ETag`** + **`If-None-Match`** → **`304`** when the serialized list is unchanged.
 - **`X-Oceano-Library-Version`**: monotonic counter bumped on every `collection` INSERT / UPDATE / DELETE (SQLite triggers + `library_changelog`).
 

@@ -309,6 +309,26 @@ func TestBuildState_PhysicalWithRecognitionResult(t *testing.T) {
 	}
 }
 
+func TestBuildState_PhysicalTrackIncludesDiscogsURL(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{
+		Title:      "Exodus",
+		Artist:     "Bob Marley",
+		Album:      "Exodus",
+		Format:     "CD",
+		DiscogsURL: "https://api.discogs.com/releases/123",
+	}
+
+	s := m.buildState()
+	if s.Track == nil {
+		t.Fatal("track should not be nil")
+	}
+	if s.Track.DiscogsURL != "https://api.discogs.com/releases/123" {
+		t.Fatalf("discogs_url = %q, want release URL", s.Track.DiscogsURL)
+	}
+}
+
 func TestBuildState_PhysicalWithRecognitionResult_FormatTrimmedAndCaseInsensitive(t *testing.T) {
 	m := newTestMgr()
 	m.physicalSource = "Physical"
@@ -804,5 +824,38 @@ func TestSyncFromLibrary_PreservesSeekWhenDurationArrivesLate(t *testing.T) {
 	}
 	if m.physicalSeekUpdatedAt.IsZero() {
 		t.Fatalf("physicalSeekUpdatedAt should stay set after late duration update")
+	}
+}
+
+func TestSyncFromLibrary_PropagatesDiscogsURLFromLibrary(t *testing.T) {
+	lib := openTestLibrary(t)
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := lib.DB().Exec(`
+		INSERT INTO collection
+			(acrid, shazam_id, title, artist, score, play_count, first_played, last_played, user_confirmed, duration_ms, discogs_url)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"acr-discogs-sync", "", "Track", "Artist", 80, 1, now, now, 1, 180000, "https://api.discogs.com/releases/456")
+	if err != nil {
+		t.Fatalf("insert collection row: %v", err)
+	}
+
+	m := newTestMgr()
+	m.lib = lib
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{ACRID: "acr-discogs-sync", Title: "Track", Artist: "Artist", DurationMs: 180000}
+	m.physicalSeekMS = 10000
+	m.physicalSeekUpdatedAt = time.Now()
+	m.mu.Unlock()
+
+	m.syncFromLibrary(lib)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recognitionResult == nil {
+		t.Fatal("expected recognition result after sync")
+	}
+	if m.recognitionResult.DiscogsURL != "https://api.discogs.com/releases/456" {
+		t.Fatalf("discogs_url = %q, want persisted URL", m.recognitionResult.DiscogsURL)
 	}
 }
