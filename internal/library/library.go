@@ -795,8 +795,8 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 // UpdateEnrichmentPatch persists enrichment fields from a metadata chain provider
 // for an existing collection row using an additive policy: existing non-empty
 // values are never overwritten so user edits are preserved. artworkPath is applied
-// only when the row has no artwork_path yet.
-func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, released, metadataProvider, artworkPath, artworkProvider string) error {
+// only when the row has no artwork_path yet; track_number is additive in the same way.
+func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, released, trackNumber, metadataProvider, artworkPath, artworkProvider string) error {
 	if l == nil || l.db == nil || id <= 0 {
 		return nil
 	}
@@ -806,6 +806,7 @@ func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, rele
 			album             = CASE WHEN COALESCE(album,'') = ''             AND ? != '' THEN ? ELSE album END,
 			label             = CASE WHEN COALESCE(label,'') = ''             AND ? != '' THEN ? ELSE label END,
 			released          = CASE WHEN COALESCE(released,'') = ''          AND ? != '' THEN ? ELSE released END,
+			track_number      = CASE WHEN COALESCE(track_number,'') = ''       AND ? != '' THEN ? ELSE track_number END,
 			metadata_provider = CASE WHEN COALESCE(metadata_provider,'') = '' AND ? != '' THEN ? ELSE metadata_provider END,
 			artwork_path      = CASE WHEN COALESCE(artwork_path,'') = ''       AND ? != '' THEN ? ELSE artwork_path END,
 			artwork_provider  = CASE WHEN COALESCE(artwork_provider,'') = ''  AND ? != '' AND ? != '' THEN ? ELSE artwork_provider END
@@ -814,6 +815,7 @@ func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, rele
 		album, album,
 		label, label,
 		released, released,
+		trackNumber, trackNumber,
 		metadataProvider, metadataProvider,
 		artworkPath, artworkPath,
 		artworkPath, artworkProvider, artworkProvider,

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alemser/oceano-player/internal/recognition"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -1800,7 +1802,7 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 		return
 	}
 	body.Format = strings.TrimSpace(body.Format)
-	body.TrackNumber = strings.TrimSpace(body.TrackNumber)
+	body.TrackNumber = recognition.CanonicalDiscogsTrackPosition(strings.TrimSpace(body.TrackNumber))
 	// Validate format
 	switch body.Format {
 	case "Vinyl", "CD", "Unknown", "":

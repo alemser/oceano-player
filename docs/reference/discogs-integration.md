@@ -63,9 +63,25 @@ Trigger only after a provider match is accepted:
 2. enqueue async enrichment job (non-blocking for state updates).
 3. fetch Discogs candidates using artist/title/(album optional).
 4. resolve best candidate with deterministic scoring rules.
-5. persist selected Discogs fields into library.
+5. fetch the selected **release** resource and match the recognized track title against the release **tracklist** to obtain `track_number` (e.g. CD index `3`, vinyl position `A2`).
+6. persist selected Discogs fields into library (including additive `track_number` when matched).
 
 Important: if Discogs fails, playback state still updates normally.
+
+### Track position (`track_number`) normalization
+
+Discogs `tracklist[].position` values are passed through `CanonicalDiscogsTrackPosition` before they reach `/tmp/oceano-state.json` and the library:
+
+| Examples from Discogs | Stored value | Notes |
+|----------------------|--------------|--------|
+| `1`, `12` | `1`, `12` | Pure CD index — unchanged. |
+| `a2`, `A-2`, `B.3` | `A2`, `B3` | Side letter + track index — uppercase side, strip redundant separators. |
+| `2A`, `3d`, `12-A` | `2A`, `3D`, `12A` | Index + side letter — uppercase letter (`3D` matches the “digit + side” pattern). |
+| `CD1-3`, `1-11`, `cd2-11` | Same (trim/collapse spaces only) | Multi-disc / compound labels — no structural rewrite. |
+
+The HDMI Now Playing UI (`parseVinylTrackRef` in `static/nowplaying/helpers.js`) recognises **vinyl-style** refs with sides **A–D** for split chips (“Side X · Track Y”). Numeric-only refs render as “Track N”; sides **E+** or uncommon formats still show the raw `track_number` string on the chip row.
+
+Library edits via `PATCH` on `/api/library/...` apply the same `CanonicalDiscogsTrackPosition` rules when saving `track_number`, matching the uppercase convention used by the iOS app (e.g. `1a` → `1A`).
 
 ## Stage B (optional): re-enrichment for existing library
 

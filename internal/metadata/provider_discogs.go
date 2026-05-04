@@ -49,12 +49,13 @@ func (p *DiscogsProvider) Enrich(ctx context.Context, req Request) (*Patch, erro
 	}
 
 	out := &Patch{
-		Provider:   providerDiscogsID,
-		Confidence: enriched.Score,
-		Album:      strings.TrimSpace(enriched.Album),
-		Label:      strings.TrimSpace(enriched.Label),
-		Released:   strings.TrimSpace(enriched.Released),
-		DiscogsURL: strings.TrimSpace(enriched.DiscogsURL),
+		Provider:    providerDiscogsID,
+		Confidence:  enriched.Score,
+		Album:       strings.TrimSpace(enriched.Album),
+		Label:       strings.TrimSpace(enriched.Label),
+		Released:    strings.TrimSpace(enriched.Released),
+		TrackNumber: strings.TrimSpace(enriched.TrackNumber),
+		DiscogsURL:  strings.TrimSpace(enriched.DiscogsURL),
 	}
 	if req.WantArtwork {
 		imageURL := strings.TrimSpace(enriched.CoverImage)
