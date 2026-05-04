@@ -420,7 +420,7 @@ func TestBuildState_PhysicalFormat_PersistsWhenRecognitionResultNil(t *testing.T
 		t.Errorf("format = %q, want Vinyl in PlayerState.Format field", s.Format)
 	}
 	if s.Track != nil {
-		t.Error("track should be nil when recognitionResult is nil (gap between tracks)")
+		t.Error("track should be nil when recognitionResult is nil and no display echo snapshot exists")
 	}
 }
 
@@ -451,6 +451,51 @@ func TestBuildState_PhysicalFormat_PersistsCDAfterBoundary(t *testing.T) {
 	}
 	if s2.Format != "CD" {
 		t.Errorf("step 2 format = %q, want CD in PlayerState.Format field", s2.Format)
+	}
+	if s2.Track == nil || s2.Track.Title != "Comfortably Numb" {
+		t.Errorf("step 2: want lastPhysicalDisplayTrack echo while recognitionResult is nil (hard-boundary capture), got track=%v", s2.Track)
+	}
+}
+
+func TestShouldEchoLastPhysicalTrackLocked(t *testing.T) {
+	cases := []struct {
+		name     string
+		snapshot *TrackInfo
+		source   string
+		phase    string
+		want     bool
+	}{
+		{"echo", &TrackInfo{Title: "X"}, "Physical", "", true},
+		{"no snapshot", nil, "Physical", "", false},
+		{"not physical", &TrackInfo{Title: "X"}, "None", "", false},
+		{"no_match", &TrackInfo{Title: "X"}, "Physical", "no_match", false},
+		{"off", &TrackInfo{Title: "X"}, "Physical", "off", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestMgr()
+			m.physicalSource = tc.source
+			m.lastPhysicalDisplayTrack = tc.snapshot
+			m.recognitionPhase = tc.phase
+			if got := shouldEchoLastPhysicalTrackLocked(m); got != tc.want {
+				t.Fatalf("shouldEcho = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildState_PhysicalEchoSuppressedWhenVuInSilence(t *testing.T) {
+	m := newTestMgr()
+	m.physicalSource = "Physical"
+	m.vuInSilence = false
+	m.recognitionResult = &RecognitionResult{Title: "T", Artist: "A", Album: "B", Format: "CD"}
+	m.physicalFormat = "CD"
+	_ = m.buildState() // snapshot + lastPhysicalDisplayTrack
+	m.vuInSilence = true
+	m.recognitionResult = nil
+	s := m.buildState()
+	if s.Track != nil {
+		t.Fatalf("vuInSilence must suppress track (including echo), got %+v", s.Track)
 	}
 }
 

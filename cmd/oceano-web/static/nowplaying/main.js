@@ -13,6 +13,40 @@ const SOURCE_LABELS = {
 const STREAMING_SOURCES = new Set(['AirPlay', 'Bluetooth', 'UPnP']);
 const PHYSICAL_IDLE_HOLD_MS = 5000;
 const IDENTIFYING_ARTWORK_HOLD_MS = 15000;
+/** Survives Chromium restarts on the same origin so track-boundary gaps still have a hold target. */
+const SESSION_LAST_PHYSICAL_KEY = 'oceano_nowplaying_last_physical_v1';
+
+function persistSessionLastPhysical(track) {
+  try {
+    if (!track || !isRecognizedTrack(track)) return;
+    sessionStorage.setItem(
+      SESSION_LAST_PHYSICAL_KEY,
+      JSON.stringify({
+        title: track.title || '',
+        artist: track.artist || '',
+        album: track.album || '',
+        artwork_path: track.artwork_path || '',
+      })
+    );
+  } catch (_) {}
+}
+
+function readSessionLastPhysical() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_LAST_PHYSICAL_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    return o && typeof o === 'object' ? o : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function clearSessionLastPhysical() {
+  try {
+    sessionStorage.removeItem(SESSION_LAST_PHYSICAL_KEY);
+  } catch (_) {}
+}
 /** Clock + weather idle screen appears only after this much continuous idle (listening UI stays as last frame). */
 const DEEP_IDLE_CLOCK_MS = 20 * 60 * 1000;
 
@@ -215,6 +249,10 @@ function getPhysicalHoldTrack(currentSource) {
   if (_lastGoodPhysicalTrack && isRecognizedTrack(_lastGoodPhysicalTrack)) {
     return _lastGoodPhysicalTrack;
   }
+  const persisted = readSessionLastPhysical();
+  if (persisted && isRecognizedTrack(persisted)) {
+    return persisted;
+  }
   return null;
 }
 
@@ -313,6 +351,7 @@ function applyState(state) {
   const source  = state.source  || 'None';
   if (isStreamingSource(source)) {
     _lastGoodPhysicalTrack = null;
+    clearSessionLastPhysical();
   }
   const stateFormat = String(state.format || '').trim();
   const playing = state.state === 'playing';
@@ -466,6 +505,7 @@ function applyState(state) {
     updateArtwork(effectiveTrack.artwork_path || null);
     if (isPhysicalPlaybackSource(source)) {
       _lastGoodPhysicalTrack = { ...effectiveTrack };
+      persistSessionLastPhysical(_lastGoodPhysicalTrack);
     }
   } else if (effectivePlaying && physicalDetectorOn && (source === 'Physical' || source === 'CD' || source === 'Vinyl')) {
     // Without a configured capture path, the recognizer cannot run — do not show "Identifying…".
