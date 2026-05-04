@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -402,28 +403,52 @@ type boundaryCalibrationReadiness struct {
 
 // providerHealthEntry is one row in GET /api/recognition/provider-health.
 type providerHealthEntry struct {
-	ID             string   `json:"id"`
-	DisplayName    string   `json:"display_name"`
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	// Configured is true when the provider is enabled in recognition.providers[]
+	// AND has non-empty credentials in config (e.g. host/key/secret for ACRCloud).
+	// false means "enabled but credentials missing" — provider will not run.
 	Configured     bool     `json:"configured"`
 	RateLimited    bool     `json:"rate_limited"`
-	BackoffExpires *int64   `json:"backoff_expires"`           // Unix epoch second; null when not rate-limited
-	LastSuccessAt  *int64   `json:"last_success_at,omitempty"` // Unix epoch second; null when no success in 24h
-	LastAttemptAt  *int64   `json:"last_attempt_at,omitempty"` // Unix epoch second; null when no attempt in 24h
+	BackoffExpires *int64   `json:"backoff_expires,omitempty"` // Unix epoch second; key omitted (not null) when not rate-limited
+	LastSuccessAt  *int64   `json:"last_success_at,omitempty"` // Unix epoch second; key omitted when no success in 24h
+	LastAttemptAt  *int64   `json:"last_attempt_at,omitempty"` // Unix epoch second; key omitted when no attempt in 24h
 	Attempts24h    int      `json:"attempts_24h"`
-	SuccessRate24h *float64 `json:"success_rate_24h"` // null when no attempts; otherwise 0.0–1.0
+	SuccessRate24h *float64 `json:"success_rate_24h,omitempty"` // key omitted when no attempts; otherwise 0.0–1.0
 }
 
 // providerHealthResponse is JSON for GET /api/recognition/provider-health.
+// DataComplete is false when state.json or the SQLite DB was unavailable —
+// the client should treat the data as a best-effort snapshot.
 type providerHealthResponse struct {
-	Providers []providerHealthEntry `json:"providers"`
+	Providers    []providerHealthEntry `json:"providers"`
+	DataComplete bool                  `json:"data_complete"`
 }
 
-// stateFileRecognitionSnapshot is the minimal parse target for extracting
-// rate-limit backoff from /tmp/oceano-state.json.
-type stateFileRecognitionSnapshot struct {
-	Recognition *struct {
-		BackoffExpires map[string]int64 `json:"backoff_expires"`
-	} `json:"recognition"`
+// stateFileProviderBackoff is the minimal parse target for extracting the
+// top-level provider_backoff map from /tmp/oceano-state.json. This field is
+// always present when providers are rate-limited, regardless of the active
+// source (unlike recognition.backoff_expires which is omitted during AirPlay).
+type stateFileProviderBackoff struct {
+	ProviderBackoff map[string]int64 `json:"provider_backoff"`
+}
+
+// isProviderCredentialed reports whether provider id has the required
+// credentials in cfg to actually run. "Enabled" in providers[] is necessary
+// but not sufficient — missing credentials prevent the provider from starting.
+func isProviderCredentialed(id string, cfg Config) bool {
+	switch id {
+	case "acrcloud":
+		return strings.TrimSpace(cfg.Recognition.ACRCloudHost) != "" &&
+			strings.TrimSpace(cfg.Recognition.ACRCloudAccessKey) != "" &&
+			strings.TrimSpace(cfg.Recognition.ACRCloudSecretKey) != ""
+	case "shazam":
+		return cfg.Recognition.ShazamioRecognizerEnabled
+	case "audd":
+		return strings.TrimSpace(cfg.Recognition.AudDAPIToken) != ""
+	default:
+		return false
+	}
 }
 
 // providerHealth24hStats holds aggregated attempt stats for one canonical provider ID.
@@ -1456,21 +1481,36 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 		}
 
 		cfg, _ := loadConfig(configPath)
+		dataComplete := true
 
-		// Read live rate-limit backoff from state.json (written by state manager).
+		// Read rate-limit backoff from the top-level provider_backoff field in
+		// state.json. This field is present regardless of the active source
+		// (unlike recognition.backoff_expires, which is omitted during AirPlay/BT).
 		backoffExpires := map[string]int64{}
-		if data, err := os.ReadFile(stateFilePath); err == nil {
-			var snap stateFileRecognitionSnapshot
-			if json.Unmarshal(data, &snap) == nil && snap.Recognition != nil {
-				backoffExpires = snap.Recognition.BackoffExpires
+		if data, err := os.ReadFile(stateFilePath); err != nil {
+			log.Printf("provider-health: state file unavailable: %v", err)
+			dataComplete = false
+		} else {
+			var snap stateFileProviderBackoff
+			if err := json.Unmarshal(data, &snap); err != nil {
+				log.Printf("provider-health: state file parse error: %v", err)
+				dataComplete = false
+			} else if snap.ProviderBackoff != nil {
+				backoffExpires = snap.ProviderBackoff
 			}
 		}
 
-		// Query 24h attempt stats from SQLite (nil when DB unavailable).
+		// Query 24h attempt stats from SQLite.
 		stats := map[string]*providerHealth24hStats{}
-		if lib, err := openLibraryDB(libraryDBPath); err == nil && lib != nil {
+		if lib, err := openLibraryDB(libraryDBPath); err != nil {
+			log.Printf("provider-health: library DB unavailable: %v", err)
+			dataComplete = false
+		} else if lib != nil {
 			defer lib.close()
-			if s, err := lib.recognitionProviderHealthStats(); err == nil && s != nil {
+			if s, err := lib.recognitionProviderHealthStats(); err != nil {
+				log.Printf("provider-health: stats query error: %v", err)
+				dataComplete = false
+			} else if s != nil {
 				stats = s
 			}
 		}
@@ -1484,7 +1524,7 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			entry := providerHealthEntry{
 				ID:          p.ID,
 				DisplayName: providerDisplayName(p.ID),
-				Configured:  true,
+				Configured:  isProviderCredentialed(p.ID, cfg),
 			}
 			if until, ok := backoffExpires[p.ID]; ok && until > now {
 				entry.RateLimited = true
@@ -1510,7 +1550,7 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "private, no-cache")
-		json.NewEncoder(w).Encode(providerHealthResponse{Providers: entries})
+		json.NewEncoder(w).Encode(providerHealthResponse{Providers: entries, DataComplete: dataComplete})
 	})
 
 	// GET /api/library/artworks — recent tracks with artwork, for the picker.

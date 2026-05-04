@@ -88,6 +88,14 @@ type PlayerState struct {
 	// detector is currently active. It exposes recognizer phase so the UI can
 	// distinguish "identifying", "matched", "no_match", and "off" states.
 	Recognition *RecognitionStatus `json:"recognition,omitempty"`
+	// ProviderBackoff maps canonical provider IDs ("acrcloud", "shazam", "audd")
+	// to their rate-limit backoff expiry as a Unix epoch second (UTC). Present
+	// regardless of the active source — a provider can be rate-limited from a
+	// Physical session even while AirPlay or Bluetooth is playing. Omitted when
+	// no providers are in backoff. Clients should prefer this over
+	// recognition.backoff_expires for config-screen health views, as recognition
+	// is omitted when source is not Physical.
+	ProviderBackoff map[string]int64 `json:"provider_backoff,omitempty"`
 	// PhysicalDetectorActive is true only while /tmp/oceano-source.json reports
 	// Physical. False during the post-Physical idle-delay tail when source is
 	// still promoted to CD/Vinyl for UI grace — lets the display avoid "Identifying…"

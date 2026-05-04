@@ -151,12 +151,15 @@ func (m *mgr) buildState() PlayerState {
 		// track remains nil until recognition identifies the track.
 	}
 
+	_, providerBackoff := m.collectRateLimitedProvidersLocked()
+
 	return PlayerState{
 		Source:                 displaySource,
 		Format:                 physFmt,
 		State:                  state,
 		Track:                  track,
 		Recognition:            recognition,
+		ProviderBackoff:        providerBackoff,
 		PhysicalDetectorActive: m.physicalSource == "Physical",
 		AirPlayTransport:       airplayTransport,
 		Vu: &VuLevels{
