@@ -72,6 +72,13 @@ body::after {
   filter: saturate(0.88) brightness(0.94);
 }
 
+/* Playback stopped: last frame stays on screen with a slow dim to signal ended state (see main.js). */
+#app.stopped-hold {
+  transition: opacity 1.8s ease, filter 1.8s ease;
+  opacity: 0.72;
+  filter: saturate(0.5) brightness(0.75);
+}
+
 /* Recognition in progress: keep last artwork/titles visible but subdued; status moves to corner badge (see main.js). */
 #app.identifying-mode #content {
   transition: opacity 0.45s ease, filter 0.45s ease;

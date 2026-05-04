@@ -446,10 +446,9 @@ function applyState(state) {
 
   _isIdle = chromeIdle;
   $idle.classList.toggle('visible', deepClockIdle);
-  document.getElementById('app')?.classList.toggle(
-    'standby',
-    chromeIdle && !deepClockIdle && !holdStandbyLastFrame
-  );
+  const $appEl = document.getElementById('app');
+  $appEl?.classList.toggle('standby', chromeIdle && !deepClockIdle && !holdStandbyLastFrame);
+  $appEl?.classList.toggle('stopped-hold', holdStandbyLastFrame && !deepClockIdle);
 
   if ($idleNowSource) {
     if (forceIdleForRecognitionOff && deepClockIdle) {
@@ -500,7 +499,6 @@ function applyState(state) {
     $recognitionInputPill.textContent = '';
     $recognitionInputPill.style.display = 'none';
   }
-  const $appEl = document.getElementById('app');
   $appEl?.classList.remove('identifying-mode');
   setIdentifyingBadge(false);
 

@@ -18,7 +18,8 @@
       "Bash(grep -n \"^private extension View\\\\|^@MainActor$\\\\|^private final class\\\\|^private struct \" /Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Features/History/HistoryView.swift)",
       "Bash(sed -i '' '1s/import Combine//' /tmp/hv_clean.swift)",
       "Bash(sed -i '' '/^import Combine$/d' /tmp/hv_clean.swift)",
-      "Bash(xargs cat *)"
+      "Bash(xargs cat *)",
+      "Bash(grep -n '\\\\$appEl' /Users/alemser/Projects/oceano-player/cmd/oceano-web/static/nowplaying/main.js)"
     ],
     "additionalDirectories": [
       "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Networking",
