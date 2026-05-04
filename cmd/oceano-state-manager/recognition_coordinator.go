@@ -59,6 +59,66 @@ func shouldBypassBackoff(isBoundaryTrigger, backoffRateLimited bool) bool {
 	return isBoundaryTrigger && !backoffRateLimited
 }
 
+// canonicalProviderID maps a recognizer display name to the stable ID used in
+// state.json and the provider-health endpoint.
+func canonicalProviderID(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.Contains(lower, "acrcloud"):
+		return "acrcloud"
+	case strings.Contains(lower, "shazam"):
+		return "shazam"
+	case strings.Contains(lower, "audd"):
+		return "audd"
+	default:
+		return ""
+	}
+}
+
+// recognizerCanonicalIDs returns canonical provider IDs for a recognizer.
+// For a ChainRecognizer whose Name() is "ACRCloud→Shazam" it splits on "→"
+// and maps each segment, skipping unknown names.
+func recognizerCanonicalIDs(rec Recognizer) []string {
+	parts := strings.Split(rec.Name(), "→")
+	ids := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if id := canonicalProviderID(strings.TrimSpace(p)); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// setProviderBackoff records that a provider is rate-limited until the given
+// time. Logs on the first entry into backoff (transition from not-limited).
+func (m *mgr) setProviderBackoff(providerID string, until time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.providerBackoffExpires == nil {
+		m.providerBackoffExpires = make(map[string]time.Time)
+	}
+	prev := m.providerBackoffExpires[providerID]
+	m.providerBackoffExpires[providerID] = until
+	if prev.IsZero() || time.Now().After(prev) {
+		log.Printf("recognition: provider %s rate-limited until %s", providerID, until.UTC().Format(time.RFC3339))
+	}
+}
+
+// clearProviderBackoff removes any active backoff entry for the given provider.
+// Logs when clearing an entry that had not yet expired.
+func (m *mgr) clearProviderBackoff(providerID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.providerBackoffExpires == nil {
+		return
+	}
+	prev, had := m.providerBackoffExpires[providerID]
+	delete(m.providerBackoffExpires, providerID)
+	if had && !prev.IsZero() && time.Now().Before(prev) {
+		log.Printf("recognition: provider %s backoff cleared (was until %s)", providerID, prev.UTC().Format(time.RFC3339))
+	}
+}
+
 func shouldSkipRecognitionAttempt(isPhysical, isAirPlay, isBluetooth bool) bool {
 	return !isPhysical || isAirPlay || isBluetooth
 }
@@ -156,9 +216,13 @@ func (c *recognitionCoordinator) handleRecognitionError(err error, backoffUntil 
 	log.Printf("recognizer [%s]: error: %v", c.rec.Name(), err)
 	if errors.Is(err, ErrRateLimit) {
 		const rateLimitBackoff = 5 * time.Minute
+		until := time.Now().Add(rateLimitBackoff)
 		log.Printf("recognizer [%s]: rate limited — backing off %s", c.rec.Name(), rateLimitBackoff)
-		*backoffUntil = time.Now().Add(rateLimitBackoff)
+		*backoffUntil = until
 		*backoffRateLimited = true
+		for _, id := range recognizerCanonicalIDs(c.rec) {
+			c.mgr.setProviderBackoff(id, until)
+		}
 		return true
 	}
 	const errorBackoff = 30 * time.Second
@@ -803,6 +867,9 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 
 		backoffUntil = time.Time{}
 		backoffRateLimited = false
+		for _, id := range recognizerCanonicalIDs(c.rec) {
+			c.mgr.clearProviderBackoff(id)
+		}
 
 		if result != nil {
 			source, score := recognitionLogFields(result)

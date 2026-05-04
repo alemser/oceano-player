@@ -137,6 +137,10 @@ type mgr struct {
 	// "matched" is derived from recognitionResult != nil; "identifying" is derived
 	// from recognizerBusyUntil; this field only needs to carry "no_match" and "off".
 	recognitionPhase string
+	// providerBackoffExpires maps canonical provider IDs ("acrcloud", "shazam",
+	// "audd") to the time their rate-limit backoff expires. Entries whose expiry
+	// is in the past are filtered out in buildRecognitionStatusLocked. Protected by mu.
+	providerBackoffExpires map[string]time.Time
 	// physicalRecognitionEnabled is true when at least one runnable primary
 	// recognizer was built from recognition.providers at startup.
 	physicalRecognitionEnabled bool

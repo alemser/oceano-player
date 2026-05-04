@@ -47,6 +47,14 @@ type RecognitionStatus struct {
 	// recognition policy (from calibration config). Empty when unknown.
 	ActiveInputID   string `json:"active_input_id,omitempty"`
 	ActiveInputName string `json:"active_input_name,omitempty"`
+	// RateLimitedProviders lists canonical provider IDs currently in rate-limit
+	// backoff: "acrcloud", "shazam", "audd". Omitted when empty.
+	RateLimitedProviders []string `json:"rate_limited_providers,omitempty"`
+	// BackoffExpires maps each rate-limited provider ID to its backoff expiry as a
+	// Unix epoch second (UTC). Omitted when no providers are rate-limited. iOS
+	// clients should use this to compute relative durations ("disponível em ~12 min")
+	// without timezone ambiguity.
+	BackoffExpires map[string]int64 `json:"backoff_expires,omitempty"`
 }
 
 // VuLevels holds the latest stereo meter snapshot from oceano-source-detector
