@@ -56,11 +56,9 @@ Run this checklist for any change touching:
 
 **iOS follow-up (`oceano-player-ios`)**
 
-- [ ] **Config / Physical Media screen (MVP)**: add Discogs controls aligned with existing provider UX:
-  - `Enable Discogs enrichment` toggle -> maps to `recognition.discogs.enabled`
-  - `Discogs token` secure input (BYOK) -> maps to `recognition.discogs.token`
-  - Save via `POST /api/config` preserving the full `recognition` object (including `recognition.providers` flow)
-- [ ] **Validation (MVP)**: if `recognition.discogs.enabled == true` and `token` is empty, block save with inline guidance.
+- [x] **Config / Physical Media screen (MVP)**: **Discogs (optional)** section above Metadata Enrichment — `Enable Discogs API` + Personal Access Token field map to `recognition.discogs.enabled` / `recognition.discogs.token` on `POST /api/config` (full `recognition` round-trip preserved).
+- [x] **Validation (MVP)**: orange footnote when enabled with empty token; **Save** persists `enabled: false` until a token is set (matches prior web behaviour).
+- [x] **Metadata Enrichment** Discogs card subtitle clarifies token is **Discogs-only**, not ACRCloud/AudD.
 - [ ] **Advanced Discogs tuning** (`timeout_secs`, `max_retries`, `cache_ttl_hours`) is intentionally **deferred** for a later iOS iteration; backend defaults remain authoritative for now.
 - [ ] **Now Playing / Physical Media screen**: when `track.discogs_url` is non-empty, optionally surface a Discogs link or badge. No crash risk — field is `omitempty` and clients that ignore it are unaffected.
 - [ ] **Library screen**: `discogs_url` may appear on `LibraryEntry`; safe to display or ignore per design decision.
