@@ -271,6 +271,7 @@ type Config struct {
 	AudioOutput       AudioOutputConfig        `json:"audio_output"`
 	Bluetooth         BluetoothConfig          `json:"bluetooth"`
 	Recognition       RecognitionConfig        `json:"recognition"`
+	MetadataEnrichment MetadataEnrichmentConfig `json:"metadata_enrichment"`
 	Advanced          AdvancedConfig           `json:"advanced"`
 	Display           SPIDisplayConfig         `json:"display"`
 	Weather           WeatherConfig            `json:"weather"`
@@ -353,6 +354,8 @@ type RecognitionConfig struct {
 	// CaptureAutoGain applies optional bounded gain correction only to recognition
 	// captures (WAV sent to providers). It does not alter source detection/VU.
 	CaptureAutoGain RecognitionCaptureAutoGainConfig `json:"capture_auto_gain,omitempty"`
+	// Discogs controls optional post-recognition metadata enrichment.
+	Discogs DiscogsConfig `json:"discogs,omitempty"`
 	// MaxIntervalSecs is the fallback re-recognition interval when no
 	// silence gap (track boundary) is detected and no track is identified.
 	MaxIntervalSecs int `json:"max_interval_secs"`
@@ -440,6 +443,37 @@ type RecognitionConfig struct {
 	// re-confirmation. Higher values reduce false positives after manual needle
 	// repositioning. Typical: 60 s for vinyl-safe behavior.
 	BoundaryRestoreMinSeekSecs int `json:"boundary_restore_min_seek_secs"`
+}
+
+// DiscogsConfig controls optional Discogs post-recognition enrichment.
+// It is disabled by default and never blocks recognition when unavailable.
+type DiscogsConfig struct {
+	Enabled       bool   `json:"enabled"`
+	Token         string `json:"token"`
+	TimeoutSecs   int    `json:"timeout_secs"`
+	MaxRetries    int    `json:"max_retries"`
+	CacheTTLHours int    `json:"cache_ttl_hours"`
+}
+
+// MetadataEnrichmentProviderConfig is one entry in metadata_enrichment.providers[].
+type MetadataEnrichmentProviderConfig struct {
+	ID      string   `json:"id"`
+	Enabled bool     `json:"enabled"`
+	Roles   []string `json:"roles"`
+}
+
+// MetadataEnrichmentArtworkConfig controls artwork chain options.
+type MetadataEnrichmentArtworkConfig struct {
+	Enabled             bool `json:"enabled"`
+	DownloadTimeoutSecs int  `json:"download_timeout_secs"`
+}
+
+// MetadataEnrichmentConfig controls optional provider-chain enrichment.
+type MetadataEnrichmentConfig struct {
+	Enabled     bool                               `json:"enabled"`
+	MergePolicy string                             `json:"merge_policy"`
+	Providers   []MetadataEnrichmentProviderConfig `json:"providers"`
+	Artwork     MetadataEnrichmentArtworkConfig    `json:"artwork"`
 }
 
 // RecognitionCaptureAutoGainConfig controls optional adaptive gain for
@@ -583,6 +617,12 @@ func defaultConfig() Config {
 				MaxGain:   2.5,
 				PeakLimit: 0.98,
 			},
+			Discogs: DiscogsConfig{
+				Enabled:       false,
+				TimeoutSecs:   6,
+				MaxRetries:    2,
+				CacheTTLHours: 72,
+			},
 			MaxIntervalSecs:                         300,
 			RefreshIntervalSecs:                     120,
 			NoMatchBackoffSecs:                      15,
@@ -601,6 +641,14 @@ func defaultConfig() Config {
 			DurationGuardBypassWindowSecs:           20,
 			DurationPessimism:                       0.75,
 			BoundaryRestoreMinSeekSecs:              60,
+		},
+		MetadataEnrichment: MetadataEnrichmentConfig{
+			Enabled:     false,
+			MergePolicy: "fill_missing_then_stop",
+			Artwork: MetadataEnrichmentArtworkConfig{
+				Enabled:             true,
+				DownloadTimeoutSecs: 10,
+			},
 		},
 		Advanced: AdvancedConfig{
 			VUSocket:                "/tmp/oceano-vu.sock",
@@ -666,7 +714,38 @@ func loadConfig(path string) (Config, error) {
 	}
 	migrateLegacyCDPlayer(&cfg)
 	migrateRecognitionShazam(&cfg, data)
+	cfg.Recognition.Discogs = normalizeDiscogsConfig(cfg.Recognition.Discogs)
+	cfg.MetadataEnrichment = normalizeMetadataEnrichmentConfig(cfg.MetadataEnrichment)
 	return cfg, nil
+}
+
+func normalizeDiscogsConfig(raw DiscogsConfig) DiscogsConfig {
+	def := defaultConfig().Recognition.Discogs
+	out := raw
+	out.Token = strings.TrimSpace(out.Token)
+	if out.TimeoutSecs <= 0 {
+		out.TimeoutSecs = def.TimeoutSecs
+	}
+	if out.MaxRetries <= 0 {
+		out.MaxRetries = def.MaxRetries
+	}
+	if out.CacheTTLHours <= 0 {
+		out.CacheTTLHours = def.CacheTTLHours
+	}
+	return out
+}
+
+func normalizeMetadataEnrichmentConfig(raw MetadataEnrichmentConfig) MetadataEnrichmentConfig {
+	def := defaultConfig().MetadataEnrichment
+	out := raw
+	out.MergePolicy = strings.TrimSpace(out.MergePolicy)
+	if out.MergePolicy == "" {
+		out.MergePolicy = def.MergePolicy
+	}
+	if out.Artwork.DownloadTimeoutSecs <= 0 {
+		out.Artwork.DownloadTimeoutSecs = def.Artwork.DownloadTimeoutSecs
+	}
+	return out
 }
 
 // migrateRecognitionShazam maps deprecated shazam_python_bin (and legacy root shazam_python)

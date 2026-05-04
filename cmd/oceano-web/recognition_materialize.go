@@ -52,6 +52,24 @@ func normalizeRecognitionForManagerRestart(r RecognitionConfig) RecognitionConfi
 	return out
 }
 
+// metadataEnrichmentEqualForRestart compares metadata_enrichment blocks for whether
+// persisting would change oceano-state-manager behavior, avoiding spurious restarts
+// when POST only normalizes default values.
+func metadataEnrichmentEqualForRestart(a, b MetadataEnrichmentConfig) bool {
+	return reflect.DeepEqual(
+		normalizeMetadataEnrichmentForRestart(a),
+		normalizeMetadataEnrichmentForRestart(b),
+	)
+}
+
+func normalizeMetadataEnrichmentForRestart(m MetadataEnrichmentConfig) MetadataEnrichmentConfig {
+	out := normalizeMetadataEnrichmentConfig(m)
+	if len(out.Providers) == 0 {
+		out.Providers = []MetadataEnrichmentProviderConfig{}
+	}
+	return out
+}
+
 func normalizeRecognizerChainValue(raw string) string {
 	switch strings.TrimSpace(raw) {
 	case "acrcloud_first", "shazam_first", "acrcloud_only", "shazam_only",

@@ -90,8 +90,9 @@ troubleshooting notes:
 
 **`oceano-web`** on port **8080** exposes **HTTP APIs** (including `GET /api/config` with optional
 **`If-None-Match`** → **`304 Not Modified`**, `GET /api/player/summary` and **`GET /api/library`** with the same pattern,
-**`GET /api/library/changes`**, `POST /api/config`, and **`/api/stream`** / **`/api/status`** where stereo **`vu`** meters are
-**omitted by default** and enabled with **`?vu=1`**) and the **`/nowplaying.html`** local display; successful config writes
+**`GET /api/library/changes`**, `POST /api/config`, backup APIs (`GET /api/backups`, `POST /api/backups/restore`,
+`POST /api/backups/upload-restore`) and preflight checks (`GET /api/backups/preflight`, `POST /api/backups/upload-preflight`),
+and **`/api/stream`** / **`/api/status`** where stereo **`vu`** meters are **omitted by default** and enabled with **`?vu=1`**) and the **`/nowplaying.html`** local display; successful config writes
 still rewrite systemd units and shairport when needed. LAN client contracts are summarized in
 [`docs/reference/http-lightweight-clients.md`](docs/reference/http-lightweight-clients.md). Deeper failure modes (RMS, ACRCloud, …) are in [Troubleshooting](#troubleshooting) below.
 
@@ -285,7 +286,8 @@ Written atomically whenever state changes. The UI polls or watches this file.
     "seek_updated_at": "2026-03-29T20:30:00Z",
     "samplerate": "44.1 kHz",
     "bitdepth": "16 bit",
-    "artwork_path": "/tmp/oceano-artwork-a1b2c3d4.jpg"
+    "artwork_path": "/tmp/oceano-artwork-a1b2c3d4.jpg",
+    "discogs_url": "https://api.discogs.com/releases/12345"
   },
   "updated_at": "2026-03-29T20:30:05Z"
 }
@@ -294,6 +296,8 @@ Written atomically whenever state changes. The UI polls or watches this file.
 `source` values: `AirPlay` | `Physical` | `None`
 
 `track` is `null` when source is `Physical` and no recognition result is available yet, or when source is `None`.
+
+`track.discogs_url` is optional and appears only when Discogs enrichment is enabled and a confident release match is found.
 
 **UI progress interpolation** — to avoid polling for seek position:
 ```
@@ -463,6 +467,13 @@ All service parameters live in **`/etc/oceano/config.json`**, edited with **`oce
 require systemd or shairport updates when config is saved via the API.
 
 **Recognition capture length:** `recognition.capture_duration_secs` is the seconds of audio written to each WAV for ACRCloud and the optional **`shazamio`** path (one capture per attempt). A config save that touches recognition regenerates `oceano-state-manager.service` with a matching `--recognizer-capture-duration` flag. The Go binary’s built-in default is the same value (7s) so ad-hoc runs without systemd flags match fresh `config.json` installs.
+
+**Discogs enrichment (optional):** `recognition.discogs` controls post-recognition metadata enrichment (disabled by default). Keys:
+- `enabled` (bool)
+- `token` (BYOK Discogs token)
+- `timeout_secs` (default `6`)
+- `max_retries` (default `2`)
+- `cache_ttl_hours` (default `72`, reserved for cache/backfill stages)
 
 ### `install.sh` options
 

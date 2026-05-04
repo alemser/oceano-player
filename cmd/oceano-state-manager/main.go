@@ -12,6 +12,8 @@ import (
 	"time"
 
 	internallibrary "github.com/alemser/oceano-player/internal/library"
+	internalmetadata "github.com/alemser/oceano-player/internal/metadata"
+	internalrecognition "github.com/alemser/oceano-player/internal/recognition"
 )
 
 // --- Manager ---
@@ -194,8 +196,51 @@ func (m *mgr) markDirty() {
 // display. When confirmRec differs from rec (e.g. Shazamio confirming an ACRCloud
 // result), agreement from two independent services is required. When confirmRec
 // is nil, rec itself is used for the second call (same-provider confirmation).
-func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamioRec Recognizer, lib *internallibrary.Library) {
-	newRecognitionCoordinator(m, rec, confirmRec, shazamioRec, lib).run(ctx)
+func (m *mgr) runRecognizer(ctx context.Context, rec Recognizer, confirmRec Recognizer, shazamioRec Recognizer, lib *internallibrary.Library, chain *internalmetadata.Chain) {
+	c := newRecognitionCoordinator(m, rec, confirmRec, shazamioRec, lib)
+	c.metadataChain = chain
+	c.run(ctx)
+}
+
+// buildMetadataEnrichmentChain constructs the metadata chain from config.
+//
+// When metadata_enrichment.enabled is true, providers are instantiated in the
+// configured order — the coordinator remains unaware of which providers exist.
+//
+// When metadata_enrichment.enabled is false but a Discogs client is available,
+// a minimal single-provider chain is returned to preserve backward-compatible
+// behaviour without coupling the coordinator to Discogs directly.
+func buildMetadataEnrichmentChain(cfg MetadataEnrichmentConfig, artworkDir string, discogsClient *internalrecognition.DiscogsClient) *internalmetadata.Chain {
+	if !cfg.Enabled {
+		if p := internalmetadata.NewDiscogsProvider(discogsClient); p != nil {
+			return internalmetadata.NewChain([]internalmetadata.Provider{p}, internalmetadata.MergePolicyFillMissingThenStop)
+		}
+		return nil
+	}
+	var providers []internalmetadata.Provider
+	for _, spec := range cfg.Providers {
+		if !spec.Enabled {
+			continue
+		}
+		switch spec.ID {
+		case "provider_payload":
+			providers = append(providers, internalmetadata.NewPayloadProvider())
+		case "itunes":
+			p := internalmetadata.NewItunesProvider()
+			if artworkDir != "" && cfg.Artwork.Enabled {
+				p.ArtworkDir = artworkDir
+			}
+			providers = append(providers, p)
+		case "discogs":
+			if p := internalmetadata.NewDiscogsProvider(discogsClient); p != nil {
+				providers = append(providers, p)
+			}
+		}
+	}
+	if len(providers) == 0 {
+		return nil
+	}
+	return internalmetadata.NewChain(providers, internalmetadata.MergePolicy(cfg.MergePolicy))
 }
 
 func (m *mgr) tryEnableShazamioContinuity(ctx context.Context, shazamioRec Recognizer, current *RecognitionResult) {
@@ -511,6 +556,24 @@ func main() {
 	rec := components.chain
 	confirmRec := components.confirmer
 	shazamioRec := components.continuity
+	var discogsClient *internalrecognition.DiscogsClient
+	if cfg.Discogs.Enabled {
+		discogsClient = internalrecognition.NewDiscogsClient(internalrecognition.DiscogsClientConfig{
+			Token:      cfg.Discogs.Token,
+			Timeout:    cfg.Discogs.Timeout,
+			MaxRetries: cfg.Discogs.MaxRetries,
+		})
+		if discogsClient == nil {
+			log.Printf("discogs enrichment: disabled (missing token)")
+		} else {
+			log.Printf("discogs enrichment: enabled (timeout=%s retries=%d)", cfg.Discogs.Timeout, cfg.Discogs.MaxRetries)
+		}
+	}
+
+	metadataChain := buildMetadataEnrichmentChain(cfg.MetadataEnrichment, cfg.ArtworkDir, discogsClient)
+	if metadataChain != nil {
+		log.Printf("metadata chain: enabled policy=%s providers=%v", cfg.MetadataEnrichment.MergePolicy, metadataChain.ProviderNames())
+	}
 
 	m.markDirty() // write initial stopped state immediately
 
@@ -549,7 +612,7 @@ func main() {
 	go m.runBluetoothMonitor(ctx)
 	go m.runSourceWatcher(ctx)
 	go m.runVUMonitor(ctx)
-	go m.runRecognizer(ctx, rec, confirmRec, shazamioRec, lib)
+	go m.runRecognizer(ctx, rec, confirmRec, shazamioRec, lib, metadataChain)
 	go m.runShazamioContinuityMonitor(ctx, shazamioRec)
 	go m.runLibrarySync(ctx, lib)
 	go m.runStatsLogger(ctx, lib)

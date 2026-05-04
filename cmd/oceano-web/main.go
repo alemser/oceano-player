@@ -334,8 +334,13 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	logConfigPostSummary(cfg)
 
 	materializeRecognitionProvidersIfEmpty(&cfg.Recognition)
+	if err := validateSafeAudioInputUpdate(old.AudioInput, cfg.AudioInput); err != nil {
+		http.Error(w, "invalid audio_input: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if err := saveConfig(configPath, cfg); err != nil {
 		http.Error(w, "save failed: "+err.Error(), http.StatusInternalServerError)
@@ -351,6 +356,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		old.Advanced.PCMSocket != cfg.Advanced.PCMSocket
 
 	managerChanged := !recognitionRecognitionEqualForRestart(old.Recognition, cfg.Recognition) ||
+		!metadataEnrichmentEqualForRestart(old.MetadataEnrichment, cfg.MetadataEnrichment) ||
 		old.Advanced.MetadataPipe != cfg.Advanced.MetadataPipe ||
 		old.Advanced.SourceFile != cfg.Advanced.SourceFile ||
 		old.Advanced.StateFile != cfg.Advanced.StateFile ||
@@ -468,6 +474,46 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		"ok":      !hadError,
 		"results": results,
 	})
+}
+
+func validateSafeAudioInputUpdate(oldCfg, newCfg AudioInputConfig) error {
+	oldDevice := strings.TrimSpace(oldCfg.Device)
+	oldMatch := strings.TrimSpace(oldCfg.DeviceMatch)
+	newDevice := strings.TrimSpace(newCfg.Device)
+	newMatch := strings.TrimSpace(newCfg.DeviceMatch)
+
+	oldConfigured := oldDevice != "" || oldMatch != ""
+	newCleared := newDevice == "" && newMatch == ""
+
+	if oldConfigured && newCleared {
+		return fmt.Errorf("refusing to clear both device and device_match; keep at least one capture selector")
+	}
+	return nil
+}
+
+func logConfigPostSummary(cfg Config) {
+	parts := make([]string, 0, len(cfg.Recognition.Providers))
+	for _, p := range cfg.Recognition.Providers {
+		role := ""
+		if len(p.Roles) > 0 {
+			role = strings.Join(p.Roles, ",")
+		}
+		parts = append(parts, fmt.Sprintf("%s(enabled=%t roles=%s)", p.ID, p.Enabled, role))
+	}
+	auddSet := strings.TrimSpace(cfg.Recognition.AudDAPIToken) != ""
+	acrSet := strings.TrimSpace(cfg.Recognition.ACRCloudHost) != "" &&
+		strings.TrimSpace(cfg.Recognition.ACRCloudAccessKey) != "" &&
+		strings.TrimSpace(cfg.Recognition.ACRCloudSecretKey) != ""
+	log.Printf(
+		"api/config POST summary: providers=[%s] merge_policy=%q chain=%q audd_set=%t acr_set=%t audio_input.device=%q audio_input.device_match=%q",
+		strings.Join(parts, " -> "),
+		cfg.Recognition.MergePolicy,
+		cfg.Recognition.RecognizerChain,
+		auddSet,
+		acrSet,
+		strings.TrimSpace(cfg.AudioInput.Device),
+		strings.TrimSpace(cfg.AudioInput.DeviceMatch),
+	)
 }
 
 // applyBluetoothConfig applies Bluetooth adapter settings that take effect

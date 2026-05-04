@@ -2,22 +2,25 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 	"time"
 
+	"errors"
+
 	internallibrary "github.com/alemser/oceano-player/internal/library"
+	internalmetadata "github.com/alemser/oceano-player/internal/metadata"
 )
 
 type recognitionCoordinator struct {
-	mgr         *mgr
-	rec         Recognizer
-	confirmRec  Recognizer
-	shazamioRec Recognizer
-	lib         *internallibrary.Library
+	mgr           *mgr
+	rec           Recognizer
+	confirmRec    Recognizer
+	shazamioRec   Recognizer
+	lib           *internallibrary.Library
+	metadataChain *internalmetadata.Chain
 }
 
 func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, shazamioRec Recognizer, lib *internallibrary.Library) *recognitionCoordinator {
@@ -28,6 +31,128 @@ func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, sh
 		shazamioRec: shazamioRec,
 		lib:         lib,
 	}
+}
+
+// enrichWithMetadataChainAsync runs the configured metadata chain (text fields)
+// and then resolves album artwork asynchronously via the iTunes Search API when
+// enabled — matching the historical fetchArtwork / fetchArtworkFromSong behaviour
+// without blocking applyRecognizedResult.
+func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *RecognitionResult) {
+	if result == nil {
+		return
+	}
+	snapshot := cloneRecognitionResult(result)
+	if strings.TrimSpace(snapshot.Title) == "" || strings.TrimSpace(snapshot.Artist) == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		artDir := strings.TrimSpace(c.mgr.cfg.ArtworkDir)
+
+		c.mgr.mu.Lock()
+		existingArtPath := strings.TrimSpace(c.mgr.physicalArtworkPath)
+		c.mgr.mu.Unlock()
+
+		baseReq := internalmetadata.Request{
+			Title:       snapshot.Title,
+			Artist:      snapshot.Artist,
+			Album:       snapshot.Album,
+			Label:       snapshot.Label,
+			Released:    snapshot.Released,
+			TrackNumber: snapshot.TrackNumber,
+			DiscogsURL:  snapshot.DiscogsURL,
+			Format:      snapshot.Format,
+			ACRID:       snapshot.ACRID,
+			ShazamID:    snapshot.ShazamID,
+			WantArtwork: false,
+		}
+
+		var patch *internalmetadata.Patch
+		if c.metadataChain != nil {
+			var err error
+			patch, err = c.metadataChain.Run(ctx, baseReq, nil)
+			if err != nil {
+				log.Printf("metadata chain: enrichment error for %s — %s: %v", snapshot.Artist, snapshot.Title, err)
+				return
+			}
+		}
+
+		if artDir != "" && existingArtPath == "" &&
+			(strings.TrimSpace(snapshot.Album) != "" || strings.TrimSpace(snapshot.Title) != "") {
+			artReq := baseReq
+			artReq.WantArtwork = true
+			artReq.ArtworkDir = artDir
+			var artPatch *internalmetadata.Patch
+			var artErr error
+			if c.metadataChain != nil {
+				artPatch, artErr = c.metadataChain.RunForArtwork(ctx, artReq)
+			} else {
+				it := internalmetadata.NewItunesProvider()
+				artPatch, artErr = it.Enrich(ctx, artReq)
+			}
+			if artErr != nil {
+				log.Printf("metadata enrichment: artwork error for %s — %s: %v", snapshot.Artist, snapshot.Title, artErr)
+			} else {
+				patch = internalmetadata.MergeArtworkOnly(patch, artPatch)
+			}
+		}
+
+		if patch == nil || patch.Empty() {
+			return
+		}
+
+		c.mgr.mu.Lock()
+		current := c.mgr.recognitionResult
+		if current == nil || !sameTrackByProviderIDs(current, snapshot) {
+			c.mgr.mu.Unlock()
+			return
+		}
+		changed := false
+		if current.Album == "" && patch.Album != "" {
+			current.Album = patch.Album
+			changed = true
+		}
+		if current.Label == "" && patch.Label != "" {
+			current.Label = patch.Label
+			changed = true
+		}
+		if current.Released == "" && patch.Released != "" {
+			current.Released = patch.Released
+			changed = true
+		}
+		if current.TrackNumber == "" && patch.TrackNumber != "" {
+			current.TrackNumber = patch.TrackNumber
+			changed = true
+		}
+		if current.DiscogsURL == "" && patch.DiscogsURL != "" {
+			current.DiscogsURL = patch.DiscogsURL
+			changed = true
+		}
+		if patch.Artwork != nil && strings.TrimSpace(patch.Artwork.Path) != "" &&
+			strings.TrimSpace(c.mgr.physicalArtworkPath) == "" {
+			c.mgr.physicalArtworkPath = strings.TrimSpace(patch.Artwork.Path)
+			changed = true
+		}
+		libraryID := c.mgr.physicalLibraryEntryID
+		c.mgr.mu.Unlock()
+
+		if changed {
+			log.Printf("metadata enrichment: applied patch for %s — %s (provider=%s)", snapshot.Artist, snapshot.Title, patch.Provider)
+			c.mgr.markDirty()
+		}
+
+		if c.lib != nil && libraryID > 0 {
+			artPath := ""
+			if patch.Artwork != nil {
+				artPath = strings.TrimSpace(patch.Artwork.Path)
+			}
+			if dbErr := c.lib.UpdateEnrichmentPatch(libraryID, patch.DiscogsURL, patch.Album, patch.Label, patch.Released, patch.Provider, artPath); dbErr != nil {
+				log.Printf("metadata chain: db persist error: %v", dbErr)
+			}
+		}
+	}()
 }
 
 func (c *recognitionCoordinator) primaryRecognizer() Recognizer {
@@ -469,24 +594,10 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 			if entry.DurationMs > 0 {
 				result.DurationMs = pickLongerDurationMs(result.DurationMs, entry.DurationMs)
 			}
+			if entry.DiscogsURL != "" {
+				result.DiscogsURL = entry.DiscogsURL
+			}
 			artworkPath = entry.ArtworkPath
-		}
-
-		if artworkPath == "" && result.Album != "" {
-			if ap, artErr := fetchArtwork(result.Artist, result.Album, c.mgr.cfg.ArtworkDir); artErr != nil {
-				log.Printf("recognizer: artwork fetch error: %v", artErr)
-			} else if ap != "" {
-				log.Printf("recognizer: artwork saved at %s", ap)
-				artworkPath = ap
-			}
-		}
-		if artworkPath == "" && result.Artist != "" && result.Title != "" {
-			if ap, artErr := fetchArtworkFromSong(result.Artist, result.Title, c.mgr.cfg.ArtworkDir); artErr != nil {
-				log.Printf("recognizer: track artwork fetch error: %v", artErr)
-			} else if ap != "" {
-				log.Printf("recognizer: artwork saved at %s (song search)", ap)
-				artworkPath = ap
-			}
 		}
 
 		boundarySensitive := false
@@ -519,6 +630,9 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 					}
 					if finalEntry.ArtworkPath != "" {
 						artworkPath = finalEntry.ArtworkPath
+					}
+					if finalEntry.DiscogsURL != "" {
+						result.DiscogsURL = finalEntry.DiscogsURL
 					}
 				}
 			}
@@ -555,6 +669,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 			c.mgr.physicalStartedAt = captureStartedAt
 		}
 		c.mgr.mu.Unlock()
+		c.enrichWithMetadataChainAsync(result)
 		return
 	}
 
@@ -585,6 +700,7 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 		c.mgr.physicalStartedAt = captureStartedAt
 	}
 	c.mgr.mu.Unlock()
+	c.enrichWithMetadataChainAsync(result)
 }
 
 func resolvedRefreshInterval(refresh, max time.Duration) time.Duration {

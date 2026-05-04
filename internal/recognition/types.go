@@ -34,6 +34,9 @@ type Result struct {
 	// (e.g. "acrcloud", "shazam", "audd"). Used for UI state when ACRID/ShazamID
 	// are empty. Not serialized on track payloads today.
 	MatchSource string `json:"-"`
+	// DiscogsURL is the Discogs release resource URL, populated by async
+	// post-recognition Discogs enrichment. Empty until enrichment completes.
+	DiscogsURL string
 }
 
 // Recognizer identifies a track from a WAV audio file.

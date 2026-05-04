@@ -436,6 +436,7 @@ type RecognitionResult struct {
   Format     string  // "CD", "Vinyl", "Streaming" — used for UI chips
   DurationMs int     // Track duration from provider
   TrackNumber string // "3", "A2", "B4" — from library, not providers
+  DiscogsURL string  // Optional Discogs release URL from async enrichment
 }
 ```
 

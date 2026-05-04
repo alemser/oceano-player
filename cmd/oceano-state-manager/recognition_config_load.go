@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 )
 
 // applyRecognitionProvidersFromConfigFile loads cfg.RecognitionProviders and
@@ -21,6 +22,8 @@ func applyRecognitionProvidersFromConfigFile(cfg *Config) {
 		cfg.RecognitionProviders = nil
 		cfg.RecognitionMergePolicy = ""
 		cfg.RecognitionCaptureAutoGain = defaultRecognitionCaptureAutoGainConfig()
+		cfg.Discogs = defaultConfig().Discogs
+		cfg.MetadataEnrichment = defaultConfig().MetadataEnrichment
 		return
 	}
 	data, err := os.ReadFile(path)
@@ -29,6 +32,8 @@ func applyRecognitionProvidersFromConfigFile(cfg *Config) {
 		cfg.RecognitionProviders = nil
 		cfg.RecognitionMergePolicy = ""
 		cfg.RecognitionCaptureAutoGain = defaultRecognitionCaptureAutoGainConfig()
+		cfg.Discogs = defaultConfig().Discogs
+		cfg.MetadataEnrichment = defaultConfig().MetadataEnrichment
 		return
 	}
 	var top struct {
@@ -37,36 +42,122 @@ func applyRecognitionProvidersFromConfigFile(cfg *Config) {
 			MergePolicy             string                          `json:"merge_policy"`
 			ShazamRecognizerEnabled *bool                           `json:"shazam_recognizer_enabled"`
 			CaptureAutoGain         RecognitionCaptureAutoGainConfig `json:"capture_auto_gain"`
+			Discogs                 struct {
+				Enabled       bool   `json:"enabled"`
+				Token         string `json:"token"`
+				TimeoutSecs   int    `json:"timeout_secs"`
+				MaxRetries    int    `json:"max_retries"`
+				CacheTTLHours int    `json:"cache_ttl_hours"`
+			} `json:"discogs"`
 		} `json:"recognition"`
+		MetadataEnrichment *struct {
+			Enabled     bool                             `json:"enabled"`
+			MergePolicy string                           `json:"merge_policy"`
+			Providers   []MetadataEnrichmentProviderSpec `json:"providers"`
+			Artwork     struct {
+				Enabled             *bool `json:"enabled"`
+				DownloadTimeoutSecs int   `json:"download_timeout_secs"`
+			} `json:"artwork"`
+		} `json:"metadata_enrichment"`
 	}
 	if err := json.Unmarshal(data, &top); err != nil {
 		log.Printf("recognizer: parse %s: %v", path, err)
 		cfg.RecognitionProviders = nil
 		cfg.RecognitionMergePolicy = ""
 		cfg.RecognitionCaptureAutoGain = defaultRecognitionCaptureAutoGainConfig()
+		cfg.Discogs = defaultConfig().Discogs
+		cfg.MetadataEnrichment = defaultConfig().MetadataEnrichment
 		return
 	}
 	if top.Recognition == nil {
 		cfg.RecognitionProviders = nil
 		cfg.RecognitionMergePolicy = ""
 		cfg.RecognitionCaptureAutoGain = defaultRecognitionCaptureAutoGainConfig()
-		return
-	}
-	mp := strings.TrimSpace(top.Recognition.MergePolicy)
-	if mp == "" {
-		mp = "first_success"
-	}
-	cfg.RecognitionMergePolicy = mp
-	cfg.RecognitionProviders = append([]RecognitionProviderSpec(nil), top.Recognition.Providers...)
-	cfg.RecognitionCaptureAutoGain = normalizeRecognitionCaptureAutoGainConfig(top.Recognition.CaptureAutoGain)
+		cfg.Discogs = defaultConfig().Discogs
+	} else {
+		mp := strings.TrimSpace(top.Recognition.MergePolicy)
+		if mp == "" {
+			mp = "first_success"
+		}
+		cfg.RecognitionMergePolicy = mp
+		cfg.RecognitionProviders = append([]RecognitionProviderSpec(nil), top.Recognition.Providers...)
+		cfg.RecognitionCaptureAutoGain = normalizeRecognitionCaptureAutoGainConfig(top.Recognition.CaptureAutoGain)
+		cfg.Discogs = normalizeDiscogsConfig(top.Recognition.Discogs)
 
-	// recognition.shazam_recognizer_enabled: when explicitly false, treat shazam as off
-	// in the provider list so the subprocess is not started (iOS / web toggle).
-	if top.Recognition.ShazamRecognizerEnabled != nil && !*top.Recognition.ShazamRecognizerEnabled {
-		for i := range cfg.RecognitionProviders {
-			if strings.EqualFold(strings.TrimSpace(cfg.RecognitionProviders[i].ID), "shazam") {
-				cfg.RecognitionProviders[i].Enabled = false
+		// recognition.shazam_recognizer_enabled: when explicitly false, treat shazam as off
+		// in the provider list so the subprocess is not started (iOS / web toggle).
+		if top.Recognition.ShazamRecognizerEnabled != nil && !*top.Recognition.ShazamRecognizerEnabled {
+			for i := range cfg.RecognitionProviders {
+				if strings.EqualFold(strings.TrimSpace(cfg.RecognitionProviders[i].ID), "shazam") {
+					cfg.RecognitionProviders[i].Enabled = false
+				}
 			}
 		}
 	}
+	cfg.MetadataEnrichment = normalizeMetadataEnrichmentConfig(top.MetadataEnrichment)
+}
+
+func normalizeDiscogsConfig(raw struct {
+	Enabled       bool   `json:"enabled"`
+	Token         string `json:"token"`
+	TimeoutSecs   int    `json:"timeout_secs"`
+	MaxRetries    int    `json:"max_retries"`
+	CacheTTLHours int    `json:"cache_ttl_hours"`
+}) DiscogsConfig {
+	def := defaultConfig().Discogs
+	out := DiscogsConfig{
+		Enabled:    raw.Enabled,
+		Token:      strings.TrimSpace(raw.Token),
+		MaxRetries: raw.MaxRetries,
+	}
+	if raw.TimeoutSecs <= 0 {
+		out.Timeout = def.Timeout
+	} else {
+		out.Timeout = time.Duration(raw.TimeoutSecs) * time.Second
+	}
+	if out.MaxRetries <= 0 {
+		out.MaxRetries = def.MaxRetries
+	}
+	if raw.CacheTTLHours <= 0 {
+		out.CacheTTL = def.CacheTTL
+	} else {
+		out.CacheTTL = time.Duration(raw.CacheTTLHours) * time.Hour
+	}
+	return out
+}
+
+func normalizeMetadataEnrichmentConfig(raw *struct {
+	Enabled     bool                             `json:"enabled"`
+	MergePolicy string                           `json:"merge_policy"`
+	Providers   []MetadataEnrichmentProviderSpec `json:"providers"`
+	Artwork     struct {
+		Enabled             *bool `json:"enabled"`
+		DownloadTimeoutSecs int   `json:"download_timeout_secs"`
+	} `json:"artwork"`
+}) MetadataEnrichmentConfig {
+	def := defaultConfig().MetadataEnrichment
+	if raw == nil {
+		return def
+	}
+	out := MetadataEnrichmentConfig{
+		Enabled:   raw.Enabled,
+		Providers: append([]MetadataEnrichmentProviderSpec(nil), raw.Providers...),
+		Artwork: MetadataEnrichmentArtworkConfig{
+			Enabled: def.Artwork.Enabled,
+		},
+	}
+	mp := strings.TrimSpace(raw.MergePolicy)
+	if mp == "" {
+		mp = def.MergePolicy
+	}
+	out.MergePolicy = mp
+	if raw.Artwork.Enabled != nil {
+		out.Artwork.Enabled = *raw.Artwork.Enabled
+	}
+	if raw.Artwork.DownloadTimeoutSecs > 0 {
+		out.Artwork.DownloadTimeout = time.Duration(raw.Artwork.DownloadTimeoutSecs) * time.Second
+	} else {
+		out.Artwork.DownloadTimeout = def.Artwork.DownloadTimeout
+	}
+	return out
 }

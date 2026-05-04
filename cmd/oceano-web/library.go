@@ -37,7 +37,9 @@ type LibraryEntry struct {
 	UserConfirmed bool   `json:"user_confirmed"`
 	// BoundarySensitive marks tracks where quiet passages are often mistaken for
 	// track boundaries (R8); the state manager nudges duration-based VU guards.
-	BoundarySensitive bool `json:"boundary_sensitive"`
+	BoundarySensitive bool   `json:"boundary_sensitive"`
+	DiscogsURL        string `json:"discogs_url,omitempty"`
+	MetadataProvider  string `json:"metadata_provider,omitempty"`
 }
 
 // LibraryDB wraps the collection SQLite database for the web UI.
@@ -116,6 +118,8 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		`ALTER TABLE boundary_events ADD COLUMN early_boundary INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE boundary_events ADD COLUMN followup_recorded_at TEXT`,
 		`ALTER TABLE collection ADD COLUMN boundary_sensitive INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE collection ADD COLUMN discogs_url TEXT`,
+		`ALTER TABLE collection ADD COLUMN metadata_provider TEXT`,
 		`CREATE TABLE IF NOT EXISTS rms_learning (
 			format_key TEXT NOT NULL PRIMARY KEY,
 			updated_at TEXT NOT NULL,
@@ -185,7 +189,80 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		_ = l.db.Close()
 		return nil, err
 	}
+	if err := l.reconcileSchemaMigrations(); err != nil {
+		_ = l.db.Close()
+		return nil, err
+	}
 	return l, nil
+}
+
+// reconcileSchemaMigrations keeps schema_migrations aligned with columns that
+// may already exist in restored databases.
+//
+// Why this matters:
+// - Older backups can contain additive columns (e.g. discogs_url) while
+//   schema_migrations lags behind.
+// - If state-manager later runs its official migration chain, it can fail on
+//   duplicate-column errors unless the version marker is reconciled.
+func (l *LibraryDB) reconcileSchemaMigrations() error {
+	if l == nil || l.db == nil {
+		return nil
+	}
+	if _, err := l.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`); err != nil {
+		return fmt.Errorf("library: ensure schema_migrations: %w", err)
+	}
+
+	var maxVersion int
+	if err := l.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&maxVersion); err != nil {
+		return fmt.Errorf("library: read max schema version: %w", err)
+	}
+
+	rows, err := l.db.Query(`PRAGMA table_info(collection)`)
+	if err != nil {
+		return fmt.Errorf("library: inspect collection columns: %w", err)
+	}
+	defer rows.Close()
+
+	hasDiscogsURL := false
+	hasMetadataProvider := false
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			colType   string
+			notNull   int
+			dfltValue sql.NullString
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("library: scan table_info(collection): %w", err)
+		}
+		if strings.EqualFold(name, "discogs_url") {
+			hasDiscogsURL = true
+		}
+		if strings.EqualFold(name, "metadata_provider") {
+			hasMetadataProvider = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("library: iterate table_info(collection): %w", err)
+	}
+
+	// Keep in sync with internal/library migrations: v52 adds collection.discogs_url.
+	if hasDiscogsURL && maxVersion < 52 {
+		if _, err := l.db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES (52)`); err != nil {
+			return fmt.Errorf("library: reconcile migration v52: %w", err)
+		}
+		log.Printf("library: reconciled schema_migrations to include v52 (discogs_url present)")
+	}
+	// v53 adds collection.metadata_provider for enrichment provenance tracking.
+	if hasMetadataProvider && maxVersion < 53 {
+		if _, err := l.db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES (53)`); err != nil {
+			return fmt.Errorf("library: reconcile migration v53: %w", err)
+		}
+		log.Printf("library: reconciled schema_migrations to include v53 (metadata_provider present)")
+	}
+	return nil
 }
 
 // getRecognitionStats returns a map of provider -> event -> count.
@@ -760,7 +837,7 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 		       COALESCE(released,''), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       COALESCE(duration_ms,0), play_count, first_played, last_played, COALESCE(user_confirmed,0),
-		       COALESCE(boundary_sensitive,0)
+		       COALESCE(boundary_sensitive,0), COALESCE(discogs_url,''), COALESCE(metadata_provider,'')
 		FROM collection ORDER BY last_played DESC`)
 	if err != nil {
 		return nil, err
@@ -772,7 +849,8 @@ func (l *LibraryDB) list() ([]LibraryEntry, error) {
 		var e LibraryEntry
 		var confirmed, boundarySens int
 		if err := rows.Scan(&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist, &e.Album, &e.Label, &e.Released, &e.Format,
-			&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed, &boundarySens); err != nil {
+			&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed, &boundarySens,
+			&e.DiscogsURL, &e.MetadataProvider); err != nil {
 			return nil, err
 		}
 		e.UserConfirmed = confirmed == 1
@@ -811,12 +889,13 @@ func (l *LibraryDB) entryByID(id int64) (*LibraryEntry, error) {
 		       COALESCE(released,''), COALESCE(format,'Unknown'),
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       COALESCE(duration_ms,0), play_count, first_played, last_played, COALESCE(user_confirmed,0),
-		       COALESCE(boundary_sensitive,0)
+		       COALESCE(boundary_sensitive,0), COALESCE(discogs_url,''), COALESCE(metadata_provider,'')
 		FROM collection WHERE id = ?`, id)
 	var e LibraryEntry
 	var confirmed, boundarySens int
 	err := row.Scan(&e.ID, &e.ACRID, &e.ShazamID, &e.Title, &e.Artist, &e.Album, &e.Label, &e.Released, &e.Format,
-		&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed, &boundarySens)
+		&e.TrackNumber, &e.ArtworkPath, &e.DurationMs, &e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed, &boundarySens,
+		&e.DiscogsURL, &e.MetadataProvider)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1628,10 +1707,12 @@ func handleGetArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id
 	var artworkPath string
 	err := lib.db.QueryRow(`SELECT COALESCE(artwork_path,'') FROM collection WHERE id=?`, id).Scan(&artworkPath)
 	if err == sql.ErrNoRows {
+		w.Header().Set("Cache-Control", "no-store")
 		http.NotFound(w, r)
 		return
 	}
 	if err != nil || artworkPath == "" {
+		w.Header().Set("Cache-Control", "no-store")
 		http.NotFound(w, r)
 		return
 	}

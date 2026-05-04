@@ -43,6 +43,32 @@ Run this checklist for any change touching:
 
 ---
 
+## Log: 2026-05-04 — Discogs enrichment: persistence + additive API/state exposure (PR3)
+
+**Backend (`oceano-state-manager` + `internal/library` + `oceano-web`)**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `track.discogs_url` in `GET /api/stream` + `GET /api/status` | **Additive** | URL string; present in the Physical source track object when Discogs enrichment succeeds; omitted (`omitempty`) otherwise. |
+| `discogs_url` in `GET /api/library` + `GET /api/library/changes` | **Additive** | Present on `LibraryEntry` when persisted; empty string when not yet enriched. |
+| SQLite `collection.discogs_url` | **Additive** | New nullable column via migration; existing rows default to `NULL` (mapped as empty string). |
+| `UpdateDiscogsEnrichment` (internal) | **Additive** | State-manager persists Discogs URL + supplementary fields (`album`, `label`, `released`) after async enrichment; additive policy — no overwrites of existing values. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [x] **Config / Physical Media screen (MVP)**: Metadata Enrichment → **Discogs** row → **Credentials** — `Enable Discogs API` + Personal Access Token map to `recognition.discogs.enabled` / `recognition.discogs.token` on `POST /api/config` (full `recognition` round-trip preserved).
+- [x] **Validation (MVP)**: orange footnote when enabled with empty token; **Save** persists `enabled: false` until a token is set (matches prior web behaviour).
+- [x] **Metadata Enrichment** Discogs card subtitle clarifies token is **Discogs-only**, not ACRCloud/AudD.
+- [ ] **Advanced Discogs tuning** (`timeout_secs`, `max_retries`, `cache_ttl_hours`) is intentionally **deferred** for a later iOS iteration; backend defaults remain authoritative for now.
+- [ ] **Now Playing / Physical Media screen**: when `track.discogs_url` is non-empty, optionally surface a Discogs link or badge. No crash risk — field is `omitempty` and clients that ignore it are unaffected.
+- [ ] **Library screen**: `discogs_url` may appear on `LibraryEntry`; safe to display or ignore per design decision.
+
+**Risk**
+
+- [x] low — purely additive; no field renames or removals.
+
+---
+
 ## Log: 2026-05-04 — Per-provider rate-limit feedback (`recognition` in state.json + `/api/recognition/provider-health`)
 
 **Contract owner:** [`docs/reference/recognition.md`](reference/recognition.md) — "Rate-limit backoff fields" section
