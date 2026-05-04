@@ -373,6 +373,14 @@ func (c *recognitionCoordinator) maybeConfirmCandidate(ctx context.Context, resu
 		log.Printf("recognizer [%s]: confirmation capture error — accepting original result: %v", c.rec.Name(), confErr)
 		return false, false
 	}
+	if tel, gainErr := applyCaptureAutoGainOnWAVFile(confWav, c.mgr.cfg.RecognitionCaptureAutoGain); gainErr != nil {
+		if c.mgr.cfg.Verbose {
+			log.Printf("recognizer [%s]: confirmation capture auto-gain skipped: %v", c.rec.Name(), gainErr)
+		}
+	} else if tel.Applied {
+		log.Printf("recognizer [%s]: confirmation capture auto-gain applied gain=%.2fx rms %.4f→%.4f peak %.4f→%.4f clipped=%d",
+			c.rec.Name(), tel.Gain, tel.BeforeRMS, tel.AfterRMS, tel.BeforePeak, tel.AfterPeak, tel.Clipped)
+	}
 
 	confCtx2, confCancel2 := context.WithTimeout(ctx, confDur+10*time.Second)
 	confRecCtx := confCtx2
@@ -828,6 +836,14 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 				Outcome: internallibrary.FollowupOutcomeCaptureError,
 			})
 			continue
+		}
+		if tel, gainErr := applyCaptureAutoGainOnWAVFile(wavPath, c.mgr.cfg.RecognitionCaptureAutoGain); gainErr != nil {
+			if c.mgr.cfg.Verbose {
+				log.Printf("recognizer [%s]: capture auto-gain skipped: %v", c.rec.Name(), gainErr)
+			}
+		} else if tel.Applied {
+			log.Printf("recognizer [%s]: capture auto-gain applied gain=%.2fx rms %.4f→%.4f peak %.4f→%.4f clipped=%d",
+				c.rec.Name(), tel.Gain, tel.BeforeRMS, tel.AfterRMS, tel.BeforePeak, tel.AfterPeak, tel.Clipped)
 		}
 
 		triggerStr := "fallback_timer"

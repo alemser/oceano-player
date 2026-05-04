@@ -149,3 +149,21 @@ func wavPCMLevelStats(path string) (meanRMS, peak float64, err error) {
 	}
 	return math.Sqrt(sumSq / float64(samples)), peak, nil
 }
+
+func applyCaptureAutoGainOnWAVFile(path string, cfg RecognitionCaptureAutoGainConfig) (captureAutoGainTelemetry, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return captureAutoGainTelemetry{}, err
+	}
+	adjusted, tel, err := maybeApplyRecognitionCaptureAutoGain(raw, cfg)
+	if err != nil {
+		return tel, err
+	}
+	if !tel.Applied {
+		return tel, nil
+	}
+	if err := os.WriteFile(path, adjusted, 0o644); err != nil {
+		return tel, err
+	}
+	return tel, nil
+}

@@ -221,6 +221,14 @@ func (m *mgr) tryEnableShazamioContinuity(ctx context.Context, shazamioRec Recog
 		return
 	}
 	defer os.Remove(wavPath)
+	if tel, gainErr := applyCaptureAutoGainOnWAVFile(wavPath, m.cfg.RecognitionCaptureAutoGain); gainErr != nil {
+		if m.cfg.Verbose {
+			log.Printf("shazamio continuity: capture auto-gain skipped: %v", gainErr)
+		}
+	} else if tel.Applied && m.cfg.Verbose {
+		log.Printf("shazamio continuity: capture auto-gain applied gain=%.2fx rms %.4f→%.4f peak %.4f→%.4f clipped=%d",
+			tel.Gain, tel.BeforeRMS, tel.AfterRMS, tel.BeforePeak, tel.AfterPeak, tel.Clipped)
+	}
 
 	shRes, err := shazamioRec.Recognize(ctx, wavPath)
 	if err != nil || shRes == nil {
@@ -336,6 +344,14 @@ func (m *mgr) runShazamioContinuityMonitor(ctx context.Context, shazamioRec Reco
 				return
 			}
 			continue
+		}
+		if tel, gainErr := applyCaptureAutoGainOnWAVFile(wavPath, m.cfg.RecognitionCaptureAutoGain); gainErr != nil {
+			if m.cfg.Verbose {
+				log.Printf("shazamio continuity: periodic capture auto-gain skipped: %v", gainErr)
+			}
+		} else if tel.Applied && m.cfg.Verbose {
+			log.Printf("shazamio continuity: periodic capture auto-gain applied gain=%.2fx rms %.4f→%.4f peak %.4f→%.4f clipped=%d",
+				tel.Gain, tel.BeforeRMS, tel.AfterRMS, tel.BeforePeak, tel.AfterPeak, tel.Clipped)
 		}
 
 		shRes, recErr := shazamioRec.Recognize(ctx, wavPath)

@@ -350,6 +350,9 @@ type RecognitionConfig struct {
 	// saving the web UI regenerates oceano-state-manager.service with
 	// --recognizer-capture-duration to this value. Typical range ~5–12s.
 	CaptureDurationSecs int `json:"capture_duration_secs"`
+	// CaptureAutoGain applies optional bounded gain correction only to recognition
+	// captures (WAV sent to providers). It does not alter source detection/VU.
+	CaptureAutoGain RecognitionCaptureAutoGainConfig `json:"capture_auto_gain,omitempty"`
 	// MaxIntervalSecs is the fallback re-recognition interval when no
 	// silence gap (track boundary) is detected and no track is identified.
 	MaxIntervalSecs int `json:"max_interval_secs"`
@@ -437,6 +440,16 @@ type RecognitionConfig struct {
 	// re-confirmation. Higher values reduce false positives after manual needle
 	// repositioning. Typical: 60 s for vinyl-safe behavior.
 	BoundaryRestoreMinSeekSecs int `json:"boundary_restore_min_seek_secs"`
+}
+
+// RecognitionCaptureAutoGainConfig controls optional adaptive gain for
+// recognition captures only (not global audio path).
+type RecognitionCaptureAutoGainConfig struct {
+	Enabled   bool    `json:"enabled"`
+	TargetRMS float64 `json:"target_rms"`
+	MinGain   float64 `json:"min_gain"`
+	MaxGain   float64 `json:"max_gain"`
+	PeakLimit float64 `json:"peak_limit"`
 }
 
 // RecognitionProviderConfig is one entry in recognition.providers[] (explicit provider list).
@@ -563,6 +576,13 @@ func defaultConfig() Config {
 		Recognition: RecognitionConfig{
 			ACRCloudHost:                            "identify-eu-west-1.acrcloud.com",
 			CaptureDurationSecs:                     7,
+			CaptureAutoGain: RecognitionCaptureAutoGainConfig{
+				Enabled:   true,
+				TargetRMS: 0.16,
+				MinGain:   1.0,
+				MaxGain:   2.5,
+				PeakLimit: 0.98,
+			},
 			MaxIntervalSecs:                         300,
 			RefreshIntervalSecs:                     120,
 			NoMatchBackoffSecs:                      15,

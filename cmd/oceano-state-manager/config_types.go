@@ -196,6 +196,10 @@ type Config struct {
 	// RecognitionConfig.CaptureDurationSecs in cmd/oceano-web/config.go; deployed
 	// units normally pass --recognizer-capture-duration from that JSON via oceano-web.
 	RecognizerCaptureDuration time.Duration
+	// RecognitionCaptureAutoGain optionally applies a bounded gain correction to
+	// recognition captures before provider calls. This is capture-only and does
+	// not affect source detection or VU boundary thresholds.
+	RecognitionCaptureAutoGain RecognitionCaptureAutoGainConfig
 	// RecognizerMaxInterval is the periodic fallback re-recognition interval used
 	// when no track has been identified yet. On timer-based fires the previous
 	// result is kept on a no-match so the display is not blanked mid-track.
@@ -298,6 +302,7 @@ func defaultConfig() Config {
 		VUSilenceThreshold:                      0.0095,
 		CalibrationConfigPath:                   "/etc/oceano/config.json",
 		RecognizerCaptureDuration:               7 * time.Second,
+		RecognitionCaptureAutoGain:              defaultRecognitionCaptureAutoGainConfig(),
 		RecognizerMaxInterval:                   5 * time.Minute,
 		RecognizerRefreshInterval:               2 * time.Minute,
 		NoMatchBackoff:                          15 * time.Second,
