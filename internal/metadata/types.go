@@ -9,8 +9,8 @@ import (
 type MergePolicy string
 
 const (
-	MergePolicyFirstSuccess        MergePolicy = "first_success"
-	MergePolicyFillMissingThenStop MergePolicy = "fill_missing_then_stop"
+	MergePolicyFirstSuccess         MergePolicy = "first_success"
+	MergePolicyFillMissingThenStop  MergePolicy = "fill_missing_then_stop"
 	MergePolicyCollectAllBestEffort MergePolicy = "collect_all_best_effort"
 )
 
@@ -55,13 +55,21 @@ func (p *Patch) Empty() bool {
 
 // Request is the provider-agnostic enrichment input.
 type Request struct {
-	Title    string
-	Artist   string
-	Album    string
-	Format   string
-	ACRID    string
-	ShazamID string
-	ISRC     string
+	Title       string
+	Artist      string
+	Album       string
+	Label       string
+	Released    string
+	TrackNumber string
+	DiscogsURL  string
+	Format      string
+	ACRID       string
+	ShazamID    string
+	ISRC        string
+	// WantArtwork when true allows artwork providers (e.g. itunes) to run.
+	WantArtwork bool
+	// ArtworkDir is the directory for downloaded artwork (optional).
+	ArtworkDir string
 }
 
 // Provider enriches metadata/artwork without writing persistence directly.

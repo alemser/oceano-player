@@ -3,7 +3,6 @@ package metadata
 import "context"
 
 // Chain coordinates metadata enrichment providers in configured order.
-// PR1 scaffold: behavior is intentionally conservative and side-effect free.
 type Chain struct {
 	providers   []Provider
 	mergePolicy MergePolicy
@@ -43,21 +42,75 @@ func (c *Chain) ProviderNames() []string {
 	return names
 }
 
-// Run executes providers in order and returns the first non-empty patch.
-// Full merge-policy orchestration will be expanded in later rollout steps.
-func (c *Chain) Run(ctx context.Context, req Request) (*Patch, error) {
+// Run executes providers according to merge policy.
+// seed is the starting metadata (e.g. already persisted); nil is treated as empty.
+// The returned patch is a new value suitable for applying on top of seed semantics.
+func (c *Chain) Run(ctx context.Context, req Request, seed *Patch) (*Patch, error) {
 	if c == nil {
-		return nil, nil
+		return ClonePatch(seed), nil
 	}
+
+	policy := c.mergePolicy
+	if policy == "" {
+		policy = MergePolicyFillMissingThenStop
+	}
+
+	switch policy {
+	case MergePolicyFirstSuccess:
+		return c.runFirstSuccess(ctx, req, seed)
+	case MergePolicyCollectAllBestEffort:
+		return c.runCollectAll(ctx, req, seed)
+	default:
+		return c.runFillMissingThenStop(ctx, req, seed)
+	}
+}
+
+func (c *Chain) runFirstSuccess(ctx context.Context, req Request, seed *Patch) (*Patch, error) {
+	out := ClonePatch(seed)
 	for _, p := range c.providers {
 		patch, err := p.Enrich(ctx, req)
 		if err != nil {
 			return nil, err
 		}
-		if !patch.Empty() {
-			return patch, nil
+		if patch == nil || patch.Empty() {
+			continue
 		}
+		mergeOverwriteNonEmpty(out, patch)
+		return out, nil
 	}
-	return nil, nil
+	return out, nil
 }
 
+func (c *Chain) runCollectAll(ctx context.Context, req Request, seed *Patch) (*Patch, error) {
+	out := ClonePatch(seed)
+	for _, p := range c.providers {
+		patch, err := p.Enrich(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		mergeFillMissing(out, patch)
+	}
+	return out, nil
+}
+
+func (c *Chain) runFillMissingThenStop(ctx context.Context, req Request, seed *Patch) (*Patch, error) {
+	out := ClonePatch(seed)
+	mask := newMissingMask(seed)
+	if !mask.any() {
+		return out, nil
+	}
+	for _, p := range c.providers {
+		if mask.satisfiedBy(out) {
+			break
+		}
+		patch, err := p.Enrich(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		mergeFillMissing(out, patch)
+		if mask.satisfiedBy(out) {
+			break
+		}
+	}
+	return out, nil
+}
