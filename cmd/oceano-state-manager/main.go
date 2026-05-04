@@ -558,6 +558,12 @@ func (m *mgr) runStatsLogger(ctx context.Context, lib *internallibrary.Library) 
 			}
 			log.Printf("--- Recognition Stats Summary ---")
 			for p, evs := range stats {
+				if p == "Trigger" {
+					// Trigger rows use event keys boundary / fallback_timer (not attempt/success/...).
+					log.Printf("  [%s]: boundary=%d fallback_timer=%d",
+						p, evs["boundary"], evs["fallback_timer"])
+					continue
+				}
 				log.Printf("  [%s]: attempts=%d successes=%d no_match=%d errors=%d",
 					p, evs["attempt"], evs["success"], evs["no_match"], evs["error"])
 			}
