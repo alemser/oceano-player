@@ -43,6 +43,27 @@ Run this checklist for any change touching:
 
 ---
 
+## Log: 2026-05-04 — Per-provider rate-limit feedback (`recognition` in state.json + `/api/recognition/provider-health`)
+
+**Contract owner:** [`docs/reference/recognition.md`](reference/recognition.md) — "Rate-limit backoff fields" section
+
+**Backend (`oceano-state-manager` + `oceano-web`)**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `recognition.rate_limited_providers` | **Additive** | `[]string` of canonical IDs in backoff; omitted when empty. Canonical IDs: `"acrcloud"`, `"shazam"`, `"audd"`. |
+| `recognition.backoff_expires` | **Additive** | `map[string]int64` — Unix epoch second per rate-limited provider; omitted when empty. Use `backoff_expires[id] - now` for countdown. |
+| `GET /api/recognition/provider-health` | **Additive** | Snapshot for config screen: per-provider `configured`, `rate_limited`, `backoff_expires`, `attempts_24h`, `success_rate_24h`, `last_success_at`, `last_attempt_at`. All timestamps epoch int64. |
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] **Home screen — display status area**: when `recognition.phase == "matched"` and `source == "Physical"`, show "Reconhecido por \<provider\>" using `recognition.provider`. If `recognition.provider` is empty, show "Reconhecido" (fallback — no crash).
+- [ ] **Home screen — dynamic alert card**: when `recognition.rate_limited_providers` is non-empty, show a card listing affected providers and countdown derived from `recognition.backoff_expires[id] - Date.now()/1000`. Card must disappear automatically when the SSE delivers a state without rate-limited providers.
+- [ ] **Physical media config — provider list**: call `GET /api/recognition/provider-health` on screen appear and pull-to-refresh. Show per-provider dot: green (not rate-limited), yellow (rate-limited + time remaining), grey (not configured / no attempts). Do **not** recompute `rate_limited` client-side — trust the endpoint's boolean.
+- [ ] `provider` display names are owned by the iOS client (map from canonical ID: `acrcloud` → "ACRCloud", `shazam` → "Shazam", `audd` → "AudD").
+
+---
+
 ## Log: 2026-05-03 — Lightweight HTTP: VU-gated SSE, player summary, library sync
 
 **Contract owner:** [`docs/reference/http-lightweight-clients.md`](reference/http-lightweight-clients.md)

@@ -75,9 +75,10 @@ func canonicalProviderID(name string) string {
 	}
 }
 
-// recognizerCanonicalIDs returns canonical provider IDs for a recognizer.
-// For a ChainRecognizer whose Name() is "ACRCloud→Shazam" it splits on "→"
-// and maps each segment, skipping unknown names.
+// recognizerCanonicalIDs returns canonical provider IDs for ALL providers in a
+// recognizer. For a ChainRecognizer whose Name() is "ACRCloud→Shazam" it splits
+// on "→" and maps each segment, skipping unknown names. Used when clearing
+// backoff after a successful recognition (all providers in the chain benefit).
 func recognizerCanonicalIDs(rec Recognizer) []string {
 	parts := strings.Split(rec.Name(), "→")
 	ids := make([]string, 0, len(parts))
@@ -87,6 +88,25 @@ func recognizerCanonicalIDs(rec Recognizer) []string {
 		}
 	}
 	return ids
+}
+
+// rateLimitedCanonicalIDs returns the canonical provider ID of the specific
+// provider that returned ErrRateLimit. For a ChainRecognizer it consults
+// RateLimitedProviderName() so only the culprit is reported — not every
+// provider in the chain. For a single (non-chain) recognizer it uses its
+// own canonical ID, since it is by definition the one that rate-limited.
+func rateLimitedCanonicalIDs(rec Recognizer) []string {
+	if chain, ok := rec.(*ChainRecognizer); ok {
+		name := chain.RateLimitedProviderName()
+		if name == "" {
+			return nil // chain recorded no rate-limit culprit
+		}
+		if id := canonicalProviderID(name); id != "" {
+			return []string{id}
+		}
+		return nil
+	}
+	return recognizerCanonicalIDs(rec)
 }
 
 // setProviderBackoff records that a provider is rate-limited until the given
@@ -220,7 +240,7 @@ func (c *recognitionCoordinator) handleRecognitionError(err error, backoffUntil 
 		log.Printf("recognizer [%s]: rate limited — backing off %s", c.rec.Name(), rateLimitBackoff)
 		*backoffUntil = until
 		*backoffRateLimited = true
-		for _, id := range recognizerCanonicalIDs(c.rec) {
+		for _, id := range rateLimitedCanonicalIDs(c.rec) {
 			c.mgr.setProviderBackoff(id, until)
 		}
 		return true

@@ -14,6 +14,11 @@ import (
 // and a later one successfully evaluated the capture with no match.
 type ChainRecognizer struct {
 	chain []Recognizer
+	// lastRateLimitedName records the Name() of the last provider that returned
+	// ErrRateLimit during the most recent Recognize call. Reset at the start of
+	// each call. Used by callers to identify the specific culprit rather than
+	// attributing the rate-limit to every provider in the chain.
+	lastRateLimitedName string
 }
 
 // NewChainRecognizer returns a ChainRecognizer over the given recognizers,
@@ -51,7 +56,15 @@ func (c *ChainRecognizer) Primary() Recognizer {
 	return c.chain[0]
 }
 
+// RateLimitedProviderName returns the Name() of the last provider in the chain
+// that returned ErrRateLimit during the most recent Recognize call. Empty when
+// no provider hit a rate limit (including when Recognize has not been called yet).
+func (c *ChainRecognizer) RateLimitedProviderName() string {
+	return c.lastRateLimitedName
+}
+
 func (c *ChainRecognizer) Recognize(ctx context.Context, wavPath string) (*Result, error) {
+	c.lastRateLimitedName = "" // reset per call
 	var lastErr error
 	for i, r := range c.chain {
 		if ctx.Err() != nil {
@@ -61,6 +74,9 @@ func (c *ChainRecognizer) Recognize(ctx context.Context, wavPath string) (*Resul
 		if err != nil {
 			log.Printf("recognizer chain: %s: %v — trying next", r.Name(), err)
 			lastErr = err
+			if errors.Is(err, ErrRateLimit) {
+				c.lastRateLimitedName = r.Name()
+			}
 			continue
 		}
 		if result != nil {
