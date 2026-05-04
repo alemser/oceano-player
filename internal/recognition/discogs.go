@@ -1,6 +1,7 @@
 package recognition
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -47,16 +48,50 @@ type discogsSearchResponse struct {
 	Results []discogsSearchItem `json:"results"`
 }
 
+// discogsYear accepts JSON numbers or quoted numeric strings; Discogs search
+// responses occasionally use strings for year.
+type discogsYear int
+
+func (y *discogsYear) UnmarshalJSON(data []byte) error {
+	*y = 0
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		return nil
+	}
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return nil
+		}
+		v, err := strconv.Atoi(s)
+		if err != nil {
+			return fmt.Errorf("discogs year %q: %w", s, err)
+		}
+		*y = discogsYear(v)
+		return nil
+	}
+	var v int
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	*y = discogsYear(v)
+	return nil
+}
+
 type discogsSearchItem struct {
-	Title       string   `json:"title"`
-	Year        int      `json:"year"`
-	Country     string   `json:"country"`
-	Genre       []string `json:"genre"`
-	Style       []string `json:"style"`
-	Label       []string `json:"label"`
-	ResourceURL string   `json:"resource_url"`
-	Format      []string `json:"format"`
-	CoverImage  string   `json:"cover_image"`
+	Title       string      `json:"title"`
+	Year        discogsYear `json:"year"`
+	Country     string      `json:"country"`
+	Genre       []string    `json:"genre"`
+	Style       []string    `json:"style"`
+	Label       []string    `json:"label"`
+	ResourceURL string      `json:"resource_url"`
+	Format      []string    `json:"format"`
+	CoverImage  string      `json:"cover_image"`
 }
 
 func NewDiscogsClient(cfg DiscogsClientConfig) *DiscogsClient {
@@ -174,7 +209,7 @@ func pickBestDiscogsResult(results []discogsSearchItem, artist, title, album, ph
 			Artist:     artist,
 			Album:      extractAlbumFromDiscogsTitle(r.Title),
 			Label:      firstNonEmpty(r.Label...),
-			Released:   yearToString(r.Year),
+			Released:   yearToString(int(r.Year)),
 			DiscogsURL: strings.TrimSpace(r.ResourceURL),
 			CoverImage: strings.TrimSpace(r.CoverImage),
 			Score:      score,
@@ -211,7 +246,7 @@ func scoreDiscogsCandidate(candidate discogsSearchItem, artist, title, album, ph
 			}
 		}
 	}
-	if candidate.Year > 0 {
+	if int(candidate.Year) > 0 {
 		score += 3
 	}
 	return score

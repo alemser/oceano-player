@@ -1803,7 +1803,7 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	patchStateFile(stateFilePath, body.Title, body.Artist, body.Album, body.Format, body.ArtworkPath)
+	patchStateFile(stateFilePath, body.Title, body.Artist, body.Album, body.Format, body.ArtworkPath, body.DurationMs)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"ok":true}`))
 }
@@ -1811,7 +1811,7 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 // patchStateFile updates the live state JSON if a physical track is currently
 // playing. Since only one physical source is ever active, any entry being
 // edited must be the one on screen.
-func patchStateFile(path, title, artist, album, format, artworkPath string) {
+func patchStateFile(path, title, artist, album, format, artworkPath string, durationMs int) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -1848,6 +1848,9 @@ func patchStateFile(path, title, artist, album, format, artworkPath string) {
 	track["format"] = format
 	if artworkPath != "" {
 		track["artwork_path"] = artworkPath
+	}
+	if durationMs > 0 {
+		track["duration_ms"] = durationMs
 	}
 
 	tb, err := json.Marshal(track)

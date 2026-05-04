@@ -431,9 +431,18 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 
 	if m.recognitionResult != nil {
 		// Match by whichever ID is available, or by DB entry ID as a final fallback.
+		// When providers return no ACR/Shazam IDs (e.g. AudD-only), allow merging
+		// user-edited library fields (duration_ms, format) only when the resolved
+		// collection row is the same title+artist as the in-memory match, and
+		// either no library row id is bound yet or it matches this entry.
+		metaMatch := strings.EqualFold(strings.TrimSpace(m.recognitionResult.Title), strings.TrimSpace(entry.Title)) &&
+			strings.EqualFold(strings.TrimSpace(m.recognitionResult.Artist), strings.TrimSpace(entry.Artist))
+		idLessTitleArtist := acrid == "" && shazamID == "" && metaMatch &&
+			(m.physicalLibraryEntryID == 0 || m.physicalLibraryEntryID == entry.ID)
 		entryMatchesCurrent := (acrid != "" && m.recognitionResult.ACRID == acrid) ||
 			(shazamID != "" && m.recognitionResult.ShazamID == shazamID) ||
-			(m.physicalLibraryEntryID > 0 && m.physicalLibraryEntryID == entry.ID)
+			(m.physicalLibraryEntryID > 0 && m.physicalLibraryEntryID == entry.ID) ||
+			idLessTitleArtist
 		if entryMatchesCurrent {
 			if m.recognitionResult.Title != entry.Title {
 				m.recognitionResult.Title = entry.Title

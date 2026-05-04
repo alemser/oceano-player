@@ -859,3 +859,37 @@ func TestSyncFromLibrary_PropagatesDiscogsURLFromLibrary(t *testing.T) {
 		t.Fatalf("discogs_url = %q, want persisted URL", m.recognitionResult.DiscogsURL)
 	}
 }
+
+func TestSyncFromLibrary_MergesDurationByTitleArtistWhenIDsEmpty(t *testing.T) {
+	lib := openTestLibrary(t)
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := lib.DB().Exec(`
+		INSERT INTO collection
+			(acrid, shazam_id, title, artist, score, play_count, first_played, last_played, user_confirmed, duration_ms)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"", "", "No IDs Track", "No IDs Artist", 80, 1, now, now, 1, 222000)
+	if err != nil {
+		t.Fatalf("insert collection row: %v", err)
+	}
+
+	m := newTestMgr()
+	m.lib = lib
+	m.mu.Lock()
+	m.physicalSource = "Physical"
+	m.recognitionResult = &RecognitionResult{Title: "No IDs Track", Artist: "No IDs Artist", DurationMs: 0}
+	m.physicalLibraryEntryID = 0
+	m.physicalSeekMS = 5000
+	m.physicalSeekUpdatedAt = time.Now()
+	m.mu.Unlock()
+
+	m.syncFromLibrary(lib)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recognitionResult == nil {
+		t.Fatal("expected recognition result after sync")
+	}
+	if m.recognitionResult.DurationMs != 222000 {
+		t.Fatalf("DurationMs = %d, want 222000", m.recognitionResult.DurationMs)
+	}
+}

@@ -41,6 +41,35 @@ func TestDiscogsClient_EnrichTrack_SelectsBestCandidate(t *testing.T) {
 	}
 }
 
+func TestDiscogsClient_EnrichTrack_YearAsString(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+  "results": [
+    {"title":"Miles Davis - Kind of Blue","year":"1959","label":["Columbia"],"resource_url":"https://api.discogs.com/releases/1","format":["Vinyl"]}
+  ]
+}`))
+	}))
+	defer srv.Close()
+
+	client := NewDiscogsClient(DiscogsClientConfig{
+		Token:      "tok",
+		Timeout:    2 * time.Second,
+		MaxRetries: 1,
+		BaseURL:    srv.URL,
+	})
+	got, err := client.EnrichTrack(context.Background(), "Miles Davis", "So What", "Kind of Blue", "Vinyl")
+	if err != nil {
+		t.Fatalf("EnrichTrack error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected enrichment result")
+	}
+	if got.Released != "1959" {
+		t.Fatalf("released=%q want 1959", got.Released)
+	}
+}
+
 func TestDiscogsClient_EnrichTrack_RateLimit(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)

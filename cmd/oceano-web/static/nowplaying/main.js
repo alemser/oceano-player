@@ -13,6 +13,8 @@ const SOURCE_LABELS = {
 const STREAMING_SOURCES = new Set(['AirPlay', 'Bluetooth', 'UPnP']);
 const PHYSICAL_IDLE_HOLD_MS = 5000;
 const IDENTIFYING_ARTWORK_HOLD_MS = 15000;
+/** Clock + weather idle screen appears only after this much continuous idle (listening UI stays as last frame). */
+const DEEP_IDLE_CLOCK_MS = 20 * 60 * 1000;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 
@@ -220,9 +222,29 @@ function updateStreamingProgress() {
 
 let _lastState = null;
 let _isIdle = true;
+/** True only when the clock/weather idle overlay is shown (after `DEEP_IDLE_CLOCK_MS` of continuous idle). */
+let _clockIdleVisible = false;
 let _physicalGapHoldUntilMs = 0;
 let _physicalGapHoldTimer = null;
 let _wasPhysicalGapIdle = false;
+let _deepIdleStartedAtMs = 0;
+let _deepIdleTimer = null;
+
+function clearDeepIdleTimer() {
+  if (_deepIdleTimer) {
+    clearTimeout(_deepIdleTimer);
+    _deepIdleTimer = null;
+  }
+}
+
+function scheduleDeepIdleRepaint(waitMs) {
+  clearDeepIdleTimer();
+  if (waitMs <= 0 || !_lastState) return;
+  _deepIdleTimer = setTimeout(() => {
+    _deepIdleTimer = null;
+    applyState(_lastState);
+  }, waitMs);
+}
 
 function isPhysicalPlaybackSource(source) {
   return source === 'Physical' || source === 'CD' || source === 'Vinyl';
@@ -283,10 +305,33 @@ function applyState(state) {
   const effectivePlaying = holdActive ? true : playing;
   const effectiveTrack = holdActive && !track ? (_lastState?.track || null) : track;
   const isIdle = forceIdleForRecognitionOff || (!effectivePlaying || source === 'None');
+
+  if (!isIdle) {
+    _deepIdleStartedAtMs = 0;
+    clearDeepIdleTimer();
+  } else if (_deepIdleStartedAtMs === 0) {
+    _deepIdleStartedAtMs = nowMs;
+  }
+
+  const deepClockIdle =
+    isIdle &&
+    _deepIdleStartedAtMs > 0 &&
+    nowMs - _deepIdleStartedAtMs >= DEEP_IDLE_CLOCK_MS;
+  _clockIdleVisible = deepClockIdle;
+
+  if (isIdle && !deepClockIdle && _deepIdleStartedAtMs > 0) {
+    const remaining = DEEP_IDLE_CLOCK_MS - (nowMs - _deepIdleStartedAtMs);
+    scheduleDeepIdleRepaint(Math.max(0, remaining) + 32);
+  } else if (!isIdle || deepClockIdle) {
+    clearDeepIdleTimer();
+  }
+
   _isIdle = isIdle;
-  $idle.classList.toggle('visible', isIdle);
+  $idle.classList.toggle('visible', deepClockIdle);
+  document.getElementById('app')?.classList.toggle('standby', isIdle && !deepClockIdle);
+
   if ($idleNowSource) {
-    if (forceIdleForRecognitionOff) {
+    if (forceIdleForRecognitionOff && deepClockIdle) {
       const inputName = recognition && recognition.active_input_name
         ? String(recognition.active_input_name).trim()
         : '';
@@ -299,7 +344,7 @@ function applyState(state) {
     }
   }
   const $ampInd = document.getElementById('amp-indicator');
-  if ($ampInd && isIdle) $ampInd.style.display = 'none';
+  if ($ampInd && isIdle && deepClockIdle) $ampInd.style.display = 'none';
 
   // Source icon + label
   $sourceIcon.innerHTML  = SOURCE_ICONS[source] || SOURCE_ICONS.None;
@@ -623,7 +668,7 @@ async function loadAmpPowerState() {
     const model = String(s.model || '').trim();
     const ampName = [maker, model].filter(Boolean).join(' ') || 'Amplifier';
 
-    el.style.display = _isIdle ? 'none' : 'flex';
+    el.style.display = _isIdle && _clockIdleVisible ? 'none' : 'flex';
     labelEl.textContent = ampName;
 
     const ps = String(s.power_state || '').toLowerCase();

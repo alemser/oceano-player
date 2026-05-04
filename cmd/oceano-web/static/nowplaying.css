@@ -65,6 +65,13 @@ body::after {
   gap: 0;
 }
 
+/* Between playback: keep last metadata on screen; subtle dim until clock/weather idle (see main.js). */
+#app.standby {
+  transition: opacity 0.65s ease, filter 0.65s ease;
+  opacity: 0.9;
+  filter: saturate(0.88) brightness(0.94);
+}
+
 /* ─── Source bar (top) ─────────────────────────────────────── */
 #source-bar {
   display: flex;
