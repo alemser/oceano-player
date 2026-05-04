@@ -37,6 +37,9 @@ func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, sh
 // and then resolves album artwork asynchronously via the iTunes Search API when
 // enabled — matching the historical fetchArtwork / fetchArtworkFromSong behaviour
 // without blocking applyRecognizedResult.
+//
+// When Run fails (e.g. Discogs decode error), we still attempt artwork resolution:
+// text enrichment is best-effort; artwork should not be skipped because of it.
 func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *RecognitionResult) {
 	if result == nil {
 		return
@@ -75,7 +78,6 @@ func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *Recognitio
 			patch, err = c.metadataChain.Run(ctx, baseReq, nil)
 			if err != nil {
 				log.Printf("metadata chain: enrichment error for %s — %s: %v", snapshot.Artist, snapshot.Title, err)
-				return
 			}
 		}
 
