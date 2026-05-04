@@ -413,6 +413,7 @@ func (c *recognitionCoordinator) handleNoMatch(isBoundaryTrigger bool, isHardBou
 		c.mgr.mu.Lock()
 		boundaryAt := c.mgr.lastBoundaryAt
 		c.mgr.recognitionResult = nil
+		c.mgr.lastPhysicalDisplayTrack = nil
 		c.mgr.physicalArtworkPath = ""
 		c.mgr.physicalLibraryEntryID = 0
 		c.mgr.physicalBoundarySensitive = false
@@ -866,6 +867,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			if isBoundaryTrigger && isHardBoundaryTrigger {
 				c.mgr.mu.Lock()
 				c.mgr.recognitionResult = nil
+				c.mgr.lastPhysicalDisplayTrack = nil
 				c.mgr.recognitionPhase = "off"
 				c.mgr.recognizerBusyUntil = time.Time{}
 				c.mgr.physicalArtworkPath = ""

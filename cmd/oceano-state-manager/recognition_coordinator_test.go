@@ -53,6 +53,7 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 	}
 	m.physicalArtworkPath = "/tmp/existing.jpg"
 	m.shazamioContinuityReady = true
+	m.lastPhysicalDisplayTrack = &TrackInfo{Title: "Prior echo"}
 	m.mu.Unlock()
 
 	coordinator := newRecognitionCoordinator(m, &stubRecognizer{name: "Primary"}, nil, nil, nil)
@@ -63,8 +64,9 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// Boundary no-match must clear recognition state so the UI shows "identifying"
-	// rather than showing the previous track while a new one is playing.
+	// Boundary no-match must clear recognition state and the display echo snapshot
+	// (no_match phase already suppresses echo, but the snapshot must not survive to
+	// the next capture when recognitionPhase is reset to empty).
 	if m.recognitionResult != nil {
 		t.Fatalf("expected recognitionResult to be cleared on boundary no-match, got %+v", m.recognitionResult)
 	}
@@ -73,6 +75,9 @@ func TestHandleNoMatch_BoundaryClearsExistingRecognition(t *testing.T) {
 	}
 	if m.shazamioContinuityReady {
 		t.Fatal("expected shazamioContinuityReady to be cleared on boundary no-match")
+	}
+	if m.lastPhysicalDisplayTrack != nil {
+		t.Fatalf("expected lastPhysicalDisplayTrack cleared on boundary no-match, got %+v", m.lastPhysicalDisplayTrack)
 	}
 	if backoffUntil.IsZero() {
 		t.Fatal("expected no-match backoff to be scheduled")

@@ -198,6 +198,7 @@ func (m *mgr) clearStalePhysicalRecognitionOnSilence(reason string, silenceElaps
 	artist := m.recognitionResult.Artist
 	title := m.recognitionResult.Title
 	m.recognitionResult = nil
+	m.lastPhysicalDisplayTrack = nil
 	m.physicalArtworkPath = ""
 	m.physicalLibraryEntryID = 0
 	m.physicalBoundarySensitive = false
@@ -275,6 +276,7 @@ func (m *mgr) pollSourceFile() {
 	}
 	if newSession {
 		m.recognitionResult = nil
+		m.lastPhysicalDisplayTrack = nil
 		m.physicalArtworkPath = ""
 		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
@@ -286,6 +288,7 @@ func (m *mgr) pollSourceFile() {
 		m.physicalStartedAt = time.Now()
 	} else if resumedAfterIdle {
 		m.recognitionResult = nil
+		m.lastPhysicalDisplayTrack = nil
 		m.physicalArtworkPath = ""
 		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
@@ -308,6 +311,7 @@ func (m *mgr) pollSourceFile() {
 		// new capture runs. Needle-lift on the same album will briefly show empty
 		// until the next match, which matches user expectation better than a wrong title.
 		m.recognitionResult = nil
+		m.lastPhysicalDisplayTrack = nil
 		m.physicalArtworkPath = ""
 		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
