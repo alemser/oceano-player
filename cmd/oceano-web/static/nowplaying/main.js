@@ -303,10 +303,24 @@ function applyState(state) {
     recognitionPhase === 'off';
 
   const effectivePlaying = holdActive ? true : playing;
-  const effectiveTrack = holdActive && !track ? (_lastState?.track || null) : track;
-  const isIdle = forceIdleForRecognitionOff || (!effectivePlaying || source === 'None');
+  // Backend omits track during VU silence between vinyl/CD tracks; keep last frame for UI.
+  const interTrackPhysicalSilence =
+    physicalDetectorOn &&
+    isPhysicalPlaybackSource(source) &&
+    state.state === 'idle';
+  let effectiveTrack = track;
+  if (holdActive && !track) {
+    effectiveTrack = _lastState?.track || null;
+  } else if (interTrackPhysicalSilence && !track) {
+    effectiveTrack = _lastState?.track || null;
+  }
 
-  if (!isIdle) {
+  const isIdle = forceIdleForRecognitionOff || (!effectivePlaying || source === 'None');
+  // Standby dim + 20min clock timer only when truly away from listening — not during
+  // short inter-track gaps on physical sources (state idle + detector still Physical).
+  const chromeIdle = isIdle && !interTrackPhysicalSilence;
+
+  if (!chromeIdle) {
     _deepIdleStartedAtMs = 0;
     clearDeepIdleTimer();
   } else if (_deepIdleStartedAtMs === 0) {
@@ -314,21 +328,21 @@ function applyState(state) {
   }
 
   const deepClockIdle =
-    isIdle &&
+    chromeIdle &&
     _deepIdleStartedAtMs > 0 &&
     nowMs - _deepIdleStartedAtMs >= DEEP_IDLE_CLOCK_MS;
   _clockIdleVisible = deepClockIdle;
 
-  if (isIdle && !deepClockIdle && _deepIdleStartedAtMs > 0) {
+  if (chromeIdle && !deepClockIdle && _deepIdleStartedAtMs > 0) {
     const remaining = DEEP_IDLE_CLOCK_MS - (nowMs - _deepIdleStartedAtMs);
     scheduleDeepIdleRepaint(Math.max(0, remaining) + 32);
-  } else if (!isIdle || deepClockIdle) {
+  } else if (!chromeIdle || deepClockIdle) {
     clearDeepIdleTimer();
   }
 
-  _isIdle = isIdle;
+  _isIdle = chromeIdle;
   $idle.classList.toggle('visible', deepClockIdle);
-  document.getElementById('app')?.classList.toggle('standby', isIdle && !deepClockIdle);
+  document.getElementById('app')?.classList.toggle('standby', chromeIdle && !deepClockIdle);
 
   if ($idleNowSource) {
     if (forceIdleForRecognitionOff && deepClockIdle) {
@@ -344,7 +358,9 @@ function applyState(state) {
     }
   }
   const $ampInd = document.getElementById('amp-indicator');
-  if ($ampInd && isIdle && deepClockIdle) $ampInd.style.display = 'none';
+  if ($ampInd && deepClockIdle) {
+    $ampInd.style.display = 'none';
+  }
 
   // Source icon + label
   $sourceIcon.innerHTML  = SOURCE_ICONS[source] || SOURCE_ICONS.None;
@@ -668,7 +684,7 @@ async function loadAmpPowerState() {
     const model = String(s.model || '').trim();
     const ampName = [maker, model].filter(Boolean).join(' ') || 'Amplifier';
 
-    el.style.display = _isIdle && _clockIdleVisible ? 'none' : 'flex';
+    el.style.display = _clockIdleVisible ? 'none' : 'flex';
     labelEl.textContent = ampName;
 
     const ps = String(s.power_state || '').toLowerCase();

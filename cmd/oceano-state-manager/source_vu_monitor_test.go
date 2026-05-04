@@ -212,6 +212,24 @@ func TestShouldSuppressBoundarySensitiveBoundary_AllowsDurationExceeded(t *testi
 	}
 }
 
+func TestCdSilenceAudioBypassesDurationGuards(t *testing.T) {
+	if !cdSilenceAudioBypassesDurationGuards("CD", "silence->audio", false) {
+		t.Fatal("expected CD silence→audio bypass when not boundary-sensitive")
+	}
+	if cdSilenceAudioBypassesDurationGuards(" cd ", "silence->audio", false) != true {
+		t.Fatal("expected format trim/case fold")
+	}
+	if cdSilenceAudioBypassesDurationGuards("CD", "silence->audio", true) {
+		t.Fatal("boundary-sensitive classical CDs must keep guards")
+	}
+	if cdSilenceAudioBypassesDurationGuards("Vinyl", "silence->audio", false) {
+		t.Fatal("vinyl must not use CD bypass")
+	}
+	if cdSilenceAudioBypassesDurationGuards("CD", "energy-change", false) {
+		t.Fatal("non-silence boundary must not use CD bypass")
+	}
+}
+
 func TestPollSourceFile_TinyGapDoesNotQueueRecognition(t *testing.T) {
 	m := newTestMgr()
 	file := filepath.Join(t.TempDir(), "source.json")
