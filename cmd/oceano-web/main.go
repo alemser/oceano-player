@@ -336,6 +336,10 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 	}
 
 	materializeRecognitionProvidersIfEmpty(&cfg.Recognition)
+	if err := validateSafeAudioInputUpdate(old.AudioInput, cfg.AudioInput); err != nil {
+		http.Error(w, "invalid audio_input: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if err := saveConfig(configPath, cfg); err != nil {
 		http.Error(w, "save failed: "+err.Error(), http.StatusInternalServerError)
@@ -468,6 +472,21 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		"ok":      !hadError,
 		"results": results,
 	})
+}
+
+func validateSafeAudioInputUpdate(oldCfg, newCfg AudioInputConfig) error {
+	oldDevice := strings.TrimSpace(oldCfg.Device)
+	oldMatch := strings.TrimSpace(oldCfg.DeviceMatch)
+	newDevice := strings.TrimSpace(newCfg.Device)
+	newMatch := strings.TrimSpace(newCfg.DeviceMatch)
+
+	oldConfigured := oldDevice != "" || oldMatch != ""
+	newCleared := newDevice == "" && newMatch == ""
+
+	if oldConfigured && newCleared {
+		return fmt.Errorf("refusing to clear both device and device_match; keep at least one capture selector")
+	}
+	return nil
 }
 
 // applyBluetoothConfig applies Bluetooth adapter settings that take effect
