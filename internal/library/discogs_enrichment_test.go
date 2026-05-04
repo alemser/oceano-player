@@ -23,7 +23,7 @@ func TestUpdateEnrichmentPatch_AdditiveNoOverwrite(t *testing.T) {
 		t.Fatalf("RecordPlay: %v", err)
 	}
 
-	if err := lib.UpdateEnrichmentPatch(id, "https://api.discogs.com/releases/999", "Album A", "Label A", "1984", "discogs"); err != nil {
+	if err := lib.UpdateEnrichmentPatch(id, "https://api.discogs.com/releases/999", "Album A", "Label A", "1984", "discogs", ""); err != nil {
 		t.Fatalf("UpdateEnrichmentPatch(first): %v", err)
 	}
 	entry, err := lib.GetByID(id)
@@ -38,7 +38,7 @@ func TestUpdateEnrichmentPatch_AdditiveNoOverwrite(t *testing.T) {
 	}
 
 	// Additive policy: second update must not overwrite existing non-empty fields.
-	if err := lib.UpdateEnrichmentPatch(id, "https://api.discogs.com/releases/other", "Album B", "Label B", "2001", "itunes"); err != nil {
+	if err := lib.UpdateEnrichmentPatch(id, "https://api.discogs.com/releases/other", "Album B", "Label B", "2001", "itunes", ""); err != nil {
 		t.Fatalf("UpdateEnrichmentPatch(second): %v", err)
 	}
 	entry, err = lib.GetByID(id)
@@ -72,7 +72,7 @@ func TestUpdateEnrichmentPatch_WritesProviderWhenEmpty(t *testing.T) {
 		t.Fatalf("RecordPlay: %v", err)
 	}
 
-	if err := lib.UpdateEnrichmentPatch(id, "", "Alb", "Lab", "1999", "itunes"); err != nil {
+	if err := lib.UpdateEnrichmentPatch(id, "", "Alb", "Lab", "1999", "itunes", ""); err != nil {
 		t.Fatalf("UpdateEnrichmentPatch: %v", err)
 	}
 	entry, err := lib.GetByID(id)
@@ -84,5 +84,44 @@ func TestUpdateEnrichmentPatch_WritesProviderWhenEmpty(t *testing.T) {
 	}
 	if entry.DiscogsURL != "" {
 		t.Fatalf("discogs_url should be empty, got %q", entry.DiscogsURL)
+	}
+}
+
+func TestUpdateEnrichmentPatch_AdditiveArtworkPath(t *testing.T) {
+	lib, err := Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatalf("open library: %v", err)
+	}
+	defer lib.Close()
+
+	id, err := lib.RecordPlay(&recognition.Result{
+		ACRID:  "acr-art-1",
+		Title:  "Song",
+		Artist: "Band",
+	}, "")
+	if err != nil {
+		t.Fatalf("RecordPlay: %v", err)
+	}
+
+	if err := lib.UpdateEnrichmentPatch(id, "", "", "", "", "discogs", "/var/lib/oceano/artwork/cover.jpg"); err != nil {
+		t.Fatalf("UpdateEnrichmentPatch: %v", err)
+	}
+	entry, err := lib.GetByID(id)
+	if err != nil || entry == nil {
+		t.Fatalf("GetByID: err=%v entry=%v", err, entry)
+	}
+	if entry.ArtworkPath != "/var/lib/oceano/artwork/cover.jpg" {
+		t.Fatalf("artwork_path=%q", entry.ArtworkPath)
+	}
+
+	if err := lib.UpdateEnrichmentPatch(id, "", "", "", "", "itunes", "/other/never.jpg"); err != nil {
+		t.Fatalf("UpdateEnrichmentPatch second: %v", err)
+	}
+	entry, err = lib.GetByID(id)
+	if err != nil || entry == nil {
+		t.Fatalf("GetByID: err=%v entry=%v", err, entry)
+	}
+	if entry.ArtworkPath != "/var/lib/oceano/artwork/cover.jpg" {
+		t.Fatalf("artwork_path overwritten: %q", entry.ArtworkPath)
 	}
 }

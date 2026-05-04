@@ -99,6 +99,32 @@ func ClonePatch(p *Patch) *Patch {
 
 // mergeFillMissing copies non-empty fields from src into dst when dst fields are empty.
 // Returns true if dst changed.
+// MergeArtworkOnly copies artwork from src into dst when dst has no artwork yet.
+// Text fields and dst.Provider are left unchanged when dst is non-nil.
+// Returns the resulting patch (non-nil).
+func MergeArtworkOnly(dst *Patch, src *Patch) *Patch {
+	if src == nil || src.Artwork == nil || artworkSlotEmpty(src.Artwork) {
+		if dst == nil {
+			return &Patch{}
+		}
+		return dst
+	}
+	if dst == nil {
+		return &Patch{
+			Artwork:  &ArtworkPatch{URL: src.Artwork.URL, Path: src.Artwork.Path},
+			Provider: src.Provider,
+		}
+	}
+	if dst.Artwork == nil || artworkSlotEmpty(dst.Artwork) {
+		if dst.Artwork == nil {
+			dst.Artwork = &ArtworkPatch{}
+		}
+		dst.Artwork.URL = src.Artwork.URL
+		dst.Artwork.Path = src.Artwork.Path
+	}
+	return dst
+}
+
 func mergeFillMissing(dst *Patch, src *Patch) bool {
 	if dst == nil || src == nil || src.Empty() {
 		return false

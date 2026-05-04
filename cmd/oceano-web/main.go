@@ -356,6 +356,7 @@ func apiPostConfig(w http.ResponseWriter, r *http.Request, configPath string) {
 		old.Advanced.PCMSocket != cfg.Advanced.PCMSocket
 
 	managerChanged := !recognitionRecognitionEqualForRestart(old.Recognition, cfg.Recognition) ||
+		!metadataEnrichmentEqualForRestart(old.MetadataEnrichment, cfg.MetadataEnrichment) ||
 		old.Advanced.MetadataPipe != cfg.Advanced.MetadataPipe ||
 		old.Advanced.SourceFile != cfg.Advanced.SourceFile ||
 		old.Advanced.StateFile != cfg.Advanced.StateFile ||

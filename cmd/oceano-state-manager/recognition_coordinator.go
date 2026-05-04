@@ -33,11 +33,12 @@ func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, sh
 	}
 }
 
-// enrichWithMetadataChainAsync runs the metadata enrichment chain after recognition,
-// applying missing fields (album, label, released, discogs_url) to in-memory state
-// and the library DB. Artwork is handled synchronously in applyRecognizedResult.
+// enrichWithMetadataChainAsync runs the configured metadata chain (text fields)
+// and then resolves album artwork asynchronously via the iTunes Search API when
+// enabled — matching the historical fetchArtwork / fetchArtworkFromSong behaviour
+// without blocking applyRecognizedResult.
 func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *RecognitionResult) {
-	if c.metadataChain == nil || result == nil {
+	if result == nil {
 		return
 	}
 	snapshot := cloneRecognitionResult(result)
@@ -48,7 +49,13 @@ func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *Recognitio
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		req := internalmetadata.Request{
+		artDir := strings.TrimSpace(c.mgr.cfg.ArtworkDir)
+
+		c.mgr.mu.Lock()
+		existingArtPath := strings.TrimSpace(c.mgr.physicalArtworkPath)
+		c.mgr.mu.Unlock()
+
+		baseReq := internalmetadata.Request{
 			Title:       snapshot.Title,
 			Artist:      snapshot.Artist,
 			Album:       snapshot.Album,
@@ -59,14 +66,33 @@ func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *Recognitio
 			Format:      snapshot.Format,
 			ACRID:       snapshot.ACRID,
 			ShazamID:    snapshot.ShazamID,
-			// WantArtwork is false — artwork is handled synchronously in applyRecognizedResult.
+			WantArtwork: false,
 		}
 
-		patch, err := c.metadataChain.Run(ctx, req, nil)
-		if err != nil {
-			log.Printf("metadata chain: enrichment error for %s — %s: %v", snapshot.Artist, snapshot.Title, err)
-			return
+		var patch *internalmetadata.Patch
+		if c.metadataChain != nil {
+			var err error
+			patch, err = c.metadataChain.Run(ctx, baseReq, nil)
+			if err != nil {
+				log.Printf("metadata chain: enrichment error for %s — %s: %v", snapshot.Artist, snapshot.Title, err)
+				return
+			}
 		}
+
+		if artDir != "" && existingArtPath == "" &&
+			(strings.TrimSpace(snapshot.Album) != "" || strings.TrimSpace(snapshot.Title) != "") {
+			artReq := baseReq
+			artReq.WantArtwork = true
+			artReq.ArtworkDir = artDir
+			it := internalmetadata.NewItunesProvider()
+			artPatch, artErr := it.Enrich(ctx, artReq)
+			if artErr != nil {
+				log.Printf("metadata enrichment: artwork error for %s — %s: %v", snapshot.Artist, snapshot.Title, artErr)
+			} else {
+				patch = internalmetadata.MergeArtworkOnly(patch, artPatch)
+			}
+		}
+
 		if patch == nil || patch.Empty() {
 			return
 		}
@@ -98,16 +124,25 @@ func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *Recognitio
 			current.DiscogsURL = patch.DiscogsURL
 			changed = true
 		}
+		if patch.Artwork != nil && strings.TrimSpace(patch.Artwork.Path) != "" &&
+			strings.TrimSpace(c.mgr.physicalArtworkPath) == "" {
+			c.mgr.physicalArtworkPath = strings.TrimSpace(patch.Artwork.Path)
+			changed = true
+		}
 		libraryID := c.mgr.physicalLibraryEntryID
 		c.mgr.mu.Unlock()
 
 		if changed {
-			log.Printf("metadata chain: applied enrichment for %s — %s (provider=%s)", snapshot.Artist, snapshot.Title, patch.Provider)
+			log.Printf("metadata enrichment: applied patch for %s — %s (provider=%s)", snapshot.Artist, snapshot.Title, patch.Provider)
 			c.mgr.markDirty()
 		}
 
 		if c.lib != nil && libraryID > 0 {
-			if dbErr := c.lib.UpdateEnrichmentPatch(libraryID, patch.DiscogsURL, patch.Album, patch.Label, patch.Released, patch.Provider); dbErr != nil {
+			artPath := ""
+			if patch.Artwork != nil {
+				artPath = strings.TrimSpace(patch.Artwork.Path)
+			}
+			if dbErr := c.lib.UpdateEnrichmentPatch(libraryID, patch.DiscogsURL, patch.Album, patch.Label, patch.Released, patch.Provider, artPath); dbErr != nil {
 				log.Printf("metadata chain: db persist error: %v", dbErr)
 			}
 		}
@@ -557,23 +592,6 @@ func (c *recognitionCoordinator) applyRecognizedResult(result *RecognitionResult
 				result.DiscogsURL = entry.DiscogsURL
 			}
 			artworkPath = entry.ArtworkPath
-		}
-
-		if artworkPath == "" && result.Album != "" {
-			if ap, artErr := fetchArtwork(result.Artist, result.Album, c.mgr.cfg.ArtworkDir); artErr != nil {
-				log.Printf("recognizer: artwork fetch error: %v", artErr)
-			} else if ap != "" {
-				log.Printf("recognizer: artwork saved at %s", ap)
-				artworkPath = ap
-			}
-		}
-		if artworkPath == "" && result.Artist != "" && result.Title != "" {
-			if ap, artErr := fetchArtworkFromSong(result.Artist, result.Title, c.mgr.cfg.ArtworkDir); artErr != nil {
-				log.Printf("recognizer: track artwork fetch error: %v", artErr)
-			} else if ap != "" {
-				log.Printf("recognizer: artwork saved at %s (song search)", ap)
-				artworkPath = ap
-			}
 		}
 
 		boundarySensitive := false

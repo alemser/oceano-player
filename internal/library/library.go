@@ -791,8 +791,9 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 
 // UpdateEnrichmentPatch persists enrichment fields from a metadata chain provider
 // for an existing collection row using an additive policy: existing non-empty
-// values are never overwritten so user edits are preserved.
-func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, released, provider string) error {
+// values are never overwritten so user edits are preserved. artworkPath is applied
+// only when the row has no artwork_path yet.
+func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, released, provider, artworkPath string) error {
 	if l == nil || l.db == nil || id <= 0 {
 		return nil
 	}
@@ -802,13 +803,15 @@ func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, rele
 			album             = CASE WHEN COALESCE(album,'') = ''             AND ? != '' THEN ? ELSE album END,
 			label             = CASE WHEN COALESCE(label,'') = ''             AND ? != '' THEN ? ELSE label END,
 			released          = CASE WHEN COALESCE(released,'') = ''          AND ? != '' THEN ? ELSE released END,
-			metadata_provider = CASE WHEN COALESCE(metadata_provider,'') = '' AND ? != '' THEN ? ELSE metadata_provider END
+			metadata_provider = CASE WHEN COALESCE(metadata_provider,'') = '' AND ? != '' THEN ? ELSE metadata_provider END,
+			artwork_path      = CASE WHEN COALESCE(artwork_path,'') = ''       AND ? != '' THEN ? ELSE artwork_path END
 		WHERE id = ?`,
 		discogsURL, discogsURL,
 		album, album,
 		label, label,
 		released, released,
 		provider, provider,
+		artworkPath, artworkPath,
 		id,
 	)
 	if err != nil {
