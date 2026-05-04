@@ -84,8 +84,14 @@ func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *Recognitio
 			artReq := baseReq
 			artReq.WantArtwork = true
 			artReq.ArtworkDir = artDir
-			it := internalmetadata.NewItunesProvider()
-			artPatch, artErr := it.Enrich(ctx, artReq)
+			var artPatch *internalmetadata.Patch
+			var artErr error
+			if c.metadataChain != nil {
+				artPatch, artErr = c.metadataChain.RunForArtwork(ctx, artReq)
+			} else {
+				it := internalmetadata.NewItunesProvider()
+				artPatch, artErr = it.Enrich(ctx, artReq)
+			}
 			if artErr != nil {
 				log.Printf("metadata enrichment: artwork error for %s — %s: %v", snapshot.Artist, snapshot.Title, artErr)
 			} else {

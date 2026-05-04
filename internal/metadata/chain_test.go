@@ -168,6 +168,53 @@ func TestChainCollectAll_fillMissingDoesNotOverwrite(t *testing.T) {
 	}
 }
 
+func TestRunForArtwork_nilChain(t *testing.T) {
+	var c *Chain
+	out, err := c.RunForArtwork(context.Background(), Request{Artist: "X", Title: "Y"})
+	if err != nil || out != nil {
+		t.Fatalf("nil chain: want (nil, nil), got (%+v, %v)", out, err)
+	}
+}
+
+func TestRunForArtwork_firstProviderWithArtworkWins(t *testing.T) {
+	noArt := ProviderFunc(func(_ context.Context, req Request) (*Patch, error) {
+		if !req.WantArtwork {
+			t.Error("WantArtwork must be true in RunForArtwork")
+		}
+		return &Patch{Provider: "noart", Album: "X"}, nil
+	})
+	hasArt := ProviderFunc(func(_ context.Context, _ Request) (*Patch, error) {
+		return &Patch{Provider: "hasart", Artwork: &ArtworkPatch{URL: "http://img/cover.jpg"}}, nil
+	})
+	var thirdCalls int
+	third := ProviderFunc(func(_ context.Context, _ Request) (*Patch, error) {
+		thirdCalls++
+		return &Patch{Provider: "third", Artwork: &ArtworkPatch{URL: "http://img/other.jpg"}}, nil
+	})
+	chain := NewChain([]Provider{noArt, hasArt, third}, MergePolicyFillMissingThenStop)
+	out, err := chain.RunForArtwork(context.Background(), Request{Artist: "A", Title: "T"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out == nil || out.Artwork == nil || out.Artwork.URL != "http://img/cover.jpg" {
+		t.Fatalf("unexpected patch: %+v", out)
+	}
+	if thirdCalls != 0 {
+		t.Fatalf("third provider must not run after artwork found, got %d calls", thirdCalls)
+	}
+}
+
+func TestRunForArtwork_returnsNilWhenNoProviderHasArtwork(t *testing.T) {
+	noArt := ProviderFunc(func(_ context.Context, _ Request) (*Patch, error) {
+		return &Patch{Provider: "noart", Album: "X"}, nil
+	})
+	chain := NewChain([]Provider{noArt}, MergePolicyFirstSuccess)
+	out, err := chain.RunForArtwork(context.Background(), Request{Artist: "A", Title: "T"})
+	if err != nil || out != nil {
+		t.Fatalf("want (nil, nil), got (%+v, %v)", out, err)
+	}
+}
+
 func TestPayloadProvider_Enrich(t *testing.T) {
 	p := NewPayloadProvider()
 	out, err := p.Enrich(context.Background(), Request{

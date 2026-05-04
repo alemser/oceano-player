@@ -40,6 +40,7 @@ type DiscogsEnrichment struct {
 	TrackNumber string
 	DiscogsURL  string
 	Score       int
+	CoverImage  string
 }
 
 type discogsSearchResponse struct {
@@ -55,6 +56,7 @@ type discogsSearchItem struct {
 	Label       []string `json:"label"`
 	ResourceURL string   `json:"resource_url"`
 	Format      []string `json:"format"`
+	CoverImage  string   `json:"cover_image"`
 }
 
 func NewDiscogsClient(cfg DiscogsClientConfig) *DiscogsClient {
@@ -174,6 +176,7 @@ func pickBestDiscogsResult(results []discogsSearchItem, artist, title, album, ph
 			Label:      firstNonEmpty(r.Label...),
 			Released:   yearToString(r.Year),
 			DiscogsURL: strings.TrimSpace(r.ResourceURL),
+			CoverImage: strings.TrimSpace(r.CoverImage),
 			Score:      score,
 		}
 	}

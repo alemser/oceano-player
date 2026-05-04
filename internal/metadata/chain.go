@@ -93,6 +93,27 @@ func (c *Chain) runCollectAll(ctx context.Context, req Request, seed *Patch) (*P
 	return out, nil
 }
 
+// RunForArtwork iterates providers in order with WantArtwork=true and returns
+// the first patch that carries non-empty artwork. The chain's text merge policy
+// does not apply here; artwork always uses first-success semantics.
+func (c *Chain) RunForArtwork(ctx context.Context, req Request) (*Patch, error) {
+	if c == nil {
+		return nil, nil
+	}
+	artReq := req
+	artReq.WantArtwork = true
+	for _, p := range c.providers {
+		patch, err := p.Enrich(ctx, artReq)
+		if err != nil {
+			return nil, err
+		}
+		if patch != nil && patch.Artwork != nil && !artworkSlotEmpty(patch.Artwork) {
+			return patch, nil
+		}
+	}
+	return nil, nil
+}
+
 func (c *Chain) runFillMissingThenStop(ctx context.Context, req Request, seed *Patch) (*Patch, error) {
 	out := ClonePatch(seed)
 	mask := newMissingMask(seed)

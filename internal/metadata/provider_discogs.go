@@ -48,12 +48,27 @@ func (p *DiscogsProvider) Enrich(ctx context.Context, req Request) (*Patch, erro
 		return &Patch{}, nil
 	}
 
-	return &Patch{
+	out := &Patch{
 		Provider:   providerDiscogsID,
 		Confidence: enriched.Score,
 		Album:      strings.TrimSpace(enriched.Album),
 		Label:      strings.TrimSpace(enriched.Label),
 		Released:   strings.TrimSpace(enriched.Released),
 		DiscogsURL: strings.TrimSpace(enriched.DiscogsURL),
-	}, nil
+	}
+	if req.WantArtwork {
+		imageURL := strings.TrimSpace(enriched.CoverImage)
+		if imageURL != "" {
+			art := &ArtworkPatch{URL: imageURL}
+			if dir := strings.TrimSpace(req.ArtworkDir); dir != "" {
+				path, derr := SaveArtworkFromURL(nil, imageURL, dir)
+				if derr != nil {
+					return nil, derr
+				}
+				art.Path = path
+			}
+			out.Artwork = art
+		}
+	}
+	return out, nil
 }

@@ -1707,10 +1707,12 @@ func handleGetArtwork(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id
 	var artworkPath string
 	err := lib.db.QueryRow(`SELECT COALESCE(artwork_path,'') FROM collection WHERE id=?`, id).Scan(&artworkPath)
 	if err == sql.ErrNoRows {
+		w.Header().Set("Cache-Control", "no-store")
 		http.NotFound(w, r)
 		return
 	}
 	if err != nil || artworkPath == "" {
+		w.Header().Set("Cache-Control", "no-store")
 		http.NotFound(w, r)
 		return
 	}

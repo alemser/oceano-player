@@ -119,6 +119,66 @@ func TestDiscogsProvider_RateLimited(t *testing.T) {
 	}
 }
 
+func TestDiscogsProvider_WantArtworkSetsURL(t *testing.T) {
+	client, close := newTestDiscogsClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"results": [
+				{"title":"Miles Davis - Kind of Blue","year":1959,"label":["Columbia"],
+				 "resource_url":"https://api.discogs.com/releases/1","format":["Vinyl"],
+				 "cover_image":"https://images.discogs.com/cover.jpg"}
+			]
+		}`))
+	})
+	defer close()
+
+	p := NewDiscogsProvider(client)
+	out, err := p.Enrich(context.Background(), Request{
+		Artist:      "Miles Davis",
+		Title:       "So What",
+		Album:       "Kind of Blue",
+		Format:      "Vinyl",
+		WantArtwork: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Artwork == nil || out.Artwork.URL != "https://images.discogs.com/cover.jpg" {
+		t.Fatalf("artwork URL not set: %+v", out)
+	}
+	if out.Artwork.Path != "" {
+		t.Fatalf("path must be empty when ArtworkDir unset, got %q", out.Artwork.Path)
+	}
+}
+
+func TestDiscogsProvider_WantArtworkFalseSkipsImage(t *testing.T) {
+	client, close := newTestDiscogsClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"results": [
+				{"title":"Miles Davis - Kind of Blue","year":1959,"label":["Columbia"],
+				 "resource_url":"https://api.discogs.com/releases/1","format":["Vinyl"],
+				 "cover_image":"https://images.discogs.com/cover.jpg"}
+			]
+		}`))
+	})
+	defer close()
+
+	p := NewDiscogsProvider(client)
+	out, err := p.Enrich(context.Background(), Request{
+		Artist: "Miles Davis",
+		Title:  "So What",
+		Album:  "Kind of Blue",
+		Format: "Vinyl",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Artwork != nil {
+		t.Fatalf("artwork must be nil when WantArtwork=false, got %+v", out.Artwork)
+	}
+}
+
 func TestDiscogsProvider_Name(t *testing.T) {
 	client, close := newTestDiscogsClient(t, func(w http.ResponseWriter, r *http.Request) {})
 	defer close()
