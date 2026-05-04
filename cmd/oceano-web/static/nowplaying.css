@@ -75,8 +75,70 @@ body::after {
 /* Recognition in progress: keep last artwork/titles visible but subdued; status moves to corner badge (see main.js). */
 #app.identifying-mode #content {
   transition: opacity 0.45s ease, filter 0.45s ease;
-  opacity: 0.78;
-  filter: saturate(0.9) brightness(0.9);
+  opacity: 0.9;
+  filter: saturate(0.94) brightness(0.94);
+}
+
+/* KITT-style thin gradient sweep along artwork top/bottom edges (no box border) */
+.identifying-scanner-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: inherit;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+#app.identifying-mode .identifying-scanner-wrap {
+  opacity: 1;
+}
+
+.identifying-scanner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  overflow: hidden;
+}
+.identifying-scanner-top { top: 0; }
+.identifying-scanner-bottom { bottom: 0; }
+
+.identifying-scanner::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 42%;
+  left: -35%;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(55, 130, 220, 0.12) 18%,
+    rgba(130, 205, 255, 0.92) 50%,
+    rgba(55, 130, 220, 0.12) 82%,
+    transparent 100%
+  );
+  box-shadow: 0 0 14px rgba(100, 185, 255, 0.35);
+  animation: identifying-kitt-sweep 1.75s linear infinite;
+}
+
+.identifying-scanner-top::before {
+  animation-direction: reverse;
+}
+
+.identifying-scanner-bottom::before {
+  animation-delay: 0.55s;
+}
+
+#app:not(.identifying-mode) .identifying-scanner::before {
+  animation: none;
+}
+
+@keyframes identifying-kitt-sweep {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(380%); }
 }
 
 .identifying-badge {

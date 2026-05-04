@@ -200,12 +200,22 @@ function shouldHoldPreviousTrackForRecognitionUI(phase) {
   return p !== 'off' && p !== 'not_configured';
 }
 
-/** Last recognized physical track from the previous SSE payload (for soft identification UX). */
-function previousPhysicalRecognizedTrack() {
+/**
+ * Physical track to show during recognition gaps: prefer the previous SSE payload, then an in-memory
+ * snapshot — the backend often clears `track` on consecutive messages while still identifying, which
+ * left the UI on the default (dark) artwork without this cache.
+ */
+function getPhysicalHoldTrack(currentSource) {
   const prev = _lastState;
-  if (!prev || !prev.track) return null;
-  if (!isPhysicalPlaybackSource(String(prev.source || 'None'))) return null;
-  return isRecognizedTrack(prev.track) ? prev.track : null;
+  if (prev && prev.track && isPhysicalPlaybackSource(String(prev.source || 'None')) &&
+      isRecognizedTrack(prev.track)) {
+    return prev.track;
+  }
+  if (!isPhysicalPlaybackSource(String(currentSource || 'None'))) return null;
+  if (_lastGoodPhysicalTrack && isRecognizedTrack(_lastGoodPhysicalTrack)) {
+    return _lastGoodPhysicalTrack;
+  }
+  return null;
 }
 
 function setIdentifyingBadge(visible, title, sub, pulseSub) {
@@ -260,6 +270,8 @@ let _physicalGapHoldTimer = null;
 let _wasPhysicalGapIdle = false;
 let _deepIdleStartedAtMs = 0;
 let _deepIdleTimer = null;
+/** Snapshot of the last rendered physical track (filled when `hasTrack` + CD/Vinyl/Physical). */
+let _lastGoodPhysicalTrack = null;
 
 function clearDeepIdleTimer() {
   if (_deepIdleTimer) {
@@ -299,6 +311,9 @@ function schedulePhysicalGapHoldRepaint(waitMs) {
 
 function applyState(state) {
   const source  = state.source  || 'None';
+  if (isStreamingSource(source)) {
+    _lastGoodPhysicalTrack = null;
+  }
   const stateFormat = String(state.format || '').trim();
   const playing = state.state === 'playing';
   const track   = state.track   || null;
@@ -431,7 +446,7 @@ function applyState(state) {
 
   // Track metadata
   const hasTrack = isRecognizedTrack(effectiveTrack);
-  const prevPhysicalTrack = previousPhysicalRecognizedTrack();
+  const prevPhysicalTrack = getPhysicalHoldTrack(source);
   let holdPrevPhysicalUI = false;
 
   $identifying.className = '';
@@ -449,6 +464,9 @@ function applyState(state) {
     $artist.textContent = effectiveTrack.artist || '';
     $album.textContent  = effectiveTrack.album  || '';
     updateArtwork(effectiveTrack.artwork_path || null);
+    if (isPhysicalPlaybackSource(source)) {
+      _lastGoodPhysicalTrack = { ...effectiveTrack };
+    }
   } else if (effectivePlaying && physicalDetectorOn && (source === 'Physical' || source === 'CD' || source === 'Vinyl')) {
     // Without a configured capture path, the recognizer cannot run — do not show "Identifying…".
     if (_captureInputKnown && !_captureInputConfigured) {
