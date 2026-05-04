@@ -271,6 +271,7 @@ type Config struct {
 	AudioOutput       AudioOutputConfig        `json:"audio_output"`
 	Bluetooth         BluetoothConfig          `json:"bluetooth"`
 	Recognition       RecognitionConfig        `json:"recognition"`
+	MetadataEnrichment MetadataEnrichmentConfig `json:"metadata_enrichment"`
 	Advanced          AdvancedConfig           `json:"advanced"`
 	Display           SPIDisplayConfig         `json:"display"`
 	Weather           WeatherConfig            `json:"weather"`
@@ -454,6 +455,27 @@ type DiscogsConfig struct {
 	CacheTTLHours int    `json:"cache_ttl_hours"`
 }
 
+// MetadataEnrichmentProviderConfig is one entry in metadata_enrichment.providers[].
+type MetadataEnrichmentProviderConfig struct {
+	ID      string   `json:"id"`
+	Enabled bool     `json:"enabled"`
+	Roles   []string `json:"roles"`
+}
+
+// MetadataEnrichmentArtworkConfig controls artwork chain options.
+type MetadataEnrichmentArtworkConfig struct {
+	Enabled             bool `json:"enabled"`
+	DownloadTimeoutSecs int  `json:"download_timeout_secs"`
+}
+
+// MetadataEnrichmentConfig controls optional provider-chain enrichment.
+type MetadataEnrichmentConfig struct {
+	Enabled     bool                               `json:"enabled"`
+	MergePolicy string                             `json:"merge_policy"`
+	Providers   []MetadataEnrichmentProviderConfig `json:"providers"`
+	Artwork     MetadataEnrichmentArtworkConfig    `json:"artwork"`
+}
+
 // RecognitionCaptureAutoGainConfig controls optional adaptive gain for
 // recognition captures only (not global audio path).
 type RecognitionCaptureAutoGainConfig struct {
@@ -620,6 +642,14 @@ func defaultConfig() Config {
 			DurationPessimism:                       0.75,
 			BoundaryRestoreMinSeekSecs:              60,
 		},
+		MetadataEnrichment: MetadataEnrichmentConfig{
+			Enabled:     false,
+			MergePolicy: "fill_missing_then_stop",
+			Artwork: MetadataEnrichmentArtworkConfig{
+				Enabled:             true,
+				DownloadTimeoutSecs: 10,
+			},
+		},
 		Advanced: AdvancedConfig{
 			VUSocket:                "/tmp/oceano-vu.sock",
 			PCMSocket:               "/tmp/oceano-pcm.sock",
@@ -685,6 +715,7 @@ func loadConfig(path string) (Config, error) {
 	migrateLegacyCDPlayer(&cfg)
 	migrateRecognitionShazam(&cfg, data)
 	cfg.Recognition.Discogs = normalizeDiscogsConfig(cfg.Recognition.Discogs)
+	cfg.MetadataEnrichment = normalizeMetadataEnrichmentConfig(cfg.MetadataEnrichment)
 	return cfg, nil
 }
 
@@ -700,6 +731,19 @@ func normalizeDiscogsConfig(raw DiscogsConfig) DiscogsConfig {
 	}
 	if out.CacheTTLHours <= 0 {
 		out.CacheTTLHours = def.CacheTTLHours
+	}
+	return out
+}
+
+func normalizeMetadataEnrichmentConfig(raw MetadataEnrichmentConfig) MetadataEnrichmentConfig {
+	def := defaultConfig().MetadataEnrichment
+	out := raw
+	out.MergePolicy = strings.TrimSpace(out.MergePolicy)
+	if out.MergePolicy == "" {
+		out.MergePolicy = def.MergePolicy
+	}
+	if out.Artwork.DownloadTimeoutSecs <= 0 {
+		out.Artwork.DownloadTimeoutSecs = def.Artwork.DownloadTimeoutSecs
 	}
 	return out
 }

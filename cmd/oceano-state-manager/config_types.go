@@ -167,6 +167,27 @@ type DiscogsConfig struct {
 	CacheTTL      time.Duration
 }
 
+// MetadataEnrichmentProviderSpec mirrors one entry in metadata_enrichment.providers[].
+type MetadataEnrichmentProviderSpec struct {
+	ID      string   `json:"id"`
+	Enabled bool     `json:"enabled"`
+	Roles   []string `json:"roles"`
+}
+
+// MetadataEnrichmentArtworkConfig controls artwork-specific enrichment behavior.
+type MetadataEnrichmentArtworkConfig struct {
+	Enabled            bool
+	DownloadTimeout    time.Duration
+}
+
+// MetadataEnrichmentConfig controls optional post-recognition metadata/artwork chain orchestration.
+type MetadataEnrichmentConfig struct {
+	Enabled     bool
+	MergePolicy string
+	Providers   []MetadataEnrichmentProviderSpec
+	Artwork     MetadataEnrichmentArtworkConfig
+}
+
 // --- Config ---
 
 type Config struct {
@@ -302,6 +323,9 @@ type Config struct {
 	// Discogs is optional post-recognition enrichment config loaded from
 	// recognition.discogs in CalibrationConfigPath.
 	Discogs DiscogsConfig
+	// MetadataEnrichment is optional provider-chain config loaded from
+	// metadata_enrichment in CalibrationConfigPath. Disabled by default (PR1 scaffold).
+	MetadataEnrichment MetadataEnrichmentConfig
 	// RecognitionMergePolicy is recognition.merge_policy from config (default first_success).
 	// Only first_success is implemented; other values are logged and treated as first_success until additional merge_policy modes exist.
 	RecognitionMergePolicy string
@@ -345,6 +369,14 @@ func defaultConfig() Config {
 			Timeout:    6 * time.Second,
 			MaxRetries: 2,
 			CacheTTL:   72 * time.Hour,
+		},
+		MetadataEnrichment: MetadataEnrichmentConfig{
+			Enabled:     false,
+			MergePolicy: "fill_missing_then_stop",
+			Artwork: MetadataEnrichmentArtworkConfig{
+				Enabled:         true,
+				DownloadTimeout: 10 * time.Second,
+			},
 		},
 	}
 }

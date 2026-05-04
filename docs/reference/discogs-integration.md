@@ -222,3 +222,145 @@ This mirrors the provider-oriented setup experience while keeping Discogs activa
 - Stable Now Playing metadata during physical sessions.
 - No regression in recognition latency perceived by users.
 - Commercial KPI: low enrichment-related support incidents per active device/month.
+
+---
+
+## Addendum: Decoupled and configurable metadata/artwork provider chain
+
+This addendum defines the implementation plan for evolving the current Discogs integration
+into a fully decoupled metadata + artwork enrichment pipeline, similar to recognition providers.
+
+### Goals
+
+1. Make metadata/artwork providers pluggable and orderable.
+2. Support fallback chains when a provider returns no result or errors.
+3. Keep behavior deterministic via explicit merge policies.
+4. Preserve backwards compatibility for current API clients (including iOS).
+
+### Target architecture
+
+Keep recognition and enrichment as separate concerns:
+
+- **Recognition pipeline** identifies the recording (`acrcloud`, `audd`, `shazam`).
+- **Metadata enrichment pipeline** runs after accepted recognition and enriches:
+  - album / label / released / track number
+  - artwork
+  - provider provenance fields
+
+### Proposed internal contract
+
+Create a provider-agnostic contract (e.g. `internal/metadata/types.go`):
+
+- `EnrichmentRequest`:
+  - `title`, `artist`, `album`, `format`
+  - provider IDs if known (`acrid`, `shazam_id`, `isrc`)
+- `EnrichmentPatch` (all fields optional):
+  - `album`, `label`, `released`, `track_number`
+  - `discogs_url`
+  - `artwork` (URL and/or persisted local path contract)
+  - `provider`, `confidence`
+- `MetadataProvider` interface:
+  - `Name() string`
+  - `Enrich(ctx, req) (*EnrichmentPatch, error)`
+
+Provider rule: providers return patches only; persistence happens in one coordinator.
+
+### Config model (chain + order + policy)
+
+Add `metadata_enrichment` to config:
+
+```json
+{
+  "metadata_enrichment": {
+    "enabled": true,
+    "merge_policy": "fill_missing_then_stop",
+    "providers": [
+      { "id": "provider_payload", "enabled": true, "roles": ["metadata", "artwork"] },
+      { "id": "itunes", "enabled": true, "roles": ["artwork"] },
+      { "id": "discogs", "enabled": true, "roles": ["metadata", "artwork"] }
+    ],
+    "artwork": {
+      "enabled": true,
+      "download_timeout_secs": 10
+    }
+  }
+}
+```
+
+Recommended merge policies:
+
+- `first_success`
+- `fill_missing_then_stop` (recommended default)
+- `collect_all_best_effort`
+
+### Coordinator behavior
+
+Implement a `MetadataChain` coordinator that:
+
+1. Executes providers in configured order.
+2. Applies explicit merge policy.
+3. Maintains per-provider telemetry (`attempt`, `success`, `no_match`, `error`, `rate_limited`).
+4. Uses bounded retries/backoff for transient failures.
+5. Marks state dirty only when the merged payload changes output-visible fields.
+
+### Data model evolution (additive)
+
+Keep additive migrations only; avoid breaking existing payloads.
+
+Near-term additive fields (optional but recommended):
+
+- `metadata_provider`
+- `metadata_updated_at`
+- `artwork_provider`
+- `artwork_updated_at`
+
+Discogs-specific hardening (optional):
+
+- `discogs_release_id`
+- `discogs_master_id`
+- `discogs_match_score`
+- `discogs_enriched_at`
+
+### Provider rollout order
+
+1. `provider_payload` (reuse recognized metadata, no external call)
+2. `itunes` (artwork fallback)
+3. `discogs` (metadata + optional artwork from Discogs image fields)
+4. `musicbrainz` (future; optional metadata normalization)
+
+### Backup / restore compatibility requirements
+
+Any metadata/artwork provider evolution must preserve restore safety:
+
+1. Restore must not leave DB schema/version drift.
+2. If `library.db` is replaced, state-manager must reopen the DB (service restart or equivalent safe handoff).
+3. Forward compatibility: older backups must either migrate cleanly or be explicitly reconciled at startup.
+4. Preflight compatibility checks should remain available before restore.
+
+### iOS / API compatibility constraints
+
+- Keep all API changes additive.
+- Do not remove or rename existing fields without a compatibility path.
+- Record contract-impacting changes in `docs/cross-repo-sync.md`.
+- Keep fallback behavior explicit when enrichment fields are unavailable.
+
+### Verification checklist (mandatory)
+
+For chain/config changes:
+
+- unit tests for provider ordering and merge policy
+- fallback tests for `no_match`, error, rate-limit
+- persistence tests ensuring user-curated metadata is not overwritten
+- restore regression tests (old backup -> startup -> no schema conflict)
+- `go test ./cmd/oceano-state-manager/... -short`
+- `go test ./cmd/oceano-web/...`
+
+### Incremental PR plan
+
+1. **PR 1**: contracts + config loader + no-op coordinator scaffold
+2. **PR 2**: payload + iTunes providers in chain
+3. **PR 3**: Discogs provider migration to chain + telemetry wiring
+4. **PR 4**: additive provenance fields + docs/cross-repo sync updates
+
+This staged approach keeps runtime behavior stable while enabling configurable,
+orderable metadata/artwork enrichment at parity with recognition provider orchestration.
