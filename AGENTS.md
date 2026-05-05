@@ -137,7 +137,7 @@ sudo ./install-oceano-web.sh
 - Large track title, artist, album text
 - Format chips: sample rate + bit depth (AirPlay/streaming), codec + sample rate + bit depth (Bluetooth, detected via PipeWire within ~6s of playback start), CD track number, vinyl side + track
 - Identifying animation while ACRCloud / optional `shazamio` recognises a new track
-- After playback stops, the Now Playing view stays on the last frame (dimmed standby) for **20 minutes** before the clock / weather idle screen appears
+- After **20 minutes** without effective playback, the clock / weather idle screen appears. Until then, the Now Playing view can stay on the last frame (dimmed standby when `chromeIdle` applies; short inter-track gaps on physical sources do not block the clock timer)
 - Reconnecting SSE client with exponential back-off
 
 **Auto-launch on Pi boot**

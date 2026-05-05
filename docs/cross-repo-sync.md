@@ -54,7 +54,7 @@ Run this checklist for any change touching:
 | `collection.discogs_candidates_json` | **Additive** | New SQLite column (migration v55); stores raw candidate JSON for unconfirmed entries only; cleared on confirmation. |
 | `LibraryEntry.user_confirmed` | **Compatible** | Already existed; now also gates Discogs enrichment overwrites in `UpdateEnrichmentPatch` (`AND user_confirmed = 0`). |
 | Discogs scoring penalties | **Additive / internal** | Compilations −20, live −15, unofficial/bootleg −10; studio Album +10. Affects which candidate is returned first in the array but does not change any JSON key names. |
-| Now Playing `stopped-hold` dim | **UI / compatible** | After a physical track stops, the Now Playing screen dims (`opacity 0.72, saturate 0.5`) for 20 minutes before switching to the idle clock. iOS SSE-driven clients are unaffected. |
+| Now Playing `stopped-hold` dim + 20 min clock | **UI / compatible** | The idle clock appears after 20 minutes without **effective playback** (not blocked by physical inter-track classification). Dimmed standby still follows `chromeIdle`. iOS SSE-driven clients are unaffected. |
 
 **Candidate entry shape** (elements of the array returned by `GET …/release-candidates`):
 

@@ -47,7 +47,7 @@ function clearSessionLastPhysical() {
     sessionStorage.removeItem(SESSION_LAST_PHYSICAL_KEY);
   } catch (_) {}
 }
-/** Clock + weather idle screen appears only after this much continuous idle (listening UI stays as last frame). */
+/** Clock + weather idle screen after this much continuous time with no effective playback (timer not blocked by physical inter-track classification). */
 const DEEP_IDLE_CLOCK_MS = 20 * 60 * 1000;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
@@ -399,19 +399,26 @@ function applyState(state) {
   }
 
   const isIdle = forceIdleForRecognitionOff || (!effectivePlaying || source === 'None');
-  // Standby dim + 20min clock timer only when truly away from listening — not during
-  // short inter-track gaps on physical sources (state idle + detector still Physical).
+  // Standby dim: not during short inter-track gaps (physical + idle + detector on).
   const chromeIdle = isIdle && !interTrackPhysicalSilence;
 
-  if (!chromeIdle) {
+  // Deep clock: 20 min without effective playback. Unlike chromeIdle, this is NOT suppressed by
+  // interTrackPhysicalSilence — otherwise physical + idle + detector could block the clock forever.
+  const resetDeepIdleClock = effectivePlaying;
+  if (resetDeepIdleClock) {
     _deepIdleStartedAtMs = 0;
     clearDeepIdleTimer();
-  } else if (_deepIdleStartedAtMs === 0) {
-    _deepIdleStartedAtMs = nowMs;
+  } else if (isIdle) {
+    if (_deepIdleStartedAtMs === 0) {
+      _deepIdleStartedAtMs = nowMs;
+    }
+  } else {
+    _deepIdleStartedAtMs = 0;
+    clearDeepIdleTimer();
   }
 
   const deepClockIdle =
-    chromeIdle &&
+    isIdle &&
     _deepIdleStartedAtMs > 0 &&
     nowMs - _deepIdleStartedAtMs >= DEEP_IDLE_CLOCK_MS;
   _clockIdleVisible = deepClockIdle;
@@ -437,10 +444,10 @@ function applyState(state) {
     effectiveTrack = lastKnownPhysicalFrame;
   }
 
-  if (chromeIdle && !deepClockIdle && _deepIdleStartedAtMs > 0) {
+  if (isIdle && !effectivePlaying && _deepIdleStartedAtMs > 0 && !deepClockIdle) {
     const remaining = DEEP_IDLE_CLOCK_MS - (nowMs - _deepIdleStartedAtMs);
     scheduleDeepIdleRepaint(Math.max(0, remaining) + 32);
-  } else if (!chromeIdle || deepClockIdle) {
+  } else {
     clearDeepIdleTimer();
   }
 
