@@ -126,6 +126,90 @@ func TestDiscogsClient_EnrichTrack_YearNonNumericString(t *testing.T) {
 	}
 }
 
+func TestScoreDiscogsCandidate_Penalties(t *testing.T) {
+	base := discogsSearchItem{
+		Title:  "Miles Davis - Kind of Blue",
+		Year:   1959,
+		Format: []string{"Vinyl", "Album"},
+		Style:  []string{"Jazz"},
+	}
+	compilation := discogsSearchItem{
+		Title:  "Miles Davis - The Best of Miles Davis",
+		Year:   1990,
+		Format: []string{"Vinyl", "Compilation"},
+		Style:  []string{"Jazz"},
+	}
+	live := discogsSearchItem{
+		Title:  "Miles Davis - Live at Carnegie Hall",
+		Year:   1962,
+		Format: []string{"Vinyl", "Album"},
+		Style:  []string{"Jazz", "Live"},
+	}
+	liveTitle := discogsSearchItem{
+		Title:  "Miles Davis - Live in Berlin",
+		Year:   1964,
+		Format: []string{"Vinyl", "Album"},
+		Style:  []string{"Jazz"},
+	}
+	bootleg := discogsSearchItem{
+		Title:  "Miles Davis - Kind of Blue",
+		Year:   1959,
+		Format: []string{"Vinyl", "Unofficial Release"},
+		Style:  []string{"Jazz"},
+	}
+
+	scoreBase := scoreDiscogsCandidate(base, "Miles Davis", "So What", "Kind of Blue", "Vinyl")
+	scoreComp := scoreDiscogsCandidate(compilation, "Miles Davis", "So What", "Kind of Blue", "Vinyl")
+	scoreLive := scoreDiscogsCandidate(live, "Miles Davis", "So What", "Kind of Blue", "Vinyl")
+	scoreLiveTitle := scoreDiscogsCandidate(liveTitle, "Miles Davis", "So What", "Kind of Blue", "Vinyl")
+	scoreBootleg := scoreDiscogsCandidate(bootleg, "Miles Davis", "So What", "Kind of Blue", "Vinyl")
+
+	if scoreComp >= scoreBase {
+		t.Errorf("compilation score %d should be lower than studio %d", scoreComp, scoreBase)
+	}
+	if scoreLive >= scoreBase {
+		t.Errorf("live (style) score %d should be lower than studio %d", scoreLive, scoreBase)
+	}
+	if scoreLiveTitle >= scoreBase {
+		t.Errorf("live (title) score %d should be lower than studio %d", scoreLiveTitle, scoreBase)
+	}
+	if scoreBootleg >= scoreBase {
+		t.Errorf("bootleg score %d should be lower than studio %d", scoreBootleg, scoreBase)
+	}
+}
+
+func TestPickBestDiscogsResult_PrefersStudioOverCompilation(t *testing.T) {
+	studio := discogsSearchItem{
+		Title:  "Miles Davis - Kind of Blue",
+		Year:   1959,
+		Format: []string{"Vinyl", "Album"},
+		Style:  []string{"Jazz"},
+	}
+	comp := discogsSearchItem{
+		Title:  "Miles Davis - The Best of Miles Davis",
+		Year:   1990,
+		Format: []string{"Vinyl", "Compilation"},
+		Style:  []string{"Jazz"},
+	}
+	liveAlbum := discogsSearchItem{
+		Title:  "Miles Davis - Live at the Plugged Nickel",
+		Year:   1965,
+		Format: []string{"Vinyl", "Album"},
+		Style:  []string{"Jazz", "Live"},
+	}
+
+	got := pickBestDiscogsResult(
+		[]discogsSearchItem{liveAlbum, comp, studio},
+		"Miles Davis", "So What", "Kind of Blue", "Vinyl",
+	)
+	if got == nil {
+		t.Fatal("expected a result")
+	}
+	if got.Album != "Kind of Blue" {
+		t.Errorf("album=%q want %q (studio should beat compilation and live)", got.Album, "Kind of Blue")
+	}
+}
+
 func TestMatchDiscogsTracklistPosition_VinylSides(t *testing.T) {
 	rows := []discogsTracklistItem{
 		{Position: "A1", Type_: "track", Title: "Blue in Green"},

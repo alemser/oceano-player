@@ -397,7 +397,42 @@ func scoreDiscogsCandidate(candidate discogsSearchItem, artist, title, album, ph
 	if int(candidate.Year) > 0 {
 		score += 3
 	}
+
+	// Prefer studio albums; penalise release types unlikely to match what the
+	// user is physically playing.
+	for _, f := range candidate.Format {
+		fl := strings.ToLower(f)
+		switch {
+		case fl == "album":
+			score += 10
+		case fl == "compilation":
+			score -= 20
+		case strings.Contains(fl, "unofficial") || strings.Contains(fl, "bootleg"):
+			score -= 10
+		}
+	}
+	if isLiveRelease(candidate) {
+		score -= 15
+	}
+
 	return score
+}
+
+var liveIndicators = []string{"live at", "live in", "live -", "- live", "(live)"}
+
+func isLiveRelease(candidate discogsSearchItem) bool {
+	for _, s := range candidate.Style {
+		if strings.ToLower(strings.TrimSpace(s)) == "live" {
+			return true
+		}
+	}
+	normTitle := strings.ToLower(candidate.Title)
+	for _, ind := range liveIndicators {
+		if strings.Contains(normTitle, ind) {
+			return true
+		}
+	}
+	return false
 }
 
 func firstNonEmpty(parts ...string) string {
