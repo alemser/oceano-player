@@ -27,8 +27,9 @@ type Result struct {
 	// Zero means the provider did not return a duration.
 	DurationMs int
 	// TrackNumber is the position of the track on the release (e.g. "3" for CD
-	// track 3, "A2" for vinyl side A track 2). Populated from the library DB;
-	// not currently returned by recognition providers.
+	// track 3, "A2" for vinyl side A track 2). Populated from the library DB,
+	// Discogs release tracklist enrichment, or user edits — not from primary
+	// clip recognizers (ACR/Shazam/AudD) alone.
 	TrackNumber string
 	// MatchSource is a stable lowercase id for the API that produced this result
 	// (e.g. "acrcloud", "shazam", "audd"). Used for UI state when ACRID/ShazamID

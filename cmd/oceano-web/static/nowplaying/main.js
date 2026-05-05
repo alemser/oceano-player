@@ -13,6 +13,42 @@ const SOURCE_LABELS = {
 const STREAMING_SOURCES = new Set(['AirPlay', 'Bluetooth', 'UPnP']);
 const PHYSICAL_IDLE_HOLD_MS = 5000;
 const IDENTIFYING_ARTWORK_HOLD_MS = 15000;
+/** Survives Chromium restarts on the same origin so track-boundary gaps still have a hold target. */
+const SESSION_LAST_PHYSICAL_KEY = 'oceano_nowplaying_last_physical_v1';
+
+function persistSessionLastPhysical(track) {
+  try {
+    if (!track || !isRecognizedTrack(track)) return;
+    sessionStorage.setItem(
+      SESSION_LAST_PHYSICAL_KEY,
+      JSON.stringify({
+        title: track.title || '',
+        artist: track.artist || '',
+        album: track.album || '',
+        artwork_path: track.artwork_path || '',
+      })
+    );
+  } catch (_) {}
+}
+
+function readSessionLastPhysical() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_LAST_PHYSICAL_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    return o && typeof o === 'object' ? o : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function clearSessionLastPhysical() {
+  try {
+    sessionStorage.removeItem(SESSION_LAST_PHYSICAL_KEY);
+  } catch (_) {}
+}
+/** Clock + weather idle screen appears only after this much continuous idle (listening UI stays as last frame). */
+const DEEP_IDLE_CLOCK_MS = 20 * 60 * 1000;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 
@@ -35,6 +71,9 @@ const $streamFill = document.getElementById('stream-progress-fill');
 const $streamElapsed = document.getElementById('stream-elapsed');
 const $streamTotal = document.getElementById('stream-total');
 const $identifying = document.getElementById('identifying-label');
+const $identifyingBadge = document.getElementById('identifying-badge');
+const $identifyingBadgeTitle = document.getElementById('identifying-badge-title');
+const $identifyingBadgeSub = document.getElementById('identifying-badge-sub');
 const $recognitionInputPill = document.getElementById('recognition-input-pill');
 const $idleNowSource = document.getElementById('idle-now-source');
 
@@ -190,6 +229,48 @@ function isStreamingSource(source) {
   return STREAMING_SOURCES.has(source);
 }
 
+function shouldHoldPreviousTrackForRecognitionUI(phase) {
+  const p = String(phase || '').toLowerCase();
+  return p !== 'off' && p !== 'not_configured';
+}
+
+/**
+ * Physical track to show during recognition gaps: prefer the previous SSE payload, then an in-memory
+ * snapshot — the backend often clears `track` on consecutive messages while still identifying, which
+ * left the UI on the default (dark) artwork without this cache.
+ */
+function getPhysicalHoldTrack(currentSource) {
+  const prev = _lastState;
+  if (prev && prev.track && isPhysicalPlaybackSource(String(prev.source || 'None')) &&
+      isRecognizedTrack(prev.track)) {
+    return prev.track;
+  }
+  if (!isPhysicalPlaybackSource(String(currentSource || 'None'))) return null;
+  if (_lastGoodPhysicalTrack && isRecognizedTrack(_lastGoodPhysicalTrack)) {
+    return _lastGoodPhysicalTrack;
+  }
+  const persisted = readSessionLastPhysical();
+  if (persisted && isRecognizedTrack(persisted)) {
+    return persisted;
+  }
+  return null;
+}
+
+function setIdentifyingBadge(visible, title, sub, pulseSub) {
+  if (!$identifyingBadge) return;
+  $identifyingBadge.classList.toggle('is-visible', Boolean(visible));
+  $identifyingBadge.setAttribute('aria-hidden', visible ? 'false' : 'true');
+  if ($identifyingBadgeTitle && title != null) {
+    $identifyingBadgeTitle.textContent = title;
+  }
+  if ($identifyingBadgeSub) {
+    const line = sub ? String(sub) : '';
+    $identifyingBadgeSub.textContent = line;
+    $identifyingBadgeSub.style.display = line ? 'block' : 'none';
+  }
+  $identifyingBadge.classList.toggle('pulsing-sub', Boolean(visible && pulseSub && sub));
+}
+
 function updateStreamingProgress() {
   if (!_lastState) {
     $streamProgress.classList.remove('visible');
@@ -220,9 +301,31 @@ function updateStreamingProgress() {
 
 let _lastState = null;
 let _isIdle = true;
+/** True only when the clock/weather idle overlay is shown (after `DEEP_IDLE_CLOCK_MS` of continuous idle). */
+let _clockIdleVisible = false;
 let _physicalGapHoldUntilMs = 0;
 let _physicalGapHoldTimer = null;
 let _wasPhysicalGapIdle = false;
+let _deepIdleStartedAtMs = 0;
+let _deepIdleTimer = null;
+/** Snapshot of the last rendered physical track (filled when `hasTrack` + CD/Vinyl/Physical). */
+let _lastGoodPhysicalTrack = null;
+
+function clearDeepIdleTimer() {
+  if (_deepIdleTimer) {
+    clearTimeout(_deepIdleTimer);
+    _deepIdleTimer = null;
+  }
+}
+
+function scheduleDeepIdleRepaint(waitMs) {
+  clearDeepIdleTimer();
+  if (waitMs <= 0 || !_lastState) return;
+  _deepIdleTimer = setTimeout(() => {
+    _deepIdleTimer = null;
+    applyState(_lastState);
+  }, waitMs);
+}
 
 function isPhysicalPlaybackSource(source) {
   return source === 'Physical' || source === 'CD' || source === 'Vinyl';
@@ -246,6 +349,10 @@ function schedulePhysicalGapHoldRepaint(waitMs) {
 
 function applyState(state) {
   const source  = state.source  || 'None';
+  if (isStreamingSource(source)) {
+    _lastGoodPhysicalTrack = null;
+    clearSessionLastPhysical();
+  }
   const stateFormat = String(state.format || '').trim();
   const playing = state.state === 'playing';
   const track   = state.track   || null;
@@ -281,12 +388,70 @@ function applyState(state) {
     recognitionPhase === 'off';
 
   const effectivePlaying = holdActive ? true : playing;
-  const effectiveTrack = holdActive && !track ? (_lastState?.track || null) : track;
+  // Backend omits track during VU silence between vinyl/CD tracks; keep last frame for UI.
+  const interTrackPhysicalSilence =
+    physicalDetectorOn &&
+    isPhysicalPlaybackSource(source) &&
+    state.state === 'idle';
+  let effectiveTrack = track;
+  if ((holdActive || interTrackPhysicalSilence) && !track) {
+    effectiveTrack = _lastState?.track || _lastGoodPhysicalTrack || null;
+  }
+
   const isIdle = forceIdleForRecognitionOff || (!effectivePlaying || source === 'None');
-  _isIdle = isIdle;
-  $idle.classList.toggle('visible', isIdle);
+  // Standby dim + 20min clock timer only when truly away from listening — not during
+  // short inter-track gaps on physical sources (state idle + detector still Physical).
+  const chromeIdle = isIdle && !interTrackPhysicalSilence;
+
+  if (!chromeIdle) {
+    _deepIdleStartedAtMs = 0;
+    clearDeepIdleTimer();
+  } else if (_deepIdleStartedAtMs === 0) {
+    _deepIdleStartedAtMs = nowMs;
+  }
+
+  const deepClockIdle =
+    chromeIdle &&
+    _deepIdleStartedAtMs > 0 &&
+    nowMs - _deepIdleStartedAtMs >= DEEP_IDLE_CLOCK_MS;
+  _clockIdleVisible = deepClockIdle;
+
+  /** CD/album ended: detector may drop (no inter-track silence path) while we wait for the deep clock.
+   *  Keep the last physical recognized result on screen and skip standby dim — avoids an empty dimmed shell.
+   *  _lastState.track may be null when the CD ended via a VU-silence state; fall back to _lastGoodPhysicalTrack. */
+  let holdStandbyLastFrame = false;
+  const lastKnownPhysicalFrame = (
+    _lastState &&
+    isPhysicalPlaybackSource(String(_lastState.source || 'None')) &&
+    isRecognizedTrack(_lastState.track)
+  ) ? _lastState.track
+    : (_lastGoodPhysicalTrack && isRecognizedTrack(_lastGoodPhysicalTrack) ? _lastGoodPhysicalTrack : null);
+  if (
+    chromeIdle &&
+    !deepClockIdle &&
+    !isStreamingSource(source) &&
+    isRecognizedTrack(lastKnownPhysicalFrame) &&
+    !isRecognizedTrack(effectiveTrack)
+  ) {
+    holdStandbyLastFrame = true;
+    effectiveTrack = lastKnownPhysicalFrame;
+  }
+
+  if (chromeIdle && !deepClockIdle && _deepIdleStartedAtMs > 0) {
+    const remaining = DEEP_IDLE_CLOCK_MS - (nowMs - _deepIdleStartedAtMs);
+    scheduleDeepIdleRepaint(Math.max(0, remaining) + 32);
+  } else if (!chromeIdle || deepClockIdle) {
+    clearDeepIdleTimer();
+  }
+
+  _isIdle = chromeIdle;
+  $idle.classList.toggle('visible', deepClockIdle);
+  const $appEl = document.getElementById('app');
+  $appEl?.classList.toggle('standby', chromeIdle && !deepClockIdle && !holdStandbyLastFrame);
+  $appEl?.classList.toggle('stopped-hold', holdStandbyLastFrame && !deepClockIdle);
+
   if ($idleNowSource) {
-    if (forceIdleForRecognitionOff) {
+    if (forceIdleForRecognitionOff && deepClockIdle) {
       const inputName = recognition && recognition.active_input_name
         ? String(recognition.active_input_name).trim()
         : '';
@@ -299,7 +464,13 @@ function applyState(state) {
     }
   }
   const $ampInd = document.getElementById('amp-indicator');
-  if ($ampInd && isIdle) $ampInd.style.display = 'none';
+  if ($ampInd) {
+    if (deepClockIdle) {
+      $ampInd.style.display = 'none';
+    } else if ($ampInd.style.display === 'none') {
+      $ampInd.style.display = '';
+    }
+  }
 
   // Source icon + label
   $sourceIcon.innerHTML  = SOURCE_ICONS[source] || SOURCE_ICONS.None;
@@ -319,18 +490,27 @@ function applyState(state) {
 
   // Track metadata
   const hasTrack = isRecognizedTrack(effectiveTrack);
+  const prevPhysicalTrack = getPhysicalHoldTrack(source);
+  let holdPrevPhysicalUI = false;
+
   $identifying.className = '';
   $identifying.textContent = '';
   if ($recognitionInputPill) {
     $recognitionInputPill.textContent = '';
     $recognitionInputPill.style.display = 'none';
   }
+  $appEl?.classList.remove('identifying-mode');
+  setIdentifyingBadge(false);
 
   if (hasTrack) {
     $title.textContent  = effectiveTrack.title  || '—';
     $artist.textContent = effectiveTrack.artist || '';
     $album.textContent  = effectiveTrack.album  || '';
     updateArtwork(effectiveTrack.artwork_path || null);
+    if (isPhysicalPlaybackSource(source)) {
+      _lastGoodPhysicalTrack = { ...effectiveTrack };
+      persistSessionLastPhysical(_lastGoodPhysicalTrack);
+    }
   } else if (effectivePlaying && physicalDetectorOn && (source === 'Physical' || source === 'CD' || source === 'Vinyl')) {
     // Without a configured capture path, the recognizer cannot run — do not show "Identifying…".
     if (_captureInputKnown && !_captureInputConfigured) {
@@ -390,12 +570,29 @@ function applyState(state) {
         }
       }
 
-      $title.textContent = mainTitle;
-      $artist.textContent = '';
-      $album.textContent = '';
-      $identifying.className = pulseSub ? 'pulsing' : '';
-      $identifying.textContent = subText;
-      showDefaultArtwork();
+      const holdPrev =
+        Boolean(prevPhysicalTrack) &&
+        shouldHoldPreviousTrackForRecognitionUI(phase);
+
+      if (holdPrev) {
+        holdPrevPhysicalUI = true;
+        $title.textContent = prevPhysicalTrack.title || '—';
+        $artist.textContent = prevPhysicalTrack.artist || '';
+        $album.textContent = prevPhysicalTrack.album || '';
+        updateArtwork(prevPhysicalTrack.artwork_path || null);
+        $appEl?.classList.add('identifying-mode');
+        $identifying.className = '';
+        $identifying.textContent = '';
+        setIdentifyingBadge(true, mainTitle, subText, pulseSub);
+      } else {
+        $title.textContent = mainTitle;
+        $artist.textContent = '';
+        $album.textContent = '';
+        $identifying.className = pulseSub ? 'pulsing' : '';
+        $identifying.textContent = subText;
+        showDefaultArtwork();
+        setIdentifyingBadge(false);
+      }
     }
   } else if (effectivePlaying && source !== 'None') {
     // Streaming source playing without metadata (e.g. Bluetooth without AVRCP).
@@ -413,7 +610,8 @@ function applyState(state) {
   // Supplemental chips (format-specific metadata)
   $chips.textContent = '';
 
-  if (hasTrack) {
+  const trackForChips = hasTrack ? effectiveTrack : (holdPrevPhysicalUI ? prevPhysicalTrack : null);
+  if (trackForChips) {
     const normalizedSource = String(source || '').trim();
     const normalizedFormat = stateFormat.toLowerCase();
     const sourceLooksVinyl = normalizedSource.toLowerCase() === 'vinyl';
@@ -422,8 +620,8 @@ function applyState(state) {
     const physicalWithCDFormat = normalizedSource.toLowerCase() === 'physical' && normalizedFormat === 'cd';
 
     // Streaming: sample rate + bit depth merged into one chip
-    if (effectiveTrack.samplerate || effectiveTrack.bitdepth) {
-      const fmtLabel = [effectiveTrack.samplerate, effectiveTrack.bitdepth].filter(Boolean).join(' · ');
+    if (trackForChips.samplerate || trackForChips.bitdepth) {
+      const fmtLabel = [trackForChips.samplerate, trackForChips.bitdepth].filter(Boolean).join(' · ');
       $chips.appendChild(makeChip(
         chipSVG('M1 6 Q3 2 5 6 Q7 10 9 6 Q11 2 11 6'),
         fmtLabel
@@ -431,16 +629,16 @@ function applyState(state) {
     }
 
     // Bluetooth codec chip (SBC, AAC, LDAC, AptX, Opus, …)
-    if (effectiveTrack.codec) {
+    if (trackForChips.codec) {
       $chips.appendChild(makeChip(
         chipSVG('M6 2 L10 6 L6 10 L6 2 M6 6 L2 2 M6 6 L2 10'),
-        effectiveTrack.codec
+        trackForChips.codec
       ));
     }
 
     // Track/side chips: supports CD and Vinyl representations.
-    if (effectiveTrack.track_number) {
-      const trackRef = String(effectiveTrack.track_number).trim();
+    if (trackForChips.track_number) {
+      const trackRef = String(trackForChips.track_number).trim();
       const vinylRef = parseVinylTrackRef(trackRef);
       const shouldRenderVinyl = sourceLooksVinyl || physicalWithVinylFormat || (!!vinylRef && normalizedSource.toLowerCase() === 'physical');
       const shouldRenderCD = sourceLooksCD || physicalWithCDFormat;
@@ -470,8 +668,8 @@ function applyState(state) {
     }
 
     // Physical match chip: shown when a streaming track exists in the local library
-    if (effectiveTrack.physical_match && effectiveTrack.physical_match.format) {
-      const pm = effectiveTrack.physical_match;
+    if (trackForChips.physical_match && trackForChips.physical_match.format) {
+      const pm = trackForChips.physical_match;
       const fmt = pm.format; // "Vinyl" or "CD"
       const isVinyl = fmt === 'Vinyl';
       // Vinyl icon: disc with groove lines; CD icon: disc with centre hole
@@ -623,7 +821,7 @@ async function loadAmpPowerState() {
     const model = String(s.model || '').trim();
     const ampName = [maker, model].filter(Boolean).join(' ') || 'Amplifier';
 
-    el.style.display = _isIdle ? 'none' : 'flex';
+    el.style.display = _clockIdleVisible ? 'none' : 'flex';
     labelEl.textContent = ampName;
 
     const ps = String(s.power_state || '').toLowerCase();

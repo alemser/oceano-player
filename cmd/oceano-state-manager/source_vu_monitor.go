@@ -9,6 +9,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	internallibrary "github.com/alemser/oceano-player/internal/library"
@@ -157,6 +158,16 @@ func shouldSuppressBoundarySensitiveBoundary(durationMs int, seekMS int64, seekU
 //
 // When duration/seek are unknown, preserve legacy behaviour: hard silence still
 // bypasses so needle-lift gaps without metadata still trigger.
+// cdSilenceAudioBypassesDurationGuards treats silence→audio on CD as an indexed
+// track boundary. Duration-based suppression often misfires (seek vs catalog length)
+// between CD tracks, delaying recognition until duration-exceeded or refresh.
+// Quiet classical CDs use boundary_sensitive — keep normal guards when set.
+func cdSilenceAudioBypassesDurationGuards(physicalFormat, reason string, boundarySensitive bool) bool {
+	return strings.EqualFold(strings.TrimSpace(physicalFormat), "cd") &&
+		reason == "silence->audio" &&
+		!boundarySensitive
+}
+
 func shouldBypassDurationGuardsForBoundary(reason string, isHardBoundary bool, durationMs int, seekMS int64, seekUpdatedAt, now time.Time, durationPessimism float64) bool {
 	if !(isHardBoundary && reason == "silence->audio") {
 		return false
@@ -187,6 +198,7 @@ func (m *mgr) clearStalePhysicalRecognitionOnSilence(reason string, silenceElaps
 	artist := m.recognitionResult.Artist
 	title := m.recognitionResult.Title
 	m.recognitionResult = nil
+	m.lastPhysicalDisplayTrack = nil
 	m.physicalArtworkPath = ""
 	m.physicalLibraryEntryID = 0
 	m.physicalBoundarySensitive = false
@@ -264,6 +276,7 @@ func (m *mgr) pollSourceFile() {
 	}
 	if newSession {
 		m.recognitionResult = nil
+		m.lastPhysicalDisplayTrack = nil
 		m.physicalArtworkPath = ""
 		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
@@ -275,6 +288,7 @@ func (m *mgr) pollSourceFile() {
 		m.physicalStartedAt = time.Now()
 	} else if resumedAfterIdle {
 		m.recognitionResult = nil
+		m.lastPhysicalDisplayTrack = nil
 		m.physicalArtworkPath = ""
 		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
@@ -297,6 +311,7 @@ func (m *mgr) pollSourceFile() {
 		// new capture runs. Needle-lift on the same album will briefly show empty
 		// until the next match, which matches user expectation better than a wrong title.
 		m.recognitionResult = nil
+		m.lastPhysicalDisplayTrack = nil
 		m.physicalArtworkPath = ""
 		m.physicalBoundarySensitive = false
 		m.physicalFormat = ""
@@ -494,8 +509,12 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		var seekUpdatedAt time.Time
 		continuityReady := m.shazamioContinuityReady
 		boundarySensitive := m.physicalBoundarySensitive
+		physFmt := strings.ToLower(strings.TrimSpace(m.physicalFormat))
 		if m.recognitionResult != nil {
 			durationMs = m.recognitionResult.DurationMs
+			if physFmt == "" {
+				physFmt = strings.ToLower(strings.TrimSpace(m.recognitionResult.Format))
+			}
 		}
 		seekMS = m.physicalSeekMS
 		seekUpdatedAt = m.physicalSeekUpdatedAt
@@ -503,6 +522,9 @@ func (m *mgr) readVUFrames(ctx context.Context, conn net.Conn, detectorCfg vuBou
 		now := time.Now()
 		effPess := effectiveDurationPessimism(durationPessimism, boundarySensitive)
 		bypassDurationGuards := shouldBypassDurationGuardsForBoundary(reason, isHardBoundary, durationMs, seekMS, seekUpdatedAt, now, effPess)
+		if cdSilenceAudioBypassesDurationGuards(physFmt, reason, boundarySensitive) {
+			bypassDurationGuards = true
+		}
 		if !bypassDurationGuards && shouldSuppressBoundarySensitiveBoundary(durationMs, seekMS, seekUpdatedAt, now, boundarySensitive, reason) {
 			elapsed := time.Duration(seekMS)*time.Millisecond + now.Sub(seekUpdatedAt)
 			trackDuration := time.Duration(durationMs) * time.Millisecond

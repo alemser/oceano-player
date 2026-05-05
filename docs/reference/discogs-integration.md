@@ -63,9 +63,25 @@ Trigger only after a provider match is accepted:
 2. enqueue async enrichment job (non-blocking for state updates).
 3. fetch Discogs candidates using artist/title/(album optional).
 4. resolve best candidate with deterministic scoring rules.
-5. persist selected Discogs fields into library.
+5. fetch the selected **release** resource and match the recognized track title against the release **tracklist** to obtain `track_number` (e.g. CD index `3`, vinyl position `A2`).
+6. persist selected Discogs fields into library (including additive `track_number` when matched).
 
 Important: if Discogs fails, playback state still updates normally.
+
+### Track position (`track_number`) normalization
+
+Discogs `tracklist[].position` values are passed through `CanonicalDiscogsTrackPosition` before they reach `/tmp/oceano-state.json` and the library:
+
+| Examples from Discogs | Stored value | Notes |
+|----------------------|--------------|--------|
+| `1`, `12` | `1`, `12` | Pure CD index — unchanged. |
+| `a2`, `A-2`, `B.3` | `A2`, `B3` | Side letter + track index — uppercase side, strip redundant separators. |
+| `2A`, `3d`, `12-A` | `2A`, `3D`, `12A` | Index + side letter — uppercase letter (`3D` matches the “digit + side” pattern). |
+| `CD1-3`, `1-11`, `cd2-11` | Same (trim/collapse spaces only) | Multi-disc / compound labels — no structural rewrite. |
+
+The HDMI Now Playing UI (`parseVinylTrackRef` in `static/nowplaying/helpers.js`) recognises **vinyl-style** refs with sides **A–D** for split chips (“Side X · Track Y”). Numeric-only refs render as “Track N”; sides **E+** or uncommon formats still show the raw `track_number` string on the chip row.
+
+Library edits via `PATCH` on `/api/library/...` apply the same `CanonicalDiscogsTrackPosition` rules when saving `track_number`, matching the uppercase convention used by the iOS app (e.g. `1a` → `1A`).
 
 ## Stage B (optional): re-enrichment for existing library
 
@@ -75,9 +91,54 @@ Background job for rows missing `label/catno/side-position`.
 - resumable cursor
 - throttled requests
 
-## Stage C (optional): user-assisted correction
+## Stage C: proactive release confirmation carousel
 
-Expose top Discogs candidates in admin/iOS workflows when confidence is low.
+For unconfirmed physical tracks, the system proactively offers the user a choice of release candidates rather than waiting for a manual correction action. The library grows naturally during normal listening sessions without requiring deliberate curation.
+
+### Flow
+
+1. Track is recognised (ACRCloud/AudD) → best Discogs candidate is applied as usual.
+2. Entry is written to `collection` with `confirmed = false`.
+3. iOS detects `confirmed = false` on a physical source track (CD/Vinyl) → shows a non-blocking release carousel automatically (e.g. bottom drawer, does not interrupt playback).
+4. Carousel displays top N candidates (recommended: 5) ordered by Discogs score, each showing: artwork thumbnail, album title, label, year, country, format.
+5. User confirms the pre-selected candidate or picks another → `POST /api/library/:id/select-release` → `confirmed = true`, selected release fields written to library.
+6. From this point the library entry is authoritative: future recognitions of the same track never overwrite curated fields.
+
+### Rules
+
+- Carousel only appears for physical sources (CD, Vinyl, Physical). AirPlay/Bluetooth have no pressing ambiguity.
+- Only shown after recognition succeeds (`phase = identified`), never while identifying.
+- If the user dismisses or ignores, do not re-prompt for the same track within the same listening session.
+- Already-confirmed entries (`confirmed = true`) never trigger the carousel.
+
+### Backend pieces required
+
+**Candidate storage**
+`pickBestDiscogsResult` currently discards all candidates except the best. Needs to return (or separately store) the top N scored candidates while the entry is unconfirmed. Two options:
+- **Re-query on demand** — simpler; `GET /api/library/:id/release-candidates` triggers a fresh Discogs search. One extra API call per user interaction.
+- **Persist top N at enrich time** — store candidates as JSON in a `discogs_candidates_json` column; no extra Discogs call when the user opens the carousel. Preferred for offline/rate-limit resilience.
+
+Recommended: persist at enrich time, clear `discogs_candidates_json` after confirmation.
+
+**New endpoints**
+- `GET /api/library/:id/release-candidates` — returns stored candidates (or triggers re-query if column is empty).
+- `POST /api/library/:id/select-release` — writes selected candidate fields to library, sets `confirmed = true`, clears `discogs_candidates_json`.
+
+**`confirmed` field**
+Already exists in `collection`. No schema change needed for the confirmation flow itself; only `discogs_candidates_json` is additive.
+
+### iOS contract
+
+SSE / `GET /api/status` payload includes `confirmed` on the `track` object (already present). iOS reads this field to decide whether to show the carousel. No new SSE fields required.
+
+Carousel data comes from `GET /api/library/:id/release-candidates` — called once when the carousel is shown, not on every SSE tick.
+
+### Lifecycle and library authority
+
+Once `confirmed = true`:
+- `recognition_coordinator` skips field updates for curated fields (`album`, `label`, `released`, `artwork_path`) on future recognitions of the same entry.
+- Strategy B (`library_album_priority`) automatically uses this entry as the ground truth.
+- After a few listening sessions the collection reaches critical mass and the carousel stops appearing for known tracks.
 
 ## Suggested data fields (additive)
 
@@ -107,6 +168,54 @@ Use a weighted score, for example:
 - optional track position consistency
 
 Conservative rule: if confidence is below threshold, do not overwrite existing curated metadata automatically.
+
+### Release-type penalties (backlog)
+
+The current `scoreDiscogsCandidate` only adds positive scores (artist/title/album/format/year bonuses).
+It does not penalize releases that are unlikely to be what the user is physically playing.
+
+Known false-positive patterns:
+- **Compilations** — Discogs `format` array contains `"Compilation"`; title often contains "Best Of", "Greatest Hits", "Collection". A user playing a studio album vinyl should not get enriched with compilation metadata.
+- **Live albums** — Discogs `style` array contains `"Live"` or title contains "Live at…", "Live in…". Recognizers match live recordings against the same ACRCloud fingerprint as the studio version but the release context is wrong.
+- **Unofficial / bootleg pressings** — `format` contains `"Unofficial Release"` or `"Bootleg"`.
+
+Planned scoring adjustments (not yet implemented):
+- subtract ~20 pts when `format` contains `"Compilation"`
+- subtract ~15 pts when `style` or title contains live indicators
+- subtract ~10 pts for unofficial/bootleg formats
+- add ~10 pts when `format` contains `"Album"` (studio album preference)
+
+This is a targeted change to `scoreDiscogsCandidate` in `internal/recognition/discogs.go` with coverage via the existing `TestPickBestDiscogsResult` matrix test.
+
+### Release disambiguation without Discogs (backlog)
+
+When Discogs is disabled the scoring penalties above never run. The album field comes directly from ACRCloud/AudD, which may already carry the wrong release context ("Best of...", "Live at..."). Two complementary strategies are planned, both user-configurable:
+
+**Strategy A — suspicious album filter (`album_filter_heuristics`)**
+Before persisting enriched metadata, apply a text heuristic pass on the `album` field. If the value matches known compilation/live patterns (e.g. contains "Best Of", "Greatest Hits", "Live at", "Live in", "Collection", "Anniversary Edition") the field is dropped and stored as empty rather than written with a likely-wrong value. `title` and `artist` are always kept. This is provider-agnostic, lightweight, and safe as a default.
+
+**Strategy B — library-priority override (`library_album_priority`)**
+When the recognised track matches an existing entry in the local collection (by title + artist), the library's `album` value takes precedence over whatever the recognition provider returned. Requires the collection to be populated first; grows more useful over time as the user curates their library.
+
+Both strategies are independent and can be combined. Suggested config shape (additive, all optional):
+
+```json
+{
+  "recognition": {
+    "album_disambiguation": {
+      "filter_heuristics": true,
+      "library_priority": false
+    }
+  }
+}
+```
+
+Recommended default: `filter_heuristics: true`, `library_priority: false` (safe out-of-the-box). Users with a well-curated collection can enable `library_priority` to get the most accurate release context without needing Discogs at all.
+
+Implementation notes:
+- Strategy A lives in the recognition coordinator, after result is accepted and before `UpdateEnrichmentPatch` is called. No new packages required.
+- Strategy B reuses the existing `syncFromLibrary` / `FindPhysicalMatch` path; add precedence logic when `library_album_priority` is true.
+- Both strategies should be no-ops when the field is already empty, and must never overwrite user-curated library entries.
 
 ## API and operational considerations
 

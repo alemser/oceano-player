@@ -33,10 +33,32 @@ func newRecognitionCoordinator(m *mgr, rec Recognizer, confirmRec Recognizer, sh
 	}
 }
 
+// enrichmentArtworkProvider picks which provider label matches the artwork file on disk after MergeArtworkOnly
+// (text metadata provider vs artwork-only pass such as iTunes).
+func enrichmentArtworkProvider(textPatch, artPatch, merged *internalmetadata.Patch) string {
+	if merged == nil || merged.Artwork == nil {
+		return ""
+	}
+	path := strings.TrimSpace(merged.Artwork.Path)
+	if path == "" {
+		return ""
+	}
+	if textPatch != nil && textPatch.Artwork != nil && strings.TrimSpace(textPatch.Artwork.Path) == path {
+		return strings.TrimSpace(textPatch.Provider)
+	}
+	if artPatch != nil && artPatch.Artwork != nil && strings.TrimSpace(artPatch.Artwork.Path) == path {
+		return strings.TrimSpace(artPatch.Provider)
+	}
+	return strings.TrimSpace(merged.Provider)
+}
+
 // enrichWithMetadataChainAsync runs the configured metadata chain (text fields)
 // and then resolves album artwork asynchronously via the iTunes Search API when
 // enabled — matching the historical fetchArtwork / fetchArtworkFromSong behaviour
 // without blocking applyRecognizedResult.
+//
+// When Run fails (e.g. Discogs decode error), we still attempt artwork resolution:
+// text enrichment is best-effort; artwork should not be skipped because of it.
 func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *RecognitionResult) {
 	if result == nil {
 		return
@@ -69,22 +91,21 @@ func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *Recognitio
 			WantArtwork: false,
 		}
 
-		var patch *internalmetadata.Patch
+		var textPatch *internalmetadata.Patch
 		if c.metadataChain != nil {
 			var err error
-			patch, err = c.metadataChain.Run(ctx, baseReq, nil)
+			textPatch, err = c.metadataChain.Run(ctx, baseReq, nil)
 			if err != nil {
 				log.Printf("metadata chain: enrichment error for %s — %s: %v", snapshot.Artist, snapshot.Title, err)
-				return
 			}
 		}
-
+		patch := textPatch
+		var artPatch *internalmetadata.Patch
 		if artDir != "" && existingArtPath == "" &&
 			(strings.TrimSpace(snapshot.Album) != "" || strings.TrimSpace(snapshot.Title) != "") {
 			artReq := baseReq
 			artReq.WantArtwork = true
 			artReq.ArtworkDir = artDir
-			var artPatch *internalmetadata.Patch
 			var artErr error
 			if c.metadataChain != nil {
 				artPatch, artErr = c.metadataChain.RunForArtwork(ctx, artReq)
@@ -148,7 +169,12 @@ func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *Recognitio
 			if patch.Artwork != nil {
 				artPath = strings.TrimSpace(patch.Artwork.Path)
 			}
-			if dbErr := c.lib.UpdateEnrichmentPatch(libraryID, patch.DiscogsURL, patch.Album, patch.Label, patch.Released, patch.Provider, artPath); dbErr != nil {
+			metaProv := ""
+			if textPatch != nil {
+				metaProv = strings.TrimSpace(textPatch.Provider)
+			}
+			artProv := enrichmentArtworkProvider(textPatch, artPatch, patch)
+			if dbErr := c.lib.UpdateEnrichmentPatch(libraryID, patch.DiscogsURL, patch.Album, patch.Label, patch.Released, patch.TrackNumber, metaProv, artPath, artProv); dbErr != nil {
 				log.Printf("metadata chain: db persist error: %v", dbErr)
 			}
 		}
@@ -387,6 +413,7 @@ func (c *recognitionCoordinator) handleNoMatch(isBoundaryTrigger bool, isHardBou
 		c.mgr.mu.Lock()
 		boundaryAt := c.mgr.lastBoundaryAt
 		c.mgr.recognitionResult = nil
+		c.mgr.lastPhysicalDisplayTrack = nil
 		c.mgr.physicalArtworkPath = ""
 		c.mgr.physicalLibraryEntryID = 0
 		c.mgr.physicalBoundarySensitive = false
@@ -840,6 +867,7 @@ func (c *recognitionCoordinator) run(ctx context.Context) {
 			if isBoundaryTrigger && isHardBoundaryTrigger {
 				c.mgr.mu.Lock()
 				c.mgr.recognitionResult = nil
+				c.mgr.lastPhysicalDisplayTrack = nil
 				c.mgr.recognitionPhase = "off"
 				c.mgr.recognizerBusyUntil = time.Time{}
 				c.mgr.physicalArtworkPath = ""

@@ -204,6 +204,8 @@ var migrations = []string{
 	// Provenance: which metadata chain provider last wrote album/label/released/discogs_url.
 	// Null means the fields were populated before provenance tracking was introduced.
 	`ALTER TABLE collection ADD COLUMN metadata_provider TEXT`,
+	// Provenance for artwork_path when it comes from a different source than text metadata (e.g. iTunes art after Discogs text).
+	`ALTER TABLE collection ADD COLUMN artwork_provider TEXT`,
 }
 
 var currentSchemaVersion = len(migrations)
@@ -234,6 +236,7 @@ type CollectionEntry struct {
 	BoundarySensitive bool
 	DiscogsURL        string
 	MetadataProvider  string
+	ArtworkProvider   string
 }
 
 var (
@@ -333,7 +336,7 @@ func (l *Library) lookupByEquivalentMetadata(title, artist string) (*CollectionE
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
 		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0),
-		       COALESCE(discogs_url,''), COALESCE(metadata_provider,'')
+		       COALESCE(discogs_url,''), COALESCE(metadata_provider,''), COALESCE(artwork_provider,'')
 		FROM collection
 		WHERE title != '' AND artist != ''`)
 	if err != nil {
@@ -349,7 +352,7 @@ func (l *Library) lookupByEquivalentMetadata(title, artist string) (*CollectionE
 			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 			&e.TrackNumber, &e.ArtworkPath,
 			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-			&e.DurationMs, &boundarySens, &e.DiscogsURL, &e.MetadataProvider,
+			&e.DurationMs, &boundarySens, &e.DiscogsURL, &e.MetadataProvider, &e.ArtworkProvider,
 		); err != nil {
 			return nil, fmt.Errorf("library: equivalent metadata lookup scan: %w", err)
 		}
@@ -462,7 +465,7 @@ func (l *Library) lookupByColumn(col, value string) (*CollectionEntry, error) {
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
 		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0),
-		       COALESCE(discogs_url,''), COALESCE(metadata_provider,'')
+		       COALESCE(discogs_url,''), COALESCE(metadata_provider,''), COALESCE(artwork_provider,'')
 		FROM collection WHERE `+col+` = ?`, value)
 
 	var e CollectionEntry
@@ -472,7 +475,7 @@ func (l *Library) lookupByColumn(col, value string) (*CollectionEntry, error) {
 		&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 		&e.TrackNumber, &e.ArtworkPath,
 		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-		&e.DurationMs, &boundarySens, &e.DiscogsURL, &e.MetadataProvider,
+		&e.DurationMs, &boundarySens, &e.DiscogsURL, &e.MetadataProvider, &e.ArtworkProvider,
 	)
 	e.UserConfirmed = confirmed == 1
 	e.BoundarySensitive = boundarySens == 1
@@ -541,7 +544,7 @@ func (l *Library) GetByID(id int64) (*CollectionEntry, error) {
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
 		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0),
-		       COALESCE(discogs_url,''), COALESCE(metadata_provider,'')
+		       COALESCE(discogs_url,''), COALESCE(metadata_provider,''), COALESCE(artwork_provider,'')
 		FROM collection WHERE id = ?`, id)
 	var e CollectionEntry
 	var confirmed, boundarySens int
@@ -550,7 +553,7 @@ func (l *Library) GetByID(id int64) (*CollectionEntry, error) {
 		&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 		&e.TrackNumber, &e.ArtworkPath,
 		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-		&e.DurationMs, &boundarySens, &e.DiscogsURL, &e.MetadataProvider,
+		&e.DurationMs, &boundarySens, &e.DiscogsURL, &e.MetadataProvider, &e.ArtworkProvider,
 	)
 	e.UserConfirmed = confirmed == 1
 	e.BoundarySensitive = boundarySens == 1
@@ -636,7 +639,7 @@ func (l *Library) FindPhysicalMatch(title, artist string) (*CollectionEntry, err
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
 		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0),
-		       COALESCE(discogs_url,''), COALESCE(metadata_provider,'')
+		       COALESCE(discogs_url,''), COALESCE(metadata_provider,''), COALESCE(artwork_provider,'')
 		FROM collection
 		WHERE title != '' AND artist != ''
 		  AND user_confirmed = 1
@@ -654,7 +657,7 @@ func (l *Library) FindPhysicalMatch(title, artist string) (*CollectionEntry, err
 			&e.Album, &e.Label, &e.Released, &e.Score, &e.Format,
 			&e.TrackNumber, &e.ArtworkPath,
 			&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
-			&e.DurationMs, &boundarySens, &e.DiscogsURL, &e.MetadataProvider,
+			&e.DurationMs, &boundarySens, &e.DiscogsURL, &e.MetadataProvider, &e.ArtworkProvider,
 		); err != nil {
 			return nil, fmt.Errorf("library: physical match scan: %w", err)
 		}
@@ -792,8 +795,8 @@ func (l *Library) RecordPlay(result *recognition.Result, artworkPath string) (in
 // UpdateEnrichmentPatch persists enrichment fields from a metadata chain provider
 // for an existing collection row using an additive policy: existing non-empty
 // values are never overwritten so user edits are preserved. artworkPath is applied
-// only when the row has no artwork_path yet.
-func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, released, provider, artworkPath string) error {
+// only when the row has no artwork_path yet; track_number is additive in the same way.
+func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, released, trackNumber, metadataProvider, artworkPath, artworkProvider string) error {
 	if l == nil || l.db == nil || id <= 0 {
 		return nil
 	}
@@ -803,15 +806,19 @@ func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, rele
 			album             = CASE WHEN COALESCE(album,'') = ''             AND ? != '' THEN ? ELSE album END,
 			label             = CASE WHEN COALESCE(label,'') = ''             AND ? != '' THEN ? ELSE label END,
 			released          = CASE WHEN COALESCE(released,'') = ''          AND ? != '' THEN ? ELSE released END,
+			track_number      = CASE WHEN COALESCE(track_number,'') = ''       AND ? != '' THEN ? ELSE track_number END,
 			metadata_provider = CASE WHEN COALESCE(metadata_provider,'') = '' AND ? != '' THEN ? ELSE metadata_provider END,
-			artwork_path      = CASE WHEN COALESCE(artwork_path,'') = ''       AND ? != '' THEN ? ELSE artwork_path END
+			artwork_path      = CASE WHEN COALESCE(artwork_path,'') = ''       AND ? != '' THEN ? ELSE artwork_path END,
+			artwork_provider  = CASE WHEN COALESCE(artwork_provider,'') = ''  AND ? != '' AND ? != '' THEN ? ELSE artwork_provider END
 		WHERE id = ?`,
 		discogsURL, discogsURL,
 		album, album,
 		label, label,
 		released, released,
-		provider, provider,
+		trackNumber, trackNumber,
+		metadataProvider, metadataProvider,
 		artworkPath, artworkPath,
+		artworkPath, artworkProvider, artworkProvider,
 		id,
 	)
 	if err != nil {

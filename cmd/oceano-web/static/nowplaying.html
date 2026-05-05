@@ -17,8 +17,8 @@
   </div>
 </div>
 
-<!-- Idle screen (shown when no source is active) -->
-<div id="idle-screen" class="visible">
+<!-- Idle screen (clock / weather): shown only after a long continuous idle; see main.js -->
+<div id="idle-screen">
 
   <!-- Top bar: logo | location · condition | sunrise / sunset / pressure -->
   <div id="idle-topbar">
@@ -141,6 +141,11 @@
 
     <div id="artwork-wrap">
       <img id="artwork-img" src="" alt="Album artwork" style="opacity:0">
+      <!-- Subtle KITT-style sweep while identifying (no borders; clipped to artwork radius) -->
+      <div class="identifying-scanner-wrap" aria-hidden="true">
+        <div class="identifying-scanner identifying-scanner-top"></div>
+        <div class="identifying-scanner identifying-scanner-bottom"></div>
+      </div>
       <div id="artwork-default">
         <!-- Generic vinyl/music disc placeholder -->
         <svg viewBox="0 0 120 120" fill="none" aria-hidden="true">
@@ -179,6 +184,21 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- Floating status while recognition runs: discrete corner badge + optional wave animation -->
+  <div id="identifying-badge" class="identifying-badge" aria-hidden="true">
+    <div class="identifying-badge-inner">
+      <span class="identifying-badge-waves" aria-hidden="true">
+        <span class="identifying-wave"></span>
+        <span class="identifying-wave"></span>
+        <span class="identifying-wave"></span>
+      </span>
+      <div class="identifying-badge-copy">
+        <span id="identifying-badge-title" class="identifying-badge-title">Identifying…</span>
+        <div id="identifying-badge-sub" class="identifying-badge-sub"></div>
+      </div>
+    </div>
   </div>
 </div>
 

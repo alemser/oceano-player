@@ -116,7 +116,8 @@ type TrackInfo struct {
 	Album  string `json:"album,omitempty"`
 	// TrackNumber is the track position on the release. For CD it is a numeric
 	// string ("3"); for vinyl it may encode side and position ("A2"). Empty when
-	// unknown. Set from the library and not populated by recognition providers.
+	// unknown. May be set from the library, Discogs enrichment tracklist matching,
+	// or user edits — primary recognizers do not return release positions.
 	TrackNumber   string             `json:"track_number,omitempty"`
 	DurationMS    int64              `json:"duration_ms"`
 	SeekMS        int64              `json:"seek_ms"`

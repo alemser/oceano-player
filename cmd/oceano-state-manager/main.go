@@ -139,6 +139,10 @@ type mgr struct {
 	// "matched" is derived from recognitionResult != nil; "identifying" is derived
 	// from recognizerBusyUntil; this field only needs to carry "no_match" and "off".
 	recognitionPhase string
+	// lastPhysicalDisplayTrack is the last TrackInfo we emitted for Physical/CD/Vinyl.
+	// While recognitionResult is temporarily nil during hard-boundary capture, buildState
+	// echoes this so clients never receive track=null during active identification.
+	lastPhysicalDisplayTrack *TrackInfo
 	// providerBackoffExpires maps canonical provider IDs ("acrcloud", "shazam",
 	// "audd") to the time their rate-limit backoff expires. Entries whose expiry
 	// is in the past are filtered out in buildRecognitionStatusLocked. Protected by mu.

@@ -26,8 +26,9 @@ import (
 //     "playing" — VU energy on an inactive line is not programme audio; "playing"
 //     with no track drives "Identifying…" in the display client.
 //   - When physicalSource is Physical and vuInSilence is false but recognition is
-//     nil, state is "playing" with no track — that is the legitimate identifying
-//     state (capture in progress or first needle drop).
+//     nil, lastPhysicalDisplayTrack may echo the prior Physical track during the
+//     hard-boundary capture window so SSE/clients avoid track:null flicker; clears
+//     on silence/session resets, no_match/off, or intentional recognition wipes.
 //   - vuInSilence suppresses track metadata (inter-track / side gap) while keeping
 //     source format labels where physicalFormat or the last result supplies them.
 func (m *mgr) buildState() PlayerState {
@@ -148,8 +149,11 @@ func (m *mgr) buildState() PlayerState {
 				ArtworkPath:   m.physicalArtworkPath,
 				DiscogsURL:    r.DiscogsURL,
 			}
+			m.lastPhysicalDisplayTrack = cloneTrackInfo(track)
+		} else if shouldEchoLastPhysicalTrackLocked(m) {
+			track = cloneTrackInfo(m.lastPhysicalDisplayTrack)
 		}
-		// track remains nil until recognition identifies the track.
+		// Otherwise track remains nil until the first identification in a session.
 	}
 
 	_, providerBackoff := m.collectRateLimitedProvidersLocked()
@@ -168,6 +172,33 @@ func (m *mgr) buildState() PlayerState {
 			Right: m.lastVuRight,
 		},
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func cloneTrackInfo(t *TrackInfo) *TrackInfo {
+	if t == nil {
+		return nil
+	}
+	cp := *t
+	if t.PhysicalMatch != nil {
+		pm := *t.PhysicalMatch
+		cp.PhysicalMatch = &pm
+	}
+	return &cp
+}
+
+// shouldEchoLastPhysicalTrackLocked reports whether to re-use the last emitted Physical track in
+// PlayerState while recognitionResult is nil (hard-boundary capture window). Never echoes terminal
+// phases no_match/off or when the detector is not on Physical audio.
+func shouldEchoLastPhysicalTrackLocked(m *mgr) bool {
+	if m.lastPhysicalDisplayTrack == nil || m.physicalSource != "Physical" {
+		return false
+	}
+	switch m.recognitionPhase {
+	case "no_match", "off":
+		return false
+	default:
+		return true
 	}
 }
 
@@ -431,9 +462,18 @@ func (m *mgr) syncFromLibrary(lib *internallibrary.Library) {
 
 	if m.recognitionResult != nil {
 		// Match by whichever ID is available, or by DB entry ID as a final fallback.
+		// When providers return no ACR/Shazam IDs (e.g. AudD-only), allow merging
+		// user-edited library fields (duration_ms, format) only when the resolved
+		// collection row is the same title+artist as the in-memory match, and
+		// either no library row id is bound yet or it matches this entry.
+		metaMatch := strings.EqualFold(strings.TrimSpace(m.recognitionResult.Title), strings.TrimSpace(entry.Title)) &&
+			strings.EqualFold(strings.TrimSpace(m.recognitionResult.Artist), strings.TrimSpace(entry.Artist))
+		idLessTitleArtist := acrid == "" && shazamID == "" && metaMatch &&
+			(m.physicalLibraryEntryID == 0 || m.physicalLibraryEntryID == entry.ID)
 		entryMatchesCurrent := (acrid != "" && m.recognitionResult.ACRID == acrid) ||
 			(shazamID != "" && m.recognitionResult.ShazamID == shazamID) ||
-			(m.physicalLibraryEntryID > 0 && m.physicalLibraryEntryID == entry.ID)
+			(m.physicalLibraryEntryID > 0 && m.physicalLibraryEntryID == entry.ID) ||
+			idLessTitleArtist
 		if entryMatchesCurrent {
 			if m.recognitionResult.Title != entry.Title {
 				m.recognitionResult.Title = entry.Title
