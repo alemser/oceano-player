@@ -43,6 +43,9 @@ type DiscogsEnrichment struct {
 	DiscogsURL  string
 	Score       int
 	CoverImage  string
+	// Candidates holds the top-N scored results from the same search, populated
+	// alongside the best pick so callers can offer the user a release selection carousel.
+	Candidates []DiscogsEnrichment
 }
 
 type discogsSearchResponse struct {
@@ -344,27 +347,50 @@ func (c *DiscogsClient) search(ctx context.Context, artist, title string) (*disc
 	return &payload, nil
 }
 
+const discogsMaxCandidates = 5
+
 func pickBestDiscogsResult(results []discogsSearchItem, artist, title, album, physicalFormat string) *DiscogsEnrichment {
-	best := DiscogsEnrichment{}
-	best.Score = -1
+	type scored struct {
+		e     DiscogsEnrichment
+		score int
+	}
+	var candidates []scored
 	for _, r := range results {
 		score := scoreDiscogsCandidate(r, artist, title, album, physicalFormat)
-		if score <= best.Score {
+		if score < 30 {
 			continue
 		}
-		best = DiscogsEnrichment{
-			Title:      title,
-			Artist:     artist,
-			Album:      extractAlbumFromDiscogsTitle(r.Title),
-			Label:      firstNonEmpty(r.Label...),
-			Released:   yearToString(int(r.Year)),
-			DiscogsURL: strings.TrimSpace(r.ResourceURL),
-			CoverImage: strings.TrimSpace(r.CoverImage),
-			Score:      score,
+		candidates = append(candidates, scored{
+			score: score,
+			e: DiscogsEnrichment{
+				Title:      title,
+				Artist:     artist,
+				Album:      extractAlbumFromDiscogsTitle(r.Title),
+				Label:      firstNonEmpty(r.Label...),
+				Released:   yearToString(int(r.Year)),
+				DiscogsURL: strings.TrimSpace(r.ResourceURL),
+				CoverImage: strings.TrimSpace(r.CoverImage),
+				Score:      score,
+			},
+		})
+	}
+	// Sort descending by score.
+	for i := 1; i < len(candidates); i++ {
+		for j := i; j > 0 && candidates[j].score > candidates[j-1].score; j-- {
+			candidates[j], candidates[j-1] = candidates[j-1], candidates[j]
 		}
 	}
-	if best.Score < 45 {
+	if len(candidates) == 0 || candidates[0].score < 45 {
 		return nil
+	}
+	best := candidates[0].e
+	top := candidates
+	if len(top) > discogsMaxCandidates {
+		top = top[:discogsMaxCandidates]
+	}
+	best.Candidates = make([]DiscogsEnrichment, len(top))
+	for i, c := range top {
+		best.Candidates[i] = c.e
 	}
 	return &best
 }

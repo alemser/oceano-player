@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"strings"
@@ -56,6 +57,11 @@ func (p *DiscogsProvider) Enrich(ctx context.Context, req Request) (*Patch, erro
 		Released:    strings.TrimSpace(enriched.Released),
 		TrackNumber: strings.TrimSpace(enriched.TrackNumber),
 		DiscogsURL:  strings.TrimSpace(enriched.DiscogsURL),
+	}
+	if len(enriched.Candidates) > 0 {
+		if b, err := json.Marshal(enriched.Candidates); err == nil {
+			out.CandidatesJSON = string(b)
+		}
 	}
 	if req.WantArtwork {
 		imageURL := strings.TrimSpace(enriched.CoverImage)

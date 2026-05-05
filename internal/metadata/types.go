@@ -29,14 +29,17 @@ type ArtworkPatch struct {
 
 // Patch contains additive enrichment data from one provider.
 type Patch struct {
-	Provider    string
-	Confidence  int
-	Album       string
-	Label       string
-	Released    string
-	TrackNumber string
-	DiscogsURL  string
-	Artwork     *ArtworkPatch
+	Provider       string
+	Confidence     int
+	Album          string
+	Label          string
+	Released       string
+	TrackNumber    string
+	DiscogsURL     string
+	Artwork        *ArtworkPatch
+	// CandidatesJSON is a JSON-serialised []DiscogsCandidateEntry for the release
+	// confirmation carousel. Populated only by the Discogs provider; empty for others.
+	CandidatesJSON string
 }
 
 // Empty reports whether the patch carries no enrichment fields.

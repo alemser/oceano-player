@@ -206,6 +206,9 @@ var migrations = []string{
 	`ALTER TABLE collection ADD COLUMN metadata_provider TEXT`,
 	// Provenance for artwork_path when it comes from a different source than text metadata (e.g. iTunes art after Discogs text).
 	`ALTER TABLE collection ADD COLUMN artwork_provider TEXT`,
+	// Top Discogs release candidates stored at enrich time for the release confirmation carousel.
+	// Cleared when user_confirmed is set. JSON array; null when not yet enriched or already confirmed.
+	`ALTER TABLE collection ADD COLUMN discogs_candidates_json TEXT`,
 }
 
 var currentSchemaVersion = len(migrations)
@@ -234,9 +237,10 @@ type CollectionEntry struct {
 	UserConfirmed     bool
 	DurationMs        int
 	BoundarySensitive bool
-	DiscogsURL        string
-	MetadataProvider  string
-	ArtworkProvider   string
+	DiscogsURL             string
+	MetadataProvider       string
+	ArtworkProvider        string
+	DiscogsCandidatesJSON  string
 }
 
 var (
@@ -824,6 +828,22 @@ func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, rele
 	)
 	if err != nil {
 		return fmt.Errorf("library: update enrichment patch id=%d: %w", id, err)
+	}
+	return nil
+}
+
+// StoreCandidatesJSON persists the Discogs release candidate list for an unconfirmed entry.
+// Skipped for user-confirmed entries so the carousel is never shown again after the user has chosen.
+func (l *Library) StoreCandidatesJSON(id int64, candidatesJSON string) error {
+	if l == nil || l.db == nil || id <= 0 || strings.TrimSpace(candidatesJSON) == "" {
+		return nil
+	}
+	_, err := l.db.Exec(
+		`UPDATE collection SET discogs_candidates_json = ? WHERE id = ? AND user_confirmed = 0`,
+		candidatesJSON, id,
+	)
+	if err != nil {
+		return fmt.Errorf("library: store candidates id=%d: %w", id, err)
 	}
 	return nil
 }

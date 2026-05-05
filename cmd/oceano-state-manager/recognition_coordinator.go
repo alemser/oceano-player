@@ -177,6 +177,11 @@ func (c *recognitionCoordinator) enrichWithMetadataChainAsync(result *Recognitio
 			if dbErr := c.lib.UpdateEnrichmentPatch(libraryID, patch.DiscogsURL, patch.Album, patch.Label, patch.Released, patch.TrackNumber, metaProv, artPath, artProv); dbErr != nil {
 				log.Printf("metadata chain: db persist error: %v", dbErr)
 			}
+			if textPatch != nil && strings.TrimSpace(textPatch.CandidatesJSON) != "" {
+				if dbErr := c.lib.StoreCandidatesJSON(libraryID, textPatch.CandidatesJSON); dbErr != nil {
+					log.Printf("metadata chain: store candidates error: %v", dbErr)
+				}
+			}
 		}
 	}()
 }
