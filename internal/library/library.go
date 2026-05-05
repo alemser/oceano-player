@@ -832,6 +832,51 @@ func (l *Library) UpdateEnrichmentPatch(id int64, discogsURL, album, label, rele
 	return nil
 }
 
+// GetCandidatesJSON returns the raw JSON of stored Discogs release candidates for an entry,
+// or an empty string when none are stored or the entry is already confirmed.
+func (l *Library) GetCandidatesJSON(id int64) (string, error) {
+	if l == nil || l.db == nil || id <= 0 {
+		return "", nil
+	}
+	var raw string
+	err := l.db.QueryRow(
+		`SELECT COALESCE(discogs_candidates_json,'') FROM collection WHERE id = ?`, id,
+	).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return raw, err
+}
+
+// ConfirmRelease writes the user-selected release fields to an entry, sets user_confirmed=1,
+// and clears the candidate list so the carousel is not shown again.
+func (l *Library) ConfirmRelease(id int64, album, label, released, discogsURL, artworkPath string) error {
+	if l == nil || l.db == nil || id <= 0 {
+		return nil
+	}
+	_, err := l.db.Exec(`
+		UPDATE collection SET
+			album                   = CASE WHEN ? != '' THEN ? ELSE album END,
+			label                   = CASE WHEN ? != '' THEN ? ELSE label END,
+			released                = CASE WHEN ? != '' THEN ? ELSE released END,
+			discogs_url             = CASE WHEN ? != '' THEN ? ELSE discogs_url END,
+			artwork_path            = CASE WHEN ? != '' THEN ? ELSE artwork_path END,
+			user_confirmed          = 1,
+			discogs_candidates_json = NULL
+		WHERE id = ?`,
+		album, album,
+		label, label,
+		released, released,
+		discogsURL, discogsURL,
+		artworkPath, artworkPath,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("library: confirm release id=%d: %w", id, err)
+	}
+	return nil
+}
+
 // StoreCandidatesJSON persists the Discogs release candidate list for an unconfirmed entry.
 // Skipped for user-confirmed entries so the carousel is never shown again after the user has chosen.
 func (l *Library) StoreCandidatesJSON(id int64, candidatesJSON string) error {

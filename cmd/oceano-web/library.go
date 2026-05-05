@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha1"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -122,6 +123,7 @@ func openLibraryDB(path string) (*LibraryDB, error) {
 		`ALTER TABLE collection ADD COLUMN discogs_url TEXT`,
 		`ALTER TABLE collection ADD COLUMN metadata_provider TEXT`,
 		`ALTER TABLE collection ADD COLUMN artwork_provider TEXT`,
+		`ALTER TABLE collection ADD COLUMN discogs_candidates_json TEXT`,
 		`CREATE TABLE IF NOT EXISTS rms_learning (
 			format_key TEXT NOT NULL PRIMARY KEY,
 			updated_at TEXT NOT NULL,
@@ -228,6 +230,7 @@ func (l *LibraryDB) reconcileSchemaMigrations() error {
 	hasDiscogsURL := false
 	hasMetadataProvider := false
 	hasArtworkProvider := false
+	hasDiscogsCandidatesJSON := false
 	for rows.Next() {
 		var (
 			cid       int
@@ -248,6 +251,9 @@ func (l *LibraryDB) reconcileSchemaMigrations() error {
 		}
 		if strings.EqualFold(name, "artwork_provider") {
 			hasArtworkProvider = true
+		}
+		if strings.EqualFold(name, "discogs_candidates_json") {
+			hasDiscogsCandidatesJSON = true
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -274,6 +280,13 @@ func (l *LibraryDB) reconcileSchemaMigrations() error {
 			return fmt.Errorf("library: reconcile migration v54: %w", err)
 		}
 		log.Printf("library: reconciled schema_migrations to include v54 (artwork_provider present)")
+	}
+	// v55 adds collection.discogs_candidates_json for the release confirmation carousel.
+	if hasDiscogsCandidatesJSON && maxVersion < 55 {
+		if _, err := l.db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES (55)`); err != nil {
+			return fmt.Errorf("library: reconcile migration v55: %w", err)
+		}
+		log.Printf("library: reconciled schema_migrations to include v55 (discogs_candidates_json present)")
 	}
 	return nil
 }
@@ -1232,18 +1245,92 @@ func (l *LibraryDB) deleteEntry(id int64) error {
 	return tx.Commit()
 }
 
+// getCandidatesJSON returns the raw discogs_candidates_json column for id, or "" if absent.
+func (l *LibraryDB) getCandidatesJSON(id int64) (string, error) {
+	if l == nil || l.db == nil || id <= 0 {
+		return "", nil
+	}
+	var raw string
+	err := l.db.QueryRow(
+		`SELECT COALESCE(discogs_candidates_json,'') FROM collection WHERE id = ?`, id,
+	).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return raw, err
+}
+
+// confirmRelease writes user-selected release fields, sets user_confirmed=1, and clears candidates.
+func (l *LibraryDB) confirmRelease(id int64, album, label, released, discogsURL, artworkPath string) error {
+	if l == nil || l.db == nil || id <= 0 {
+		return nil
+	}
+	_, err := l.db.Exec(`
+		UPDATE collection SET
+			album                   = CASE WHEN ? != '' THEN ? ELSE album END,
+			label                   = CASE WHEN ? != '' THEN ? ELSE label END,
+			released                = CASE WHEN ? != '' THEN ? ELSE released END,
+			discogs_url             = CASE WHEN ? != '' THEN ? ELSE discogs_url END,
+			artwork_path            = CASE WHEN ? != '' THEN ? ELSE artwork_path END,
+			user_confirmed          = 1,
+			discogs_candidates_json = NULL
+		WHERE id = ?`,
+		album, album,
+		label, label,
+		released, released,
+		discogsURL, discogsURL,
+		artworkPath, artworkPath,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("library: confirm release id=%d: %w", id, err)
+	}
+	return nil
+}
+
+// downloadArtworkFile fetches imageURL and writes a content-addressed JPEG to dir.
+// Returns ("", nil) on non-200 response; returns ("", err) on I/O failures.
+func downloadArtworkFile(imageURL, dir string) (string, error) {
+	resp, err := http.Get(imageURL) // #nosec G107 — URL originates from Discogs API stored in DB
+	if err != nil {
+		return "", fmt.Errorf("artwork download: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", nil
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("artwork download: read: %w", err)
+	}
+	sum := sha1.Sum(data)
+	path := filepath.Join(dir, fmt.Sprintf("oceano-artwork-%x.jpg", sum[:4]))
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("artwork download: mkdir: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return "", fmt.Errorf("artwork download: write: %w", err)
+	}
+	return path, nil
+}
+
 // ── HTTP handlers ──────────────────────────────────────────────────────────
 
 // registerLibraryRoutes wires all /api/library/* endpoints into mux.
 // libraryDBPath is read from the running state-manager service file so the web
 // UI always talks to the same database without extra configuration.
 func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePath string, artworkDir string, configPath string) {
-	// GET  /api/library        → list all entries
-	// GET  /api/library/search?q=...&limit=20 → search confirmed tracks
-	// PUT  /api/library/{id}   → update entry metadata
-	// DELETE /api/library/{id} → remove entry
-	// POST /api/library/{id}/artwork → upload artwork image
-	// GET  /api/library/{id}/artwork → serve artwork file
+	// GET  /api/library                          → list all entries
+	// GET  /api/library/search?q=...&limit=20   → search confirmed tracks
+	// PUT  /api/library/{id}                    → update entry metadata
+	// DELETE /api/library/{id}                  → remove entry
+	// POST /api/library/{id}/artwork            → upload artwork image
+	// GET  /api/library/{id}/artwork            → serve artwork file
+	// GET  /api/library/{id}/release-candidates → list Discogs release candidates
+	// POST /api/library/{id}/select-release     → confirm a release from the carousel
 
 	mux.HandleFunc("/api/library", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -1711,6 +1798,10 @@ func registerLibraryRoutes(mux *http.ServeMux, libraryDBPath string, stateFilePa
 			handleDeleteEntry(w, lib, id)
 		case sub == "resolve" && r.Method == http.MethodPost:
 			handleResolveStub(w, r, lib, id)
+		case sub == "release-candidates" && r.Method == http.MethodGet:
+			handleGetReleaseCandidates(w, r, lib, id)
+		case sub == "select-release" && r.Method == http.MethodPost:
+			handleSelectRelease(w, r, lib, id, artworkDir, stateFilePath)
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
@@ -1817,6 +1908,50 @@ func handleUpdateEntry(w http.ResponseWriter, r *http.Request, lib *LibraryDB, i
 		return
 	}
 	patchStateFile(stateFilePath, body.Title, body.Artist, body.Album, body.Format, body.ArtworkPath, body.DurationMs)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"ok":true}`))
+}
+
+func handleGetReleaseCandidates(w http.ResponseWriter, _ *http.Request, lib *LibraryDB, id int64) {
+	raw, err := lib.getCandidatesJSON(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if raw == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(raw))
+}
+
+func handleSelectRelease(w http.ResponseWriter, r *http.Request, lib *LibraryDB, id int64, artworkDir, stateFilePath string) {
+	var body struct {
+		Album         string `json:"album"`
+		Label         string `json:"label"`
+		Released      string `json:"released"`
+		DiscogsURL    string `json:"discogs_url"`
+		CoverImageURL string `json:"cover_image_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	artworkPath := ""
+	if strings.TrimSpace(body.CoverImageURL) != "" && strings.TrimSpace(artworkDir) != "" {
+		if p, err := downloadArtworkFile(strings.TrimSpace(body.CoverImageURL), artworkDir); err == nil {
+			artworkPath = p
+		}
+	}
+
+	if err := lib.confirmRelease(id, body.Album, body.Label, body.Released, body.DiscogsURL, artworkPath); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	patchStateFile(stateFilePath, "", "", body.Album, "", artworkPath, 0)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"ok":true}`))
 }

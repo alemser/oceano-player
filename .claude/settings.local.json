@@ -19,7 +19,8 @@
       "Bash(sed -i '' '1s/import Combine//' /tmp/hv_clean.swift)",
       "Bash(sed -i '' '/^import Combine$/d' /tmp/hv_clean.swift)",
       "Bash(xargs cat *)",
-      "Bash(grep -n '\\\\$appEl' /Users/alemser/Projects/oceano-player/cmd/oceano-web/static/nowplaying/main.js)"
+      "Bash(grep -n '\\\\$appEl' /Users/alemser/Projects/oceano-player/cmd/oceano-web/static/nowplaying/main.js)",
+      "Bash(git commit -m ' *)"
     ],
     "additionalDirectories": [
       "/Users/alemser/Projects/oceano-player-ios/OceanoPlayer/Networking",
