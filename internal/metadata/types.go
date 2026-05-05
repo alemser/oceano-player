@@ -37,7 +37,7 @@ type Patch struct {
 	TrackNumber    string
 	DiscogsURL     string
 	Artwork        *ArtworkPatch
-	// CandidatesJSON is a JSON-serialised []DiscogsCandidateEntry for the release
+	// CandidatesJSON is a JSON-serialised []DiscogsEnrichment for the release
 	// confirmation carousel. Populated only by the Discogs provider; empty for others.
 	CandidatesJSON string
 }
@@ -52,6 +52,7 @@ func (p *Patch) Empty() bool {
 		strings.TrimSpace(p.Released) == "" &&
 		strings.TrimSpace(p.TrackNumber) == "" &&
 		strings.TrimSpace(p.DiscogsURL) == "" &&
+		strings.TrimSpace(p.CandidatesJSON) == "" &&
 		(p.Artwork == nil ||
 			(strings.TrimSpace(p.Artwork.URL) == "" && strings.TrimSpace(p.Artwork.Path) == ""))
 }

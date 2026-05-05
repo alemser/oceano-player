@@ -43,6 +43,49 @@ Run this checklist for any change touching:
 
 ---
 
+## Log: 2026-05-05 — Discogs release carousel + Now Playing standby behaviour (branch `np-behaviour-sleep-mode`)
+
+**Backend (`oceano-web` + `oceano-state-manager` + `internal/library` + `internal/metadata` + `internal/recognition`)**
+
+| Item | Type | Notes |
+|------|------|-------|
+| `GET /api/library/{id}/release-candidates` | **Additive** | Returns `[]` or a JSON array of up to 5 Discogs release candidates for an unconfirmed entry. Array is sorted by score descending (best match first). Empty after the user confirms a release. |
+| `POST /api/library/{id}/select-release` | **Additive** | Body: `{ "album", "label", "released", "discogs_url", "cover_image_url" }` (all optional). Sets `user_confirmed=1`, writes non-empty fields, downloads artwork from `cover_image_url` (HTTPS, Discogs CDN only). Returns `{ "ok": true }`. |
+| `collection.discogs_candidates_json` | **Additive** | New SQLite column (migration v55); stores raw candidate JSON for unconfirmed entries only; cleared on confirmation. |
+| `LibraryEntry.user_confirmed` | **Compatible** | Already existed; now also gates Discogs enrichment overwrites in `UpdateEnrichmentPatch` (`AND user_confirmed = 0`). |
+| Discogs scoring penalties | **Additive / internal** | Compilations −20, live −15, unofficial/bootleg −10; studio Album +10. Affects which candidate is returned first in the array but does not change any JSON key names. |
+| Now Playing `stopped-hold` dim | **UI / compatible** | After a physical track stops, the Now Playing screen dims (`opacity 0.72, saturate 0.5`) for 20 minutes before switching to the idle clock. iOS SSE-driven clients are unaffected. |
+
+**Candidate entry shape** (elements of the array returned by `GET …/release-candidates`):
+
+```json
+{
+  "id": 12345,
+  "title": "Kind of Blue",
+  "year": 1959,
+  "country": "US",
+  "label": "Columbia",
+  "catno": "CL 1355",
+  "format": ["LP", "Album"],
+  "cover_image": "https://i.discogs.com/...",
+  "discogs_url": "https://www.discogs.com/release/12345"
+}
+```
+
+**iOS follow-up (`oceano-player-ios`)**
+
+- [ ] **Library screen / entry detail**: when `user_confirmed == false`, call `GET /api/library/{id}/release-candidates`; if array non-empty, show a carousel/sheet so the user can pick the correct release.
+- [ ] **Carousel UX**: display cover, title, year, country, label, format tags per candidate; pre-select index 0 (best backend match); "Confirm" → `POST /api/library/{id}/select-release` with the chosen candidate's fields.
+- [ ] **After confirmation**: refetch via `GET /api/library/changes` (or full `GET /api/library`) to pick up updated `album`, `artwork_path`, `user_confirmed=true`.
+- [ ] **No candidates / already confirmed**: skip carousel; no crash when `release-candidates` returns `[]`.
+- [ ] **cover_image_url restriction**: the backend only accepts HTTPS URLs from `img.discogs.com` or `i.discogs.com`; pass the `cover_image` field from the candidate directly.
+
+**Risk**
+
+- [x] low — additive endpoints; existing library list / changes feed unchanged; enrichment guard is a tightening of when overwrites happen (only unconfirmed rows).
+
+---
+
 ## Log: 2026-05-04 — Discogs enrichment: persistence + additive API/state exposure (PR3)
 
 **Backend (`oceano-state-manager` + `internal/library` + `oceano-web`)**

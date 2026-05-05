@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,6 +18,12 @@ import (
 
 	_ "modernc.org/sqlite"
 )
+
+// allowedArtworkHosts restricts artwork downloads to known Discogs image CDN domains.
+var allowedArtworkHosts = map[string]bool{
+	"img.discogs.com": true,
+	"i.discogs.com":   true,
+}
 
 // LibraryEntry is the JSON representation of a collection row.
 type LibraryEntry struct {
@@ -1289,9 +1296,14 @@ func (l *LibraryDB) confirmRelease(id int64, album, label, released, discogsURL,
 }
 
 // downloadArtworkFile fetches imageURL and writes a content-addressed JPEG to dir.
+// Only HTTPS URLs from allowedArtworkHosts are accepted to prevent SSRF.
 // Returns ("", nil) on non-200 response; returns ("", err) on I/O failures.
 func downloadArtworkFile(imageURL, dir string) (string, error) {
-	resp, err := http.Get(imageURL) // #nosec G107 — URL originates from Discogs API stored in DB
+	u, err := url.Parse(imageURL)
+	if err != nil || u.Scheme != "https" || !allowedArtworkHosts[u.Hostname()] {
+		return "", fmt.Errorf("artwork download: URL not allowed: %s", imageURL)
+	}
+	resp, err := http.Get(imageURL) // #nosec G107 — host validated against allowedArtworkHosts
 	if err != nil {
 		return "", fmt.Errorf("artwork download: %w", err)
 	}
@@ -1990,10 +2002,18 @@ func patchStateFile(path, title, artist, album, format, artworkPath string, dura
 		track = make(map[string]interface{})
 	}
 
-	track["title"] = title
-	track["artist"] = artist
-	track["album"] = album
-	track["format"] = format
+	if title != "" {
+		track["title"] = title
+	}
+	if artist != "" {
+		track["artist"] = artist
+	}
+	if album != "" {
+		track["album"] = album
+	}
+	if format != "" {
+		track["format"] = format
+	}
 	if artworkPath != "" {
 		track["artwork_path"] = artworkPath
 	}

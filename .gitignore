@@ -24,3 +24,6 @@ config.local.yaml
 /oceano-web
 
 intent.md
+
+# Claude Code local settings
+.claude/settings.local.json

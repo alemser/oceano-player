@@ -548,7 +548,8 @@ func (l *Library) GetByID(id int64) (*CollectionEntry, error) {
 		       COALESCE(track_number,''), COALESCE(artwork_path,''),
 		       play_count, first_played, last_played, user_confirmed,
 		       COALESCE(duration_ms,0), COALESCE(boundary_sensitive,0),
-		       COALESCE(discogs_url,''), COALESCE(metadata_provider,''), COALESCE(artwork_provider,'')
+		       COALESCE(discogs_url,''), COALESCE(metadata_provider,''), COALESCE(artwork_provider,''),
+		       COALESCE(discogs_candidates_json,'')
 		FROM collection WHERE id = ?`, id)
 	var e CollectionEntry
 	var confirmed, boundarySens int
@@ -558,6 +559,7 @@ func (l *Library) GetByID(id int64) (*CollectionEntry, error) {
 		&e.TrackNumber, &e.ArtworkPath,
 		&e.PlayCount, &e.FirstPlayed, &e.LastPlayed, &confirmed,
 		&e.DurationMs, &boundarySens, &e.DiscogsURL, &e.MetadataProvider, &e.ArtworkProvider,
+		&e.DiscogsCandidatesJSON,
 	)
 	e.UserConfirmed = confirmed == 1
 	e.BoundarySensitive = boundarySens == 1
