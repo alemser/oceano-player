@@ -131,3 +131,41 @@ func TestUpdateEnrichmentPatch_AdditiveArtworkPath(t *testing.T) {
 		t.Fatalf("artwork_provider overwritten: %q", entry.ArtworkProvider)
 	}
 }
+
+func TestUpdateEnrichmentPatch_SkipsUserConfirmedEntries(t *testing.T) {
+	lib, err := Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatalf("open library: %v", err)
+	}
+	defer lib.Close()
+
+	id, err := lib.RecordPlay(&recognition.Result{
+		ACRID:  "acr-confirmed-1",
+		Title:  "Confirmed Track",
+		Artist: "Artist",
+		Album:  "Curated Album",
+	}, "")
+	if err != nil {
+		t.Fatalf("RecordPlay: %v", err)
+	}
+
+	// Mark as user-confirmed with curated album.
+	if _, err := lib.db.Exec(`UPDATE collection SET album = 'Curated Album', user_confirmed = 1 WHERE id = ?`, id); err != nil {
+		t.Fatalf("set user_confirmed: %v", err)
+	}
+
+	// Enrichment should be a no-op for confirmed entries.
+	if err := lib.UpdateEnrichmentPatch(id, "https://api.discogs.com/releases/999", "Wrong Album", "Wrong Label", "2001", "", "discogs", "", ""); err != nil {
+		t.Fatalf("UpdateEnrichmentPatch: %v", err)
+	}
+	entry, err := lib.GetByID(id)
+	if err != nil || entry == nil {
+		t.Fatalf("GetByID: err=%v entry=%v", err, entry)
+	}
+	if entry.Album != "Curated Album" {
+		t.Fatalf("album overwritten on confirmed entry: %q", entry.Album)
+	}
+	if entry.DiscogsURL != "" {
+		t.Fatalf("discogs_url written to confirmed entry: %q", entry.DiscogsURL)
+	}
+}
